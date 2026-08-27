@@ -1,0 +1,36 @@
+# ---- C++ / CMake ----
+build/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+CMakeUserPresets.json
+compile_commands.json
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# ---- 训练产物（体积大，不入库）----
+runs/
+logs/
+checkpoints/
+wandb/
+*.pt
+*.pth
+*.onnx
+*.tfevents.*
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+.DS_Store
+*.swp
