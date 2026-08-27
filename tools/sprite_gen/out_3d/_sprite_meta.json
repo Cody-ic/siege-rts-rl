@@ -514,101 +514,6 @@
         }
       }
     },
-    "Grass": {
-      "cn": "草地",
-      "states": {
-        "idle": {
-          "canvas": [
-            256,
-            128
-          ],
-          "ground_anchor": [
-            128.0,
-            64.0
-          ],
-          "frames": [
-            1
-          ],
-          "kind": "tile"
-        }
-      }
-    },
-    "Grass2": {
-      "cn": "草地·二",
-      "states": {
-        "idle": {
-          "canvas": [
-            256,
-            128
-          ],
-          "ground_anchor": [
-            128.0,
-            64.0
-          ],
-          "frames": [
-            1
-          ],
-          "kind": "tile"
-        }
-      }
-    },
-    "Dirt": {
-      "cn": "土地",
-      "states": {
-        "idle": {
-          "canvas": [
-            256,
-            128
-          ],
-          "ground_anchor": [
-            128.0,
-            64.0
-          ],
-          "frames": [
-            1
-          ],
-          "kind": "tile"
-        }
-      }
-    },
-    "Road": {
-      "cn": "道路",
-      "states": {
-        "idle": {
-          "canvas": [
-            256,
-            128
-          ],
-          "ground_anchor": [
-            128.0,
-            64.0
-          ],
-          "frames": [
-            1
-          ],
-          "kind": "tile"
-        }
-      }
-    },
-    "Ash": {
-      "cn": "焦土",
-      "states": {
-        "idle": {
-          "canvas": [
-            256,
-            128
-          ],
-          "ground_anchor": [
-            128.0,
-            64.0
-          ],
-          "frames": [
-            1
-          ],
-          "kind": "tile"
-        }
-      }
-    },
     "TreeBig": {
       "cn": "大树",
       "states": {
@@ -772,8 +677,103 @@
         }
       }
     },
-    "Boulder": {
-      "cn": "巨石",
+    "Plain": {
+      "cn": "平地",
+      "states": {
+        "idle": {
+          "canvas": [
+            256,
+            128
+          ],
+          "ground_anchor": [
+            128.0,
+            64.0
+          ],
+          "frames": [
+            1
+          ],
+          "kind": "tile"
+        }
+      }
+    },
+    "PlainB": {
+      "cn": "平地·深",
+      "states": {
+        "idle": {
+          "canvas": [
+            256,
+            128
+          ],
+          "ground_anchor": [
+            128.0,
+            64.0
+          ],
+          "frames": [
+            1
+          ],
+          "kind": "tile"
+        }
+      }
+    },
+    "PlainDirt": {
+      "cn": "平地·土",
+      "states": {
+        "idle": {
+          "canvas": [
+            256,
+            128
+          ],
+          "ground_anchor": [
+            128.0,
+            64.0
+          ],
+          "frames": [
+            1
+          ],
+          "kind": "tile"
+        }
+      }
+    },
+    "PlainRoad": {
+      "cn": "平地·路面",
+      "states": {
+        "idle": {
+          "canvas": [
+            256,
+            128
+          ],
+          "ground_anchor": [
+            128.0,
+            64.0
+          ],
+          "frames": [
+            1
+          ],
+          "kind": "tile"
+        }
+      }
+    },
+    "PlainAsh": {
+      "cn": "平地·焦土",
+      "states": {
+        "idle": {
+          "canvas": [
+            256,
+            128
+          ],
+          "ground_anchor": [
+            128.0,
+            64.0
+          ],
+          "frames": [
+            1
+          ],
+          "kind": "tile"
+        }
+      }
+    },
+    "Rock": {
+      "cn": "岩壁",
       "states": {
         "idle": {
           "canvas": [
@@ -790,7 +790,7 @@
         }
       }
     },
-    "Woods": {
+    "Forest": {
       "cn": "密林",
       "states": {
         "idle": {

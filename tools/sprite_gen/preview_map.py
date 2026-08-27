@@ -51,10 +51,10 @@ def build(n=9):
         if k in water:
             return "Water"
         if k in road:
-            return "Road"
+            return "PlainRoad"
         if k in ash:
-            return "Ash"
-        return "Grass2" if (k[0] + k[1]) % 3 == 0 else "Grass"
+            return "PlainAsh"
+        return "PlainB" if (k[0] + k[1]) % 3 == 0 else "Plain"
 
     # 画家算法：按 gi+gj（即离屏幕上方的深度）从小到大画，后画的自然遮住先画的。
     # 地面与其上的物件都遵循同一个顺序，混排也不会穿插错。
@@ -67,8 +67,8 @@ def build(n=9):
 
     objs = [
         (4, 8, "Bridge", {}),
-        (2, 2, "Boulder", {}), (3, 2, "Boulder", {}), (6, 2, "Woods", {}),
-        (7, 2, "Woods", {}), (0, 6, "Woods", {}), (8, 4, "Boulder", {}),
+        (2, 2, "Rock", {}), (3, 2, "Rock", {}), (6, 2, "Forest", {}),
+        (7, 2, "Forest", {}), (0, 6, "Forest", {}), (8, 4, "Rock", {}),
         (1, 1, "TreeSmall", {}), (8, 1, "RockSmall", {}), (2, 6, "Stump", {}),
         (1, 4, "Wall", {}), (2, 4, "Wall", {}), (3, 4, "Gate", {}),
         (0, 4, "Tower", {}), (0, 2, "Keep", {}), (6, 6, "Mine", {}),

@@ -717,18 +717,17 @@
     }
   },
   "terrain": {
-    "Grass": {
-      "cn": "草地",
+    "Plain": {
+      "cn": "平地",
       "kind": "tile",
       "model": "models/kenney_castle/glb/ground.glb",
       "yaw": 0,
-      "_note": "ground.glb 是只有 4 个顶点的 1×1 平面四边形，无厚度，正好一格。地砖按 footprint 定标到 TILE_SIDE，与单位按高度定标不同",
+      "_note": "地形枚举 Plain。ground.glb 是只有 4 个顶点的 1×1 平面四边形、无厚度，正好一格。以下四个 Plain* 只是同一枚举值的贴图变体，**不占枚举位**——渲染层按坐标哈希选变体，不写进地图文件",
       "modules": 1
     },
-    "Grass2": {
-      "cn": "草地·二",
+    "PlainB": {
+      "cn": "平地·深",
       "kind": "tile",
-      "_note": "与草地仅有细微色差，供前端交错铺设打散纯色。起伏地砖(ground-hills)试过，0.29 的隆起读作草丛上的绿疙瘩而非地面，已弃用",
       "model": "models/kenney_castle/glb/ground.glb",
       "yaw": 0,
       "tint": [
@@ -740,8 +739,8 @@
       "tint_mode": "MIX",
       "modules": 1
     },
-    "Dirt": {
-      "cn": "土地",
+    "PlainDirt": {
+      "cn": "平地·土",
       "kind": "tile",
       "model": "models/kenney_castle/glb/ground.glb",
       "yaw": 0,
@@ -754,8 +753,8 @@
       "tint_mode": "MIX",
       "modules": 1
     },
-    "Road": {
-      "cn": "道路",
+    "PlainRoad": {
+      "cn": "平地·路面",
       "kind": "tile",
       "model": "models/kenney_castle/glb/ground.glb",
       "yaw": 0,
@@ -766,10 +765,11 @@
         0.85
       ],
       "tint_mode": "MIX",
-      "modules": 1
+      "modules": 1,
+      "_note": "纯美术路面。契约否掉的是 Road 的**加速效果**，不是路面贴图；仿真里它仍是 Plain，因此不会诱导路径收敛"
     },
-    "Ash": {
-      "cn": "焦土",
+    "PlainAsh": {
+      "cn": "平地·焦土",
       "kind": "tile",
       "model": "models/kenney_castle/glb/ground.glb",
       "yaw": 0,
@@ -813,7 +813,7 @@
     "Water": {
       "cn": "水域",
       "kind": "tile",
-      "_note": "不可通行，但不阻挡视野。桥是唯一通路，天然杀伤区。须压暗：强光下仅靠染色会渲成灰蓝，读不出是水",
+      "_note": "地形枚举 Water：**挡路但不挡视野**——通行×视野四种组合里唯一由它填的那格。「看得见对岸集结却打不着」是岩壁给不了的质感。须额外压暗：朝上的漫反射面在三点光下会被打亮，仅靠染色会渲成灰蓝",
       "model": "models/kenney_castle/glb/ground.glb",
       "yaw": 0,
       "modules": 1,
@@ -830,11 +830,12 @@
       "cn": "桥",
       "model": "models/kenney_castle/glb/bridge-straight.glb",
       "yaw": 0,
-      "modules": 1
+      "modules": 1,
+      "_note": "地形枚举 Bridge：跨水的唯一通路，最窄的隘口。不可建造，玩家无法在桥上砌墙封死它"
     },
-    "Boulder": {
-      "cn": "巨石",
-      "_note": "障碍物：阻断通行与视野，用来制造隘口，把进攻收束到可预判的几条路",
+    "Rock": {
+      "cn": "岩壁",
+      "_note": "地形枚举 Rock：挡路且挡视野。封死城区周长、夹出隘口，把需要人工设防的正面压缩到几条走廊口",
       "yaw": 0,
       "modules": 1.3,
       "parts": [
@@ -852,9 +853,9 @@
         }
       ]
     },
-    "Woods": {
+    "Forest": {
       "cn": "密林",
-      "_note": "障碍物：阻断通行与视野，提供藏兵位，服务侦查与佯攻。三棵树挤在一格内，与单株景物区分",
+      "_note": "地形枚举 Forest：可通行但挡视野，不设移动减速。侦查博弈的地形载体。三棵树挤在一格内，与单株景物区分",
       "yaw": 0,
       "modules": 1.25,
       "parts": [
