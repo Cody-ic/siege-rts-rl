@@ -196,15 +196,22 @@ def world_bbox(objs):
     return (lo, hi) if found else None
 
 
-def normalize(objs, target_h, lift, max_w=1.45, tile=False):
-    """把模型缩放到统一高度、底面贴地，并挂到一个空物体上便于整体旋转。
+def normalize(objs, target_h, lift, max_w=1.45, tile=False, modules=None):
+    """把模型定标、底面贴地，并挂到一个空物体上便于整体旋转。
 
-    统一尺度是跨来源风格一致的第一步：各家模型的原始尺度毫无可比性。
-    除高度外还需约束**水平尺寸**——展翅的鸟类宽度可达高度的 8 倍，
-    只按高度归一化会让翼展撑爆画面。
+    **尺寸一律以「格子边长」为 1**，不是以菱形的屏幕宽度为 1。后者是早先的约定，
+    导致所有实体被放大了 √2 倍——单位比地砖还大，大树比战马还矮。
 
-    `tile=True` 改按**水平footprint**定标到 TILE_SIDE：地砖必须严丝合缝地平铺，
-    尺寸由格子决定而不是由自身高度决定（起伏地砖比平地砖高，但仍是一格）。
+    三种定标方式：
+
+    - `modules=k`：**1 个模型单位 = k 格边长**，不做归一化。Kenney 整套件都建在
+      1.0 模数上且内部自洽（墙高 1.31、塔身 1.01、大树 1.85、攻城锤长 2.09），
+      统一乘一个系数即可让全套件与格子、以及彼此之间的比例自动正确。
+      逐个手调高度反而会破坏这份自洽。
+    - `tile=True`：按水平 footprint 定标到一格。地砖尺寸由格子决定，与自身高度无关。
+    - 默认：按 `target_h`（单位：格边长）定标，并用 `max_w` 约束水平尺寸——
+      展翅的鸟类宽度可达高度的 8 倍，只按高度归一化会让翼展撑爆画面。
+      Quaternius 的角色原始尺度毫无可比性，只能走这条。
     """
     # 素材包中常有对象被作者关掉渲染可见性（如 Quaternius 的 Skeleton），
     # 不强制打开会渲出空图。
@@ -220,18 +227,20 @@ def normalize(objs, target_h, lift, max_w=1.45, tile=False):
     lo, hi = bb
     h = max(hi.z - lo.z, 1e-6)
     w = max(hi.x - lo.x, hi.y - lo.y, 1e-6)
-    if tile:
+    if modules:
+        s = TILE_SIDE * modules
+    elif tile:
         s = TILE_SIDE / w
     else:
-        s = target_h / h
-        if w * s > max_w:                  # 宽度超限时改按宽度定标
-            s = max_w / w
+        s = target_h * TILE_SIDE / h
+        if w * s > max_w * TILE_SIDE:      # 宽度超限时改按宽度定标
+            s = max_w * TILE_SIDE / w
     cx, cy = (lo.x + hi.x) / 2, (lo.y + hi.y) / 2
     for o in objs:
         if o.parent is None:
             o.parent = pivot
     pivot.scale = (s, s, s)
-    pivot.location = (-cx * s, -cy * s, -lo.z * s + lift)
+    pivot.location = (-cx * s, -cy * s, -lo.z * s + lift * TILE_SIDE)
     return pivot
 
 
@@ -554,7 +563,8 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
     # 归一化必须在设定姿势之后：包围盒取自求值网格，姿势会改变它
     bpy.context.scene.frame_set(frames[0])
     pivot = normalize(objs, spec.get("height", 0.9), spec.get("lift", 0.0),
-                      spec.get("max_width", 1.45), spec.get("kind") == "tile")
+                      spec.get("max_width", 1.45), spec.get("kind") == "tile",
+                      spec.get("modules"))
 
     # 取景须在归一化之后：画布按实测投影范围确定，而非按声明尺寸估算
     W, H, ortho, shift_x, shift_y = frame_for(objs, spec, dirs, frames, px_per_tile, margin)

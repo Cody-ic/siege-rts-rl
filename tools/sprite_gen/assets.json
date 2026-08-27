@@ -7,10 +7,12 @@
     "字段说明：",
     "  model      模型路径，相对本文件所在目录。支持 .blend .gltf .glb .fbx .obj",
     "  yaw        朝向校正（度）。模型自带的正面方向各不相同，用它转到统一基准",
-    "  height     单位高度，以**一格菱形的屏幕宽度**为 1（不是格子边长——边长是 0.707，故 max_width=0.707 正好占满一格）",
+    "  height     高度，以**格子边长**为 1。步兵 0.9，骑兵 1.2，建筑见 modules",
     "  lift       垂直偏移，以瓦片宽为 1。空中单位用它抬离地面（不死鸟 1.15）",
-    "  max_width  归一化的宽度上限（不是画布宽度：画布按实测投影范围自动确定）",
+    "  max_width  归一化的宽度上限，同样以格边长为 1（1.0 = 正好占满一格）",
     "  tint       可选。阵营染色 [R,G,B,强度]。默认 COLOR 混合：只换色相饱和度、",
+    "  modules    1 个模型单位 = 多少格边长，不做归一化。Kenney 整套件都建在 1.0",
+    "             模数上且内部自洽，统一乘一个系数比逐个调高度更可靠",
     "             保留原纹理明度。线性混合会把模型抹成平色，不要用它来加强效果",
     "  tint_mode  可选。COLOR(默认) / MULTIPLY / MIX",
     "  brightness 可选。染色后的亮度系数，<1 压暗、>1 提亮。COLOR 混合改不了明暗，",
@@ -71,7 +73,8 @@
             16
           ]
         }
-      }
+      },
+      "max_width": 0.8
     },
     "Archer": {
       "model": "models/q_rpg/Blends/Ranger.blend",
@@ -94,14 +97,15 @@
             16
           ]
         }
-      }
+      },
+      "max_width": 0.8
     },
     "Ranger": {
       "cn": "逐风猎骑",
       "_note": "守方骑兵。不染色：自然毛色的活马 + 有血肉的骑手，与鬼域骑士团的幽蓝骷髅骑兵形成阵营对比",
       "yaw": 0,
-      "height": 1.3,
-      "max_width": 1.9,
+      "height": 1.2,
+      "max_width": 2.0,
       "parts": [
         {
           "model": "models/q_farm/Blends/Horse.blend",
@@ -176,7 +180,7 @@
     "Scout": {
       "model": "models/q_rpg/Blends/Monk.blend",
       "yaw": 0,
-      "height": 0.88,
+      "height": 0.85,
       "cn": "游猎斥候",
       "states": {
         "idle": {
@@ -194,12 +198,13 @@
             16
           ]
         }
-      }
+      },
+      "max_width": 0.8
     },
     "Mason": {
       "model": "models/q_rpg/Blends/Cleric.blend",
       "yaw": 0,
-      "height": 0.88,
+      "height": 0.85,
       "cn": "工匠",
       "states": {
         "idle": {
@@ -217,14 +222,15 @@
             16
           ]
         }
-      }
+      },
+      "max_width": 0.8
     },
     "Ghoul": {
       "cn": "亡灵步兵",
       "_note": "持剑 = 近战。与同为骷髅的亡灵弓手靠武器区分：玩家的应对相反（塔齐射 vs 游骑冲脸）",
       "yaw": 0,
       "height": 0.9,
-      "max_width": 1.1,
+      "max_width": 0.8,
       "parts": [
         {
           "model": "models/q_monsters/Blend/Skeleton.blend",
@@ -280,7 +286,7 @@
       "_note": "骷髅持弓。此前与守方戍卫弓手共用同一模型、仅靠染色区分，阵营读不出来",
       "yaw": 0,
       "height": 0.9,
-      "max_width": 1.2,
+      "max_width": 0.9,
       "parts": [
         {
           "model": "models/q_monsters/Blend/Skeleton.blend",
@@ -335,7 +341,7 @@
       "cn": "鬼域骑士团",
       "_note": "腾跃的幽灵战马 + 骷髅骑手 + 压平的骑枪。横向拉长的剪影即其机制：冲锋伤害正比于助跑距离",
       "yaw": 0,
-      "height": 1.3,
+      "height": 1.2,
       "max_width": 2.1,
       "parts": [
         {
@@ -449,7 +455,7 @@
       "_note": "**地面单位**，不是空中单位。若它会飞，防空塔就多了一个每波都稳定生效的用途（否定侦查），玩家无脑造 AA 即可，AA 的机会成本两难随之消失。详见 CLAUDE.md。造型仍是蝙蝠但贴地掠行，与高悬的不死鸟靠本体与投影的间距区分——玩家要靠这个间距判断能不能用防空塔招呼它",
       "model": "models/q_monsters/Blend/Bat.blend",
       "yaw": 0,
-      "height": 0.55,
+      "height": 0.5,
       "tint": [
         170,
         125,
@@ -457,7 +463,7 @@
         0.8
       ],
       "brightness": 0.95,
-      "max_width": 0.95,
+      "max_width": 0.9,
       "states": {
         "idle": {
           "action": "Bat_Flying",
@@ -482,9 +488,9 @@
       "_note": "改用鹰模型：名为不死鸟却与幽影窥使共用同一蝙蝠模型，剪影完全相同，而两者玩家该做的事相反——一个查防空覆盖，一个派机动单位猎杀。染色须用 MIX：鹰的翅膀本色明度只有 0.04，COLOR 混合照抄明度，提亮到 2.6 仍是一团黑",
       "model": "models/q_animals/Blends/Eagle.blend",
       "yaw": 0,
-      "height": 0.8,
-      "max_width": 1.5,
-      "lift": 0.5,
+      "height": 0.95,
+      "max_width": 1.7,
+      "lift": 0.8,
       "tint": [
         140,
         240,
@@ -516,37 +522,32 @@
       "_note": "压暗并染幽紫，与守方蔽空弩楼区分——两者同为 Kenney 攻城器械模型，不染色则木质暖色几乎一样",
       "model": "models/kenney_castle/glb/siege-ram.glb",
       "yaw": 0,
-      "height": 0.85,
-      "max_width": 1.6,
       "tint": [
         140,
         105,
         215,
         0.45
       ],
-      "brightness": 0.88
+      "brightness": 0.88,
+      "modules": 1
     }
   },
   "buildings": {
     "Wall": {
       "model": "models/kenney_castle/glb/wall-narrow.glb",
       "yaw": 0,
-      "height": 1.05,
-      "max_width": 1.5,
-      "cn": "城墙"
+      "cn": "城墙",
+      "modules": 1
     },
     "Gate": {
       "model": "models/kenney_castle/glb/wall-narrow-gate.glb",
       "yaw": 0,
-      "height": 1.3,
-      "max_width": 1.5,
-      "cn": "城门"
+      "cn": "城门",
+      "modules": 1
     },
     "Tower": {
       "cn": "镇野箭楼",
       "yaw": 0,
-      "height": 1.95,
-      "max_width": 1.15,
       "parts": [
         {
           "model": "models/kenney_castle/glb/tower-square-base.glb"
@@ -561,14 +562,13 @@
           "model": "models/kenney_castle/glb/tower-square-top-roof-high.glb"
         }
       ],
-      "_note": "封闭尖顶 = 对地齐射，与开放垛口的蔽空弩楼对照"
+      "_note": "封闭尖顶 = 对地齐射，与开放垛口的蔽空弩楼对照",
+      "modules": 1
     },
     "Flak": {
       "cn": "蔽空弩楼",
       "_note": "与镇野箭楼同一族塔身，靠顶部区分：箭楼是封闭尖顶（对地齐射），弩楼是开放垛口 + 朝天弩炮（仅对空）。这条区分是机制性的——AA 不能兼顾对地，玩家必须一眼看出哪座位置放弃了对地火力",
       "yaw": 0,
-      "height": 1.85,
-      "max_width": 1.35,
       "parts": [
         {
           "model": "models/kenney_castle/glb/tower-square-base.glb"
@@ -585,13 +585,12 @@
           "scale": 0.75,
           "gap": -0.2
         }
-      ]
+      ],
+      "modules": 1
     },
     "Keep": {
       "cn": "领主堡垒",
       "yaw": 0,
-      "height": 2.5,
-      "max_width": 2.0,
       "parts": [
         {
           "model": "models/kenney_castle/glb/tower-hexagon-base.glb"
@@ -613,28 +612,108 @@
           "gap": -0.55
         }
       ],
-      "_note": "丢失即败的核心建筑，高度明显压过箭楼，避免与之混作「更高一点的塔」"
+      "_note": "丢失即败的核心建筑，高度明显压过箭楼，避免与之混作「更高一点的塔」",
+      "modules": 1
     },
     "Fence": {
       "model": "models/kenney_castle/glb/wall-narrow-wood-fence.glb",
       "yaw": 0,
-      "height": 0.6,
-      "max_width": 1.5,
-      "cn": "木栅"
+      "cn": "木栅",
+      "modules": 1
     },
     "Quarry": {
       "model": "models/kenney_castle/glb/rocks-large.glb",
       "yaw": 0,
-      "height": 0.8,
-      "max_width": 1.4,
-      "cn": "采石场"
+      "cn": "采石场",
+      "modules": 1
     },
     "Lumber": {
       "model": "models/kenney_castle/glb/tree-log.glb",
       "yaw": 0,
-      "height": 0.55,
-      "max_width": 1.4,
-      "cn": "伐木场"
+      "cn": "伐木场",
+      "modules": 1
+    },
+    "Mine": {
+      "cn": "金矿场",
+      "_note": "金币的唯一来源。石堆 + 坑口门，与作为景物的碎石区分",
+      "yaw": 0,
+      "modules": 1,
+      "parts": [
+        {
+          "model": "models/kenney_castle/glb/rocks-large.glb",
+          "tint": [
+            196,
+            158,
+            74,
+            0.55
+          ]
+        },
+        {
+          "model": "models/kenney_castle/glb/door.glb",
+          "offset": [
+            -0.25,
+            -0.62,
+            0.0
+          ],
+          "scale": 1.1
+        }
+      ]
+    },
+    "Watch": {
+      "cn": "瞭望塔",
+      "_note": "大视野、零战力，与箭楼争同一个位置。木色 + 开放平台 + 旗，刻意不带武器：它的职能是看见，不是打着",
+      "yaw": 0,
+      "modules": 1,
+      "parts": [
+        {
+          "model": "models/kenney_castle/glb/tower-square-base.glb",
+          "tint": [
+            120,
+            72,
+            32,
+            0.85
+          ],
+          "brightness": 0.85
+        },
+        {
+          "model": "models/kenney_castle/glb/tower-square-mid.glb",
+          "tint": [
+            134,
+            84,
+            40,
+            0.85
+          ],
+          "brightness": 0.85
+        },
+        {
+          "model": "models/kenney_castle/glb/tower-square-top.glb",
+          "tint": [
+            120,
+            72,
+            32,
+            0.85
+          ],
+          "brightness": 0.85
+        },
+        {
+          "model": "models/kenney_castle/glb/flag-pennant.glb",
+          "gap": -0.1
+        }
+      ]
+    },
+    "Barrack": {
+      "cn": "兵营",
+      "_note": "部队产出点。离前线越近补员越快、也越容易被点掉，位置即决策",
+      "yaw": 0,
+      "modules": 1,
+      "parts": [
+        {
+          "model": "models/kenney_castle/glb/tower-square-base.glb"
+        },
+        {
+          "model": "models/kenney_castle/glb/tower-square-roof.glb"
+        }
+      ]
     }
   },
   "terrain": {
@@ -643,7 +722,8 @@
       "kind": "tile",
       "model": "models/kenney_castle/glb/ground.glb",
       "yaw": 0,
-      "_note": "ground.glb 是只有 4 个顶点的 1×1 平面四边形，无厚度，正好一格。地砖按 footprint 定标到 TILE_SIDE，与单位按高度定标不同"
+      "_note": "ground.glb 是只有 4 个顶点的 1×1 平面四边形，无厚度，正好一格。地砖按 footprint 定标到 TILE_SIDE，与单位按高度定标不同",
+      "modules": 1
     },
     "Grass2": {
       "cn": "草地·二",
@@ -657,7 +737,8 @@
         96,
         0.5
       ],
-      "tint_mode": "MIX"
+      "tint_mode": "MIX",
+      "modules": 1
     },
     "Dirt": {
       "cn": "土地",
@@ -670,7 +751,8 @@
         70,
         0.85
       ],
-      "tint_mode": "MIX"
+      "tint_mode": "MIX",
+      "modules": 1
     },
     "Road": {
       "cn": "道路",
@@ -683,7 +765,8 @@
         120,
         0.85
       ],
-      "tint_mode": "MIX"
+      "tint_mode": "MIX",
+      "modules": 1
     },
     "Ash": {
       "cn": "焦土",
@@ -698,37 +781,105 @@
         0.85
       ],
       "tint_mode": "MIX",
-      "brightness": 0.5
+      "brightness": 0.5,
+      "modules": 1
     },
     "TreeBig": {
       "cn": "大树",
       "model": "models/kenney_castle/glb/tree-large.glb",
       "yaw": 0,
-      "height": 1.35,
-      "max_width": 1.0,
-      "_note": "景物，不是伐木场。伐木场是经济建筑、攻方的打击目标，必须与之可区分——玩家找不到自己的资源点就没法判断攻方在打哪一种"
+      "_note": "景物，不是伐木场。modules 1.4 让它明显高过战马——树比马矮很离谱",
+      "modules": 1.4
     },
     "TreeSmall": {
       "cn": "小树",
       "model": "models/kenney_castle/glb/tree-small.glb",
       "yaw": 0,
-      "height": 1.0,
-      "max_width": 0.85
+      "modules": 1.4
     },
     "Stump": {
       "cn": "树桩",
       "model": "models/kenney_castle/glb/tree-trunk.glb",
       "yaw": 0,
-      "height": 0.3,
-      "max_width": 0.5
+      "modules": 1.0
     },
     "RockSmall": {
       "cn": "碎石",
       "model": "models/kenney_castle/glb/rocks-small.glb",
       "yaw": 0,
-      "height": 0.28,
-      "max_width": 0.55,
-      "_note": "景物，不是采石场。同上，须与采石场可区分"
+      "_note": "景物，不是采石场。同上，须与采石场可区分",
+      "modules": 0.8
+    },
+    "Water": {
+      "cn": "水域",
+      "kind": "tile",
+      "_note": "不可通行，但不阻挡视野。桥是唯一通路，天然杀伤区。须压暗：强光下仅靠染色会渲成灰蓝，读不出是水",
+      "model": "models/kenney_castle/glb/ground.glb",
+      "yaw": 0,
+      "modules": 1,
+      "tint": [
+        38,
+        96,
+        142,
+        0.92
+      ],
+      "tint_mode": "MIX",
+      "brightness": 0.5
+    },
+    "Bridge": {
+      "cn": "桥",
+      "model": "models/kenney_castle/glb/bridge-straight.glb",
+      "yaw": 0,
+      "modules": 1
+    },
+    "Boulder": {
+      "cn": "巨石",
+      "_note": "障碍物：阻断通行与视野，用来制造隘口，把进攻收束到可预判的几条路",
+      "yaw": 0,
+      "modules": 1.3,
+      "parts": [
+        {
+          "model": "models/kenney_castle/glb/rocks-large.glb"
+        },
+        {
+          "model": "models/kenney_castle/glb/rocks-small.glb",
+          "offset": [
+            0.15,
+            -0.1,
+            0.34
+          ],
+          "scale": 0.8
+        }
+      ]
+    },
+    "Woods": {
+      "cn": "密林",
+      "_note": "障碍物：阻断通行与视野，提供藏兵位，服务侦查与佯攻。三棵树挤在一格内，与单株景物区分",
+      "yaw": 0,
+      "modules": 1.25,
+      "parts": [
+        {
+          "model": "models/kenney_castle/glb/tree-large.glb"
+        },
+        {
+          "model": "models/kenney_castle/glb/tree-small.glb",
+          "offset": [
+            0.42,
+            0.3,
+            0.0
+          ],
+          "scale": 0.85
+        },
+        {
+          "model": "models/kenney_castle/glb/tree-small.glb",
+          "offset": [
+            -0.36,
+            0.38,
+            0.0
+          ],
+          "scale": 0.7
+        }
+      ]
     }
   }
 }
