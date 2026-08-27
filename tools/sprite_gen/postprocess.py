@@ -73,28 +73,54 @@ def _font(size):
     return ImageFont.load_default()
 
 
-def contact_sheet(rows, path, cell_px):
-    """深浅两种地表各画一遍：剪影在草地和焦土上都得能认出来。"""
+def contact_sheet(rows, path, meta):
+    """深浅两种地表各画一遍：剪影在草地和焦土上都得能认出来。
+
+    各精灵画布尺寸不同（画布逐实体适配），因此按**地面锚点对齐到同一条基线**，
+    而不是按画布左上角对齐。这样图上的相对大小与游戏内一致，可直接目视校验
+    ——单位本就应当显得比塔矮。
+    """
     if not rows:
         return
-    pad, label_w, head = 10, 150, 34
+    sprites = meta.get("sprites", {})
+    pad, label_w, head = 12, 190, 40
+
+    def anchor_of(ident, im):
+        a = sprites.get(ident, {}).get("ground_anchor")
+        return (a[0], a[1]) if a else (im.width / 2, im.height * 0.78)
+
     ncol = max(len(f) for _, f in rows)
-    cell = cell_px + pad
-    W = label_w + cell * ncol * 2 + pad * 3
-    H = head + cell * len(rows) + pad
+    colw = max(im.width for _, fr in rows for im in fr) + pad
+    # 每行高度 = 基线上方最高 + 基线下方最深
+    row_dims = []
+    for ident, fr in rows:
+        up = max(anchor_of(ident, im)[1] for im in fr)
+        dn = max(im.height - anchor_of(ident, im)[1] for im in fr)
+        row_dims.append((up, dn, up + dn + pad * 2))
+
+    W = label_w + colw * ncol * 2 + pad * 3
+    H = head + int(sum(r[2] for r in row_dims)) + pad
     sheet = Image.new("RGB", (W, H), (238, 238, 240))
     d = ImageDraw.Draw(sheet)
-    f, fs = _font(16), _font(13)
+    f_cn, f_id = _font(20), _font(14)
     x_light = label_w
-    x_dark = label_w + cell * ncol + pad * 2
-    d.rectangle([x_dark - pad, head - 4, x_dark + cell * ncol, H - 6], fill=(52, 58, 52))
-    d.text((pad, 8), "浅色 / 深色地表", font=f, fill=(30, 30, 30))
-    for r, (ident, frames) in enumerate(rows):
-        y = head + r * cell
-        d.text((pad, y + cell_px // 2 - 8), ident, font=f, fill=(20, 20, 20))
-        for i, fr in enumerate(frames):
-            sheet.paste(fr, (x_light + i * cell, y), fr)
-            sheet.paste(fr, (x_dark + i * cell, y), fr)
+    x_dark = label_w + colw * ncol + pad * 2
+    d.rectangle([x_dark - pad, head - 6, x_dark + colw * ncol, H - 6], fill=(52, 58, 52))
+    d.text((pad, 10), "浅色 / 深色地表 — 按地面锚点对齐，相对大小即游戏内大小",
+           font=f_id, fill=(60, 60, 60))
+
+    y = head
+    for (ident, fr), (up, dn, rh) in zip(rows, row_dims):
+        base = y + pad + up                       # 本行的地面基线
+        cn = sprites.get(ident, {}).get("cn", "")
+        d.text((pad, base - 26), cn, font=f_cn, fill=(20, 20, 20))
+        d.text((pad, base - 2), ident, font=f_id, fill=(125, 125, 125))
+        for i, im in enumerate(fr):
+            ax, ay = anchor_of(ident, im)
+            for x0 in (x_light, x_dark):
+                sheet.paste(im, (int(x0 + i * colw + colw / 2 - ax), int(base - ay)), im)
+        d.line([(label_w - 4, base), (W - pad, base)], fill=(210, 210, 210), width=1)
+        y += rh
     sheet.save(path)
 
 
@@ -112,11 +138,10 @@ def write_meta(outdir, size, dfl):
     if os.path.exists(path):
         return
     meta = {
-        "canvas": size,
-        "tile": [dfl.get("tile_w", 64), dfl.get("tile_h", 32)],
-        "ground_anchor": dfl.get("ground_anchor", [size // 2, int(size * 0.72)]),
+        "px_per_tile": dfl.get("px_per_tile", 128),
         "dirs": dfl.get("dirs", ["SE", "SW", "NE", "NW"]),
-        "note": "ground_anchor 是画布内代表单位脚底的像素坐标，前端据此把精灵对齐到格子中心。",
+        "note": "canvas 与 ground_anchor 必须按精灵读取。",
+        "sprites": {},
     }
     with open(path, "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
@@ -143,6 +168,11 @@ def main():
     outdir = a.outdir or a.indir
     os.makedirs(outdir, exist_ok=True)
 
+    meta_path = os.path.join(a.indir, "_sprite_meta.json")
+    meta = {}
+    if os.path.exists(meta_path):
+        with open(meta_path, encoding="utf-8") as f:
+            meta = json.load(f)
     groups, cell, skipped = {}, 0, 0
     for fn in sorted(os.listdir(a.indir)):
         if not fn.endswith(".png") or fn.startswith("_"):
@@ -171,7 +201,7 @@ def main():
         print(f"\n跳过 {skipped} 张已处理的图（--force 可强制重处理，"
               f"但只应对未经后处理的原始渲染输出使用）")
     sheet = os.path.join(outdir, "_contact_sheet.png")
-    contact_sheet(sorted(groups.items()), sheet, cell)
+    contact_sheet(sorted(groups.items()), sheet, meta)
     write_meta(outdir, cell, dfl)
     print(f"\n对照图: {sheet}")
 

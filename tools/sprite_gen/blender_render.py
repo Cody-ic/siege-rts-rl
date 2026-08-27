@@ -53,7 +53,7 @@ def reset_scene():
     bpy.ops.wm.read_factory_settings(use_empty=True)
 
 
-def setup_render(size, engine_samples=64):
+def setup_render(W, H, engine_samples=64):
     sc = bpy.context.scene
     for name in ("BLENDER_EEVEE_NEXT", "BLENDER_EEVEE"):
         try:
@@ -61,7 +61,7 @@ def setup_render(size, engine_samples=64):
             break
         except TypeError:
             continue
-    sc.render.resolution_x = sc.render.resolution_y = size
+    sc.render.resolution_x, sc.render.resolution_y = W, H
     sc.render.resolution_percentage = 100
     sc.render.film_transparent = True            # 透明底，精灵必需
     sc.render.image_settings.file_format = "PNG"
@@ -79,10 +79,9 @@ def setup_render(size, engine_samples=64):
 def setup_camera(ortho_scale, shift_y=0.22):
     """正交等距相机。
 
-    shift_y 把画面上移，使**地面点落在画布约 72% 高度处**而非正中。
-    不做偏移的话脚底位于画布中心，下半张全是空白，而长矛、塔顶、
-    展翅这些向上延伸的部分反而会顶出画面。该比例与占位路线的
-    isolib.ANCHOR 一致，两条路线共用同一份前端契约。
+    shift_y 把画面上移，使地面点落在画布下方而非正中。不做偏移的话
+    脚底位于画布中心，下半张全是空白，而长矛、塔顶、展翅这些向上
+    延伸的部分反而会顶出画面。具体偏移量由 `frame_for` 按实体高度算出。
     """
     cam_data = bpy.data.cameras.new("IsoCam")
     cam_data.type = "ORTHO"
@@ -323,19 +322,38 @@ def set_action(objs, action_name):
                 pass
 
 
-def render_entry(ident, spec, base_dir, out_dir, size, dirs, ortho=2.0):
+def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
     reset_scene()
-    setup_render(size)
-    # 正交视野固定为 2.2 个瓦片宽：所有单位共用同一取景比例，尺寸才可比
-    cam = setup_camera(ortho_scale=ortho)
+    W, H, ortho, shift = frame_for(spec, px_per_tile, margin)
+    setup_render(W, H)
+    cam = setup_camera(ortho_scale=ortho, shift_y=shift)
     setup_lights()
 
-    path = os.path.join(base_dir, spec["model"])
-    if not os.path.exists(path):
-        print(f"  [跳过] {ident}: 模型不存在 {spec['model']}")
-        return 0, None
-    objs = import_model(path)
-    relocate_missing_textures(path)
+    # Kenney 城堡包是模块化的：塔身分为底座/中段/顶层/屋顶数块，
+    # 每块都从 z=0 起建模，单独渲染只是塔的一截。parts 按累计高度自下而上堆叠。
+    if spec.get("parts"):
+        objs, z = [], 0.0
+        for part in spec["parts"]:
+            pp = os.path.join(base_dir, part["model"])
+            if not os.path.exists(pp):
+                print(f"  [跳过] {ident}: 模型不存在 {part['model']}")
+                return 0, None
+            po = import_model(pp)
+            relocate_missing_textures(pp)
+            bb = world_bbox(po)
+            for o in po:
+                if o.parent is None:
+                    o.location.z += z + part.get("gap", 0.0)
+            z += (bb[1].z - bb[0].z if bb else 0.0) + part.get("gap", 0.0)
+            objs.extend(po)
+        path = os.path.join(base_dir, spec["parts"][0]["model"])
+    else:
+        path = os.path.join(base_dir, spec["model"])
+        if not os.path.exists(path):
+            print(f"  [跳过] {ident}: 模型不存在 {spec['model']}")
+            return 0, None
+        objs = import_model(path)
+        relocate_missing_textures(path)
     if spec.get("action"):
         set_action(objs, spec["action"])
     if spec.get("tint"):
@@ -355,11 +373,36 @@ def render_entry(ident, spec, base_dir, out_dir, size, dirs, ortho=2.0):
             bpy.context.scene.render.filepath = os.path.join(out_dir, f"{ident}_{d}{suffix}.png")
             bpy.ops.render.render(write_still=True)
             n += 1
-    print(f"  {ident:8s} -> {n} 帧")
-    return n, ground_anchor(cam, size)
+    print(f"  {ident:8s} -> {n} 帧  {W}x{H}")
+    return n, {"canvas": [W, H], "ground_anchor": ground_anchor(cam, W, H)}
 
 
-def ground_anchor(cam, size):
+def frame_for(spec, px_per_tile, margin):
+    """按实体自身尺寸算出画布与相机参数。
+
+    实体高度跨度很大（幽影窥使 0.45 瓦片 ~ 领主堡垒 2.4 瓦片，约 5 倍），
+    统一画布必然二选一：要么裁掉高的，要么把矮的挤成一小点。
+
+    因此这里**保持统一的世界→像素缩放**（相对大小才正确，单位本就该比塔矮），
+    只让画布尺寸随实体变化。代价是前端需按精灵读取各自的锚点，
+    这已由 `_sprite_meta.json` 承担。
+    """
+    h = spec.get("height", 0.9) + spec.get("lift", 0.0)
+    w = spec.get("max_width", 1.45)
+    W = int(round((w + 2 * margin) * px_per_tile))
+    H = int(round((h + 2 * margin) * px_per_tile))
+    W += W % 2                                  # 偶数尺寸，避免半像素锚点
+    H += H % 2
+    maxdim = max(W, H)
+    ortho = maxdim / px_per_tile                # 世界跨度 = 大边像素 / 每瓦片像素
+    # 让地面点落在距底边 margin 处。相机投影满足 co.y = 0.5 - shift_y * (maxdim / H)，
+    # 其中 co.y 自下而上归一化；符号写反会把模型顶到画布底部之外。
+    target = margin * px_per_tile / H
+    shift_y = (0.5 - target) * H / maxdim
+    return W, H, ortho, shift_y
+
+
+def ground_anchor(cam, W, H):
     """世界原点在画布中的像素坐标 —— 即单位脚底所在处。
 
     前端要把精灵对齐到等距格子，必须知道图里哪个像素是脚底。
@@ -368,18 +411,30 @@ def ground_anchor(cam, size):
     """
     from bpy_extras.object_utils import world_to_camera_view
     co = world_to_camera_view(bpy.context.scene, cam, Vector((0.0, 0.0, 0.0)))
-    return [round(co.x * size, 1), round((1.0 - co.y) * size, 1)]
+    return [round(co.x * W, 1), round((1.0 - co.y) * H, 1)]
 
 
-def write_meta(out_dir, size, dirs, anchor):
+def write_meta(out_dir, px_per_tile, dirs, sprites):
+    # 与已有元数据合并：--only 只重渲部分实体时，直接覆盖会丢掉其余条目
+    path = os.path.join(out_dir, "_sprite_meta.json")
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                merged = json.load(f).get("sprites", {})
+            merged.update(sprites)
+            sprites = merged
+        except (OSError, ValueError):
+            pass
     meta = {
-        "canvas": size,
+        "px_per_tile": px_per_tile,
         "tile": [TILE_W, TILE_H],
-        "ground_anchor": anchor,
         "dirs": dirs,
-        "note": "ground_anchor 是画布内代表单位脚底的像素坐标，前端据此把精灵对齐到格子中心。",
+        "note": ("所有精灵共用同一世界->像素缩放（px_per_tile），故相对大小正确；"
+                 "画布尺寸逐个实体适配，因此 canvas 与 ground_anchor 必须按精灵读取。"
+                 "ground_anchor 是画布内代表实体脚底的像素坐标。"),
+        "sprites": sprites,
     }
-    with open(os.path.join(out_dir, "_sprite_meta.json"), "w", encoding="utf-8") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
 
 
@@ -389,11 +444,12 @@ def main():
     with open(args["manifest"], "r", encoding="utf-8") as f:
         mf = json.load(f)
     dfl = mf.get("defaults", {})
-    size = args["size"] or dfl.get("size", 128)
+    px = dfl.get("px_per_tile", 128)
+    margin = dfl.get("margin", 0.22)
     dirs = dfl.get("dirs", ["SE", "SW", "NE", "NW"])
     # 取景比例：世界单位跨度 = 画布边长 / 瓦片像素宽。
     # 值越小单位在画面中越大、细节越多；2.0 对应 256px 画布下 128px 的瓦片。
-    ortho = dfl.get("ortho_scale", 2.0)
+
     out_dir = os.path.abspath(args["out"])
     os.makedirs(out_dir, exist_ok=True)
 
@@ -401,16 +457,17 @@ def main():
     for group in ("units", "buildings"):
         entries.update(mf.get(group, {}))
 
-    total, last_anchor = 0, [size / 2, size * 0.72]
+    total, sprites = 0, {}
     for ident, spec in entries.items():
         if args["only"] and ident not in args["only"]:
             continue
-        n, anchor = render_entry(ident, spec, base, out_dir, size, dirs, ortho)
+        n, info = render_entry(ident, spec, base, out_dir, px, margin, dirs)
         total += n
-        if anchor:
-            last_anchor = anchor
+        if info:
+            info["cn"] = spec.get("cn", ident)
+            sprites[ident] = info
     if total:
-        write_meta(out_dir, size, dirs, last_anchor)
+        write_meta(out_dir, px, dirs, sprites)
     print(f"\n共 {total} 帧 -> {out_dir}")
     print("下一步: python postprocess.py " + out_dir)
 

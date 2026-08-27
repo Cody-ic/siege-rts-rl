@@ -18,7 +18,6 @@
     "模型来源：Quaternius(RPG Characters / Monster Pack / Animal Pack Vol.2) 与 Kenney(Castle Kit)，均为 CC0。经 OpenGameArt 与 kenney.nl 直链获取。"
   ],
   "defaults": {
-    "size": 256,
     "tile_ratio": 2.0,
     "dirs": [
       "SE",
@@ -33,40 +32,44 @@
       205
     ],
     "outline_width": 2,
-    "ortho_scale": 2.0,
-    "tile_w": 128,
-    "tile_h": 64
+    "px_per_tile": 128,
+    "margin": 0.22
   },
   "units": {
     "Spear": {
       "model": "models/q_rpg/Blends/Warrior.blend",
       "yaw": 0,
       "height": 0.9,
-      "action": "Idle"
+      "action": "Idle",
+      "cn": "铁壁枪卫"
     },
     "Archer": {
       "model": "models/q_rpg/Blends/Ranger.blend",
       "yaw": 0,
       "height": 0.9,
-      "action": "Idle"
+      "action": "Idle",
+      "cn": "戍卫弓手"
     },
     "Ranger": {
       "model": "models/q_rpg/Blends/Rogue.blend",
       "yaw": 0,
       "height": 0.9,
-      "action": "Idle"
+      "action": "Idle",
+      "cn": "逐风猎骑"
     },
     "Scout": {
       "model": "models/q_rpg/Blends/Monk.blend",
       "yaw": 0,
       "height": 0.88,
-      "action": "Idle"
+      "action": "Idle",
+      "cn": "游猎斥候"
     },
     "Mason": {
       "model": "models/q_rpg/Blends/Cleric.blend",
       "yaw": 0,
       "height": 0.88,
-      "action": "Idle"
+      "action": "Idle",
+      "cn": "工匠"
     },
     "Ghoul": {
       "model": "models/q_monsters/Blend/Skeleton.blend",
@@ -78,7 +81,8 @@
         110,
         0.45
       ],
-      "action": "Skeleton_Idle"
+      "action": "Skeleton_Idle",
+      "cn": "亡灵步兵"
     },
     "Shade": {
       "model": "models/q_monsters/Blend/Skeleton.blend",
@@ -93,7 +97,8 @@
       "action": "Skeleton_Attack",
       "frames": [
         12
-      ]
+      ],
+      "cn": "亡灵弓手"
     },
     "Knight": {
       "model": "models/q_monsters/Blend/Skeleton.blend",
@@ -108,7 +113,8 @@
       "action": "Skeleton_Running",
       "frames": [
         6
-      ]
+      ],
+      "cn": "鬼域骑士团"
     },
     "Wraith": {
       "model": "models/q_monsters/Blend/Bat.blend",
@@ -125,7 +131,8 @@
       "action": "Bat_Flying",
       "frames": [
         6
-      ]
+      ],
+      "cn": "幽影窥使"
     },
     "Phoenix": {
       "model": "models/q_monsters/Blend/Bat.blend",
@@ -142,13 +149,15 @@
         235,
         255,
         0.7
-      ]
+      ],
+      "cn": "不死鸟"
     },
     "Ram": {
       "model": "models/kenney_castle/glb/siege-ram.glb",
       "yaw": 0,
       "height": 0.85,
-      "max_width": 1.6
+      "max_width": 1.6,
+      "cn": "攻城锤"
     }
   },
   "buildings": {
@@ -156,49 +165,90 @@
       "model": "models/kenney_castle/glb/wall-narrow.glb",
       "yaw": 0,
       "height": 1.05,
-      "max_width": 1.5
+      "max_width": 1.5,
+      "cn": "城墙"
     },
     "Gate": {
       "model": "models/kenney_castle/glb/wall-narrow-gate.glb",
       "yaw": 0,
       "height": 1.3,
-      "max_width": 1.5
+      "max_width": 1.5,
+      "cn": "城门"
     },
     "Tower": {
-      "model": "models/kenney_castle/glb/tower-square-top-roof-high.glb",
+      "cn": "镇野箭楼",
       "yaw": 0,
-      "height": 1.9,
-      "max_width": 1.3
+      "height": 1.95,
+      "max_width": 1.15,
+      "parts": [
+        {
+          "model": "models/kenney_castle/glb/tower-square-base.glb"
+        },
+        {
+          "model": "models/kenney_castle/glb/tower-square-mid-windows.glb"
+        },
+        {
+          "model": "models/kenney_castle/glb/tower-square-top.glb"
+        },
+        {
+          "model": "models/kenney_castle/glb/tower-square-top-roof-high.glb"
+        }
+      ]
     },
     "Flak": {
       "model": "models/kenney_castle/glb/siege-ballista.glb",
       "yaw": 0,
       "height": 0.8,
-      "max_width": 1.4
+      "max_width": 1.4,
+      "cn": "蔽空弩楼"
     },
     "Keep": {
-      "model": "models/kenney_castle/glb/tower-hexagon-top-wood.glb",
+      "cn": "领主堡垒",
       "yaw": 0,
-      "height": 2.0,
-      "max_width": 1.5
+      "height": 2.15,
+      "max_width": 2.0,
+      "parts": [
+        {
+          "model": "models/kenney_castle/glb/tower-hexagon-base.glb"
+        },
+        {
+          "model": "models/kenney_castle/glb/tower-hexagon-mid.glb"
+        },
+        {
+          "model": "models/kenney_castle/glb/tower-hexagon-mid.glb"
+        },
+        {
+          "model": "models/kenney_castle/glb/tower-hexagon-top-wood.glb"
+        },
+        {
+          "model": "models/kenney_castle/glb/tower-hexagon-roof.glb"
+        },
+        {
+          "model": "models/kenney_castle/glb/flag-wide.glb",
+          "gap": -0.55
+        }
+      ]
     },
     "Fence": {
       "model": "models/kenney_castle/glb/wall-narrow-wood-fence.glb",
       "yaw": 0,
       "height": 0.6,
-      "max_width": 1.5
+      "max_width": 1.5,
+      "cn": "木栅"
     },
     "Quarry": {
       "model": "models/kenney_castle/glb/rocks-large.glb",
       "yaw": 0,
       "height": 0.8,
-      "max_width": 1.4
+      "max_width": 1.4,
+      "cn": "采石场"
     },
     "Lumber": {
       "model": "models/kenney_castle/glb/tree-log.glb",
       "yaw": 0,
       "height": 0.55,
-      "max_width": 1.4
+      "max_width": 1.4,
+      "cn": "伐木场"
     }
   }
 }
