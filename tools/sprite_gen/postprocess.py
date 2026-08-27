@@ -25,7 +25,7 @@ def already_done(img):
 def save_marked(img, path):
     meta = PngInfo()
     meta.add_text(DONE_KEY, "1")
-    img.save(path, pnginfo=meta)
+    img.save(path, pnginfo=meta, optimize=True)
 
 
 def add_outline(img, color=(10, 10, 14, 205), w=1):
@@ -64,7 +64,7 @@ def add_shadow(img, spec, tile_ratio=2.0, anchor=None):
     sh = Image.new("RGBA", img.size, (0, 0, 0, 0))
     ImageDraw.Draw(sh).ellipse([cx - rx, ground_y - ry, cx + rx, ground_y + ry],
                                fill=(0, 0, 0, alpha))
-    sh = sh.filter(ImageFilter.GaussianBlur(1.2))
+    sh = sh.filter(ImageFilter.GaussianBlur(max(1.0, rx * 0.02)))
     return Image.alpha_composite(sh, img)
 
 
@@ -127,7 +127,12 @@ def contact_sheet(rows, path, meta):
                 sheet.paste(im, (int(x0 + i * colw + colw / 2 - ax), int(base - ay)), im)
         d.line([(label_w - 4, base), (W - pad, base)], fill=(210, 210, 210), width=1)
         y += rh
-    sheet.save(path)
+    # 对照图只用于目视校验，不必留全分辨率。256px 瓦片下不缩会到十几 MB，
+    # 比全部精灵加起来还大，入库不划算。
+    if sheet.width > 2400:
+        k = 2400 / sheet.width
+        sheet = sheet.resize((2400, max(1, int(sheet.height * k))), Image.LANCZOS)
+    sheet.save(path, optimize=True)
 
 
 def write_meta(outdir, size, dfl):
@@ -169,7 +174,9 @@ def main():
     for g in ("units", "buildings"):
         specs.update(mf.get(g, {}))
     ol_col = tuple(dfl.get("outline", [10, 10, 14, 205]))
-    ol_w = dfl.get("outline_width", 1)
+    # 描边宽度以 128px 瓦片为基准随分辨率缩放。不缩放的话，提高精度换来的
+    # 细节会被相对变细的描边削弱；反过来降分辨率时描边又会粗到糊住剪影。
+    ol_w = max(1, round(dfl.get("outline_width", 1) * dfl.get("px_per_tile", 128) / 128))
     ratio = dfl.get("tile_ratio", 2.0)
     outdir = a.outdir or a.indir
     os.makedirs(outdir, exist_ok=True)
@@ -179,11 +186,16 @@ def main():
     if os.path.exists(meta_path):
         with open(meta_path, encoding="utf-8") as f:
             meta = json.load(f)
-    groups, cell, skipped = {}, 0, 0
+    dirs_order = dfl.get("dirs", ["SE", "SW", "NE", "NW"])
+    # 对照图只收每个朝向的首帧：动画帧全画进去会让图宽到没法看（骑兵一行 16 张），
+    # 而对照图的用途是目视校验剪影与相对大小，逐帧比对不在其列。
+    picked, counts, cell, skipped = {}, {}, 0, 0
     for fn in sorted(os.listdir(a.indir)):
         if not fn.endswith(".png") or fn.startswith("_"):
             continue
-        ident = fn.split("_")[0]
+        seg = fn[:-4].split("_")
+        ident, dr = seg[0], (seg[1] if len(seg) > 1 else "")
+        fr = int(seg[2]) if len(seg) > 2 and seg[2].isdigit() else 0
         src = Image.open(os.path.join(a.indir, fn))
         done = already_done(src)
         img = src.convert("RGBA")
@@ -197,13 +209,17 @@ def main():
             img = add_shadow(img, specs.get(ident, {}), ratio,
                              meta.get("sprites", {}).get(ident, {}).get("ground_anchor"))
             save_marked(img, os.path.join(outdir, fn))
-        groups.setdefault(ident, []).append(img)
+        counts[ident] = counts.get(ident, 0) + 1
+        prev = picked.setdefault(ident, {}).get(dr)
+        if prev is None or fr < prev[0]:
+            picked[ident][dr] = (fr, img)
 
-    if not groups:
+    if not picked:
         print(f"{a.indir} 里没有可处理的 PNG。先跑 blender_render.py。")
         return
-    for ident, frames in groups.items():
-        print(f"  {ident:8s} {len(frames)} 帧")
+    for ident, n in sorted(counts.items()):
+        print(f"  {ident:8s} {n} 帧")
+    groups = {i: [d[k][1] for k in dirs_order if k in d] for i, d in picked.items()}
     if skipped:
         print(f"\n跳过 {skipped} 张已处理的图（--force 可强制重处理，"
               f"但只应对未经后处理的原始渲染输出使用）")

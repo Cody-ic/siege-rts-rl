@@ -149,6 +149,10 @@ def import_model(path):
     elif ext == ".blend":
         with bpy.data.libraries.load(path) as (src, dst):
             dst.objects = list(src.objects)
+            # 动作必须显式载入：只拉 objects 时，仅有当前绑在某个对象上的动作会
+            # 跟着进来。马的 Run 就因此缺失（文件里有，但没绑对象），而 set_action
+            # 找不到时只是打印警告、模型停在默认姿态，不会中断渲染。
+            dst.actions = list(src.actions)
         for o in dst.objects:
             if o is not None:
                 bpy.context.collection.objects.link(o)
@@ -371,9 +375,48 @@ def set_action(objs, action_name, pool=None):
                 pass
 
 
+def set_pose(objs, pose, freeze_frame):
+    """在动作之上叠加手工骨骼姿态（欧拉角，度）。
+
+    **必须先把动作在该帧求值后清除**：动作会在每次换帧时重写骨骼变换，
+    不清除的话手工设的角度会被动画系统悄悄冲掉，且不报错。
+    清除后骨骼保留最后一次求值的姿态，手工覆写才生效。
+
+    素材包普遍没有"骑乘"动作，骑手直接放上马背时双腿会插进马身。
+    这里用它把大腿前摆、小腿外张，绕开马腹。
+    """
+    bpy.context.scene.frame_set(freeze_frame)
+    for o in objs:
+        if o.type != "ARMATURE":
+            continue
+        if o.animation_data:
+            o.animation_data.action = None      # 定格，后续换帧不再覆写
+        for name, v in pose.items():
+            b = o.pose.bones.get(name)
+            if b is None:
+                print(f"    [警告] 找不到骨骼 {name!r}，可用: {[x.name for x in o.pose.bones]}")
+                continue
+            s = v if isinstance(v, dict) else {"rot": v}
+            if "rot" in s:
+                b.rotation_mode = "XYZ"
+                b.rotation_euler = [math.radians(x) for x in s["rot"]]
+            if "loc" in s:
+                b.location = s["loc"]
+
+
+def find_bone(name):
+    """在场景已有的骨架中查找骨骼，返回其世界矩阵。"""
+    for o in bpy.context.scene.objects:
+        if o.type == "ARMATURE" and name in o.pose.bones:
+            return o.matrix_world @ o.pose.bones[name].matrix
+    return None
+
+
 def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
     reset_scene()
     setup_lights()
+    frames = spec.get("frames", [1])
+    bpy.context.scene.frame_set(frames[0])   # 骨骼摆位与归一化都以首帧为准
 
     # Kenney 城堡包是模块化的：塔身分为底座/中段/顶层/屋顶数块，
     # 每块都从 z=0 起建模，单独渲染只是塔的一截。parts 按累计高度自下而上堆叠。
@@ -390,6 +433,8 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
             relocate_missing_textures(pp)
             if part.get("action"):
                 set_action(po, part["action"], new_acts)
+            if part.get("pose"):
+                set_pose(po, part["pose"], frames[0])
             roots = [o for o in po if o.parent is None]
             # 各素材包尺度互不相干，跨包组合（如骑手上马）须先按 scale 对齐比例
             s = part.get("scale", 1.0)
@@ -406,7 +451,20 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
                                         for i in range(3)]
             bpy.context.view_layer.update()
             off = part.get("offset")
-            if off:
+            bone = part.get("attach")
+            if bone:
+                # 绑到先前部件的骨骼上。武器就该长在手上——按世界坐标估位置
+                # 一改姿态就得重估，而且四个朝向里总有一个看着穿帮。
+                m = find_bone(bone)
+                if m is None:
+                    print(f"    [警告] 找不到用于绑定的骨骼 {bone!r}")
+                else:
+                    for o in roots:
+                        if off:      # attach 时 offset 是骨骼局部坐标（局部 Y 沿骨骼方向）
+                            o.location = (o.location[0] + off[0], o.location[1] + off[1],
+                                          o.location[2] + off[2])
+                        o.matrix_world = m @ o.matrix_basis
+            elif off:
                 # 显式定位：用于组合而非堆叠，不参与累计高度
                 for o in roots:
                     o.location.x += off[0]
@@ -438,17 +496,18 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
     # 骑手在待机），在这里统一绑定会把先前逐部件设好的动作全部覆盖掉。
     if spec.get("action") and not spec.get("parts"):
         set_action(objs, spec["action"])
+    if spec.get("pose"):
+        set_pose(objs, spec["pose"], frames[0])
     if spec.get("tint"):        # 已单独指定染色的部件不再被整体染色覆盖
         apply_tint([o for o in objs if o not in tinted], spec["tint"],
                    spec.get("tint_mode", "COLOR"), spec.get("brightness"))
-    frames = spec.get("frames", [1])
     # 归一化必须在设定姿势之后：包围盒取自求值网格，姿势会改变它
     bpy.context.scene.frame_set(frames[0])
     pivot = normalize(objs, spec.get("height", 0.9), spec.get("lift", 0.0),
                       spec.get("max_width", 1.45))
 
     # 取景须在归一化之后：画布按实测投影范围确定，而非按声明尺寸估算
-    W, H, ortho, shift_x, shift_y = frame_for(objs, spec, dirs, px_per_tile, margin)
+    W, H, ortho, shift_x, shift_y = frame_for(objs, spec, dirs, frames, px_per_tile, margin)
     setup_render(W, H)
     cam = setup_camera(ortho, shift_x, shift_y)
 
@@ -462,7 +521,9 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
             bpy.ops.render.render(write_still=True)
             n += 1
     print(f"  {ident:8s} -> {n} 帧  {W}x{H}")
-    return n, {"canvas": [W, H], "ground_anchor": ground_anchor(cam, W, H)}
+    # frames 写进元数据：多帧时文件名带 _<帧号> 后缀，单帧时不带，前端据此取名
+    return n, {"canvas": [W, H], "ground_anchor": ground_anchor(cam, W, H),
+               "frames": list(frames)}
 
 
 # 底部预留量，须覆盖 postprocess.add_shadow 画的椭圆（其半高约为实体像素宽的 0.21 倍）。
@@ -470,7 +531,7 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
 SHADOW_PAD = 0.24
 
 
-def frame_for(objs, spec, dirs, px_per_tile, margin):
+def frame_for(objs, spec, dirs, frames, px_per_tile, margin):
     """把归一化后的几何投影到相机平面，按**实测范围**定画布与相机参数。
 
     必须在 normalize 之后调用。早先的做法是按 `height` / `max_width` 估算，
@@ -484,21 +545,27 @@ def frame_for(objs, spec, dirs, px_per_tile, margin):
     这已由 `_sprite_meta.json` 承担。
     """
     right, up = cam_basis()
-    bb = world_bbox(objs)
     # 起始含世界原点：地面锚点必须落在画布内，否则前端无法对齐格子、
     # 后处理也无处画投影（空中单位抬升后本体整个在原点上方）。
     us, vs = [0.0], [0.0]
-    if bb:
+    # 各朝向、各动画帧共用同一画布，故取全部的并集。只按首帧定画布的话，
+    # 奔跑循环里前后腿全展的那几帧会被悄悄裁掉。
+    for f in frames:
+        bpy.context.scene.frame_set(f)
+        bb = world_bbox(objs)
+        if not bb:
+            continue
         lo, hi = bb
         corners = [Vector((x, y, z)) for x in (lo.x, hi.x)
                    for y in (lo.y, hi.y) for z in (lo.z, hi.z)]
-        for d in dirs:                    # 画布四向共用，取各朝向的并集
+        for d in dirs:
             a = math.radians(DIR_YAW[d] + spec.get("yaw", 0))
             ca, sa = math.cos(a), math.sin(a)
             for c in corners:
                 r = Vector((c.x * ca - c.y * sa, c.x * sa + c.y * ca, c.z))
                 us.append(r.dot(right))
                 vs.append(r.dot(up))
+    bpy.context.scene.frame_set(frames[0])
     u0, u1, v0, v1 = min(us), max(us), min(vs), max(vs)
     v0 -= max(margin, SHADOW_PAD * (u1 - u0))   # 底部留白与投影预留取其大，不叠加
     v1 += margin
