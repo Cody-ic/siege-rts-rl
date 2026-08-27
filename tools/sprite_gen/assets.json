@@ -9,9 +9,17 @@
     "  yaw        朝向校正（度）。模型自带的正面方向各不相同，用它转到统一基准",
     "  height     单位高度，以瓦片宽为 1。步兵约 0.9，骑兵约 1.2，建筑按实际",
     "  lift       垂直偏移，以瓦片宽为 1。空中单位用它抬离地面（不死鸟 1.15）",
-    "  tint       可选。整体染色 [R,G,B,强度]，用于把同一模型改成不同阵营配色",
-    "  frames     可选。要渲染的动画帧列表，缺省只渲第 1 帧",
+    "  max_width  归一化的宽度上限（不是画布宽度：画布按实测投影范围自动确定）",
+    "  tint       可选。阵营染色 [R,G,B,强度]。默认 COLOR 混合：只换色相饱和度、",
+    "             保留原纹理明度。线性混合会把模型抹成平色，不要用它来加强效果",
+    "  tint_mode  可选。COLOR(默认) / MULTIPLY / MIX",
+    "  brightness 可选。染色后的亮度系数，<1 压暗、>1 提亮。COLOR 混合改不了明暗，",
+    "             幽灵战马（换色相 + 压暗）与空中单位（提亮）都要靠它",
+    "  frames     可选。要渲染的动画帧列表，缺省只渲第 1 帧。归一化取 frames[0]",
     "  shadow     可选。false 表示不画地面投影（默认 true）",
+    "  parts      可选。多模型拼装，逐部件可设 model / action / scale / rot / offset /",
+    "             gap / tint / tint_mode / brightness。设了 offset 即显式定位，",
+    "             不参与自下而上的累计堆叠",
     "",
     "许可证要求：只使用 CC0 素材。原因见 CLAUDE.md —— 交付物包含源代码与输入文件，",
     "素材需随仓库提交，CC0 之外的许可（如 Reiner's Tilesets 禁止转发原始素材）不适用。",
@@ -51,11 +59,30 @@
       "cn": "戍卫弓手"
     },
     "Ranger": {
-      "model": "models/q_rpg/Blends/Rogue.blend",
+      "cn": "逐风猎骑",
+      "_note": "守方骑兵。不染色：自然毛色的活马 + 有血肉的骑手，与鬼域骑士团的幽蓝骷髅骑兵形成阵营对比",
       "yaw": 0,
-      "height": 0.9,
-      "action": "Idle",
-      "cn": "逐风猎骑"
+      "height": 1.15,
+      "max_width": 1.85,
+      "parts": [
+        {
+          "model": "models/q_farm/Blends/Horse.blend",
+          "action": "Walk"
+        },
+        {
+          "model": "models/q_rpg/Blends/Rogue.blend",
+          "action": "Idle",
+          "scale": 1.55,
+          "offset": [0, 1.6, 3.3]
+        },
+        {
+          "_note": "斜持的佩刀，与鬼域骑士团压平的长骑枪对照：短兵=近战缠斗，长枪=助跑冲锋。刀不可竖直高举，否则会把整体高度顶高，归一化后马身反而缩小",
+          "model": "models/q_rpg/Blends/Only Weapons/Warrior_Sword.blend",
+          "scale": 1.2,
+          "rot": [50, 0, 0],
+          "offset": [-0.85, 1.0, 5.4]
+        }
+      ]
     },
     "Scout": {
       "model": "models/q_rpg/Blends/Monk.blend",
@@ -72,101 +99,114 @@
       "cn": "工匠"
     },
     "Ghoul": {
-      "model": "models/q_monsters/Blend/Skeleton.blend",
+      "cn": "亡灵步兵",
+      "_note": "持剑 = 近战。与同为骷髅的亡灵弓手靠武器区分：玩家的应对相反（塔齐射 vs 游骑冲脸）",
       "yaw": 0,
       "height": 0.9,
-      "tint": [
-        130,
-        170,
-        110,
-        0.45
-      ],
-      "action": "Skeleton_Idle",
-      "cn": "亡灵步兵"
+      "max_width": 1.1,
+      "parts": [
+        {
+          "model": "models/q_monsters/Blend/Skeleton.blend",
+          "action": "Skeleton_Idle",
+          "tint": [110, 200, 60, 0.7],
+          "brightness": 0.9
+        },
+        {
+          "_note": "武器不染色：钢色与染过的骨头拉开对比，武器正是与亡灵弓手的唯一区分点",
+          "model": "models/q_rpg/Blends/Only Weapons/Warrior_Sword.blend",
+          "scale": 0.7,
+          "offset": [-1.15, -0.35, 2.1]
+        }
+      ]
     },
     "Shade": {
       "cn": "亡灵弓手",
-      "model": "models/q_rpg/Blends/Ranger.blend",
+      "_note": "骷髅持弓。此前与守方戍卫弓手共用同一模型、仅靠染色区分，阵营读不出来",
       "yaw": 0,
       "height": 0.9,
-      "action": "Idle",
-      "tint": [
-        120,
-        150,
-        205,
-        0.62
+      "max_width": 1.2,
+      "parts": [
+        {
+          "model": "models/q_monsters/Blend/Skeleton.blend",
+          "action": "Skeleton_Idle",
+          "tint": [60, 160, 240, 0.75],
+          "brightness": 0.86
+        },
+        {
+          "model": "models/q_rpg/Blends/Only Weapons/Ranger_Bow.blend",
+          "scale": 0.72,
+          "offset": [-1.2, -0.4, 2.5]
+        }
       ]
     },
     "Knight": {
       "cn": "鬼域骑士团",
+      "_note": "腾跃的幽灵战马 + 骷髅骑手 + 压平的骑枪。横向拉长的剪影即其机制：冲锋伤害正比于助跑距离",
       "yaw": 0,
-      "height": 1.15,
-      "max_width": 1.9,
-      "tint": [
-        155,
-        120,
-        195,
-        0.45
-      ],
+      "height": 1.3,
+      "max_width": 2.1,
+      "frames": [14],
       "parts": [
         {
+          "_note": "Jump 第 14 帧是前后腿全展的腾跃姿态。frames 必须与之一致——归一化取 frames[0] 的包围盒，用站立帧定标会让腾跃姿态被裁出画布",
           "model": "models/q_farm/Blends/Horse.blend",
-          "action": "Idle"
+          "action": "Jump",
+          "tint": [150, 100, 245, 0.92],
+          "tint_mode": "COLOR",
+          "brightness": 0.55
         },
         {
           "model": "models/q_monsters/Blend/Skeleton.blend",
           "action": "Skeleton_Idle",
           "scale": 0.92,
-          "offset": [
-            0,
-            0.4,
-            3.3
-          ]
+          "offset": [0, 1.6, 3.4]
+        },
+        {
+          "_note": "压平的骑枪。剑模型原点在握把处，绕 X 轴 97° 把刃指向正前方并略微下压",
+          "model": "models/q_rpg/Blends/Only Weapons/Warrior_Sword.blend",
+          "scale": 2.5,
+          "rot": [97, 0, 0],
+          "offset": [-1.35, -0.3, 5.5],
+          "tint": [95, 105, 140, 0.8],
+          "tint_mode": "MULTIPLY"
         }
       ]
     },
     "Wraith": {
+      "cn": "幽影窥使",
+      "_note": "蝙蝠贴图本身很暗，Color 混合又照抄原图明度，故须 brightness 提亮，否则空中单位在地表上根本看不见——玩家猎杀不到斥候，双向欺骗就不成立",
       "model": "models/q_monsters/Blend/Bat.blend",
       "yaw": 0,
       "height": 0.48,
       "lift": 0.3,
-      "tint": [
-        165,
-        120,
-        205,
-        0.55
-      ],
+      "tint": [175, 120, 215, 0.8],
+      "brightness": 1.35,
       "max_width": 0.95,
       "action": "Bat_Flying",
-      "frames": [
-        6
-      ],
-      "cn": "幽影窥使"
+      "frames": [6]
     },
     "Phoenix": {
+      "cn": "不死鸟",
+      "_note": "比幽影窥使更亮：它是手术刀单位，玩家必须一眼看见它冲哪儿去了才谈得上防空布局",
       "model": "models/q_monsters/Blend/Bat.blend",
       "yaw": 0,
       "height": 0.8,
       "max_width": 1.35,
       "lift": 0.5,
       "action": "Bat_Flying",
-      "frames": [
-        3
-      ],
-      "tint": [
-        130,
-        235,
-        255,
-        0.7
-      ],
-      "cn": "不死鸟"
+      "frames": [3],
+      "tint": [130, 235, 255, 0.85],
+      "brightness": 1.7
     },
     "Ram": {
+      "cn": "攻城锤",
+      "_note": "压暗并染幽紫，与守方蔽空弩楼区分——两者同为 Kenney 攻城器械模型，不染色则木质暖色几乎一样",
       "model": "models/kenney_castle/glb/siege-ram.glb",
       "yaw": 0,
       "height": 0.85,
       "max_width": 1.6,
-      "cn": "攻城锤"
+      "tint": [140, 105, 215, 0.55],
+      "brightness": 0.72
     }
   },
   "buildings": {

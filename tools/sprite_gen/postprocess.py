@@ -38,8 +38,12 @@ def add_outline(img, color=(10, 10, 14, 205), w=1):
     return Image.alpha_composite(layer, img)
 
 
-def add_shadow(img, spec, tile_ratio=2.0):
-    """在脚底画等距压扁的椭圆投影。lift 越大投影越小越淡，读作"飞得越高"。"""
+def add_shadow(img, spec, tile_ratio=2.0, anchor=None):
+    """在地面锚点处画等距压扁的椭圆投影。lift 越大投影越小越淡，读作"飞得越高"。
+
+    锚点优先取渲染时由相机投影精确算出的 `ground_anchor`。退化的按 lift 估算
+    像素偏移那条路依赖画布尺寸，画布改为逐实体适配后已不再可靠，仅供占位路线使用。
+    """
     if spec.get("shadow") is False:
         return img
     lift = spec.get("lift", 0.0)
@@ -48,9 +52,11 @@ def add_shadow(img, spec, tile_ratio=2.0):
     bbox = a.getbbox()
     if bbox is None:
         return img
-    # 地面基准线：贴地单位取像素底边；空中单位需按抬升量往下推回地面
-    ground_y = bbox[3] if lift <= 0 else min(H - 2, int(bbox[3] + lift * W * 0.5))
-    cx = (bbox[0] + bbox[2]) / 2
+    if anchor:
+        cx, ground_y = anchor[0], min(H - 2, anchor[1])
+    else:
+        cx = (bbox[0] + bbox[2]) / 2
+        ground_y = bbox[3] if lift <= 0 else min(H - 2, int(bbox[3] + lift * W * 0.5))
     rx = max(6.0, (bbox[2] - bbox[0]) * (0.42 if lift <= 0 else 0.30))
     ry = rx / tile_ratio
     alpha = 95 if lift <= 0 else 55
@@ -188,7 +194,8 @@ def main():
             # 顺序不可颠倒：先描边，再把投影合成到描边之下。
             # 反过来的话投影自己也会被描边，变成带黑边的独立圆盘。
             img = add_outline(img, ol_col, ol_w)
-            img = add_shadow(img, specs.get(ident, {}), ratio)
+            img = add_shadow(img, specs.get(ident, {}), ratio,
+                             meta.get("sprites", {}).get(ident, {}).get("ground_anchor"))
             save_marked(img, os.path.join(outdir, fn))
         groups.setdefault(ident, []).append(img)
 

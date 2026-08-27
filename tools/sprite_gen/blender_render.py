@@ -14,7 +14,7 @@
 朝向通过**旋转模型**实现，相机与灯光固定不动。这样各朝向的受光不同，
 符合等距游戏的观感；若改为旋转相机，模型受光恒定，看起来会很平。
 """
-import bpy, sys, os, json, math
+import bpy, sys, os, json, math, colorsys
 from mathutils import Vector
 
 # 俯角 30° => 投影瓦片 2:1。真等距（各轴等比）是 35.264°，本项目不用。
@@ -76,16 +76,28 @@ def setup_render(W, H, engine_samples=64):
                 setattr(ev, attr, True)
 
 
-def setup_camera(ortho_scale, shift_y=0.22):
+def cam_basis():
+    """相机的右向量与上向量（世界坐标）。
+
+    等距投影下**水平位移同样会产生纵向的屏幕位移**（up 的 x、y 分量非零）。
+    马这类又长又矮的实体，纵向占位远大于其高度，按 height 估画布必然裁掉马蹄。
+    """
+    cp, sp = math.cos(CAM_PITCH), math.sin(CAM_PITCH)
+    cy, sy = math.cos(CAM_YAW), math.sin(CAM_YAW)
+    return Vector((cy, sy, 0.0)), Vector((-sy * cp, cy * cp, sp))
+
+
+def setup_camera(ortho_scale, shift_x=0.0, shift_y=0.22):
     """正交等距相机。
 
-    shift_y 把画面上移，使地面点落在画布下方而非正中。不做偏移的话
-    脚底位于画布中心，下半张全是空白，而长矛、塔顶、展翅这些向上
-    延伸的部分反而会顶出画面。具体偏移量由 `frame_for` 按实体高度算出。
+    shift 把取景框对准实体的实际投影范围，使地面点落在画布下方而非正中。
+    不做偏移的话脚底位于画布中心，下半张全是空白，而长矛、塔顶、展翅这些
+    向上延伸的部分反而会顶出画面。偏移量由 `frame_for` 实测算出。
     """
     cam_data = bpy.data.cameras.new("IsoCam")
     cam_data.type = "ORTHO"
     cam_data.ortho_scale = ortho_scale
+    cam_data.shift_x = shift_x
     cam_data.shift_y = shift_y
     cam = bpy.data.objects.new("IsoCam", cam_data)
     bpy.context.collection.objects.link(cam)
@@ -209,14 +221,44 @@ def normalize(objs, target_h, lift, max_w=1.45):
     return pivot
 
 
-def apply_tint(objs, tint):
-    """整体染色：把同一模型改成不同阵营配色，省掉重复找素材。
+def _mix_node(nt, src, color, k, mode, loc):
+    """在 src 之后插入一个混色节点，返回新的输出 socket。"""
+    try:
+        mix = nt.nodes.new("ShaderNodeMix")
+        mix.data_type, mix.blend_type = "RGBA", mode
+        mix.inputs[0].default_value = k     # Factor
+        mix.inputs[7].default_value = color  # B(Color)
+        nt.links.new(src, mix.inputs[6])     # A(Color)
+        out = mix.outputs[2]                 # Result(Color)
+    except (RuntimeError, TypeError):        # 旧版本回退
+        mix = nt.nodes.new("ShaderNodeMixRGB")
+        mix.blend_type = mode
+        mix.inputs[0].default_value = k
+        mix.inputs[2].default_value = color
+        nt.links.new(src, mix.inputs[1])
+        out = mix.outputs[0]
+    mix.location = loc
+    return out
 
-    Base Color 未连接时直接混改默认值；已接纹理时插入一个混色节点，
-    否则染色对带贴图的模型完全无效（本项目的骷髅与鹰都属此类）。
+
+def apply_tint(objs, tint, mode="COLOR", brightness=None):
+    """阵营染色：把同一模型改成不同阵营配色，省掉重复找素材。
+
+    **默认用 Color 混合，而不是线性混到一个平色。** Color 混合取染色的色相与
+    饱和度、保留原纹理的明度，因此明暗层次完全不损失；线性混合则按比例抹掉层次，
+    强度调到能一眼认出阵营时模型已经糊成一块平色——亡灵弓手曾因此丢掉五官与衣褶，
+    幽灵战马被染成淡粉。要"更明显"时应当加大饱和度或压暗，而不是加大混合强度。
+
+    `brightness` 在换色之后再整体调整亮度（<1 压暗，>1 提亮）。之所以要两步：Color 混合
+    只取色相与饱和度、明度照抄原图，无法压暗；而 MULTIPLY 只能压暗、加不出原图
+    没有的颜色——棕马乘幽紫只会变成暗红。冷色的幽灵战马必须"先换色相再压暗"。
+
+    Base Color 未连接时直接改默认值；已接纹理时插入混色节点，
+    否则染色对带贴图的模型完全无效（本项目的骷髅与蝙蝠都属此类）。
     """
     r, g, b, k = tint[0] / 255.0, tint[1] / 255.0, tint[2] / 255.0, tint[3]
     col = (r, g, b, 1.0)
+    th, ts, _ = colorsys.rgb_to_hsv(r, g, b)
     # 不同素材包用的着色器不同：Principled 的接口叫 Base Color，
     # 而 Diffuse/Emission 叫 Color。只认前者会导致对部分模型静默失效
     # （本项目的骷髅材质就有两个输出节点，实际生效的是 Diffuse BSDF）。
@@ -236,27 +278,27 @@ def apply_tint(objs, tint):
                 if inp is None:
                     continue
                 if not inp.is_linked:
+                    # 这里必须自己实现混合模式。照搬线性插值会让 MULTIPLY 变成
+                    # "刷成平色"——幽灵战马因此不但没压暗，反而被刷亮成了淡紫。
                     c = inp.default_value
-                    inp.default_value = (c[0] * (1 - k) + r * k,
-                                         c[1] * (1 - k) + g * k,
-                                         c[2] * (1 - k) + b * k, c[3])
+                    if mode == "MULTIPLY":
+                        tr, tg, tb = c[0] * r, c[1] * g, c[2] * b
+                    elif mode == "COLOR":   # 保留原色明度，只换色相与饱和度
+                        v = colorsys.rgb_to_hsv(c[0], c[1], c[2])[2]
+                        tr, tg, tb = colorsys.hsv_to_rgb(th, ts, v)
+                    else:
+                        tr, tg, tb = r, g, b
+                    d = 1.0 if brightness is None else brightness
+                    inp.default_value = (min(1.0, (c[0] * (1 - k) + tr * k) * d),
+                                         min(1.0, (c[1] * (1 - k) + tg * k) * d),
+                                         min(1.0, (c[2] * (1 - k) + tb * k) * d), c[3])
                     continue
-                src = inp.links[0].from_socket
-                try:
-                    mix = nt.nodes.new("ShaderNodeMix")
-                    mix.data_type, mix.blend_type = "RGBA", "MIX"
-                    mix.inputs[0].default_value = k     # Factor
-                    mix.inputs[7].default_value = col   # B(Color)
-                    nt.links.new(src, mix.inputs[6])    # A(Color)
-                    nt.links.new(mix.outputs[2], inp)   # Result(Color)
-                except RuntimeError:                     # 旧版本回退
-                    mix = nt.nodes.new("ShaderNodeMixRGB")
-                    mix.blend_type = "MIX"
-                    mix.inputs[0].default_value = k
-                    mix.inputs[2].default_value = col
-                    nt.links.new(src, mix.inputs[1])
-                    nt.links.new(mix.outputs[0], inp)
-                mix.location = (n.location.x - 260, n.location.y - 180)
+                out = _mix_node(nt, inp.links[0].from_socket, col, k, mode,
+                                (n.location.x - 300, n.location.y - 180))
+                if brightness is not None:
+                    out = _mix_node(nt, out, (brightness, brightness, brightness, 1.0), 1.0,
+                                    "MULTIPLY", (n.location.x - 150, n.location.y - 180))
+                nt.links.new(out, inp)
 
 
 def relocate_missing_textures(model_path, levels=3):
@@ -295,17 +337,24 @@ def relocate_missing_textures(model_path, levels=3):
         print(f"    [警告] 纹理仍缺失，将渲染为品红: {unresolved}")
 
 
-def set_action(objs, action_name):
+def set_action(objs, action_name, pool=None):
     """给骨架指定动作。
 
     通过 libraries.load 载入 .blend 时，动作数据块虽然进来了，却不会自动绑到
     骨架上，模型会停在默认姿态——鹰的默认姿态是双翼下垂，渲出来只剩两片翅膀。
     素材包普遍自带 Idle / Walk / Flying / Attack 等动作，用它挑出合适的姿势。
+
+    `pool` 把候选限定在**本部件刚载入的**动作里。多包拼装时动作必然重名
+    （马与盗贼都有 Idle），后载入的会被 Blender 改成 `Idle.001`，
+    按全局名查找就会张冠李戴：把马的动作绑到骑手骨架上。骨骼名对不上时
+    Blender 不报错，骑手只是静默停在默认姿态——这类 bug 只能靠肉眼发现。
     """
-    act = bpy.data.actions.get(action_name)
+    cands = list(pool) if pool is not None else list(bpy.data.actions)
+    act = next((a for a in cands if a.name == action_name), None)
+    if act is None:                       # 载入时被加了 .001 之类的去重后缀
+        act = next((a for a in cands if a.name.rsplit(".", 1)[0] == action_name), None)
     if act is None:
-        cand = [a.name for a in bpy.data.actions]
-        print(f"    [警告] 找不到动作 {action_name!r}，可用: {cand}")
+        print(f"    [警告] 找不到动作 {action_name!r}，可用: {[a.name for a in cands]}")
         return
     for o in objs:
         if o.type != "ARMATURE":
@@ -324,24 +373,23 @@ def set_action(objs, action_name):
 
 def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
     reset_scene()
-    W, H, ortho, shift = frame_for(spec, px_per_tile, margin)
-    setup_render(W, H)
-    cam = setup_camera(ortho_scale=ortho, shift_y=shift)
     setup_lights()
 
     # Kenney 城堡包是模块化的：塔身分为底座/中段/顶层/屋顶数块，
     # 每块都从 z=0 起建模，单独渲染只是塔的一截。parts 按累计高度自下而上堆叠。
     if spec.get("parts"):
-        objs, z = [], 0.0
+        objs, z, tinted = [], 0.0, []
         for part in spec["parts"]:
             pp = os.path.join(base_dir, part["model"])
             if not os.path.exists(pp):
                 print(f"  [跳过] {ident}: 模型不存在 {part['model']}")
                 return 0, None
+            before_acts = set(bpy.data.actions)
             po = import_model(pp)
+            new_acts = [a for a in bpy.data.actions if a not in before_acts]
             relocate_missing_textures(pp)
             if part.get("action"):
-                set_action(po, part["action"])
+                set_action(po, part["action"], new_acts)
             roots = [o for o in po if o.parent is None]
             # 各素材包尺度互不相干，跨包组合（如骑手上马）须先按 scale 对齐比例
             s = part.get("scale", 1.0)
@@ -349,6 +397,13 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
                 for o in roots:
                     o.scale = tuple(v * s for v in o.scale)
                     o.location = tuple(v * s for v in o.location)
+            # rot 绕部件自身原点旋转（度）。武器模型的原点都在握把处，
+            # 因此这正好等于"改变握持角度"——骑枪压平指向前方靠的就是它。
+            rot = part.get("rot")
+            if rot:
+                for o in roots:
+                    o.rotation_euler = [o.rotation_euler[i] + math.radians(rot[i])
+                                        for i in range(3)]
             bpy.context.view_layer.update()
             off = part.get("offset")
             if off:
@@ -363,6 +418,12 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
                 for o in roots:
                     o.location.z += z + gap
                 z += (bb[1].z - bb[0].z if bb else 0.0) + gap
+            # 逐部件染色：整体染色会把骷髅也染成紫的，而骨头本该是骨白。
+            # 幽灵战马压暗成幽紫、骑手保持骨白、骑枪留冷钢色，三者才拉得开层次。
+            if part.get("tint"):
+                apply_tint(po, part["tint"], part.get("tint_mode", "COLOR"),
+                           part.get("brightness"))
+                tinted.extend(po)
             objs.extend(po)
         path = os.path.join(base_dir, spec["parts"][0]["model"])
     else:
@@ -372,15 +433,24 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
             return 0, None
         objs = import_model(path)
         relocate_missing_textures(path)
-    if spec.get("action"):
+        tinted = []
+    # 顶层 action 只对单模型有效：parts 拼装时每个部件的动作各不相同（马在腾跃、
+    # 骑手在待机），在这里统一绑定会把先前逐部件设好的动作全部覆盖掉。
+    if spec.get("action") and not spec.get("parts"):
         set_action(objs, spec["action"])
-    if spec.get("tint"):
-        apply_tint(objs, spec["tint"])
+    if spec.get("tint"):        # 已单独指定染色的部件不再被整体染色覆盖
+        apply_tint([o for o in objs if o not in tinted], spec["tint"],
+                   spec.get("tint_mode", "COLOR"), spec.get("brightness"))
     frames = spec.get("frames", [1])
     # 归一化必须在设定姿势之后：包围盒取自求值网格，姿势会改变它
     bpy.context.scene.frame_set(frames[0])
     pivot = normalize(objs, spec.get("height", 0.9), spec.get("lift", 0.0),
                       spec.get("max_width", 1.45))
+
+    # 取景须在归一化之后：画布按实测投影范围确定，而非按声明尺寸估算
+    W, H, ortho, shift_x, shift_y = frame_for(objs, spec, dirs, px_per_tile, margin)
+    setup_render(W, H)
+    cam = setup_camera(ortho, shift_x, shift_y)
 
     n = 0
     for d in dirs:
@@ -395,29 +465,53 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
     return n, {"canvas": [W, H], "ground_anchor": ground_anchor(cam, W, H)}
 
 
-def frame_for(spec, px_per_tile, margin):
-    """按实体自身尺寸算出画布与相机参数。
+# 底部预留量，须覆盖 postprocess.add_shadow 画的椭圆（其半高约为实体像素宽的 0.21 倍）。
+# 不预留则宽实体（骑兵）的地面投影会被画布下边缘切掉半个。
+SHADOW_PAD = 0.24
+
+
+def frame_for(objs, spec, dirs, px_per_tile, margin):
+    """把归一化后的几何投影到相机平面，按**实测范围**定画布与相机参数。
+
+    必须在 normalize 之后调用。早先的做法是按 `height` / `max_width` 估算，
+    有两个错处：等距投影下水平位移也会产生纵向屏幕位移（长而矮的马被裁掉蹄子），
+    且 `max_width` 是归一化的**上限**而非实际宽度（步兵的画布因此宽了近一倍）。
 
     实体高度跨度很大（幽影窥使 0.45 瓦片 ~ 领主堡垒 2.4 瓦片，约 5 倍），
-    统一画布必然二选一：要么裁掉高的，要么把矮的挤成一小点。
-
-    因此这里**保持统一的世界→像素缩放**（相对大小才正确，单位本就该比塔矮），
+    统一画布必然二选一：要么裁掉高的，要么把矮的挤成一小点。因此这里
+    **保持统一的世界→像素缩放**（相对大小才正确，单位本就该比塔矮），
     只让画布尺寸随实体变化。代价是前端需按精灵读取各自的锚点，
     这已由 `_sprite_meta.json` 承担。
     """
-    h = spec.get("height", 0.9) + spec.get("lift", 0.0)
-    w = spec.get("max_width", 1.45)
-    W = int(round((w + 2 * margin) * px_per_tile))
-    H = int(round((h + 2 * margin) * px_per_tile))
+    right, up = cam_basis()
+    bb = world_bbox(objs)
+    # 起始含世界原点：地面锚点必须落在画布内，否则前端无法对齐格子、
+    # 后处理也无处画投影（空中单位抬升后本体整个在原点上方）。
+    us, vs = [0.0], [0.0]
+    if bb:
+        lo, hi = bb
+        corners = [Vector((x, y, z)) for x in (lo.x, hi.x)
+                   for y in (lo.y, hi.y) for z in (lo.z, hi.z)]
+        for d in dirs:                    # 画布四向共用，取各朝向的并集
+            a = math.radians(DIR_YAW[d] + spec.get("yaw", 0))
+            ca, sa = math.cos(a), math.sin(a)
+            for c in corners:
+                r = Vector((c.x * ca - c.y * sa, c.x * sa + c.y * ca, c.z))
+                us.append(r.dot(right))
+                vs.append(r.dot(up))
+    u0, u1, v0, v1 = min(us), max(us), min(vs), max(vs)
+    v0 -= max(margin, SHADOW_PAD * (u1 - u0))   # 底部留白与投影预留取其大，不叠加
+    v1 += margin
+    u0 -= margin
+    u1 += margin
+
+    W = int(round((u1 - u0) * px_per_tile))
+    H = int(round((v1 - v0) * px_per_tile))
     W += W % 2                                  # 偶数尺寸，避免半像素锚点
     H += H % 2
-    maxdim = max(W, H)
-    ortho = maxdim / px_per_tile                # 世界跨度 = 大边像素 / 每瓦片像素
-    # 让地面点落在距底边 margin 处。相机投影满足 co.y = 0.5 - shift_y * (maxdim / H)，
-    # 其中 co.y 自下而上归一化；符号写反会把模型顶到画布底部之外。
-    target = margin * px_per_tile / H
-    shift_y = (0.5 - target) * H / maxdim
-    return W, H, ortho, shift_y
+    ortho = max(W, H) / px_per_tile             # 世界跨度 = 大边像素 / 每瓦片像素
+    # 取景中心即相机偏移：Blender 的 shift 以大边为单位，故除以 ortho_scale。
+    return W, H, ortho, (u0 + u1) / 2 / ortho, (v0 + v1) / 2 / ortho
 
 
 def ground_anchor(cam, W, H):
