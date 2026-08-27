@@ -1,0 +1,518 @@
+{
+  "px_per_tile": 256,
+  "tile": [
+    128,
+    64
+  ],
+  "dirs": [
+    "SE",
+    "SW",
+    "NE",
+    "NW"
+  ],
+  "note": "文件名 <标识符>_<状态>_<朝向>[_<帧号>].png，单帧时无帧号后缀。所有精灵共用同一世界->像素缩放（px_per_tile），故相对大小正确；画布逐状态适配，canvas 与 ground_anchor 必须按 (标识符,状态) 读取。状态间画布不同但锚点对齐，故 idle/move 切换不会跳动。ground_anchor 是画布内代表实体脚底的像素坐标。",
+  "sprites": {
+    "Spear": {
+      "cn": "铁壁枪卫",
+      "states": {
+        "idle": {
+          "canvas": [
+            302,
+            406
+          ],
+          "ground_anchor": [
+            151.0,
+            302.8
+          ],
+          "frames": [
+            1
+          ]
+        },
+        "move": {
+          "canvas": [
+            374,
+            466
+          ],
+          "ground_anchor": [
+            187.0,
+            320.1
+          ],
+          "frames": [
+            1,
+            6,
+            11,
+            16
+          ]
+        }
+      }
+    },
+    "Archer": {
+      "cn": "戍卫弓手",
+      "states": {
+        "idle": {
+          "canvas": [
+            282,
+            396
+          ],
+          "ground_anchor": [
+            141.0,
+            297.8
+          ],
+          "frames": [
+            1
+          ]
+        },
+        "move": {
+          "canvas": [
+            336,
+            446
+          ],
+          "ground_anchor": [
+            168.0,
+            312.2
+          ],
+          "frames": [
+            1,
+            6,
+            11,
+            16
+          ]
+        }
+      }
+    },
+    "Ranger": {
+      "cn": "逐风猎骑",
+      "states": {
+        "idle": {
+          "canvas": [
+            476,
+            614
+          ],
+          "ground_anchor": [
+            238.0,
+            435.7
+          ],
+          "frames": [
+            1
+          ]
+        },
+        "move": {
+          "canvas": [
+            524,
+            658
+          ],
+          "ground_anchor": [
+            262.0,
+            447.4
+          ],
+          "frames": [
+            1,
+            6,
+            11,
+            16
+          ]
+        }
+      }
+    },
+    "Scout": {
+      "cn": "游猎斥候",
+      "states": {
+        "idle": {
+          "canvas": [
+            242,
+            372
+          ],
+          "ground_anchor": [
+            121.0,
+            283.5
+          ],
+          "frames": [
+            1
+          ]
+        },
+        "move": {
+          "canvas": [
+            340,
+            434
+          ],
+          "ground_anchor": [
+            170.0,
+            308.4
+          ],
+          "frames": [
+            1,
+            6,
+            11,
+            16
+          ]
+        }
+      }
+    },
+    "Mason": {
+      "cn": "工匠",
+      "states": {
+        "idle": {
+          "canvas": [
+            310,
+            406
+          ],
+          "ground_anchor": [
+            155.0,
+            300.5
+          ],
+          "frames": [
+            1
+          ]
+        },
+        "move": {
+          "canvas": [
+            354,
+            450
+          ],
+          "ground_anchor": [
+            177.0,
+            312.3
+          ],
+          "frames": [
+            1,
+            6,
+            11,
+            16
+          ]
+        }
+      }
+    },
+    "Ghoul": {
+      "cn": "亡灵步兵",
+      "states": {
+        "idle": {
+          "canvas": [
+            256,
+            384
+          ],
+          "ground_anchor": [
+            128.0,
+            291.8
+          ],
+          "frames": [
+            1
+          ]
+        },
+        "move": {
+          "canvas": [
+            460,
+            516
+          ],
+          "ground_anchor": [
+            230.0,
+            345.3
+          ],
+          "frames": [
+            1,
+            8,
+            15,
+            22
+          ]
+        }
+      }
+    },
+    "Shade": {
+      "cn": "亡灵弓手",
+      "states": {
+        "idle": {
+          "canvas": [
+            256,
+            384
+          ],
+          "ground_anchor": [
+            128.0,
+            291.8
+          ],
+          "frames": [
+            1
+          ]
+        },
+        "move": {
+          "canvas": [
+            364,
+            444
+          ],
+          "ground_anchor": [
+            182.0,
+            320.9
+          ],
+          "frames": [
+            1,
+            8,
+            15,
+            22
+          ]
+        }
+      }
+    },
+    "Knight": {
+      "cn": "鬼域骑士团",
+      "states": {
+        "idle": {
+          "canvas": [
+            520,
+            646
+          ],
+          "ground_anchor": [
+            260.0,
+            446.5
+          ],
+          "frames": [
+            1
+          ]
+        },
+        "move": {
+          "canvas": [
+            564,
+            688
+          ],
+          "ground_anchor": [
+            282.0,
+            457.4
+          ],
+          "frames": [
+            1,
+            6,
+            11,
+            16
+          ]
+        }
+      }
+    },
+    "Wraith": {
+      "cn": "幽影窥使",
+      "states": {
+        "idle": {
+          "canvas": [
+            232,
+            294
+          ],
+          "ground_anchor": [
+            116.0,
+            208.0
+          ],
+          "frames": [
+            6
+          ]
+        },
+        "move": {
+          "canvas": [
+            336,
+            360
+          ],
+          "ground_anchor": [
+            168.0,
+            237.5
+          ],
+          "frames": [
+            1,
+            8,
+            15,
+            22
+          ]
+        }
+      }
+    },
+    "Phoenix": {
+      "cn": "不死鸟",
+      "states": {
+        "idle": {
+          "canvas": [
+            526,
+            516
+          ],
+          "ground_anchor": [
+            263.0,
+            416.5
+          ],
+          "frames": [
+            6
+          ]
+        },
+        "move": {
+          "canvas": [
+            498,
+            502
+          ],
+          "ground_anchor": [
+            249.0,
+            370.0
+          ],
+          "frames": [
+            1,
+            8,
+            15,
+            22
+          ]
+        }
+      }
+    },
+    "Ram": {
+      "cn": "攻城锤",
+      "states": {
+        "idle": {
+          "canvas": [
+            514,
+            542
+          ],
+          "ground_anchor": [
+            257.0,
+            345.2
+          ],
+          "frames": [
+            1
+          ]
+        }
+      }
+    },
+    "Wall": {
+      "cn": "城墙",
+      "states": {
+        "idle": {
+          "canvas": [
+            330,
+            454
+          ],
+          "ground_anchor": [
+            165.0,
+            343.4
+          ],
+          "frames": [
+            1
+          ]
+        }
+      }
+    },
+    "Gate": {
+      "cn": "城门",
+      "states": {
+        "idle": {
+          "canvas": [
+            406,
+            562
+          ],
+          "ground_anchor": [
+            203.0,
+            418.1
+          ],
+          "frames": [
+            1
+          ]
+        }
+      }
+    },
+    "Tower": {
+      "cn": "镇野箭楼",
+      "states": {
+        "idle": {
+          "canvas": [
+            306,
+            642
+          ],
+          "ground_anchor": [
+            153.0,
+            537.2
+          ],
+          "frames": [
+            1
+          ]
+        }
+      }
+    },
+    "Flak": {
+      "cn": "蔽空弩楼",
+      "states": {
+        "idle": {
+          "canvas": [
+            336,
+            634
+          ],
+          "ground_anchor": [
+            168.0,
+            522.1
+          ],
+          "frames": [
+            1
+          ]
+        }
+      }
+    },
+    "Keep": {
+      "cn": "领主堡垒",
+      "states": {
+        "idle": {
+          "canvas": [
+            328,
+            774
+          ],
+          "ground_anchor": [
+            164.0,
+            664.1
+          ],
+          "frames": [
+            1
+          ]
+        }
+      }
+    },
+    "Fence": {
+      "cn": "木栅",
+      "states": {
+        "idle": {
+          "canvas": [
+            266,
+            322
+          ],
+          "ground_anchor": [
+            133.0,
+            227.5
+          ],
+          "frames": [
+            1
+          ]
+        }
+      }
+    },
+    "Quarry": {
+      "cn": "采石场",
+      "states": {
+        "idle": {
+          "canvas": [
+            592,
+            526
+          ],
+          "ground_anchor": [
+            296.0,
+            291.2
+          ],
+          "frames": [
+            1
+          ]
+        }
+      }
+    },
+    "Lumber": {
+      "cn": "伐木场",
+      "states": {
+        "idle": {
+          "canvas": [
+            430,
+            378
+          ],
+          "ground_anchor": [
+            215.0,
+            222.2
+          ],
+          "frames": [
+            1
+          ]
+        }
+      }
+    }
+  }
+}
