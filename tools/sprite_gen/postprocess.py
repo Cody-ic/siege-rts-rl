@@ -11,6 +11,21 @@ Blender 出的是干净的透明底 PNG，这里补上两样游戏里必需但�
 """
 import sys, os, json, argparse
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL.PngImagePlugin import PngInfo
+
+# 写入 PNG 文本块的处理标记。后处理默认原地覆盖，若无此标记，
+# 重复运行会不断叠加描边与投影且不报错——图只是一次比一次糟。
+DONE_KEY = "siege_postprocessed"
+
+
+def already_done(img):
+    return img.info.get(DONE_KEY) == "1"
+
+
+def save_marked(img, path):
+    meta = PngInfo()
+    meta.add_text(DONE_KEY, "1")
+    img.save(path, pnginfo=meta)
 
 
 def add_outline(img, color=(10, 10, 14, 205), w=1):
@@ -83,11 +98,37 @@ def contact_sheet(rows, path, cell_px):
     sheet.save(path)
 
 
+def write_meta(outdir, size, dfl):
+    """随精灵输出一份元数据，作为前端的显式契约。
+
+    前端要把精灵贴到等距格子上，必须知道图里**哪个像素是脚底**。
+    靠 alpha 包围盒底边推算在单位带披风、长矛、尾羽时会偏，因此这里
+    把画布尺寸与地面锚点写成显式约定，两条生成路线都必须遵守。
+
+    3D 路线的 `blender_render.py` 会用相机投影精确算出锚点并先行写入，
+    **不得覆盖**——本函数只在文件缺失时补一份估算值（供占位路线使用）。
+    """
+    path = os.path.join(outdir, "_sprite_meta.json")
+    if os.path.exists(path):
+        return
+    meta = {
+        "canvas": size,
+        "tile": [dfl.get("tile_w", 64), dfl.get("tile_h", 32)],
+        "ground_anchor": dfl.get("ground_anchor", [size // 2, int(size * 0.72)]),
+        "dirs": dfl.get("dirs", ["SE", "SW", "NE", "NW"]),
+        "note": "ground_anchor 是画布内代表单位脚底的像素坐标，前端据此把精灵对齐到格子中心。",
+    }
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("indir")
     ap.add_argument("--manifest", default=os.path.join(os.path.dirname(__file__), "assets.json"))
     ap.add_argument("--outdir", default=None)
+    ap.add_argument("--force", action="store_true",
+                    help="对已带处理标记的图强制重新处理（会叠加描边，仅用于原始渲染输出）")
     a = ap.parse_args()
 
     with open(a.manifest, "r", encoding="utf-8") as f:
@@ -102,18 +143,23 @@ def main():
     outdir = a.outdir or a.indir
     os.makedirs(outdir, exist_ok=True)
 
-    groups, cell = {}, 0
+    groups, cell, skipped = {}, 0, 0
     for fn in sorted(os.listdir(a.indir)):
         if not fn.endswith(".png") or fn.startswith("_"):
             continue
         ident = fn.split("_")[0]
-        img = Image.open(os.path.join(a.indir, fn)).convert("RGBA")
+        src = Image.open(os.path.join(a.indir, fn))
+        done = already_done(src)
+        img = src.convert("RGBA")
         cell = max(cell, img.size[0])
-        # 顺序不可颠倒：先描边，再把投影合成到描边之下。
-        # 反过来的话投影自己也会被描边，变成带黑边的独立圆盘。
-        img = add_outline(img, ol_col, ol_w)
-        img = add_shadow(img, specs.get(ident, {}), ratio)
-        img.save(os.path.join(outdir, fn))
+        if done and not a.force:
+            skipped += 1                      # 已处理过，直接收入对照图，不再叠加
+        else:
+            # 顺序不可颠倒：先描边，再把投影合成到描边之下。
+            # 反过来的话投影自己也会被描边，变成带黑边的独立圆盘。
+            img = add_outline(img, ol_col, ol_w)
+            img = add_shadow(img, specs.get(ident, {}), ratio)
+            save_marked(img, os.path.join(outdir, fn))
         groups.setdefault(ident, []).append(img)
 
     if not groups:
@@ -121,8 +167,12 @@ def main():
         return
     for ident, frames in groups.items():
         print(f"  {ident:8s} {len(frames)} 帧")
+    if skipped:
+        print(f"\n跳过 {skipped} 张已处理的图（--force 可强制重处理，"
+              f"但只应对未经后处理的原始渲染输出使用）")
     sheet = os.path.join(outdir, "_contact_sheet.png")
     contact_sheet(sorted(groups.items()), sheet, cell)
+    write_meta(outdir, cell, dfl)
     print(f"\n对照图: {sheet}")
 
 

@@ -6,7 +6,8 @@
 """
 import sys, os
 from PIL import Image, ImageDraw, ImageFont
-from isolib import Canvas, KINGDOM, NETHER, DIRS, CANVAS
+import json
+from isolib import Canvas, KINGDOM, NETHER, DIRS, CANVAS, ANCHOR, TILE_W, TILE_H
 import units
 
 # 标识符 -> (中文名, 阵营配色, 绘制函数)
@@ -80,6 +81,12 @@ def main():
         print(f"  {ident:8s} {cn}  -> {len(frames)} 帧")
     sheet = os.path.join(out, "_contact_sheet.png")
     contact_sheet(rows, sheet)
+    with open(os.path.join(out, "_sprite_meta.json"), "w", encoding="utf-8") as f:
+        json.dump({"canvas": CANVAS, "tile": [TILE_W, TILE_H],
+                   "ground_anchor": list(ANCHOR), "dirs": DIRS,
+                   "note": "ground_anchor 是画布内代表单位脚底的像素坐标，"
+                           "前端据此把精灵对齐到格子中心。"},
+                  f, ensure_ascii=False, indent=2)
     print(f"\n对照图: {sheet}")
 
 

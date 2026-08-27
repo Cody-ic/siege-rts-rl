@@ -80,7 +80,9 @@ def cavalry(c, pal, d, undead=False):
     _humanoid(c, pal, fx, fy, z=0.54, scale=0.82, hunch=0.6 if undead else 0.0)
     # 骑枪：前倾，与步兵的竖直长矛形成对比
     hx, hy = fx * 0.26, fy * 0.26
-    c.stick((hx - fx * 0.5, hy - fy * 0.5, 0.86), (hx + fx * 0.86, hy + fy * 0.86, 0.70),
+    # 起点取在骑手手部而非马身后方，否则侧向朝向下像一根穿透坐骑的杆子
+    c.stick((hx - fx * 0.10 - fy * 0.10, hy - fy * 0.10 + fx * 0.10, 0.80),
+            (hx + fx * 0.80 - fy * 0.10, hy + fy * 0.80 + fx * 0.10, 0.66),
             pal["accent"] if undead else pal["metal"], 2.0)
     if undead:
         # 破损披风，区别于人类骑兵的整洁轮廓

@@ -172,6 +172,30 @@
       "yaw": 0,
       "height": 0.8,
       "max_width": 1.4
+    },
+    "Keep": {
+      "model": "models/kenney_castle/glb/tower-hexagon-top-wood.glb",
+      "yaw": 0,
+      "height": 2.0,
+      "max_width": 1.5
+    },
+    "Fence": {
+      "model": "models/kenney_castle/glb/wall-narrow-wood-fence.glb",
+      "yaw": 0,
+      "height": 0.6,
+      "max_width": 1.5
+    },
+    "Quarry": {
+      "model": "models/kenney_castle/glb/rocks-large.glb",
+      "yaw": 0,
+      "height": 0.8,
+      "max_width": 1.4
+    },
+    "Lumber": {
+      "model": "models/kenney_castle/glb/tree-log.glb",
+      "yaw": 0,
+      "height": 0.55,
+      "max_width": 1.4
     }
   }
 }

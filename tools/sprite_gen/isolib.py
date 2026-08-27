@@ -7,8 +7,8 @@ from PIL import Image, ImageDraw, ImageFilter
 
 SS = 4                    # 超采样倍数
 TILE_W, TILE_H = 64, 32   # 等距瓦片，固定 2:1
-CANVAS = 96               # 单帧画布边长
-ANCHOR = (48, 70)         # 地面锚点（脚底所在位置）
+CANVAS = 128              # 单帧画布边长，与 3D 路线一致（前端契约）
+ANCHOR = (64, 92)         # 地面锚点（脚底像素坐标），随精灵写入 _sprite_meta.json
 
 
 def shade(rgb, k):

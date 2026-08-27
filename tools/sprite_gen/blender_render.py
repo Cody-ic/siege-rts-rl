@@ -18,6 +18,7 @@ import bpy, sys, os, json, math
 from mathutils import Vector
 
 # 俯角 30° => 投影瓦片 2:1。真等距（各轴等比）是 35.264°，本项目不用。
+TILE_W, TILE_H = 64, 32        # 等距瓦片，固定 2:1，与 isolib 一致
 CAM_PITCH = math.radians(60.0)
 CAM_YAW = math.radians(45.0)
 
@@ -32,7 +33,7 @@ def argv_after_ddash():
 
 def parse_args():
     a = argv_after_ddash()
-    out = {"manifest": "assets.json", "out": "out_3d", "only": None, "size": None}
+    out = {"manifest": os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets.json"), "out": "out_3d", "only": None, "size": None}
     i = 0
     while i < len(a):
         k = a[i].lstrip("-")
@@ -75,10 +76,18 @@ def setup_render(size, engine_samples=32):
                 setattr(ev, attr, True)
 
 
-def setup_camera(ortho_scale):
+def setup_camera(ortho_scale, shift_y=0.22):
+    """正交等距相机。
+
+    shift_y 把画面上移，使**地面点落在画布约 72% 高度处**而非正中。
+    不做偏移的话脚底位于画布中心，下半张全是空白，而长矛、塔顶、
+    展翅这些向上延伸的部分反而会顶出画面。该比例与占位路线的
+    isolib.ANCHOR 一致，两条路线共用同一份前端契约。
+    """
     cam_data = bpy.data.cameras.new("IsoCam")
     cam_data.type = "ORTHO"
     cam_data.ortho_scale = ortho_scale
+    cam_data.shift_y = shift_y
     cam = bpy.data.objects.new("IsoCam", cam_data)
     bpy.context.collection.objects.link(cam)
     cam.rotation_euler = (CAM_PITCH, 0.0, CAM_YAW)
@@ -318,13 +327,13 @@ def render_entry(ident, spec, base_dir, out_dir, size, dirs):
     reset_scene()
     setup_render(size)
     # 正交视野固定为 2.2 个瓦片宽：所有单位共用同一取景比例，尺寸才可比
-    setup_camera(ortho_scale=2.2)
+    cam = setup_camera(ortho_scale=2.2)
     setup_lights()
 
     path = os.path.join(base_dir, spec["model"])
     if not os.path.exists(path):
         print(f"  [跳过] {ident}: 模型不存在 {spec['model']}")
-        return 0
+        return 0, None
     objs = import_model(path)
     relocate_missing_textures(path)
     if spec.get("action"):
@@ -347,7 +356,31 @@ def render_entry(ident, spec, base_dir, out_dir, size, dirs):
             bpy.ops.render.render(write_still=True)
             n += 1
     print(f"  {ident:8s} -> {n} 帧")
-    return n
+    return n, ground_anchor(cam, size)
+
+
+def ground_anchor(cam, size):
+    """世界原点在画布中的像素坐标 —— 即单位脚底所在处。
+
+    前端要把精灵对齐到等距格子，必须知道图里哪个像素是脚底。
+    由相机投影精确算出，而不是靠 alpha 包围盒底边推算：后者在单位带
+    披风、长矛、尾羽时会明显偏移。
+    """
+    from bpy_extras.object_utils import world_to_camera_view
+    co = world_to_camera_view(bpy.context.scene, cam, Vector((0.0, 0.0, 0.0)))
+    return [round(co.x * size, 1), round((1.0 - co.y) * size, 1)]
+
+
+def write_meta(out_dir, size, dirs, anchor):
+    meta = {
+        "canvas": size,
+        "tile": [TILE_W, TILE_H],
+        "ground_anchor": anchor,
+        "dirs": dirs,
+        "note": "ground_anchor 是画布内代表单位脚底的像素坐标，前端据此把精灵对齐到格子中心。",
+    }
+    with open(os.path.join(out_dir, "_sprite_meta.json"), "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
 
 
 def main():
@@ -365,11 +398,16 @@ def main():
     for group in ("units", "buildings"):
         entries.update(mf.get(group, {}))
 
-    total = 0
+    total, last_anchor = 0, [size / 2, size * 0.72]
     for ident, spec in entries.items():
         if args["only"] and ident not in args["only"]:
             continue
-        total += render_entry(ident, spec, base, out_dir, size, dirs)
+        n, anchor = render_entry(ident, spec, base, out_dir, size, dirs)
+        total += n
+        if anchor:
+            last_anchor = anchor
+    if total:
+        write_meta(out_dir, size, dirs, last_anchor)
     print(f"\n共 {total} 帧 -> {out_dir}")
     print("下一步: python postprocess.py " + out_dir)
 
