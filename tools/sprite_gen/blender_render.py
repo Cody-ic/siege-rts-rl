@@ -18,7 +18,7 @@ import bpy, sys, os, json, math
 from mathutils import Vector
 
 # 俯角 30° => 投影瓦片 2:1。真等距（各轴等比）是 35.264°，本项目不用。
-TILE_W, TILE_H = 64, 32        # 等距瓦片，固定 2:1，与 isolib 一致
+TILE_W, TILE_H = 128, 64       # 等距瓦片，固定 2:1，与 isolib 一致
 CAM_PITCH = math.radians(60.0)
 CAM_YAW = math.radians(45.0)
 
@@ -53,7 +53,7 @@ def reset_scene():
     bpy.ops.wm.read_factory_settings(use_empty=True)
 
 
-def setup_render(size, engine_samples=32):
+def setup_render(size, engine_samples=64):
     sc = bpy.context.scene
     for name in ("BLENDER_EEVEE_NEXT", "BLENDER_EEVEE"):
         try:
@@ -323,11 +323,11 @@ def set_action(objs, action_name):
                 pass
 
 
-def render_entry(ident, spec, base_dir, out_dir, size, dirs):
+def render_entry(ident, spec, base_dir, out_dir, size, dirs, ortho=2.0):
     reset_scene()
     setup_render(size)
     # 正交视野固定为 2.2 个瓦片宽：所有单位共用同一取景比例，尺寸才可比
-    cam = setup_camera(ortho_scale=2.2)
+    cam = setup_camera(ortho_scale=ortho)
     setup_lights()
 
     path = os.path.join(base_dir, spec["model"])
@@ -391,6 +391,9 @@ def main():
     dfl = mf.get("defaults", {})
     size = args["size"] or dfl.get("size", 128)
     dirs = dfl.get("dirs", ["SE", "SW", "NE", "NW"])
+    # 取景比例：世界单位跨度 = 画布边长 / 瓦片像素宽。
+    # 值越小单位在画面中越大、细节越多；2.0 对应 256px 画布下 128px 的瓦片。
+    ortho = dfl.get("ortho_scale", 2.0)
     out_dir = os.path.abspath(args["out"])
     os.makedirs(out_dir, exist_ok=True)
 
@@ -402,7 +405,7 @@ def main():
     for ident, spec in entries.items():
         if args["only"] and ident not in args["only"]:
             continue
-        n, anchor = render_entry(ident, spec, base, out_dir, size, dirs)
+        n, anchor = render_entry(ident, spec, base, out_dir, size, dirs, ortho)
         total += n
         if anchor:
             last_anchor = anchor

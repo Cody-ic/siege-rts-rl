@@ -6,9 +6,9 @@
 from PIL import Image, ImageDraw, ImageFilter
 
 SS = 4                    # 超采样倍数
-TILE_W, TILE_H = 64, 32   # 等距瓦片，固定 2:1
-CANVAS = 128              # 单帧画布边长，与 3D 路线一致（前端契约）
-ANCHOR = (64, 92)         # 地面锚点（脚底像素坐标），随精灵写入 _sprite_meta.json
+TILE_W, TILE_H = 128, 64  # 等距瓦片，固定 2:1。128 px 才容得下模型细节
+CANVAS = 256              # 单帧画布边长，与 3D 路线一致（前端契约）
+ANCHOR = (128, 184)       # 地面锚点（脚底像素坐标），位于画布 72% 高度处
 
 
 def shade(rgb, k):
@@ -66,7 +66,7 @@ class Canvas:
         """世界坐标下的杆状物（长矛、旗杆等）。"""
         self.d.line([self.pt(*p0), self.pt(*p1)], fill=col, width=int(w * SS))
 
-    def out(self, outline=(10, 10, 14, 205), w=1):
+    def out(self, outline=(10, 10, 14, 205), w=2):
         """缩回目标尺寸，并沿轮廓加一圈描边。
 
         描边不是装饰：单位必须在任意地表上都能读出剪影，

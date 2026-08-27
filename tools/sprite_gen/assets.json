@@ -18,7 +18,7 @@
     "模型来源：Quaternius(RPG Characters / Monster Pack / Animal Pack Vol.2) 与 Kenney(Castle Kit)，均为 CC0。经 OpenGameArt 与 kenney.nl 直链获取。"
   ],
   "defaults": {
-    "size": 128,
+    "size": 256,
     "tile_ratio": 2.0,
     "dirs": [
       "SE",
@@ -32,7 +32,10 @@
       14,
       205
     ],
-    "outline_width": 1
+    "outline_width": 2,
+    "ortho_scale": 2.0,
+    "tile_w": 128,
+    "tile_h": 64
   },
   "units": {
     "Spear": {
