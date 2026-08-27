@@ -340,11 +340,29 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
                 return 0, None
             po = import_model(pp)
             relocate_missing_textures(pp)
-            bb = world_bbox(po)
-            for o in po:
-                if o.parent is None:
-                    o.location.z += z + part.get("gap", 0.0)
-            z += (bb[1].z - bb[0].z if bb else 0.0) + part.get("gap", 0.0)
+            if part.get("action"):
+                set_action(po, part["action"])
+            roots = [o for o in po if o.parent is None]
+            # 各素材包尺度互不相干，跨包组合（如骑手上马）须先按 scale 对齐比例
+            s = part.get("scale", 1.0)
+            if s != 1.0:
+                for o in roots:
+                    o.scale = tuple(v * s for v in o.scale)
+                    o.location = tuple(v * s for v in o.location)
+            bpy.context.view_layer.update()
+            off = part.get("offset")
+            if off:
+                # 显式定位：用于组合而非堆叠，不参与累计高度
+                for o in roots:
+                    o.location.x += off[0]
+                    o.location.y += off[1]
+                    o.location.z += off[2]
+            else:
+                gap = part.get("gap", 0.0)
+                bb = world_bbox(po)
+                for o in roots:
+                    o.location.z += z + gap
+                z += (bb[1].z - bb[0].z if bb else 0.0) + gap
             objs.extend(po)
         path = os.path.join(base_dir, spec["parts"][0]["model"])
     else:

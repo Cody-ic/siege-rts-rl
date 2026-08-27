@@ -1,0 +1,225 @@
+{
+  "px_per_tile": 128,
+  "tile": [
+    128,
+    64
+  ],
+  "dirs": [
+    "SE",
+    "SW",
+    "NE",
+    "NW"
+  ],
+  "note": "所有精灵共用同一世界->像素缩放（px_per_tile），故相对大小正确；画布尺寸逐个实体适配，因此 canvas 与 ground_anchor 必须按精灵读取。ground_anchor 是画布内代表实体脚底的像素坐标。",
+  "sprites": {
+    "Spear": {
+      "canvas": [
+        242,
+        172
+      ],
+      "ground_anchor": [
+        121.0,
+        143.8
+      ],
+      "cn": "铁壁枪卫"
+    },
+    "Archer": {
+      "canvas": [
+        242,
+        172
+      ],
+      "ground_anchor": [
+        121.0,
+        143.8
+      ],
+      "cn": "戍卫弓手"
+    },
+    "Ranger": {
+      "canvas": [
+        242,
+        172
+      ],
+      "ground_anchor": [
+        121.0,
+        143.8
+      ],
+      "cn": "逐风猎骑"
+    },
+    "Scout": {
+      "canvas": [
+        242,
+        170
+      ],
+      "ground_anchor": [
+        121.0,
+        141.8
+      ],
+      "cn": "游猎斥候"
+    },
+    "Mason": {
+      "canvas": [
+        242,
+        170
+      ],
+      "ground_anchor": [
+        121.0,
+        141.8
+      ],
+      "cn": "工匠"
+    },
+    "Ghoul": {
+      "canvas": [
+        242,
+        172
+      ],
+      "ground_anchor": [
+        121.0,
+        143.8
+      ],
+      "cn": "亡灵步兵"
+    },
+    "Shade": {
+      "canvas": [
+        242,
+        172
+      ],
+      "ground_anchor": [
+        121.0,
+        143.8
+      ],
+      "cn": "亡灵弓手"
+    },
+    "Knight": {
+      "canvas": [
+        300,
+        204
+      ],
+      "ground_anchor": [
+        150.0,
+        175.8
+      ],
+      "cn": "鬼域骑士团"
+    },
+    "Wraith": {
+      "canvas": [
+        178,
+        156
+      ],
+      "ground_anchor": [
+        89.0,
+        127.8
+      ],
+      "cn": "幽影窥使"
+    },
+    "Phoenix": {
+      "canvas": [
+        230,
+        224
+      ],
+      "ground_anchor": [
+        115.0,
+        195.8
+      ],
+      "cn": "不死鸟"
+    },
+    "Ram": {
+      "canvas": [
+        262,
+        166
+      ],
+      "ground_anchor": [
+        131.0,
+        137.8
+      ],
+      "cn": "攻城锤"
+    },
+    "Wall": {
+      "canvas": [
+        248,
+        192
+      ],
+      "ground_anchor": [
+        124.0,
+        163.8
+      ],
+      "cn": "城墙"
+    },
+    "Gate": {
+      "canvas": [
+        248,
+        224
+      ],
+      "ground_anchor": [
+        124.0,
+        195.8
+      ],
+      "cn": "城门"
+    },
+    "Tower": {
+      "canvas": [
+        204,
+        306
+      ],
+      "ground_anchor": [
+        102.0,
+        277.8
+      ],
+      "cn": "镇野箭楼"
+    },
+    "Flak": {
+      "canvas": [
+        236,
+        160
+      ],
+      "ground_anchor": [
+        118.0,
+        131.8
+      ],
+      "cn": "蔽空弩楼"
+    },
+    "Keep": {
+      "canvas": [
+        312,
+        332
+      ],
+      "ground_anchor": [
+        156.0,
+        303.8
+      ],
+      "cn": "领主堡垒"
+    },
+    "Fence": {
+      "canvas": [
+        248,
+        134
+      ],
+      "ground_anchor": [
+        124.0,
+        105.8
+      ],
+      "cn": "木栅"
+    },
+    "Quarry": {
+      "canvas": [
+        236,
+        160
+      ],
+      "ground_anchor": [
+        118.0,
+        131.8
+      ],
+      "cn": "采石场"
+    },
+    "Lumber": {
+      "canvas": [
+        236,
+        128
+      ],
+      "ground_anchor": [
+        118.0,
+        99.8
+      ],
+      "cn": "伐木场"
+    }
+  }
+}

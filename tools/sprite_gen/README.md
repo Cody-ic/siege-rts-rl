@@ -35,7 +35,16 @@ python gen.py out
 **不要使用 [Reiner's Tilesets](https://www.reinerstilesets.de/graphics/lizenz/)**：
 其许可禁止将原始素材（含修改版）上传到自己的页面，与本项目"素材入库并随源码交付"冲突。
 
-两个已知坑：Quaternius 的 **FBX 动画会损坏**，请用 `.blend` 或 glTF；
+### 素材包本身的坑（下次换素材大概率还会撞上）
+
+| 症状 | 原因 | 应对 |
+|---|---|---|
+| 模型整体渲成**品红** | `.blend` 把纹理路径写成与自身同级，分发时纹理却在单独的 `Textures/` 目录 | `relocate_missing_textures()` 按文件名逐级向上搜索并改写 `filepath`。Blender 的 `file.find_missing_files` 算子在无头模式下不可靠 |
+| 渲出**空图** | 网格被作者设了 `hide_render=True`（Quaternius 的 Skeleton 即如此） | `normalize()` 中强制 `hide_render = hide_viewport = False` |
+| 模型停在**默认姿态**（鹰只剩两片下垂的翅膀） | `libraries.load` 会载入动作数据块，但不会绑到骨架 | `set_action()` 显式指定；动作名各包不同（`Idle` / `Skeleton_Idle` / `Bat_Flying`），找不到时会打印可用列表 |
+| 跨包组合比例失调 | 各包尺度互不相干（马高 6.91、骷髅高 5.09，原始单位无可比性） | `parts` 的 `scale` 先对齐比例，再用 `offset` 定位 |
+
+另外两个已知坑：Quaternius 的 **FBX 动画会损坏**，请用 `.blend` 或 glTF；
 KayKit 的 **Legacy 版本**风格陈旧，须取重做后的新版。
 
 ### 2. 放置模型并登记
@@ -106,6 +115,12 @@ python postprocess.py out_3d
 
 `--force` 可强制重处理，但**只应对未经后处理的原始渲染输出使用**。
 
-## 交付提醒
+## 精灵成品入库
 
-`.gitignore` 忽略 `out/` 与 `out_3d/`（可由脚本重建），但交付清单要求「软件源代码**包括输入文件和输出文件**」——**最终打包时精灵 PNG 必须在包里**，不要因 gitignore 而漏掉。
+`out_3d/` 的 77 张精灵与 `_sprite_meta.json` **入库**，理由三条：
+
+1. 交付清单要求「软件源代码**包括输入文件和输出文件**」——精灵既是渲染的输出、也是游戏的输入
+2. 体积可忽略：共约 2.7 MB，远小于已入库的 `.glb` 源素材
+3. "产物可重建所以不入库"在此不成立——重建需装 Blender 并配好环境，成本不低，前端不应为此被阻塞
+
+`out/`（占位）与 `dl/`（下载的原始压缩包）仍然忽略，前者可由 `gen.py` 秒级重建，后者已解压进 `models/`。

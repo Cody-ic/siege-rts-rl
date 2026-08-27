@@ -85,36 +85,45 @@
       "cn": "亡灵步兵"
     },
     "Shade": {
-      "model": "models/q_monsters/Blend/Skeleton.blend",
+      "cn": "亡灵弓手",
+      "model": "models/q_rpg/Blends/Ranger.blend",
       "yaw": 0,
       "height": 0.9,
+      "action": "Idle",
       "tint": [
         120,
-        140,
+        150,
         205,
-        0.5
-      ],
-      "action": "Skeleton_Attack",
-      "frames": [
-        12
-      ],
-      "cn": "亡灵弓手"
+        0.62
+      ]
     },
     "Knight": {
-      "model": "models/q_monsters/Blend/Skeleton.blend",
+      "cn": "鬼域骑士团",
       "yaw": 0,
-      "height": 0.95,
+      "height": 1.15,
+      "max_width": 1.9,
       "tint": [
-        165,
+        155,
         120,
-        200,
-        0.52
+        195,
+        0.45
       ],
-      "action": "Skeleton_Running",
-      "frames": [
-        6
-      ],
-      "cn": "鬼域骑士团"
+      "parts": [
+        {
+          "model": "models/q_farm/Blends/Horse.blend",
+          "action": "Idle"
+        },
+        {
+          "model": "models/q_monsters/Blend/Skeleton.blend",
+          "action": "Skeleton_Idle",
+          "scale": 0.92,
+          "offset": [
+            0,
+            0.4,
+            3.3
+          ]
+        }
+      ]
     },
     "Wraith": {
       "model": "models/q_monsters/Blend/Bat.blend",
