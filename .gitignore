@@ -41,4 +41,3 @@ wandb/
 # 体积也可忽略（77 张共约 2.7 MB，远小于已入库的 .glb 素材）。
 tools/sprite_gen/out/
 tools/sprite_gen/dl/
-tools/sprite_gen/dl/

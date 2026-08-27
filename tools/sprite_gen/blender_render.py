@@ -15,7 +15,7 @@
 符合等距游戏的观感；若改为旋转相机，模型受光恒定，看起来会很平。
 """
 import bpy, sys, os, json, math, colorsys
-from mathutils import Vector
+from mathutils import Vector, Matrix
 
 # 俯角 30° => 投影瓦片 2:1。真等距（各轴等比）是 35.264°，本项目不用。
 TILE_W, TILE_H = 128, 64       # 等距瓦片，固定 2:1，与 isolib 一致
@@ -300,8 +300,15 @@ def apply_tint(objs, tint, mode="COLOR", brightness=None):
                 out = _mix_node(nt, inp.links[0].from_socket, col, k, mode,
                                 (n.location.x - 300, n.location.y - 180))
                 if brightness is not None:
-                    out = _mix_node(nt, out, (brightness, brightness, brightness, 1.0), 1.0,
-                                    "MULTIPLY", (n.location.x - 150, n.location.y - 180))
+                    # 必须用向量缩放，不能用 MULTIPLY 混色节点：后者的颜色输入被
+                    # 钳制在 0~1，brightness>1 传进去就变成白色，等于静默失效
+                    # ——不死鸟提亮到 2.8 仍然一片暗，就是撞在这里。
+                    sc = nt.nodes.new("ShaderNodeVectorMath")
+                    sc.operation = "SCALE"
+                    sc.inputs[3].default_value = brightness
+                    sc.location = (n.location.x - 150, n.location.y - 180)
+                    nt.links.new(out, sc.inputs[0])
+                    out = sc.outputs[0]
                 nt.links.new(out, inp)
 
 
@@ -405,11 +412,36 @@ def set_pose(objs, pose, freeze_frame):
 
 
 def find_bone(name):
-    """在场景已有的骨架中查找骨骼，返回其世界矩阵。"""
+    """在场景已有的骨架中查找骨骼，返回持有它的骨架对象。"""
     for o in bpy.context.scene.objects:
         if o.type == "ARMATURE" and name in o.pose.bones:
-            return o.matrix_world @ o.pose.bones[name].matrix
+            return o
     return None
+
+
+def states_of(spec):
+    """展开动画状态，返回 [(状态名, 该状态的完整 spec)]。
+
+    未声明 states 的实体（建筑、攻城锤）视为只有一个 idle 状态，因此
+    前端可以对所有实体一视同仁地按 (标识符, 状态) 取图。
+
+    每个状态是一份**深拷贝**：状态之间共享 parts 字典的话，给 move 覆写
+    动作会连带改掉 idle 的。
+    """
+    st = spec.get("states")
+    if not st:
+        return [("idle", spec)]
+    out = []
+    for name, ov in st.items():
+        e = json.loads(json.dumps(spec))
+        e.pop("states", None)
+        for k in ("action", "frames"):
+            if k in ov:
+                e[k] = ov[k]
+        for idx, pov in (ov.get("parts") or {}).items():
+            e["parts"][int(idx)].update(pov)
+        out.append((name, e))
+    return out
 
 
 def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
@@ -453,17 +485,25 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
             off = part.get("offset")
             bone = part.get("attach")
             if bone:
-                # 绑到先前部件的骨骼上。武器就该长在手上——按世界坐标估位置
-                # 一改姿态就得重估，而且四个朝向里总有一个看着穿帮。
-                m = find_bone(bone)
-                if m is None:
+                # 建立真正的骨骼父子关系，而不是算一次世界矩阵摆上去。
+                # 摆放式绑定只在定格的部件上成立：骷髅一跑起来手臂摆动，
+                # 静态摆放的剑就留在原地脱手了。
+                arm = find_bone(bone)
+                if arm is None:
                     print(f"    [警告] 找不到用于绑定的骨骼 {bone!r}")
                 else:
+                    # 子对象会继承骨架与骨骼的缩放，而清单里的 scale 应当是
+                    # 世界尺度（与非绑定部件同义），故在此除掉继承的那一份。
+                    bsc = (arm.matrix_world @ arm.pose.bones[bone].matrix).to_scale()
                     for o in roots:
-                        if off:      # attach 时 offset 是骨骼局部坐标（局部 Y 沿骨骼方向）
-                            o.location = (o.location[0] + off[0], o.location[1] + off[1],
-                                          o.location[2] + off[2])
-                        o.matrix_world = m @ o.matrix_basis
+                        o.parent = arm
+                        o.parent_type = "BONE"
+                        o.parent_bone = bone
+                        o.matrix_parent_inverse = Matrix.Identity(4)
+                        o.scale = tuple(o.scale[i] / max(abs(bsc[i]), 1e-6) for i in range(3))
+                        # 骨骼父子关系以**骨尾**为原点、局部 Y 沿骨长，
+                        # 因此手部武器的 offset 通常就是 0
+                        o.location = tuple(off) if off else (0.0, 0.0, 0.0)
             elif off:
                 # 显式定位：用于组合而非堆叠，不参与累计高度
                 for o in roots:
@@ -608,8 +648,10 @@ def write_meta(out_dir, px_per_tile, dirs, sprites):
         "px_per_tile": px_per_tile,
         "tile": [TILE_W, TILE_H],
         "dirs": dirs,
-        "note": ("所有精灵共用同一世界->像素缩放（px_per_tile），故相对大小正确；"
-                 "画布尺寸逐个实体适配，因此 canvas 与 ground_anchor 必须按精灵读取。"
+        "note": ("文件名 <标识符>_<状态>_<朝向>[_<帧号>].png，单帧时无帧号后缀。"
+                 "所有精灵共用同一世界->像素缩放（px_per_tile），故相对大小正确；"
+                 "画布逐状态适配，canvas 与 ground_anchor 必须按 (标识符,状态) 读取。"
+                 "状态间画布不同但锚点对齐，故 idle/move 切换不会跳动。"
                  "ground_anchor 是画布内代表实体脚底的像素坐标。"),
         "sprites": sprites,
     }
@@ -640,11 +682,14 @@ def main():
     for ident, spec in entries.items():
         if args["only"] and ident not in args["only"]:
             continue
-        n, info = render_entry(ident, spec, base, out_dir, px, margin, dirs)
-        total += n
-        if info:
-            info["cn"] = spec.get("cn", ident)
-            sprites[ident] = info
+        st_info = {}
+        for st_name, eff in states_of(spec):
+            n, info = render_entry(f"{ident}_{st_name}", eff, base, out_dir, px, margin, dirs)
+            total += n
+            if info:
+                st_info[st_name] = info
+        if st_info:
+            sprites[ident] = {"cn": spec.get("cn", ident), "states": st_info}
     if total:
         write_meta(out_dir, px, dirs, sprites)
     print(f"\n共 {total} 帧 -> {out_dir}")

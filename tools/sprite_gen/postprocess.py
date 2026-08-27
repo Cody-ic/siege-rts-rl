@@ -92,7 +92,8 @@ def contact_sheet(rows, path, meta):
     pad, label_w, head = 12, 190, 40
 
     def anchor_of(ident, im):
-        a = sprites.get(ident, {}).get("ground_anchor")
+        a = (sprites.get(ident, {}).get("states", {})
+             .get("idle", {}).get("ground_anchor"))
         return (a[0], a[1]) if a else (im.width / 2, im.height * 0.78)
 
     ncol = max(len(f) for _, f in rows)
@@ -187,15 +188,19 @@ def main():
         with open(meta_path, encoding="utf-8") as f:
             meta = json.load(f)
     dirs_order = dfl.get("dirs", ["SE", "SW", "NE", "NW"])
-    # 对照图只收每个朝向的首帧：动画帧全画进去会让图宽到没法看（骑兵一行 16 张），
-    # 而对照图的用途是目视校验剪影与相对大小，逐帧比对不在其列。
+    # 对照图只收 idle 状态每个朝向的首帧：把全部状态与动画帧都画进去会让图
+    # 宽到没法看（骑兵一行 20 张），而对照图的用途是目视校验剪影与相对大小。
     picked, counts, cell, skipped = {}, {}, 0, 0
     for fn in sorted(os.listdir(a.indir)):
         if not fn.endswith(".png") or fn.startswith("_"):
             continue
+        # <标识符>_<状态>_<朝向>[_<帧号>]
         seg = fn[:-4].split("_")
-        ident, dr = seg[0], (seg[1] if len(seg) > 1 else "")
-        fr = int(seg[2]) if len(seg) > 2 and seg[2].isdigit() else 0
+        if len(seg) < 3:
+            print(f"  [跳过] 文件名不合约定: {fn}")
+            continue
+        ident, state, dr = seg[0], seg[1], seg[2]
+        fr = int(seg[3]) if len(seg) > 3 and seg[3].isdigit() else 0
         src = Image.open(os.path.join(a.indir, fn))
         done = already_done(src)
         img = src.convert("RGBA")
@@ -203,13 +208,16 @@ def main():
         if done and not a.force:
             skipped += 1                      # 已处理过，直接收入对照图，不再叠加
         else:
+            anchor = (meta.get("sprites", {}).get(ident, {})
+                      .get("states", {}).get(state, {}).get("ground_anchor"))
             # 顺序不可颠倒：先描边，再把投影合成到描边之下。
             # 反过来的话投影自己也会被描边，变成带黑边的独立圆盘。
             img = add_outline(img, ol_col, ol_w)
-            img = add_shadow(img, specs.get(ident, {}), ratio,
-                             meta.get("sprites", {}).get(ident, {}).get("ground_anchor"))
+            img = add_shadow(img, specs.get(ident, {}), ratio, anchor)
             save_marked(img, os.path.join(outdir, fn))
         counts[ident] = counts.get(ident, 0) + 1
+        if state != "idle":
+            continue
         prev = picked.setdefault(ident, {}).get(dr)
         if prev is None or fr < prev[0]:
             picked[ident][dr] = (fr, img)
