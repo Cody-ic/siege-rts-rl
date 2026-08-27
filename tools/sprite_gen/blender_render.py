@@ -138,25 +138,49 @@ def import_model(path):
 
 
 def world_bbox(objs):
+    """求值后的世界包围盒。
+
+    必须用 depsgraph 求值后的网格：`Object.bound_box` 只反映静止姿态，
+    不含骨骼形变，而展翅与收翅的实际尺寸可以差好几倍，
+    用静止姿态定标会导致缩放严重失准。
+    """
+    dg = bpy.context.evaluated_depsgraph_get()
     lo = Vector((1e9,) * 3)
     hi = Vector((-1e9,) * 3)
     found = False
     for o in objs:
         if o.type != "MESH":
             continue
-        found = True
-        for c in o.bound_box:
-            w = o.matrix_world @ Vector(c)
+        oe = o.evaluated_get(dg)
+        try:
+            me = oe.to_mesh()
+        except RuntimeError:
+            continue
+        if me is None:
+            continue
+        mw = oe.matrix_world
+        for v in me.vertices:
+            w = mw @ v.co
             lo = Vector((min(lo[i], w[i]) for i in range(3)))
             hi = Vector((max(hi[i], w[i]) for i in range(3)))
+            found = True
+        oe.to_mesh_clear()
     return (lo, hi) if found else None
 
 
-def normalize(objs, target_h, lift):
+def normalize(objs, target_h, lift, max_w=1.45):
     """把模型缩放到统一高度、底面贴地，并挂到一个空物体上便于整体旋转。
 
-    统一高度是跨来源风格一致的第一步：各家模型的原始尺度毫无可比性。
+    统一尺度是跨来源风格一致的第一步：各家模型的原始尺度毫无可比性。
+    除高度外还需约束**水平尺寸**——展翅的鸟类宽度可达高度的 8 倍，
+    只按高度归一化会让翼展撑爆画面。
     """
+    # 素材包中常有对象被作者关掉渲染可见性（如 Quaternius 的 Skeleton），
+    # 不强制打开会渲出空图。
+    for o in objs:
+        o.hide_render = False
+        o.hide_viewport = False
+
     bb = world_bbox(objs)
     pivot = bpy.data.objects.new("Pivot", None)
     bpy.context.collection.objects.link(pivot)
@@ -164,7 +188,10 @@ def normalize(objs, target_h, lift):
         return pivot
     lo, hi = bb
     h = max(hi.z - lo.z, 1e-6)
+    w = max(hi.x - lo.x, hi.y - lo.y, 1e-6)
     s = target_h / h
+    if w * s > max_w:                      # 宽度超限时改按宽度定标
+        s = max_w / w
     cx, cy = (lo.x + hi.x) / 2, (lo.y + hi.y) / 2
     for o in objs:
         if o.parent is None:
@@ -175,8 +202,17 @@ def normalize(objs, target_h, lift):
 
 
 def apply_tint(objs, tint):
-    """整体染色：把同一模型改成不同阵营配色，省掉重复找素材。"""
+    """整体染色：把同一模型改成不同阵营配色，省掉重复找素材。
+
+    Base Color 未连接时直接混改默认值；已接纹理时插入一个混色节点，
+    否则染色对带贴图的模型完全无效（本项目的骷髅与鹰都属此类）。
+    """
     r, g, b, k = tint[0] / 255.0, tint[1] / 255.0, tint[2] / 255.0, tint[3]
+    col = (r, g, b, 1.0)
+    # 不同素材包用的着色器不同：Principled 的接口叫 Base Color，
+    # 而 Diffuse/Emission 叫 Color。只认前者会导致对部分模型静默失效
+    # （本项目的骷髅材质就有两个输出节点，实际生效的是 Diffuse BSDF）。
+    NAMES = ("Base Color", "Color")
     for o in objs:
         if o.type != "MESH":
             continue
@@ -184,14 +220,98 @@ def apply_tint(objs, tint):
             m = slot.material
             if not m or not m.use_nodes:
                 continue
-            for n in m.node_tree.nodes:
-                inp = n.inputs.get("Base Color") if hasattr(n, "inputs") else None
-                if inp is None or inp.is_linked:
+            nt = m.node_tree
+            for n in list(nt.nodes):
+                if not hasattr(n, "inputs"):
                     continue
-                c = inp.default_value
-                inp.default_value = (c[0] * (1 - k) + r * k,
-                                     c[1] * (1 - k) + g * k,
-                                     c[2] * (1 - k) + b * k, c[3])
+                inp = next((n.inputs[nm] for nm in NAMES if nm in n.inputs), None)
+                if inp is None:
+                    continue
+                if not inp.is_linked:
+                    c = inp.default_value
+                    inp.default_value = (c[0] * (1 - k) + r * k,
+                                         c[1] * (1 - k) + g * k,
+                                         c[2] * (1 - k) + b * k, c[3])
+                    continue
+                src = inp.links[0].from_socket
+                try:
+                    mix = nt.nodes.new("ShaderNodeMix")
+                    mix.data_type, mix.blend_type = "RGBA", "MIX"
+                    mix.inputs[0].default_value = k     # Factor
+                    mix.inputs[7].default_value = col   # B(Color)
+                    nt.links.new(src, mix.inputs[6])    # A(Color)
+                    nt.links.new(mix.outputs[2], inp)   # Result(Color)
+                except RuntimeError:                     # 旧版本回退
+                    mix = nt.nodes.new("ShaderNodeMixRGB")
+                    mix.blend_type = "MIX"
+                    mix.inputs[0].default_value = k
+                    mix.inputs[2].default_value = col
+                    nt.links.new(src, mix.inputs[1])
+                    nt.links.new(mix.outputs[0], inp)
+                mix.location = (n.location.x - 260, n.location.y - 180)
+
+
+def relocate_missing_textures(model_path, levels=3):
+    """把找不到的纹理按文件名重新定位到素材包内的实际位置。
+
+    多数 CC0 包的 .blend 把纹理路径写成与自身同级，但分发时纹理被放进了
+    单独的 Textures/ 目录，路径因此对不上，模型会渲染成品红色。
+    Blender 的 file.find_missing_files 算子在无头模式下不可靠，
+    这里改为沿模型路径向上逐级搜索同名文件并直接改写 filepath。
+    """
+    missing = [img for img in bpy.data.images
+               if img.source == "FILE" and img.filepath
+               and not os.path.exists(bpy.path.abspath(img.filepath))]
+    if not missing:
+        return
+
+    d = os.path.dirname(os.path.abspath(model_path))
+    index = {}
+    for _ in range(levels):
+        for dirpath, _dirs, files in os.walk(d):
+            for f in files:
+                index.setdefault(f.lower(), os.path.join(dirpath, f))
+        if any(os.path.basename(i.filepath).lower() in index for i in missing):
+            break
+        d = os.path.dirname(d)
+
+    unresolved = []
+    for img in missing:
+        hit = index.get(os.path.basename(img.filepath).lower())
+        if hit:
+            img.filepath = hit
+            img.reload()
+        else:
+            unresolved.append(img.name)
+    if unresolved:
+        print(f"    [警告] 纹理仍缺失，将渲染为品红: {unresolved}")
+
+
+def set_action(objs, action_name):
+    """给骨架指定动作。
+
+    通过 libraries.load 载入 .blend 时，动作数据块虽然进来了，却不会自动绑到
+    骨架上，模型会停在默认姿态——鹰的默认姿态是双翼下垂，渲出来只剩两片翅膀。
+    素材包普遍自带 Idle / Walk / Flying / Attack 等动作，用它挑出合适的姿势。
+    """
+    act = bpy.data.actions.get(action_name)
+    if act is None:
+        cand = [a.name for a in bpy.data.actions]
+        print(f"    [警告] 找不到动作 {action_name!r}，可用: {cand}")
+        return
+    for o in objs:
+        if o.type != "ARMATURE":
+            continue
+        if o.animation_data is None:
+            o.animation_data_create()
+        o.animation_data.action = act
+        # Blender 4.4+ 引入 action slot，未指定时动作不会生效
+        slots = getattr(act, "slots", None)
+        if slots and hasattr(o.animation_data, "action_slot"):
+            try:
+                o.animation_data.action_slot = slots[0]
+            except (TypeError, IndexError):
+                pass
 
 
 def render_entry(ident, spec, base_dir, out_dir, size, dirs):
@@ -206,11 +326,17 @@ def render_entry(ident, spec, base_dir, out_dir, size, dirs):
         print(f"  [跳过] {ident}: 模型不存在 {spec['model']}")
         return 0
     objs = import_model(path)
+    relocate_missing_textures(path)
+    if spec.get("action"):
+        set_action(objs, spec["action"])
     if spec.get("tint"):
         apply_tint(objs, spec["tint"])
-    pivot = normalize(objs, spec.get("height", 0.9), spec.get("lift", 0.0))
-
     frames = spec.get("frames", [1])
+    # 归一化必须在设定姿势之后：包围盒取自求值网格，姿势会改变它
+    bpy.context.scene.frame_set(frames[0])
+    pivot = normalize(objs, spec.get("height", 0.9), spec.get("lift", 0.0),
+                      spec.get("max_width", 1.45))
+
     n = 0
     for d in dirs:
         for fr in frames:

@@ -14,41 +14,164 @@
     "  shadow     可选。false 表示不画地面投影（默认 true）",
     "",
     "许可证要求：只使用 CC0 素材。原因见 CLAUDE.md —— 交付物包含源代码与输入文件，",
-    "素材需随仓库提交，CC0 之外的许可（如 Reiner's Tilesets 禁止转发原始素材）不适用。"
+    "素材需随仓库提交，CC0 之外的许可（如 Reiner's Tilesets 禁止转发原始素材）不适用。",
+    "模型来源：Quaternius(RPG Characters / Monster Pack / Animal Pack Vol.2) 与 Kenney(Castle Kit)，均为 CC0。经 OpenGameArt 与 kenney.nl 直链获取。"
   ],
-
   "defaults": {
     "size": 128,
     "tile_ratio": 2.0,
-    "dirs": ["SE", "SW", "NE", "NW"],
-    "outline": [10, 10, 14, 205],
+    "dirs": [
+      "SE",
+      "SW",
+      "NE",
+      "NW"
+    ],
+    "outline": [
+      10,
+      10,
+      14,
+      205
+    ],
     "outline_width": 1
   },
-
   "units": {
-    "Spear":   { "model": "models/kingdom/spear.glb",   "yaw": 0, "height": 0.90 },
-    "Archer":  { "model": "models/kingdom/archer.glb",  "yaw": 0, "height": 0.90 },
-    "Ranger":  { "model": "models/kingdom/ranger.glb",  "yaw": 0, "height": 1.20 },
-    "Scout":   { "model": "models/kingdom/scout.glb",   "yaw": 0, "height": 0.88 },
-    "Mason":   { "model": "models/kingdom/mason.glb",   "yaw": 0, "height": 0.86 },
-
-    "Ghoul":   { "model": "models/nether/ghoul.glb",    "yaw": 0, "height": 0.90 },
-    "Shade":   { "model": "models/nether/shade.glb",    "yaw": 0, "height": 0.90 },
-    "Knight":  { "model": "models/nether/knight.glb",   "yaw": 0, "height": 1.20 },
-    "Wraith":  { "model": "models/nether/wraith.glb",   "yaw": 0, "height": 0.92 },
-    "Phoenix": { "model": "models/nether/phoenix.glb",  "yaw": 0, "height": 0.80,
-                 "lift": 1.15, "tint": [150, 226, 240, 0.55] },
-    "Ram":     { "model": "models/nether/ram.glb",      "yaw": 0, "height": 0.95 }
+    "Spear": {
+      "model": "models/q_rpg/Blends/Warrior.blend",
+      "yaw": 0,
+      "height": 0.9,
+      "action": "Idle"
+    },
+    "Archer": {
+      "model": "models/q_rpg/Blends/Ranger.blend",
+      "yaw": 0,
+      "height": 0.9,
+      "action": "Idle"
+    },
+    "Ranger": {
+      "model": "models/q_rpg/Blends/Rogue.blend",
+      "yaw": 0,
+      "height": 0.9,
+      "action": "Idle"
+    },
+    "Scout": {
+      "model": "models/q_rpg/Blends/Monk.blend",
+      "yaw": 0,
+      "height": 0.88,
+      "action": "Idle"
+    },
+    "Mason": {
+      "model": "models/q_rpg/Blends/Cleric.blend",
+      "yaw": 0,
+      "height": 0.88,
+      "action": "Idle"
+    },
+    "Ghoul": {
+      "model": "models/q_monsters/Blend/Skeleton.blend",
+      "yaw": 0,
+      "height": 0.9,
+      "tint": [
+        130,
+        170,
+        110,
+        0.45
+      ],
+      "action": "Skeleton_Idle"
+    },
+    "Shade": {
+      "model": "models/q_monsters/Blend/Skeleton.blend",
+      "yaw": 0,
+      "height": 0.9,
+      "tint": [
+        120,
+        140,
+        205,
+        0.5
+      ],
+      "action": "Skeleton_Attack",
+      "frames": [
+        12
+      ]
+    },
+    "Knight": {
+      "model": "models/q_monsters/Blend/Skeleton.blend",
+      "yaw": 0,
+      "height": 0.95,
+      "tint": [
+        165,
+        120,
+        200,
+        0.52
+      ],
+      "action": "Skeleton_Running",
+      "frames": [
+        6
+      ]
+    },
+    "Wraith": {
+      "model": "models/q_monsters/Blend/Bat.blend",
+      "yaw": 0,
+      "height": 0.48,
+      "lift": 0.3,
+      "tint": [
+        165,
+        120,
+        205,
+        0.55
+      ],
+      "max_width": 0.95,
+      "action": "Bat_Flying",
+      "frames": [
+        6
+      ]
+    },
+    "Phoenix": {
+      "model": "models/q_monsters/Blend/Bat.blend",
+      "yaw": 0,
+      "height": 0.8,
+      "max_width": 1.35,
+      "lift": 0.5,
+      "action": "Bat_Flying",
+      "frames": [
+        3
+      ],
+      "tint": [
+        130,
+        235,
+        255,
+        0.7
+      ]
+    },
+    "Ram": {
+      "model": "models/kenney_castle/glb/siege-ram.glb",
+      "yaw": 0,
+      "height": 0.85,
+      "max_width": 1.6
+    }
   },
-
   "buildings": {
-    "Keep":    { "model": "models/build/keep.glb",    "yaw": 0, "height": 2.20 },
-    "Wall":    { "model": "models/build/wall.glb",    "yaw": 0, "height": 1.10 },
-    "Gate":    { "model": "models/build/gate.glb",    "yaw": 0, "height": 1.40 },
-    "Tower":   { "model": "models/build/tower.glb",   "yaw": 0, "height": 1.80 },
-    "Flak":    { "model": "models/build/flak.glb",    "yaw": 0, "height": 1.80 },
-    "Fence":   { "model": "models/build/fence.glb",   "yaw": 0, "height": 0.55 },
-    "Quarry":  { "model": "models/build/quarry.glb",  "yaw": 0, "height": 1.00 },
-    "Lumber":  { "model": "models/build/lumber.glb",  "yaw": 0, "height": 1.00 }
+    "Wall": {
+      "model": "models/kenney_castle/glb/wall-narrow.glb",
+      "yaw": 0,
+      "height": 1.05,
+      "max_width": 1.5
+    },
+    "Gate": {
+      "model": "models/kenney_castle/glb/wall-narrow-gate.glb",
+      "yaw": 0,
+      "height": 1.3,
+      "max_width": 1.5
+    },
+    "Tower": {
+      "model": "models/kenney_castle/glb/tower-square-top-roof-high.glb",
+      "yaw": 0,
+      "height": 1.9,
+      "max_width": 1.3
+    },
+    "Flak": {
+      "model": "models/kenney_castle/glb/siege-ballista.glb",
+      "yaw": 0,
+      "height": 0.8,
+      "max_width": 1.4
+    }
   }
 }
