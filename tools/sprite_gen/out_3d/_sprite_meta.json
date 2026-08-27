@@ -1,8 +1,8 @@
 {
   "px_per_tile": 256,
   "tile": [
-    128,
-    64
+    256,
+    128
   ],
   "dirs": [
     "SE",
@@ -10,7 +10,7 @@
     "NE",
     "NW"
   ],
-  "note": "文件名 <标识符>_<状态>_<朝向>[_<帧号>].png，单帧时无帧号后缀。所有精灵共用同一世界->像素缩放（px_per_tile），故相对大小正确；画布逐状态适配，canvas 与 ground_anchor 必须按 (标识符,状态) 读取。状态间画布不同但锚点对齐，故 idle/move 切换不会跳动。ground_anchor 是画布内代表实体脚底的像素坐标。",
+  "note": "文件名 <标识符>_<状态>_<朝向>[_<帧号>].png，单帧时无帧号后缀。kind==tile 的条目是地砖：画布正好等于一格菱形、无留白无投影，锚点在菱形中心，按格心贴图即可无缝平铺。所有精灵共用同一世界->像素缩放（px_per_tile），故相对大小正确；画布逐状态适配，canvas 与 ground_anchor 必须按 (标识符,状态) 读取。状态间画布不同但锚点对齐，故 idle/move 切换不会跳动。ground_anchor 是画布内代表实体脚底的像素坐标。",
   "sprites": {
     "Spear": {
       "cn": "铁壁枪卫",
@@ -507,6 +507,173 @@
           "ground_anchor": [
             215.0,
             222.2
+          ],
+          "frames": [
+            1
+          ]
+        }
+      }
+    },
+    "Grass": {
+      "cn": "草地",
+      "states": {
+        "idle": {
+          "canvas": [
+            256,
+            128
+          ],
+          "ground_anchor": [
+            128.0,
+            64.0
+          ],
+          "frames": [
+            1
+          ],
+          "kind": "tile"
+        }
+      }
+    },
+    "Grass2": {
+      "cn": "草地·二",
+      "states": {
+        "idle": {
+          "canvas": [
+            256,
+            128
+          ],
+          "ground_anchor": [
+            128.0,
+            64.0
+          ],
+          "frames": [
+            1
+          ],
+          "kind": "tile"
+        }
+      }
+    },
+    "Dirt": {
+      "cn": "土地",
+      "states": {
+        "idle": {
+          "canvas": [
+            256,
+            128
+          ],
+          "ground_anchor": [
+            128.0,
+            64.0
+          ],
+          "frames": [
+            1
+          ],
+          "kind": "tile"
+        }
+      }
+    },
+    "Road": {
+      "cn": "道路",
+      "states": {
+        "idle": {
+          "canvas": [
+            256,
+            128
+          ],
+          "ground_anchor": [
+            128.0,
+            64.0
+          ],
+          "frames": [
+            1
+          ],
+          "kind": "tile"
+        }
+      }
+    },
+    "Ash": {
+      "cn": "焦土",
+      "states": {
+        "idle": {
+          "canvas": [
+            256,
+            128
+          ],
+          "ground_anchor": [
+            128.0,
+            64.0
+          ],
+          "frames": [
+            1
+          ],
+          "kind": "tile"
+        }
+      }
+    },
+    "TreeBig": {
+      "cn": "大树",
+      "states": {
+        "idle": {
+          "canvas": [
+            348,
+            530
+          ],
+          "ground_anchor": [
+            174.0,
+            414.6
+          ],
+          "frames": [
+            1
+          ]
+        }
+      }
+    },
+    "TreeSmall": {
+      "cn": "小树",
+      "states": {
+        "idle": {
+          "canvas": [
+            308,
+            432
+          ],
+          "ground_anchor": [
+            154.0,
+            326.9
+          ],
+          "frames": [
+            1
+          ]
+        }
+      }
+    },
+    "Stump": {
+      "cn": "树桩",
+      "states": {
+        "idle": {
+          "canvas": [
+            220,
+            234
+          ],
+          "ground_anchor": [
+            110.0,
+            150.3
+          ],
+          "frames": [
+            1
+          ]
+        }
+      }
+    },
+    "RockSmall": {
+      "cn": "碎石",
+      "states": {
+        "idle": {
+          "canvas": [
+            306,
+            264
+          ],
+          "ground_anchor": [
+            153.0,
+            159.6
           ],
           "frames": [
             1

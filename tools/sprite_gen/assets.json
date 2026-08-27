@@ -7,7 +7,7 @@
     "字段说明：",
     "  model      模型路径，相对本文件所在目录。支持 .blend .gltf .glb .fbx .obj",
     "  yaw        朝向校正（度）。模型自带的正面方向各不相同，用它转到统一基准",
-    "  height     单位高度，以瓦片宽为 1。步兵约 0.9，骑兵约 1.2，建筑按实际",
+    "  height     单位高度，以**一格菱形的屏幕宽度**为 1（不是格子边长——边长是 0.707，故 max_width=0.707 正好占满一格）",
     "  lift       垂直偏移，以瓦片宽为 1。空中单位用它抬离地面（不死鸟 1.15）",
     "  max_width  归一化的宽度上限（不是画布宽度：画布按实测投影范围自动确定）",
     "  tint       可选。阵营染色 [R,G,B,强度]。默认 COLOR 混合：只换色相饱和度、",
@@ -635,6 +635,100 @@
       "height": 0.55,
       "max_width": 1.4,
       "cn": "伐木场"
+    }
+  },
+  "terrain": {
+    "Grass": {
+      "cn": "草地",
+      "kind": "tile",
+      "model": "models/kenney_castle/glb/ground.glb",
+      "yaw": 0,
+      "_note": "ground.glb 是只有 4 个顶点的 1×1 平面四边形，无厚度，正好一格。地砖按 footprint 定标到 TILE_SIDE，与单位按高度定标不同"
+    },
+    "Grass2": {
+      "cn": "草地·二",
+      "kind": "tile",
+      "_note": "与草地仅有细微色差，供前端交错铺设打散纯色。起伏地砖(ground-hills)试过，0.29 的隆起读作草丛上的绿疙瘩而非地面，已弃用",
+      "model": "models/kenney_castle/glb/ground.glb",
+      "yaw": 0,
+      "tint": [
+        126,
+        150,
+        96,
+        0.5
+      ],
+      "tint_mode": "MIX"
+    },
+    "Dirt": {
+      "cn": "土地",
+      "kind": "tile",
+      "model": "models/kenney_castle/glb/ground.glb",
+      "yaw": 0,
+      "tint": [
+        150,
+        112,
+        70,
+        0.85
+      ],
+      "tint_mode": "MIX"
+    },
+    "Road": {
+      "cn": "道路",
+      "kind": "tile",
+      "model": "models/kenney_castle/glb/ground.glb",
+      "yaw": 0,
+      "tint": [
+        168,
+        150,
+        120,
+        0.85
+      ],
+      "tint_mode": "MIX"
+    },
+    "Ash": {
+      "cn": "焦土",
+      "kind": "tile",
+      "model": "models/kenney_castle/glb/ground.glb",
+      "yaw": 0,
+      "_note": "波次打完后留在原地的烧痕，用于表达防线退化。须压暗：强光下仅靠染色仍会渲成中灰",
+      "tint": [
+        74,
+        66,
+        62,
+        0.85
+      ],
+      "tint_mode": "MIX",
+      "brightness": 0.5
+    },
+    "TreeBig": {
+      "cn": "大树",
+      "model": "models/kenney_castle/glb/tree-large.glb",
+      "yaw": 0,
+      "height": 1.35,
+      "max_width": 1.0,
+      "_note": "景物，不是伐木场。伐木场是经济建筑、攻方的打击目标，必须与之可区分——玩家找不到自己的资源点就没法判断攻方在打哪一种"
+    },
+    "TreeSmall": {
+      "cn": "小树",
+      "model": "models/kenney_castle/glb/tree-small.glb",
+      "yaw": 0,
+      "height": 1.0,
+      "max_width": 0.85
+    },
+    "Stump": {
+      "cn": "树桩",
+      "model": "models/kenney_castle/glb/tree-trunk.glb",
+      "yaw": 0,
+      "height": 0.3,
+      "max_width": 0.5
+    },
+    "RockSmall": {
+      "cn": "碎石",
+      "model": "models/kenney_castle/glb/rocks-small.glb",
+      "yaw": 0,
+      "height": 0.28,
+      "max_width": 0.55,
+      "_note": "景物，不是采石场。同上，须与采石场可区分"
     }
   }
 }
