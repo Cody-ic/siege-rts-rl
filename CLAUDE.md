@@ -29,19 +29,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## 架构：三层隔离
 
 ```
-rts_core/     纯 C++17/20，零外部依赖，全部游戏逻辑在这
+rts_core/     C++17/20，全部游戏逻辑在这
 render/       raylib 或 SFML + Dear ImGui，只读 rts_core 状态
 game/         玩家输入、编队、指令、关卡加载
 bindings/     pybind11 → Python
 train/        PyTorch PPO（CleanRL 单文件风格）
+tools/        Python 工具链：数值平衡、数据分析、绘图
 tests/        Catch2 / GoogleTest
 ```
 
-这套结构的关键不变量，改动时必须保持：
+**项目主体是 C++，但不要求全栈纯 C++。** 训练、数据分析、绘图、平衡脚本用 Python 是既定方案；构建用 CMake；配置与数值表用 JSON/TOML 数据文件。这些都不影响"核心是 C++"这一课程要求。
 
-1. **`rts_core` 不得依赖渲染器、不得依赖 Python、不得依赖任何引擎。** 只用 `System` 级标准库。它必须能在完全 headless 的情况下跑完整局游戏。
+真正需要守住的不变量只有三条，它们保护的是**训练吞吐量与可复现性**，不是语言纯净度：
+
+1. **仿真 tick 的热路径内不得出现渲染器、引擎、或向上回调 Python。** Python 一次调用应推进 N 个 tick，绝不能每个单位、每个 tick 回调一次上层——那样吞吐量会塌掉一到两个数量级。`rts_core` 必须能在完全 headless 下跑完整局游戏。
 2. **渲染层是 `rts_core` 的只读观察者。** 渲染代码不允许修改仿真状态；训练时 `render/` 整个不参与编译/链接。
 3. **训练回路里没有渲染器、没有引擎。** Python 经 pybind11 **in-process** 直接调用 C++ 仿真，不走 IPC、不做状态序列化。这是训练吞吐量能达标的前提，不要为了方便引入进程间通信。
+
+### 关于第三方库
+
+`rts_core` 可以用第三方 C++ 库，约束是下面两条而非"零依赖"：
+
+- **不得引入非确定性**。这是选库时唯一需要严格审查的点：迭代顺序不稳定的容器不能用来驱动仿真逻辑；会重排归约顺序的并行算法库会破坏浮点可复现性，从而毁掉回放测试。
+- **优先 header-only，并用 FetchContent/vendored 方式引入**，不要求队友在系统里预装。原因是工期约束：你们在 macOS 上开发、在 Linux GPU 服务器上训练，每个需要独立构建链接的依赖都会消耗真实的跨平台调试工时。
+
+不建议在仿真里嵌入脚本语言（Lua 之类）——tick 内跑脚本 VM 会拖慢训练，而配置需求用 JSON/TOML 数据文件就够了。
 
 因为 `rts_core` 对渲染器无感知，渲染器是可替换的；如果后期要加 Unity 前端，做法是给 `rts_core` 加一层 `extern "C"` 的 C ABI 供 P/Invoke 调用，核心代码不动。
 
