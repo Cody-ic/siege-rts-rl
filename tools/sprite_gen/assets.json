@@ -1,0 +1,54 @@
+{
+  "_comment": [
+    "素材清单：标识符 -> 模型文件与每个模型的校正参数。",
+    "不同来源的模型朝向、尺寸、坐标原点都不一致，这些差异全部在这里用数据抹平，",
+    "不写进脚本。新增单位时只加一条记录，不改代码。",
+    "",
+    "字段说明：",
+    "  model      模型路径，相对本文件所在目录。支持 .blend .gltf .glb .fbx .obj",
+    "  yaw        朝向校正（度）。模型自带的正面方向各不相同，用它转到统一基准",
+    "  height     单位高度，以瓦片宽为 1。步兵约 0.9，骑兵约 1.2，建筑按实际",
+    "  lift       垂直偏移，以瓦片宽为 1。空中单位用它抬离地面（不死鸟 1.15）",
+    "  tint       可选。整体染色 [R,G,B,强度]，用于把同一模型改成不同阵营配色",
+    "  frames     可选。要渲染的动画帧列表，缺省只渲第 1 帧",
+    "  shadow     可选。false 表示不画地面投影（默认 true）",
+    "",
+    "许可证要求：只使用 CC0 素材。原因见 CLAUDE.md —— 交付物包含源代码与输入文件，",
+    "素材需随仓库提交，CC0 之外的许可（如 Reiner's Tilesets 禁止转发原始素材）不适用。"
+  ],
+
+  "defaults": {
+    "size": 128,
+    "tile_ratio": 2.0,
+    "dirs": ["SE", "SW", "NE", "NW"],
+    "outline": [10, 10, 14, 205],
+    "outline_width": 1
+  },
+
+  "units": {
+    "Spear":   { "model": "models/kingdom/spear.glb",   "yaw": 0, "height": 0.90 },
+    "Archer":  { "model": "models/kingdom/archer.glb",  "yaw": 0, "height": 0.90 },
+    "Ranger":  { "model": "models/kingdom/ranger.glb",  "yaw": 0, "height": 1.20 },
+    "Scout":   { "model": "models/kingdom/scout.glb",   "yaw": 0, "height": 0.88 },
+    "Mason":   { "model": "models/kingdom/mason.glb",   "yaw": 0, "height": 0.86 },
+
+    "Ghoul":   { "model": "models/nether/ghoul.glb",    "yaw": 0, "height": 0.90 },
+    "Shade":   { "model": "models/nether/shade.glb",    "yaw": 0, "height": 0.90 },
+    "Knight":  { "model": "models/nether/knight.glb",   "yaw": 0, "height": 1.20 },
+    "Wraith":  { "model": "models/nether/wraith.glb",   "yaw": 0, "height": 0.92 },
+    "Phoenix": { "model": "models/nether/phoenix.glb",  "yaw": 0, "height": 0.80,
+                 "lift": 1.15, "tint": [150, 226, 240, 0.55] },
+    "Ram":     { "model": "models/nether/ram.glb",      "yaw": 0, "height": 0.95 }
+  },
+
+  "buildings": {
+    "Keep":    { "model": "models/build/keep.glb",    "yaw": 0, "height": 2.20 },
+    "Wall":    { "model": "models/build/wall.glb",    "yaw": 0, "height": 1.10 },
+    "Gate":    { "model": "models/build/gate.glb",    "yaw": 0, "height": 1.40 },
+    "Tower":   { "model": "models/build/tower.glb",   "yaw": 0, "height": 1.80 },
+    "Flak":    { "model": "models/build/flak.glb",    "yaw": 0, "height": 1.80 },
+    "Fence":   { "model": "models/build/fence.glb",   "yaw": 0, "height": 0.55 },
+    "Quarry":  { "model": "models/build/quarry.glb",  "yaw": 0, "height": 1.00 },
+    "Lumber":  { "model": "models/build/lumber.glb",  "yaw": 0, "height": 1.00 }
+  }
+}

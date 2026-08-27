@@ -34,3 +34,7 @@ wandb/
 .idea/
 .DS_Store
 *.swp
+
+# ---- 精灵生成的产物（可由脚本重建）----
+tools/sprite_gen/out/
+tools/sprite_gen/out_3d/
