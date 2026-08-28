@@ -1,0 +1,32 @@
+# 换行规范化。
+#
+# 起因是一个会在训练服务器上表现得毫无道理的失败：`地图与场景设计.md` 6.3 要求回放文件
+# 记录地图的 `content_hash` 并在载入时校验。而仓库启用了 `core.autocrlf`，同一份地图 JSON
+# 在 Windows 工作区里是 CRLF、在 Linux 上是 LF ——**字节不同，哈希也就不同**。
+# 于是在 Windows 上生成并写入哈希的地图，到服务器上会因为哈希对不上而报「地图不匹配」，
+# 而看到这个错误的人第一反应一定是去查仿真，不会想到是换行。
+#
+# CLAUDE.md 那条「回放文件在 Windows 与 Linux 之间不可复现」**不覆盖这一条**：
+# 那说的是浮点，这里坏掉的是文件字节，而且它会让**地图本身**在两个平台上被判为两张不同的图。
+#
+# 主要手段仍是「对规范化后的内容取哈希」（见 6.3），因为那不依赖每个人的 git 配置是否正确。
+# 本文件是零成本的第二道防线，顺带解决数据文件在 review 时整片显示为改动的问题。
+
+# 数据文件：会被程序读取、会参与哈希，一律 LF。
+*.json  text eol=lf
+*.toml  text eol=lf
+*.csv   text eol=lf
+
+# 构建与源码：跨两套工具链，统一 LF 省去无谓的 diff。
+*.cpp   text eol=lf
+*.hpp   text eol=lf
+*.py    text eol=lf
+*.cmake text eol=lf
+CMakeLists.txt text eol=lf
+
+# 二进制，不做任何换行处理（写出来是为了让意图明确，不靠 git 猜）。
+*.png   binary
+*.glb   binary
+*.gltf  binary
+*.blend binary
+*.fbx   binary
