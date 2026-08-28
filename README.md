@@ -25,10 +25,11 @@ C++ 程序设计课程设计。**不对称波次生存 RTS**：玩家守城（�
 | 守方 AI 与协同演化 | 🟡 **提案中，#15 待讨论**（含 6 个需拍板的问题） |
 | 演示与可视化清单 | 🟡 **提案中，#16 待讨论**（含 5 个需拍板的问题，涉及前端预算重估） |
 | **`rts_core` 公开接口** | ❌ **未定稿 —— 这是当前的最高优先级，它卡住其余所有人** |
-| 代码骨架与 CMake | ❌ 没有 |
+| 代码骨架与 CMake | ✅ 可编可测（双工具链、确定性地基、Catch2）。**Linux/GCC 侧尚未验证** |
 | 全部数值 | ❌ 一律待定，见 `CLAUDE.md`「关于数值」 |
 
-`tools/` 目前只有精灵流水线（纯 Python）。**仓库里没有任何 C++ 代码、没有 CMakeLists.txt。**
+`rts_core/` 目前只有确定性所需的地基（可播种 PRNG、状态哈希、实体句柄），
+**仿真本体、战斗、寻路、视野一行都还没有**——它们等接口定稿。
 
 **有两个待讨论的提案会实质改变范围**，加入前请先读它们：#15 让训练时的守方也由 RL 控制
 （攻守协同演化，训练成本翻倍）；#16 列出演示与可视化清单并指出 `render/` 的
@@ -169,13 +170,37 @@ echo ".claude/" >> .git/info/exclude
 GCC 侧的编译问题只有推到服务器才会暴露。**不要攒到临近答辩才第一次编译 Linux 目标。**
 CMake 要同时支持两条路径，MSVC 侧开 `/permissive-` 与 `/Zc:__cplusplus`。
 
-构建命令（骨架搭好后）：
+构建命令：
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j
-ctest --test-dir build
+cmake --build build --config Release
+ctest --test-dir build -C Release
 ```
+
+**PATH 里通常没有 cmake。** VS2022 自带一份，不必单独安装 —— 两种用法：
+
+- **在 VS 里**：「打开本地文件夹」选仓库根目录，VS 会自动识别 `CMakeLists.txt`
+- **在命令行里**（Git Bash / PowerShell）用完整路径：
+
+```bash
+CM="/c/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe"
+"$CM" -G "Visual Studio 17 2022" -A x64 -B build
+"$CM" --build build --config Release
+```
+
+首次配置会经 FetchContent 下载 Catch2（约 1 MB，**需要联网**）；之后可加
+`-DFETCHCONTENT_FULLY_DISCONNECTED=ON` 离线复用。
+
+挑单条用例跑（ctest 条目按标签划分，用例名本身是中文、不适合当命令行过滤器）：
+
+```bash
+ctest --test-dir build -C Release -R rts_tests_rng    # 按标签
+./build/tests/Release/rts_tests.exe "<用例名>"         # 按用例名
+```
+
+几个构建开关：`-DRTS_BUILD_TESTS=OFF`（不建测试）、`-DRTS_BUILD_RENDER=ON`（建前端，
+**目前 `render/` 还不存在**）、`-DRTS_WARNINGS_AS_ERRORS=OFF`（警告不当错误，默认当）。
 
 **性能相关的改动一律在 Release 下测量**，Debug 构建的仿真吞吐不具参考意义。
 
@@ -188,7 +213,7 @@ ctest --test-dir build
 | # | 工作 | 依赖 | 说明 |
 |:-:|---|---|---|
 | 1 | **`rts_core` 公开接口定稿** | 无 | `step()` 签名、observation 通道定义、动作枚举、单位/建筑数据布局。**最高优先级 —— 其余三人都在等它** |
-| 2 | 代码骨架 + CMake（MSVC/GCC 双路径） | 无 | 可与 1 并行，先搭目录与构建，接口后填 |
+| 2 | **Linux/GCC 侧首次构建验证** | 无 | 骨架已在 Windows/MSVC 上编过、测过；**GCC 侧一次都没编**。`CLAUDE.md` 要求尽早频繁在服务器上构建，需要有服务器访问权的人做 |
 | 3 | `tools/map_gen/` 生成器 + 校验器 | 无 | 纯 Python。规范见 `地图与场景设计.md` 第 6、8 节，12 条校验里 7 条不含数值、现在就能写 |
 | 4 | 精灵元数据四处修正 | 无 | 见 `地图与场景设计.md` 第 7 节。四条都还没修，其中 `tile` 那条是**静默**的 |
 | 5 | `render/` 前端起步 | 1 | 精灵与尺寸契约已就绪，接口一定就能画。**注意 #16 会增加前端范围** |
