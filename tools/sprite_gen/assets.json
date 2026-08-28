@@ -974,10 +974,10 @@
     },
     "Bridge": {
       "cn": "桥",
-      "model": "models/kenney_castle/glb/bridge-straight.glb",
+      "model": "models/kenney_castle/glb/bridge-draw.glb",
       "yaw": 0,
       "modules": 1,
-      "_note": "地形枚举 Bridge：跨水的唯一通路，最窄的隘口。不可建造，玩家无法在桥上砌墙封死它"
+      "_note": "地形枚举 Bridge：跨水的唯一通路，最窄的隘口。不可建造，玩家无法在桥上砌墙封死它。**用平木板而不是 `bridge-straight`**——后者在这个尺度下是一块带雉堞的浅色砌体方块，与城墙同料同高，摆在水面上读作「河里立了一段墙」。桥面必须是低平的。"
     },
     "Rock": {
       "cn": "岩壁",
