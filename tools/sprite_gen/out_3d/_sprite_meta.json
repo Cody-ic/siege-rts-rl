@@ -514,42 +514,6 @@
         }
       }
     },
-    "TreeBig": {
-      "cn": "巨树（密林变体）",
-      "states": {
-        "idle": {
-          "canvas": [
-            478,
-            790
-          ],
-          "ground_anchor": [
-            239.0,
-            611.4
-          ],
-          "frames": [
-            1
-          ]
-        }
-      }
-    },
-    "TreeSmall": {
-      "cn": "小树",
-      "states": {
-        "idle": {
-          "canvas": [
-            290,
-            402
-          ],
-          "ground_anchor": [
-            145.0,
-            301.5
-          ],
-          "frames": [
-            1
-          ]
-        }
-      }
-    },
     "Stump": {
       "cn": "树桩",
       "states": {
@@ -561,24 +525,6 @@
           "ground_anchor": [
             83.0,
             102.2
-          ],
-          "frames": [
-            1
-          ]
-        }
-      }
-    },
-    "RockSmall": {
-      "cn": "碎石",
-      "states": {
-        "idle": {
-          "canvas": [
-            304,
-            264
-          ],
-          "ground_anchor": [
-            152.0,
-            159.4
           ],
           "frames": [
             1
@@ -801,6 +747,60 @@
           "ground_anchor": [
             266.0,
             552.5
+          ],
+          "frames": [
+            1
+          ]
+        }
+      }
+    },
+    "ForestB": {
+      "cn": "巨树（密林变体）",
+      "states": {
+        "idle": {
+          "canvas": [
+            478,
+            790
+          ],
+          "ground_anchor": [
+            239.0,
+            611.4
+          ],
+          "frames": [
+            1
+          ]
+        }
+      }
+    },
+    "Sapling": {
+      "cn": "幼树",
+      "states": {
+        "idle": {
+          "canvas": [
+            290,
+            402
+          ],
+          "ground_anchor": [
+            145.0,
+            301.5
+          ],
+          "frames": [
+            1
+          ]
+        }
+      }
+    },
+    "Rubble": {
+      "cn": "碎石",
+      "states": {
+        "idle": {
+          "canvas": [
+            304,
+            264
+          ],
+          "ground_anchor": [
+            152.0,
+            159.4
           ],
           "frames": [
             1

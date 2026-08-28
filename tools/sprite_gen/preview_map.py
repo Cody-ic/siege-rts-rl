@@ -237,8 +237,8 @@ def make_objects():
     o += [(gi, gj, ident, {}) for gi, gj, ident in OUTER_CLUSTER]
 
     # ── 景物 / 可破坏障碍（矮而单薄），与地形的高厚重成对照 ────────────
-    o += [(5, 13, "Stump", {}), (10, 2, "RockSmall", {}), (4, 12, "TreeSmall", {}),
-          (14, 2, "TreeBig", {}), (13, 12, "TreeSmall", {}), (14, 14, "TreeBig", {})]
+    o += [(5, 13, "Stump", {}), (10, 2, "Rubble", {}), (4, 12, "Sapling", {}),
+          (14, 2, "ForestB", {}), (13, 12, "Sapling", {}), (14, 14, "ForestB", {})]
 
     # ── 守方 ─────────────────────────────────────────────────────
     o += [(CX - 1, CY + 2, "Archer", {}), (CX + 1, CY + 2, "Archer", {})]

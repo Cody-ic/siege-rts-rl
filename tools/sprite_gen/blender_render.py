@@ -704,8 +704,10 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
 
     entries = {}
-    for group in ("units", "buildings", "terrain"):
-        entries.update(mf.get(group, {}))
+    for group in ("units", "buildings", "terrain", "obstacles"):
+        # 跳过 `_` 开头的键：分组内允许放 `_comment` 之类的说明，它们不是实体
+        entries.update({k: v for k, v in mf.get(group, {}).items()
+                        if not k.startswith("_")})
 
     total, sprites = 0, {}
     for ident, spec in entries.items():

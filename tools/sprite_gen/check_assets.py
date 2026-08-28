@@ -30,8 +30,8 @@ ALLOW_SHARED = {
     "tower-square-base.glb": "四座塔共用模块化底座，靠顶部区分（这是该素材包的设计方式）",
     "tower-square-mid.glb": "同上",
     "tower-square-top.glb": "同上",
-    # TreeBig 就是 Forest 枚举的贴图变体，机制相同，共用底模是定义本身
-    "tree-large.glb": "TreeBig 是 Forest 的贴图变体（单株巨树占一格），机制相同",
+    # ForestB 就是 Forest 枚举的贴图变体，机制相同，共用底模是定义本身
+    "tree-large.glb": "ForestB 是 Forest 的贴图变体（单株巨树占一格），机制相同",
     # 跨包组合：同一匹马给两个骑兵，靠染色与骑手区分（活马 vs 幽灵马）
     "Horse.blend": "逐风猎骑与鬼域骑士团共用马模，靠染色区分活马 / 幽灵马",
     "Skeleton.blend": "亡灵步兵与亡灵弓手共用骷髅模，靠武器区分近战 / 远程",
@@ -46,8 +46,11 @@ def load(path):
 def entities(manifest):
     """-> [(标识符, [模型路径...])]，列表首项是主体。"""
     out = []
-    for section in ("units", "buildings", "terrain"):
+    for section in ("units", "buildings", "terrain", "obstacles"):
         for ident, spec in manifest.get(section, {}).items():
+            # 分组内允许放 `_comment` 之类的说明，它们不是实体
+            if ident.startswith("_"):
+                continue
             if "model" in spec:
                 models = [spec["model"]]
             else:
