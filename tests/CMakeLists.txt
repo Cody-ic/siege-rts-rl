@@ -53,6 +53,7 @@ add_executable(rts_tests
     scene_model_test.cpp
     iso_projection_test.cpp
     display_names_test.cpp
+    utf8_path_test.cpp
 )
 
 target_link_libraries(rts_tests PRIVATE rts_core game Catch2::Catch2WithMain)
@@ -63,6 +64,27 @@ rts_set_warnings(rts_tests TESTS)
 # 而「找不到夹具」在某些写法下会退化成「跳过那条用例」——又是静默跳过。
 target_compile_definitions(rts_tests PRIVATE
     GAME_TESTDATA_DIR="${GAME_TESTDATA_DIR}")
+
+# ——中文路径的回归测试——
+#
+# 在**构建目录**里造一个名字含中文的目录，把夹具地图复制进去，再把那条路径
+# 也烤成一个宏。于是「路径含非 ASCII 字符时能不能打开文件」变成一条受检约束，
+# 而不是「取决于你把仓库放在哪儿」。
+#
+# 起因是一个真实缺陷：队友的仓库在 `.../计算机程序设计大作业/`，
+# 他本地 4 条 ctest 全红，而同一份代码在我这边（纯 ASCII 路径）全绿。
+# 症状是「打不开这个文件」而那个文件明明就在——见 rts/utf8_path.hpp。
+#
+# **刻意在构建目录里造，而不是往仓库里塞一个中文目录**：
+#   * 仓库路径是每个人自己的，塞进去也只覆盖仓库内那一段
+#   * 中文目录名进 git 会牵出 `core.quotepath`、跨平台文件名规范化一堆事
+#   * 构建目录里造出来的目录名由 CMake 写、由 C++ 读，**两边都是 UTF-8**，
+#     正好复现真实的那条链路
+set(_utf8_probe "${CMAKE_CURRENT_BINARY_DIR}/中文路径测试")
+file(MAKE_DIRECTORY "${_utf8_probe}")
+file(COPY "${GAME_TESTDATA_DIR}/fixture_min.json" DESTINATION "${_utf8_probe}")
+target_compile_definitions(rts_tests PRIVATE
+    GAME_TESTDATA_UTF8_DIR="${_utf8_probe}")
 
 # 按**标签**注册 ctest 条目，而不是用 catch_discover_tests 逐用例注册。
 #
@@ -76,7 +98,7 @@ target_compile_definitions(rts_tests PRIVATE
 #
 # 挑单条用例跑仍按 CLAUDE.md 写的那样直接用二进制：
 #     ./build/tests/Release/rts_tests "<用例名>"
-foreach(_tag rng hash types map scene iso names)
+foreach(_tag rng hash types map scene iso names utf8path)
     add_test(NAME rts_tests_${_tag} COMMAND rts_tests "[${_tag}]")
 endforeach()
 

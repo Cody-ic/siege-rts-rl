@@ -1,6 +1,9 @@
 #include "render/text.hpp"
 
 #include <cstdio>
+#include <vector>
+
+#include "rts/utf8_path.hpp"
 
 namespace render {
 namespace {
@@ -118,10 +121,23 @@ FontSet::FontSet(const std::string& font_path, int base_size,
     std::vector<int> wanted(loaded_.begin(), loaded_.end());
     if (wanted.empty()) throw FontError("码点集合是空的，没什么可载入");
 
-    font_ = LoadFontEx(font_path.c_str(), base_size_, wanted.data(),
-                       static_cast<int>(wanted.size()));
+    // **不用 `LoadFontEx(path, ...)`。** raylib 的文件读取走窄 `fopen`，
+    // 路径含非 ASCII 字符时会失败（见 rts/utf8_path.hpp）。而字体路径**很可能**
+    // 含中文——`--font C:/字体/我的字体.ttf` 是完全正常的用法。
+    // 所以自己读字节，再交给内存版 `LoadFontFromMemory`。
+    //
+    // 后缀写死 `.ttf`：raylib 只用它选解析器，而 `.ttc` 走同一个解析器
+    // （也正是它会退回内置字体的原因，第二步查的就是这个）。
+    bool read_ok = false;
+    const std::vector<unsigned char> bytes = rts::read_file_bytes(font_path, &read_ok);
+    if (!read_ok) throw FontError("打不开这个文件");
+    if (bytes.empty()) throw FontError("这个文件是空的");
+
+    font_ = LoadFontFromMemory(".ttf", bytes.data(), static_cast<int>(bytes.size()),
+                               base_size_, wanted.data(),
+                               static_cast<int>(wanted.size()));
     if (font_.texture.id == 0) {
-        throw FontError("打不开或不是可用的字体文件");
+        throw FontError("不是可用的字体文件");
     }
 
     // ——第二步：字形数必须**正好**等于要的个数——
