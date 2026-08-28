@@ -155,8 +155,16 @@ int run_verify(const Options& opt) {
     int rc = 0;
     try {
         render::SpriteAtlas atlas(opt.sprite_dir);
+        // 两条方向相反的检查，都要跑：
+        //   * verify_roster_covered —— 花名册里的实体，元数据里有没有条目
+        //   * verify_all_declared   —— 元数据声明的条目，PNG 是不是真载得上
+        // 只跑后者会漏掉「加了单位但没出图」，那是更常见的那一半。
+        //
+        // 先跑前者：它不碰 GPU、几微秒就出结果，而后者要把 476 张纹理传上去。
+        const std::size_t entities = atlas.verify_roster_covered();
         const std::size_t n = atlas.verify_all_declared();
-        std::printf("素材校验通过：%zu 张，px_per_tile = %d\n", n, atlas.px_per_tile());
+        std::printf("素材校验通过：花名册 %zu 个实体全部有图，共 %zu 张，px_per_tile = %d\n",
+                    entities, n, atlas.px_per_tile());
     } catch (const std::exception& e) {
         std::fprintf(stderr, "失败：%s\n", e.what());
         rc = 4;

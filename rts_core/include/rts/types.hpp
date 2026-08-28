@@ -1,8 +1,9 @@
 // 仿真的基元类型。
 //
 // 这一层只放"不会因设计讨论而变"的东西：tick、阵营、格坐标、实体句柄。
-// 花名册枚举（UnitType / BldType）、地形枚举、动作枚举都**不在这里**——它们仍在
-// 变动中（PR #19 正在改花名册与地形），放进来会立刻过期。
+// 花名册枚举在 `rts/roster.hpp`、动作与命令在 `rts/action.hpp` / `rts/command.hpp`、
+// 观测通道在 `rts/obs.hpp`——**刻意分头放，因为它们的变动理由各不相同**：
+// 花名册随设计讨论变、观测通道随网络结构变，而本文件这一层不该被它们牵动。
 //
 // 依据：CLAUDE.md「rts_core 实现约定」与「确定性要求」。
 
@@ -133,9 +134,24 @@ private:
 
 struct UnitTag {};
 struct BldTag {};
+struct ObstacleTag {};
 
 using UnitId = Handle<UnitTag>;
 using BldId = Handle<BldTag>;
+
+// 中立可破坏障碍（`Stump` / `Sapling` / `Rubble`，见 rts/roster.hpp）的句柄。
+//
+// **它现在几乎肯定还没有实体，位子仍然必须留。** 两个理由，第二个才是硬的：
+//
+//   * 不加 `Side::Neutral`。障碍不属于任何一侧，而观测通道是**按侧成对**定义的
+//     （rts/obs.hpp），塞一个第三侧进去会让成对通道变成奇数个，
+//     Python 侧按 (ally, enemy) 解包时**静默错位**——不报错，只是学不动
+//   * **回放的字节布局与 `state_hash` 的喂入顺序都要固定。** 事后新增一组实体
+//     会让所有已录回放失效，而回放是本项目主要的防 bug 手段
+//
+// 代价是一个空 tag 类型。这三种障碍本身随提案「无尽模式与地形分层」§6 待议
+// （CLAUDE.md 那张对照表下有同样的注），**即使被否，留着这一组的代价也不变**。
+using ObstacleId = Handle<ObstacleTag>;
 
 // 这些断言保护的是回放文件的字节布局与哈希的可比性：一旦某个基元类型的大小变了，
 // 旧回放会静默偏离，而"静默"是最坏的失败形态。
@@ -144,12 +160,16 @@ static_assert(sizeof(Vec2) == 8);
 static_assert(sizeof(GridPos) == 4);
 static_assert(sizeof(UnitId) == 4);
 static_assert(sizeof(BldId) == 4);
+static_assert(sizeof(ObstacleId) == 4);
 static_assert(std::is_trivially_copyable_v<Vec2>);
 static_assert(std::is_trivially_copyable_v<GridPos>);
 static_assert(std::is_trivially_copyable_v<UnitId>);
-// UnitId 与 BldId 不可互相转换——这正是 Tag 的目的。
+// 三种句柄两两不可互相转换——这正是 Tag 的目的。三组实体是三个独立的扁平数组，
+// 传错一个会静默索引到另一个数组，而下标恰好合法的概率很高。
 static_assert(!std::is_convertible_v<UnitId, BldId>);
 static_assert(!std::is_convertible_v<BldId, UnitId>);
+static_assert(!std::is_convertible_v<UnitId, ObstacleId>);
+static_assert(!std::is_convertible_v<ObstacleId, BldId>);
 
 }  // namespace rts
 
