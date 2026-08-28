@@ -7,7 +7,7 @@ namespace render {
 
 void SceneRenderer::place(const game::DrawItem& item) {
     const Sprite& s = atlas_->get(item.sprite, "idle", game::to_string(item.facing));
-    const Vector2 c = proj_.grid_to_screen(item.pos);
+    const rts::Vec2 c = proj_.grid_to_screen(item.pos);
     // 截断而不是四舍五入，与 `preview_map.py` 的 `int(x - ax)` 一致。
     // 锚点里确实有 .5（例如 Archer 的 227.5），两种取法差一个像素——
     // 差一个像素本身无所谓，但**两边不一致**会让「照抄那份 Python 校验渲染结果」

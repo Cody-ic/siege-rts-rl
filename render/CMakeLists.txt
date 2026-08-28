@@ -79,6 +79,8 @@ add_library(render_lib STATIC
     src/sprite_atlas.cpp
     src/scene_renderer.cpp
     src/camera_controller.cpp
+    src/text.cpp
+    src/scene_overlay.cpp
     ${_render_self_contained_srcs}
 )
 
@@ -116,4 +118,36 @@ if(RTS_BUILD_TESTS)
                      --screenshot "${CMAKE_CURRENT_BINARY_DIR}/never.png"
                      --size 64 64)
     set_tests_properties(render_missing_assets_is_red PROPERTIES WILL_FAIL TRUE)
+
+    # 字体路径写错时必须红。
+    #
+    # 单独一条而不是靠上面那条兜着：素材与字体是两条独立的失败路径，
+    # 而字体那条的默认表现是**画面照常出来、只是中文变成别的字**
+    # （render/text.hpp 列了三种），所以「字体坏了会不会红」必须自己被测一次。
+    add_test(NAME render_bad_font_is_red
+             COMMAND rts_render
+                     --map "${GAME_TESTDATA_DIR}/fixture_min.json"
+                     --sprites "${CMAKE_SOURCE_DIR}/tools/sprite_gen/out_3d"
+                     --screenshot "${CMAKE_CURRENT_BINARY_DIR}/never_font.png"
+                     --size 64 64
+                     --font "${CMAKE_CURRENT_BINARY_DIR}/no_such_font.ttf")
+    set_tests_properties(render_bad_font_is_red PROPERTIES WILL_FAIL TRUE)
+
+    # **.ttc（字体集合）必须红。** 这是三个坑里最隐蔽的一个：raylib 解析不了 .ttc 时
+    # 会静默退回内置字体，而 `texture.id != 0`，所以「载入成功」这条判断为真，
+    # 中文却全变成 `?`。检出靠的是「字形数必须正好等于要的个数」，
+    # 而那条逻辑很容易在将来某次重构里被当成多余的断言删掉——所以钉一条测试。
+    #
+    # 用 EXISTS 守住：这个路径是 Windows 特有的，而 CMake 不该假定平台。
+    # 找不到就不注册这条，`ctest -N` 里少一条是可见的，不是静默跳过一次断言。
+    if(EXISTS "C:/Windows/Fonts/msyh.ttc")
+        add_test(NAME render_ttc_font_is_red
+                 COMMAND rts_render
+                         --map "${GAME_TESTDATA_DIR}/fixture_min.json"
+                         --sprites "${CMAKE_SOURCE_DIR}/tools/sprite_gen/out_3d"
+                         --screenshot "${CMAKE_CURRENT_BINARY_DIR}/never_ttc.png"
+                         --size 64 64
+                         --font "C:/Windows/Fonts/msyh.ttc")
+        set_tests_properties(render_ttc_font_is_red PROPERTIES WILL_FAIL TRUE)
+    endif()
 endif()

@@ -38,6 +38,7 @@ add_library(game STATIC
     src/map_data.cpp
     src/map_loader.cpp
     src/scene_model.cpp
+    src/display_names.cpp
     ${_game_self_contained_srcs}
 )
 

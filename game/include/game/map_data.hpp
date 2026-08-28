@@ -52,6 +52,20 @@ enum class CorridorKind : std::uint8_t { Open, Defile, Forest, Economy };
 
 enum class WallKind : std::uint8_t { Wall, Gate };
 
+// 各枚举的取值个数。存在的理由是**要能机械地遍历一个枚举**：
+// `display_names.cpp` 的 `all_display_strings()` 靠它们把全部展示串枚举出来，
+// 而那份清单一旦改成手抄就会漏，漏掉的字符会静默渲成别的字（见 game/display_names.hpp）。
+//
+// **这里没有编译期保证，也没有测试能抓到它落后。** 加了枚举值忘了 +1 时：
+// `display_name()` 那侧编不过（switch 无 default，见 display_names.hpp），
+// 所以名字一定会被加上；但 `all_display_strings()` 会漏掉它，字体因此少载几个码点。
+// 兜住这一步的是**画字的时候**——`render::FontSet::draw()` 逐码点核对集合成员，
+// 未登记的字符直接抛并指名是哪个字。所以这个洞的兜底在渲染侧，不在这里。
+inline constexpr int kResourceTypeCount = 3;
+inline constexpr int kResourceTierCount = 2;
+inline constexpr int kCorridorKindCount = 4;
+inline constexpr int kWallKindCount = 2;
+
 struct SpawnPoint {
     int id = 0;
     rts::GridPos pos{};

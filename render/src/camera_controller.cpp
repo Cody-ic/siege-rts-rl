@@ -15,9 +15,9 @@ void CameraController::set_viewport(Vector2 viewport) noexcept {
     cam_.offset = Vector2{viewport.x * 0.5f, viewport.y * 0.5f};
 }
 
-void CameraController::fit(const IsoProjection& proj, int w, int h, Vector2 viewport,
+void CameraController::fit(const game::IsoProjection& proj, int w, int h, Vector2 viewport,
                            float top_margin_tiles) noexcept {
-    const Rectangle b = proj.grid_bounds(w, h);
+    const game::Rect b = proj.grid_bounds(w, h);
     const float margin = top_margin_tiles * static_cast<float>(proj.tile_h());
 
     // 需要装进画面的世界矩形：格心包围盒 + 上边距（精灵向上长，不向下）。

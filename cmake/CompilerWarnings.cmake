@@ -31,6 +31,21 @@ function(rts_set_warnings target)
             # 源码是 UTF-8（注释含中文）。不加这条在中文 code page 下会报 C4819，
             # 且 /WX 会把它变成错误。
             /utf-8
+            # C4062：switch 里没有 default、又漏了某个枚举值。
+            #
+            # **它在 MSVC 上是 off-by-default，而 GCC 的 -Wswitch 含在 -Wall 里。**
+            # 不显式开的话，「加了个枚举值忘了在 switch 里处理」在本地一条警告都没有，
+            # 到服务器上直接编译失败——正是 C4365 那次同样的不对称（见下面那段注释）。
+            # 实测：`display_names.cpp` 的 Terrain switch 去掉一个 case，
+            # /W4 下 MSVC 静默通过；加上这条则 warning C4062 + /WX = 构建失败。
+            #
+            # 它同时把「枚举完备性」变成一条**编译期**保证：只要 switch 不写 default，
+            # 新增枚举值就必须在每个 switch 里被处理。`game/src/display_names.cpp`
+            # 依赖这一条（漏了名字会静默返回空串，而空串在画面上就是什么都没有）。
+            #
+            # 刻意**不**开 C4061（有 default 但没列全）：那种写法是正当的，
+            # 开了会在每个「只关心几个分支」的 switch 上刷警告。
+            /w14062
         )
         if(strict_conversions)
             # 与 GCC 侧 -Wconversion -Wsign-conversion 对齐的那一组。这类转换是确定性
