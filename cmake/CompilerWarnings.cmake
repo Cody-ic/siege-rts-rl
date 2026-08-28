@@ -33,9 +33,23 @@ function(rts_set_warnings target)
             /utf-8
         )
         if(strict_conversions)
-            # C4242/C4244/C4267 隐式窄化；C4365 有符号/无符号不匹配。
-            # 这类转换是确定性问题的常见来源（例如 float 意外降精度、索引类型截断）。
-            target_compile_options(${target} PRIVATE /w14242 /w14254 /w14263 /w14265 /w14287)
+            # 与 GCC 侧 -Wconversion -Wsign-conversion 对齐的那一组。这类转换是确定性
+            # 问题的常见来源（float 意外降精度、索引类型截断）。逐条写清是什么，
+            # 因为这份清单曾经和注释对不上（见下）：
+            #   C4242  赋值中的隐式窄化
+            #   C4254  位域转换丢位
+            #   C4287  无符号/负常量不匹配
+            #   C4365  有符号/无符号不匹配 —— **-Wsign-conversion 的 MSVC 对应物**
+            # 另有 C4244 / C4267（隐式窄化的另两种形态）由 /W4 自带，不必列。
+            #
+            # C4365 是 off-by-default 的，必须显式抬到 W1。此前注释点了它的名却没开，
+            # 于是 MSVC 侧比 GCC 侧松：本地干净，而服务器上 -Wsign-conversion + -Werror
+            # 会直接编译失败——正是「关扩展 + 严格 MSVC 让两套工具链的分歧尽早在本地暴露」
+            # 这套设计要防的那件事，结果它自己漏了。
+            #
+            # 同时删掉曾经列在这里的 C4263 / C4265（成员函数没覆盖基类虚函数、
+            # 有虚函数但析构非虚）：本项目从结构上禁止虚函数分派，它们永远不会触发。
+            target_compile_options(${target} PRIVATE /w14242 /w14254 /w14287 /w14365)
         endif()
         if(RTS_WARNINGS_AS_ERRORS)
             target_compile_options(${target} PRIVATE /WX)

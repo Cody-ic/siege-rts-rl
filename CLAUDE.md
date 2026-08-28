@@ -16,7 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `日志.md` | 上机日志，答辩「人员分工」页的依据 |
 | `CMakeLists.txt` / `cmake/` | 双工具链构建配置（MSVC + GCC），`render/` 默认不参与 |
 | `rts_core/` | **仅有确定性地基**：实体句柄、可播种 PRNG、状态哈希。仿真本体一行都没有 |
-| `tests/` | Catch2（经 FetchContent），5 条 ctest |
+| `tests/` | Catch2（经 FetchContent），7 条 ctest |
 | `tools/sprite_gen/` | 纯 Python 精灵预渲染流水线，35 实体 × 4 朝向 × idle/move = 300 张成品已入库 |
 | `tools/check_determinism_bans.py` | 把本文的确定性禁令变成会红的 ctest |
 | `.mailmap` / `.gitattributes` | 作者名规范化；数据文件强制 LF（理由见 `地图与场景设计.md` 6.3） |
@@ -578,17 +578,37 @@ ctest --test-dir build -C Release -R <name>     # 按 ctest 条目挑
 code page 下这条链路会把名字弄乱，结果是 ctest 报「No tests ran」——**测试被静默跳过，
 比测试失败危险**。标签是 ASCII，不受影响。挑单条用例请直接用测试二进制。
 
+**但标签清单是白名单，所以另有一条不带过滤器的 `rts_tests_all`。** 标签写错能被抓到
+（Catch2 匹配不到用例会非零退出），标签**没写进清单**抓不到——那条 ctest 条目根本不
+存在，ctest 仍然全绿。新增测试文件时不必担心漏登记，但**仍应顺手把新标签加进清单**，
+它是定位用的。
+
 第三方依赖经 FetchContent 引入（当前只有 Catch2），首次配置需联网；
 之后可加 `-DFETCHCONTENT_FULLY_DISCONNECTED=ON` 离线复用。
 
 构建开关：`RTS_BUILD_TESTS`（默认 ON）、`RTS_BUILD_RENDER`（默认 **OFF**，
 训练构建因此根本不配置 `render/`，这是不变量 2、3 在构建侧的落地）、
-`RTS_WARNINGS_AS_ERRORS`（默认 ON，仅作用于第一方代码）。
+`RTS_WARNINGS_AS_ERRORS`（默认 ON，仅作用于第一方代码）、
+`RTS_REQUIRE_DETERMINISM_GUARD`（默认 ON：找不到 Python3 时**让配置失败**，
+而不是把下面那条守卫静默摘掉；确实没有 Python 的环境显式关掉它）。
+
+**Windows 上 `cmake -B build` 不给 `-DCMAKE_BUILD_TYPE` 也会落在 Release**，
+因为顶层有一条跨 `project()` 的守卫。这条曾经写错过：判空放在 `project()` 之后，
+而 `Platform/Windows-MSVC.cmake` 已经把平台默认值定成 `Debug` 写进缓存了，
+于是那段代码只在 Linux/GCC 上有效。**改动它之前先读 `CMakeLists.txt` 里那段注释。**
+
+**头文件必须自足**（能被单独 `#include` 而不依赖任何先行的头）。这条有结构性守卫：
+`rts_core/CMakeLists.txt` 给 `include/rts/` 下每个头各自生成一个只包含它自己的 TU
+编进 `rts_core`，用 GLOB 而非手写名单，所以新增的头自动纳入。曾经 `types.hpp` 用了
+`operator<=>` 却漏了 `<compare>`，而它一直编得过——测试文件先 include 了 Catch2，
+把 `<compare>` 顺带拉了进来；这类漏 include 还可能只在一套标准库上炸。
 
 **确定性禁令有一条可执行的守卫**：`tools/check_determinism_bans.py` 扫 `rts_core/`
 里的 `unordered_*`、C 库随机函数、标准库分布适配器、挂钟、以指针为 key 的有序容器，
 注册为 ctest。本节与「确定性要求」一节的禁令因此不只是文字——违反会在测试里红。
 确属误报时在该行末尾加 `// determinism-ok: <理由>` 放行（刻意要求写理由，使放行可评审）。
+它自己也有两道防退化：`--self-test`（应报 / 不应报各十余条），以及**扫到 0 个文件即失败**
+（路径写错时必须红，不能报「通过（0 个文件）」）。
 
 训练侧从 `train/` 运行，依赖 `bindings/` 编译出的 Python 扩展模块。
 
