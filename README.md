@@ -200,7 +200,10 @@ ctest --test-dir build -C Release -R rts_tests_rng    # 按标签
 ```
 
 几个构建开关：`-DRTS_BUILD_TESTS=OFF`（不建测试）、`-DRTS_BUILD_RENDER=ON`（建前端，
-**目前 `render/` 还不存在**）、`-DRTS_WARNINGS_AS_ERRORS=OFF`（警告不当错误，默认当）。
+**目前 `render/` 还不存在**）、`-DRTS_WARNINGS_AS_ERRORS=OFF`（警告不当错误，默认当）、
+`-DRTS_REQUIRE_DETERMINISM_GUARD=OFF`（**只在机器上确实没有 Python 时才用**：
+默认情况下找不到 Python3 会让配置直接失败，因为确定性守卫是一条 ctest，
+静默摘掉它的话 ctest 少两条、照样全绿，没有任何东西提示守卫没了）。
 
 **性能相关的改动一律在 Release 下测量**，Debug 构建的仿真吞吐不具参考意义。
 
