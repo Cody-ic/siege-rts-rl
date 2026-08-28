@@ -623,75 +623,89 @@
     },
     "Quarry": {
       "cn": "采石场",
-      "_note": "三座资源建筑共用「石砌基座」作为主体质量，靠上层构件 + 旗色区分产哪一种。原则：**人造结构占主体、资源只作点缀**。上一版是「天然石堆 + 旗与配饰」，方向对但力度不够——玩家在游戏节奏下读的是剪影，不是配饰，于是采石场与岩壁在剪影上仍是同一族。而「攻其必救」是头号演示点，前提是观众看得出 AI 奔着采石场去",
+      "_note": "三座资源建筑给**三个完全不同的剪影**：拱架 / 斜木架 / 尖顶屋。上一版三座共用 `tower-square-base`，那其实是塔的地基构件——没门没顶的浅粉方块，单独放既难看又和城墙同色，三座的区别全靠贴地的小配件，等距下根本看不见。剪影是玩家在游戏节奏下唯一读得到的东西。 采石场**不含任何天然石堆**——与岩壁/碎石的区分因此不靠大小，而是根本不同族。",
       "yaw": 0,
-      "modules": 1.0,
+      "modules": 1.15,
       "parts": [
         {
-          "_note": "石砌工棚：主体质量，方正的人造形体，与天然乱石堆在剪影上就不同族",
-          "model": "models/kenney_castle/glb/tower-square-base.glb"
-        },
-        {
-          "_note": "斜靠的石阶，读作「已开采的石壁」。必须染石色——模型本色土黄，等距下读作木梯，而石材木材是两条不同决策轴",
-          "model": "models/kenney_castle/glb/stairs-stone.glb",
-          "offset": [
-            0.82,
-            -0.18,
-            0.0
-          ],
-          "scale": 1.1,
+          "_note": "四腿石拱吊架：主体。规则的拱是纯人造形体，自然界没有这个剪影。压暗是必须的：COLOR 照抄原纹理明度，而这些构件本色偏白，不压暗读作白大理石而非石料",
+          "model": "models/kenney_castle/glb/tower-square-arch.glb",
           "tint": [
-            138,
-            146,
-            166,
-            0.92
-          ]
-        },
-        {
-          "_note": "开采出的石料，点缀而非主体",
-          "model": "models/kenney_castle/glb/rocks-small.glb",
-          "offset": [
-            -0.3,
-            -0.7,
-            0.0
-          ],
-          "scale": 0.55
-        },
-        {
-          "_note": "旗色 = 产哪一种资源（石（石板灰））。旗同时承载两个位：有旗即玩家建筑，旗色即资源种类。按「交错杂居」，一簇内本就混石木金，相邻的异种资源建筑是默认布局，所以「哪一种」必须靠一个高处、逆着地面色的元素给出。放大到 1.5 倍并抬高，上一版旗相对基座太小、采石场的近白旗在浅色基座上几乎看不见",
-          "model": "models/kenney_castle/glb/flag-pennant.glb",
-          "offset": [
-            -0.34,
-            0.3,
-            0.86
-          ],
-          "scale": 1.5,
-          "tint": [
-            116,
-            130,
+            118,
+            128,
             152,
             0.95
           ],
-          "brightness": 1.0
+          "brightness": 0.7
+        },
+        {
+          "_note": "切出的石楔，读作「已开采的台面」。压暗是必须的：COLOR 照抄原纹理明度，而这些构件本色偏白，不压暗读作白大理石而非石料",
+          "model": "models/kenney_castle/glb/stairs-stone-square.glb",
+          "offset": [
+            0.42,
+            -0.9,
+            0.0
+          ],
+          "scale": 0.9,
+          "tint": [
+            118,
+            128,
+            152,
+            0.95
+          ],
+          "brightness": 0.7
+        },
+        {
+          "_note": "开采出的石料，点缀",
+          "model": "models/kenney_castle/glb/rocks-small.glb",
+          "offset": [
+            -0.86,
+            -0.3,
+            0.0
+          ],
+          "scale": 0.5,
+          "tint": [
+            146,
+            152,
+            168,
+            0.7
+          ]
+        },
+        {
+          "_note": "旗色 = 产哪一种资源。**必须放在 -x/-y 这一侧**——那是面向相机的一面；上一版放在 +y，三面旗全被建筑本体挡住、一面都没渲出来",
+          "model": "models/kenney_castle/glb/flag-wide.glb",
+          "offset": [
+            -0.72,
+            -0.62,
+            0.0
+          ],
+          "scale": 1.2,
+          "tint": [
+            150,
+            160,
+            178,
+            0.95
+          ],
+          "brightness": 0.95
         }
       ]
     },
     "Lumber": {
       "cn": "伐木场",
-      "_note": "同 Quarry 的「石砌基座 + 上层构件」语言；此处上层是木构棚架",
+      "_note": "三座资源建筑给**三个完全不同的剪影**：拱架 / 斜木架 / 尖顶屋。上一版三座共用 `tower-square-base`，那其实是塔的地基构件——没门没顶的浅粉方块，单独放既难看又和城墙同色，三座的区别全靠贴地的小配件，等距下根本看不见。剪影是玩家在游戏节奏下唯一读得到的东西。 木晾架是本包里最直接读作「木料作坊」的构件。",
       "yaw": 0,
-      "modules": 1.0,
+      "modules": 1.15,
       "parts": [
         {
-          "_note": "石砌基座：与另两座同族，主体质量",
-          "model": "models/kenney_castle/glb/tower-square-base.glb"
+          "_note": "靠墙的木晾架：主体，斜撑的剪影与另两座都不同",
+          "model": "models/kenney_castle/glb/wall-narrow-wood-fence.glb"
         },
         {
-          "_note": "锯木架：横木料 + 两根立桩。上一版把木构墙叠在基座顶上，渲出来是浮空的双层怪物且高出另两座一截",
+          "_note": "待锯的木料",
           "model": "models/kenney_castle/glb/tree-log.glb",
           "offset": [
-            0.76,
-            -0.34,
+            0.9,
+            -0.44,
             0.0
           ],
           "scale": 0.85
@@ -699,88 +713,77 @@
         {
           "model": "models/kenney_castle/glb/tree-trunk.glb",
           "offset": [
-            0.6,
-            0.3,
+            0.66,
+            0.46,
             0.0
           ],
-          "scale": 0.8
+          "scale": 0.7
         },
         {
-          "model": "models/kenney_castle/glb/tree-trunk.glb",
+          "_note": "旗色 = 产哪一种资源。**必须放在 -x/-y 这一侧**——那是面向相机的一面；上一版放在 +y，三面旗全被建筑本体挡住、一面都没渲出来",
+          "model": "models/kenney_castle/glb/flag-wide.glb",
           "offset": [
-            0.98,
-            -0.02,
+            -0.72,
+            -0.62,
             0.0
           ],
-          "scale": 0.66
-        },
-        {
-          "_note": "旗色 = 产哪一种资源（木（绿））。旗同时承载两个位：有旗即玩家建筑，旗色即资源种类。按「交错杂居」，一簇内本就混石木金，相邻的异种资源建筑是默认布局，所以「哪一种」必须靠一个高处、逆着地面色的元素给出。放大到 1.5 倍并抬高，上一版旗相对基座太小、采石场的近白旗在浅色基座上几乎看不见",
-          "model": "models/kenney_castle/glb/flag-pennant.glb",
-          "offset": [
-            -0.34,
-            0.3,
-            0.86
-          ],
-          "scale": 1.5,
+          "scale": 1.2,
           "tint": [
-            62,
-            196,
-            56,
+            70,
+            190,
+            64,
             0.95
           ],
-          "brightness": 0.86
+          "brightness": 0.85
         }
       ]
     },
     "Mine": {
       "cn": "金矿场",
-      "_note": "同 Quarry 的「石砌基座 + 上层构件」语言；此处上层是坑口门",
+      "_note": "三座资源建筑给**三个完全不同的剪影**：拱架 / 斜木架 / 尖顶屋。上一版三座共用 `tower-square-base`，那其实是塔的地基构件——没门没顶的浅粉方块，单独放既难看又和城墙同色，三座的区别全靠贴地的小配件，等距下根本看不见。剪影是玩家在游戏节奏下唯一读得到的东西。 井口房是唯一带尖顶的一座，顶色染暗以免与防御塔的蓝顶混。",
       "yaw": 0,
-      "modules": 1.0,
+      "modules": 1.15,
       "parts": [
         {
-          "model": "models/kenney_castle/glb/tower-square-base.glb"
-        },
-        {
-          "_note": "坑口门贴在基座正面，读作「井口」",
-          "model": "models/kenney_castle/glb/door.glb",
-          "offset": [
-            0.0,
-            -0.86,
-            0.0
+          "_note": "尖顶井口房：主体。本包里 tower-slant-roof 是一整座带门的小屋，不是屋顶构件",
+          "model": "models/kenney_castle/glb/tower-slant-roof.glb",
+          "tint": [
+            148,
+            92,
+            52,
+            0.8
           ],
-          "scale": 1.15
+          "brightness": 0.72
         },
         {
-          "_note": "含金矿石，点缀。金色 tint 是「产哪一种」的第二重提示",
-          "model": "models/kenney_castle/glb/rocks-small.glb",
+          "_note": "含金矿脉，点缀。金色 tint 是「产哪一种」的第二重提示",
+          "model": "models/kenney_castle/glb/rocks-large.glb",
           "offset": [
-            0.68,
-            -0.3,
+            0.88,
+            -0.42,
             0.0
           ],
           "scale": 0.55,
           "tint": [
-            198,
-            156,
-            62,
+            200,
+            158,
+            60,
             0.75
           ]
         },
         {
-          "_note": "旗色 = 产哪一种资源（金币（金黄））。旗同时承载两个位：有旗即玩家建筑，旗色即资源种类。按「交错杂居」，一簇内本就混石木金，相邻的异种资源建筑是默认布局，所以「哪一种」必须靠一个高处、逆着地面色的元素给出。放大到 1.5 倍并抬高，上一版旗相对基座太小、采石场的近白旗在浅色基座上几乎看不见",
-          "model": "models/kenney_castle/glb/flag-pennant.glb",
+          "_note": "旗色 = 产哪一种资源。**必须放在 -x/-y 这一侧**——那是面向相机的一面；上一版放在 +y，三面旗全被建筑本体挡住、一面都没渲出来",
+          "model": "models/kenney_castle/glb/flag-wide.glb",
           "offset": [
-            -0.34,
-            0.3,
-            0.86
+            -0.72,
+            -0.62,
+            0.0
           ],
-          "scale": 1.5,
+          "scale": 1.2,
           "tint": [
             255,
-            186,
-            18,
+            190,
+            20,
             1.0
           ],
           "brightness": 0.9
