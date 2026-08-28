@@ -26,11 +26,16 @@ from collections import defaultdict
 ALLOW_SHARED = {
     # 地砖变体：同一枚举值的不同贴图，共用底模、只差染色，这正是设计意图
     "ground.glb": "Plain 系地砖变体 + Water，同一底模只差染色（见 README「地形三类」）",
-    # 模块化塔件：Kenney 城堡包的塔分底座/中段/顶层数块，四座塔共用底座、
-    # **靠顶部区分**（见 README；Flak 与 Tower 的剪影差异就在顶上）
-    "tower-square-base.glb": "四座塔共用模块化底座，靠顶部区分（这是该素材包的设计方式）",
+    # 模块化塔件：Kenney 城堡包的塔分底座/中段/顶层数块，靠顶部区分
+    # （见 README；Flak 与 Tower 的剪影差异就在顶上）。
+    #
+    # **共用底座只对「都是砌体战斗塔」的那几座成立。** Watch 曾经也在这一列，
+    # 靠把同一套砌体染棕来表示木质——那是无效的，染色改不掉「实心砌体」这个形体。
+    # 它现在改用镂空木架，因此不在此列。这条例外的适用边界是**机制同族**，
+    # 不是「反正都是塔」。
+    "tower-square-base.glb": "Tower / Flak / Barrack 三座砌体建筑共用模块化底座，靠顶部区分",
     "tower-square-mid.glb": "同上",
-    "tower-square-top.glb": "同上",
+    "tower-square-top.glb": "同上（Watch 用它作开放平台，是配件不是主体）",
     # ForestB 就是 Forest 枚举的贴图变体，机制相同，共用底模是定义本身
     "tree-large.glb": "ForestB 是 Forest 的贴图变体（单株巨树占一格），机制相同",
     # 跨包组合：同一匹马给两个骑兵，靠染色与骑手区分（活马 vs 幽灵马）
