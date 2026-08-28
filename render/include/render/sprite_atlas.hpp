@@ -67,11 +67,33 @@ public:
     const std::vector<int>& frames_of(std::string_view ident,
                                       std::string_view state) const;
 
+    // 「打出去」的那一帧（弓弦松开 / 刀锋落下）。没有这个概念时返回 0。
+    //
+    // **正确用法不是「按固定节奏播完这些帧」**，而是：
+    //
+    //     保持命中前的帧，直到仿真说前摇结束，再播其余帧。
+    //
+    // 理由（元数据的 `note` 里也写着）：攻击前摇是**待标定的数值**，
+    // 若前端按帧数决定时长，改一次前摇就得重渲精灵——**一个待定数值被烤进了资产**。
+    // 帧数与 tick 因此必须解耦：精灵只提供关键姿态、不提供时长。
+    // 这与 6.3「回放格式不得依赖待定数值」是同一条原则。
+    //
+    // 本类是这个字段在 C++ 侧的**唯一**读取点。放在这里而不是等用到时再另读一遍
+    // JSON，是为了不制造第二个读取点——那正是 `_sprite_meta.json` 作为「像素几何
+    // 唯一来源」要防的事（§7）。
+    int impact_frame_of(std::string_view ident, std::string_view state) const;
+
+    // 某个标识符有没有某个状态。**状态名不是固定集合**（元数据的 `note` 明写：
+    // 单位有 idle/move，能攻击的还有 attack，工匠是 work），所以调用方不能假定，
+    // 要问。
+    bool has_state(std::string_view ident, std::string_view state) const noexcept;
+
 private:
     struct StateMeta {
         Vector2 canvas{};
         Vector2 ground_anchor{};
         std::vector<int> frames;
+        int impact_frame = 0;   // 0 = 该状态没有「命中帧」这个概念
         bool is_tile = false;   // 元数据里的 kind == "tile"
     };
 

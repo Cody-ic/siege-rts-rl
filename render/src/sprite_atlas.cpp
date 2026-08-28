@@ -90,6 +90,27 @@ SpriteAtlas::SpriteAtlas(const std::string& sprite_dir) : dir_(sprite_dir) {
                 }
             }
             if (sm.frames.empty()) sm.frames.push_back(1);
+            if (st.value().contains("impact_frame") &&
+                st.value()["impact_frame"].is_number_integer()) {
+                sm.impact_frame = st.value()["impact_frame"].get<int>();
+                // 命中帧必须真的在 frames 里。**不在就是元数据坏了**，而它坏掉的
+                // 症状是「动画在某个不存在的帧上等前摇结束」——那会表现成单位卡住，
+                // 一个看着像仿真 bug 而根因在资产里的问题。所以在这里就红。
+                bool found = false;
+                for (int f : sm.frames) {
+                    if (f == sm.impact_frame) { found = true; break; }
+                }
+                if (!found) {
+                    std::string list;
+                    for (int f : sm.frames) {
+                        if (!list.empty()) list += ", ";
+                        list += std::to_string(f);
+                    }
+                    throw AssetError(meta_path + "：" + where + " 的 impact_frame = " +
+                                     std::to_string(sm.impact_frame) +
+                                     " 不在 frames [" + list + "] 里");
+                }
+            }
             sm.is_tile = st.value().contains("kind") &&
                          st.value()["kind"].is_string() &&
                          st.value()["kind"].get<std::string>() == "tile";
@@ -132,6 +153,18 @@ const SpriteAtlas::StateMeta& SpriteAtlas::state_meta(std::string_view ident,
 const std::vector<int>& SpriteAtlas::frames_of(std::string_view ident,
                                                std::string_view state) const {
     return state_meta(ident, state).frames;
+}
+
+int SpriteAtlas::impact_frame_of(std::string_view ident,
+                                 std::string_view state) const {
+    return state_meta(ident, state).impact_frame;
+}
+
+bool SpriteAtlas::has_state(std::string_view ident,
+                           std::string_view state) const noexcept {
+    const auto i = meta_.find(std::string(ident));
+    if (i == meta_.end()) return false;
+    return i->second.find(std::string(state)) != i->second.end();
 }
 
 std::string SpriteAtlas::file_name(std::string_view ident, std::string_view state,
