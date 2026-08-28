@@ -623,22 +623,23 @@
     },
     "Quarry": {
       "cn": "采石场",
-      "_note": "三座资源建筑共享「人造物」视觉语言（旗 + 一件加工构件），与纯自然的景物和地形区分。原则是：**人造 = 玩家建筑，纯自然 = 景物或地形**。此前采石场与碎石、岩壁同为三堆灰石头、只有大小之差，而三者机制正好相反（无机制 / 必须守的经济建筑 / 走不进去的地形）；且「攻其必救」是头号演示点，观众必须看出 AI 是奔着采石场去的",
+      "_note": "三座资源建筑共用「石砌基座」作为主体质量，靠上层构件 + 旗色区分产哪一种。原则：**人造结构占主体、资源只作点缀**。上一版是「天然石堆 + 旗与配饰」，方向对但力度不够——玩家在游戏节奏下读的是剪影，不是配饰，于是采石场与岩壁在剪影上仍是同一族。而「攻其必救」是头号演示点，前提是观众看得出 AI 奔着采石场去",
       "yaw": 0,
-      "modules": 1,
+      "modules": 1.0,
       "parts": [
         {
-          "model": "models/kenney_castle/glb/rocks-large.glb"
+          "_note": "石砌工棚：主体质量，方正的人造形体，与天然乱石堆在剪影上就不同族",
+          "model": "models/kenney_castle/glb/tower-square-base.glb"
         },
         {
-          "_note": "切出的台阶，读作「已开采的石壁」而非天然乱石。必须染成石色：模型本色是土黄，等距下读作木梯，而石材与木材是两条不同的决策轴，采石场挂木构件是反向提示",
+          "_note": "斜靠的石阶，读作「已开采的石壁」。必须染石色——模型本色土黄，等距下读作木梯，而石材木材是两条不同决策轴",
           "model": "models/kenney_castle/glb/stairs-stone.glb",
           "offset": [
-            0.62,
-            -0.15,
+            0.82,
+            -0.18,
             0.0
           ],
-          "scale": 1.15,
+          "scale": 1.1,
           "tint": [
             138,
             146,
@@ -647,106 +648,142 @@
           ]
         },
         {
-          "_note": "旗色 = 产哪一种资源（石灰白）。旗子同时承载两个位：有旗即玩家建筑，旗色即资源种类。按 CLAUDE.md「交错杂居」，一簇内本就混有石/木/金，相邻的异种资源建筑是常见情形，而「攻其必救」要求玩家一眼看出 AI 在打哪一种——只靠底座（石堆 vs 木料 vs 石堆+门）在相邻摆放时会读成同一堆",
+          "_note": "开采出的石料，点缀而非主体",
+          "model": "models/kenney_castle/glb/rocks-small.glb",
+          "offset": [
+            -0.3,
+            -0.7,
+            0.0
+          ],
+          "scale": 0.55
+        },
+        {
+          "_note": "旗色 = 产哪一种资源（石（石板灰））。旗同时承载两个位：有旗即玩家建筑，旗色即资源种类。按「交错杂居」，一簇内本就混石木金，相邻的异种资源建筑是默认布局，所以「哪一种」必须靠一个高处、逆着地面色的元素给出。放大到 1.5 倍并抬高，上一版旗相对基座太小、采石场的近白旗在浅色基座上几乎看不见",
           "model": "models/kenney_castle/glb/flag-pennant.glb",
           "offset": [
-            -0.55,
-            0.5,
-            0.42
+            -0.34,
+            0.3,
+            0.86
           ],
+          "scale": 1.5,
           "tint": [
-            226,
-            230,
-            236,
-            0.9
-          ]
+            116,
+            130,
+            152,
+            0.95
+          ],
+          "brightness": 1.0
         }
       ]
     },
     "Lumber": {
       "cn": "伐木场",
-      "_note": "同 Quarry 的「人造物」视觉语言：旗 + 一件加工构件。此处的加工构件是锯木架，与作为景物、只是躺在地上的树桩区分",
+      "_note": "同 Quarry 的「石砌基座 + 上层构件」语言；此处上层是木构棚架",
       "yaw": 0,
-      "modules": 1,
+      "modules": 1.0,
       "parts": [
         {
-          "model": "models/kenney_castle/glb/tree-log.glb"
+          "_note": "石砌基座：与另两座同族，主体质量",
+          "model": "models/kenney_castle/glb/tower-square-base.glb"
         },
         {
-          "_note": "锯木架：横木料 + 立木桩，与单独躺着的木料（景物）区分",
-          "model": "models/kenney_castle/glb/tree-trunk.glb",
+          "_note": "锯木架：横木料 + 两根立桩。上一版把木构墙叠在基座顶上，渲出来是浮空的双层怪物且高出另两座一截",
+          "model": "models/kenney_castle/glb/tree-log.glb",
           "offset": [
-            0.42,
-            0.34,
-            0.0
-          ]
-        },
-        {
-          "model": "models/kenney_castle/glb/tree-trunk.glb",
-          "offset": [
-            0.4,
+            0.76,
             -0.34,
             0.0
           ],
           "scale": 0.85
         },
         {
-          "_note": "旗色 = 产哪一种资源（木绿），理由见 Quarry 的旗",
+          "model": "models/kenney_castle/glb/tree-trunk.glb",
+          "offset": [
+            0.6,
+            0.3,
+            0.0
+          ],
+          "scale": 0.8
+        },
+        {
+          "model": "models/kenney_castle/glb/tree-trunk.glb",
+          "offset": [
+            0.98,
+            -0.02,
+            0.0
+          ],
+          "scale": 0.66
+        },
+        {
+          "_note": "旗色 = 产哪一种资源（木（绿））。旗同时承载两个位：有旗即玩家建筑，旗色即资源种类。按「交错杂居」，一簇内本就混石木金，相邻的异种资源建筑是默认布局，所以「哪一种」必须靠一个高处、逆着地面色的元素给出。放大到 1.5 倍并抬高，上一版旗相对基座太小、采石场的近白旗在浅色基座上几乎看不见",
           "model": "models/kenney_castle/glb/flag-pennant.glb",
           "offset": [
-            -0.45,
-            0.0,
-            0.2
+            -0.34,
+            0.3,
+            0.86
           ],
+          "scale": 1.5,
           "tint": [
             62,
             196,
             56,
             0.95
           ],
-          "brightness": 0.82
+          "brightness": 0.86
         }
       ]
     },
     "Mine": {
       "cn": "金矿场",
-      "_note": "同 Quarry 的「人造物」视觉语言：旗 + 一件加工构件。此处的加工构件是坑口门，另给石堆上金色 tint，与采石场区分「产哪一种」",
+      "_note": "同 Quarry 的「石砌基座 + 上层构件」语言；此处上层是坑口门",
       "yaw": 0,
-      "modules": 1,
+      "modules": 1.0,
       "parts": [
         {
-          "model": "models/kenney_castle/glb/rocks-large.glb",
+          "model": "models/kenney_castle/glb/tower-square-base.glb"
+        },
+        {
+          "_note": "坑口门贴在基座正面，读作「井口」",
+          "model": "models/kenney_castle/glb/door.glb",
+          "offset": [
+            0.0,
+            -0.86,
+            0.0
+          ],
+          "scale": 1.15
+        },
+        {
+          "_note": "含金矿石，点缀。金色 tint 是「产哪一种」的第二重提示",
+          "model": "models/kenney_castle/glb/rocks-small.glb",
+          "offset": [
+            0.68,
+            -0.3,
+            0.0
+          ],
+          "scale": 0.55,
           "tint": [
             198,
             156,
             62,
-            0.72
+            0.75
           ]
         },
         {
-          "model": "models/kenney_castle/glb/door.glb",
-          "offset": [
-            -0.25,
-            -0.62,
-            0.0
-          ],
-          "scale": 1.1
-        },
-        {
-          "_note": "旗色 = 产哪一种资源（金黄），理由见 Quarry 的旗",
+          "_note": "旗色 = 产哪一种资源（金币（金黄））。旗同时承载两个位：有旗即玩家建筑，旗色即资源种类。按「交错杂居」，一簇内本就混石木金，相邻的异种资源建筑是默认布局，所以「哪一种」必须靠一个高处、逆着地面色的元素给出。放大到 1.5 倍并抬高，上一版旗相对基座太小、采石场的近白旗在浅色基座上几乎看不见",
           "model": "models/kenney_castle/glb/flag-pennant.glb",
           "offset": [
-            -0.5,
-            0.55,
-            0.4
+            -0.34,
+            0.3,
+            0.86
           ],
+          "scale": 1.5,
           "tint": [
             255,
             186,
             18,
             1.0
           ],
-          "brightness": 0.86
+          "brightness": 0.9
         }
       ]
     },
@@ -876,30 +913,32 @@
       "modules": 1
     },
     "TreeBig": {
-      "cn": "大树",
+      "cn": "巨树（密林变体）",
       "model": "models/kenney_castle/glb/tree-large.glb",
       "yaw": 0,
-      "_note": "景物，不是伐木场。modules 1.4 让它明显高过战马——树比马矮很离谱",
-      "modules": 1.4
+      "_note": "**`Forest` 枚举的贴图变体**，不是独立枚举值、也不是纯装饰——单株巨树占满一格，机制与密林相同（可通行、挡视野、不可破坏），渲染层按坐标哈希在「三株成簇」与「单株巨树」之间选。这样林地有形态变化而枚举不膨胀，写法同 `Plain` 的四个贴图变体。**不可破坏障碍**：静态地形，展开进 passable/blocks_vision 位图。同上视觉规则的另一半：高而厚重。`Forest` 不可破坏是**结构要求**而非风味——可破坏则玩家清掉森林带照旧砌墙，反围墙设计整个失效",
+      "modules": 1.6
     },
     "TreeSmall": {
       "cn": "小树",
       "model": "models/kenney_castle/glb/tree-small.glb",
       "yaw": 0,
-      "modules": 1.4
+      "modules": 0.95,
+      "_note": "**可破坏障碍**（§6）：有血量的实体，不在地形层。视觉规则是「**矮而单薄 = 可破坏；高而厚重 = 不可破坏**」——等距视角下剪影高度是最稳的线索，而玩家把防线靠在一段其实能被打穿的障碍上是一次不可挽回的误判。单株细树。**原为 1.4，比密林 1.25 还高，规则是反的**，已压到明显矮于密林"
     },
     "Stump": {
       "cn": "树桩",
       "model": "models/kenney_castle/glb/tree-trunk.glb",
       "yaw": 0,
-      "modules": 1.0
+      "modules": 0.55,
+      "_note": "**可破坏障碍**（§6）：有血量的实体，不在地形层。视觉规则是「**矮而单薄 = 可破坏；高而厚重 = 不可破坏**」——等距视角下剪影高度是最稳的线索，而玩家把防线靠在一段其实能被打穿的障碍上是一次不可挽回的误判。单个树桩，本族最矮"
     },
     "RockSmall": {
       "cn": "碎石",
       "model": "models/kenney_castle/glb/rocks-small.glb",
       "yaw": 0,
-      "_note": "景物，不是采石场。同上，须与采石场可区分",
-      "modules": 0.8
+      "_note": "**可破坏障碍**（§6）：有血量的实体，不在地形层。视觉规则是「**矮而单薄 = 可破坏；高而厚重 = 不可破坏**」——等距视角下剪影高度是最稳的线索，而玩家把防线靠在一段其实能被打穿的障碍上是一次不可挽回的误判。一小堆碎石，矮而散。石质但矮薄，故仍属可破坏——族的判据是剪影高度与厚度，不是材质",
+      "modules": 0.7
     },
     "Water": {
       "cn": "水域",
@@ -926,9 +965,9 @@
     },
     "Rock": {
       "cn": "岩壁",
-      "_note": "地形枚举 Rock：挡路且挡视野。封死城区周长、夹出隘口，把需要人工设防的正面压缩到几条走廊口",
+      "_note": "地形枚举 `Rock`：挡路且挡视野。封死城区周长、夹出隘口。**不可破坏障碍**：静态地形，展开进 passable/blocks_vision 位图。同上视觉规则的另一半：高而厚重。`Forest` 不可破坏是**结构要求**而非风味——可破坏则玩家清掉森林带照旧砌墙，反围墙设计整个失效",
       "yaw": 0,
-      "modules": 1.3,
+      "modules": 1.5,
       "parts": [
         {
           "model": "models/kenney_castle/glb/rocks-large.glb"
@@ -946,9 +985,9 @@
     },
     "Forest": {
       "cn": "密林",
-      "_note": "地形枚举 Forest：可通行但挡视野，不设移动减速。侦查博弈的地形载体。三棵树挤在一格内，与单株景物区分",
+      "_note": "地形枚举 `Forest`：可通行但挡视野，不设移动减速。侦查博弈的地形载体。**不可破坏障碍**：静态地形，展开进 passable/blocks_vision 位图。同上视觉规则的另一半：高而厚重。`Forest` 不可破坏是**结构要求**而非风味——可破坏则玩家清掉森林带照旧砌墙，反围墙设计整个失效",
       "yaw": 0,
-      "modules": 1.25,
+      "modules": 1.35,
       "parts": [
         {
           "model": "models/kenney_castle/glb/tree-large.glb"
