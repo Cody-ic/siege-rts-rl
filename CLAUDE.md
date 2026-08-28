@@ -457,18 +457,37 @@ Mason    ──►  Phoenix、Shade 狙杀
 
 **排期**：空中单位属于正交叠加层，应在地面攻防核心循环跑通、战术策略训练收敛之后再加入（约第三周）。地面尚未收敛就引入第二个移动层，将无法区分训练不收敛的来源。
 
-## 构建与测试（约定，尚未落地）
+## 构建与测试
 
-采用 CMake。骨架搭好后遵循：
+采用 CMake。骨架已落地（Windows/MSVC 上可编可测；**Linux/GCC 侧尚未验证**）：
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j
+cmake --build build --config Release
 
-ctest --test-dir build                    # 全部测试
-ctest --test-dir build -R <name>          # 单个测试
-./build/tests/rts_tests "<test name>"     # 直接跑测试二进制中的单条用例
+ctest --test-dir build -C Release               # 全部测试
+ctest --test-dir build -C Release -R <name>     # 按 ctest 条目挑
+./build/tests/Release/rts_tests "<用例名>"       # 直接跑测试二进制中的单条用例
 ```
+
+命令行下 PATH 里通常没有 cmake，VS2022 自带一份，完整路径见 `README.md`「本地环境」。
+
+**ctest 条目按 Catch2 标签划分（`rts_tests_rng` 等），不是逐用例注册。**
+用例名是中文，而逐用例注册要把用例名当命令行过滤器传回去，在 Windows 的中文
+code page 下这条链路会把名字弄乱，结果是 ctest 报「No tests ran」——**测试被静默跳过，
+比测试失败危险**。标签是 ASCII，不受影响。挑单条用例请直接用测试二进制。
+
+第三方依赖经 FetchContent 引入（当前只有 Catch2），首次配置需联网；
+之后可加 `-DFETCHCONTENT_FULLY_DISCONNECTED=ON` 离线复用。
+
+构建开关：`RTS_BUILD_TESTS`（默认 ON）、`RTS_BUILD_RENDER`（默认 **OFF**，
+训练构建因此根本不配置 `render/`，这是不变量 2、3 在构建侧的落地）、
+`RTS_WARNINGS_AS_ERRORS`（默认 ON，仅作用于第一方代码）。
+
+**确定性禁令有一条可执行的守卫**：`tools/check_determinism_bans.py` 扫 `rts_core/`
+里的 `unordered_*`、C 库随机函数、标准库分布适配器、挂钟、以指针为 key 的有序容器，
+注册为 ctest。本节与「确定性要求」一节的禁令因此不只是文字——违反会在测试里红。
+确属误报时在该行末尾加 `// determinism-ok: <理由>` 放行（刻意要求写理由，使放行可评审）。
 
 训练侧从 `train/` 运行，依赖 `bindings/` 编译出的 Python 扩展模块。
 
