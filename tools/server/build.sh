@@ -24,7 +24,9 @@ esac
 
 REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 BUILD=${RTS_BUILD_DIR:-$REPO/build-$CFG}
-LOG_DIR=${RTS_LOG_DIR:-$REPO/../logs}
+# 日志放在仓库**外面**（同级的 logs/），因为仓库会被 sync.sh 的 ff-only 合并推进，
+# 日志留在里面会变成未跟踪文件、干扰「工作区是否干净」这个判断。
+LOG_DIR=${RTS_LOG_DIR:-$(cd -- "$REPO/.." && pwd)/logs}
 mkdir -p "$LOG_DIR"
 LOG=$LOG_DIR/gcc-$(printf '%s' "$CFG" | tr '[:upper:]' '[:lower:]').log
 
