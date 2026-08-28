@@ -410,6 +410,12 @@ def set_pose(objs, pose, freeze_frame):
 
     素材包普遍没有"骑乘"动作，骑手直接放上马背时双腿会插进马身。
     这里用它把大腿前摆、小腿外张，绕开马腹。
+
+    `freeze_frame` 默认是 `frames[0]`，但可用 `pose_frame` 单独指定。
+    这个区分在做**骑兵的攻击态**时是必需的：定格的骑手的手臂姿态来自
+    「该动作在 freeze_frame 上的求值」，而 `frames` 同时还在驱动**马**的步态。
+    两者绑在一起的话，要让骑手停在挥击帧就得把马的步态也从那一帧起采，
+    于是攻击态与移动态的马腿顺序不同、看着像卡了一下。
     """
     bpy.context.scene.frame_set(freeze_frame)
     for o in objs:
@@ -454,7 +460,7 @@ def states_of(spec):
     for name, ov in st.items():
         e = json.loads(json.dumps(spec))
         e.pop("states", None)
-        for k in ("action", "frames"):
+        for k in ("action", "frames", "pose_frame", "impact_frame"):
             if k in ov:
                 e[k] = ov[k]
         for idx, pov in (ov.get("parts") or {}).items():
@@ -485,7 +491,7 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
             if part.get("action"):
                 set_action(po, part["action"], new_acts)
             if part.get("pose"):
-                set_pose(po, part["pose"], frames[0])
+                set_pose(po, part["pose"], part.get("pose_frame", frames[0]))
             roots = [o for o in po if o.parent is None]
             # 各素材包尺度互不相干，跨包组合（如骑手上马）须先按 scale 对齐比例
             s = part.get("scale", 1.0)
@@ -556,7 +562,7 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
     if spec.get("action") and not spec.get("parts"):
         set_action(objs, spec["action"])
     if spec.get("pose"):
-        set_pose(objs, spec["pose"], frames[0])
+        set_pose(objs, spec["pose"], spec.get("pose_frame", frames[0]))
     if spec.get("tint"):        # 已单独指定染色的部件不再被整体染色覆盖
         apply_tint([o for o in objs if o not in tinted], spec["tint"],
                    spec.get("tint_mode", "COLOR"), spec.get("brightness"))
@@ -586,6 +592,14 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
             "frames": list(frames)}
     if spec.get("kind"):
         info["kind"] = spec["kind"]        # 后处理据此跳过描边与地面投影
+    # impact_frame：本状态里「打出去」的那一帧（弓弦松开 / 刀锋落下）。
+    #
+    # 它存在的理由是**精灵资产不得编码任何待定数值**：`CLAUDE.md` 有「弓手有攻击前摇」
+    # 这条机制，而前摇时长是待标定的数值。若前端按「N 帧循环播完」来放攻击动画，
+    # 改前摇就要重渲精灵。给出命中帧之后，前端可以**保持命中前的帧**直到仿真说前摇结束，
+    # 再播其余帧 —— 帧数与 tick 因此解耦，动画只提供关键姿态、不提供时长。
+    if spec.get("impact_frame") is not None:
+        info["impact_frame"] = spec["impact_frame"]
     return n, info
 
 
@@ -680,8 +694,13 @@ def write_meta(out_dir, px_per_tile, dirs, sprites):
                  "锚点在菱形中心，按格心贴图即可无缝平铺。"
                  "所有精灵共用同一世界->像素缩放（px_per_tile），故相对大小正确；"
                  "画布逐状态适配，canvas 与 ground_anchor 必须按 (标识符,状态) 读取。"
-                 "状态间画布不同但锚点对齐，故 idle/move 切换不会跳动。"
-                 "ground_anchor 是画布内代表实体脚底的像素坐标。"),
+                 "状态间画布不同但锚点对齐，故状态切换不会跳动。"
+                 "ground_anchor 是画布内代表实体脚底的像素坐标。"
+                 "状态名不是固定集合，按实体声明：单位有 idle/move，能攻击的还有 attack，"
+                 "工匠是 work（它无战力，叫 attack 是错的）；未声明状态的实体只有 idle。"
+                 "impact_frame 是该状态里「打出去」的那一帧（弓弦松开 / 刀锋落下）。"
+                 "前端应当**保持命中前的帧**直到仿真说前摇结束、再播其余帧 —— "
+                 "不要按固定节奏播完，攻击前摇是待标定数值，精灵不编码时长。"),
         "sprites": sprites,
     }
     with open(path, "w", encoding="utf-8") as f:

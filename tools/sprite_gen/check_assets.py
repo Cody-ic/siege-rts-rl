@@ -16,6 +16,7 @@
 用法:
     python check_assets.py [assets.json]
 """
+import glob
 import json
 import os
 import sys
@@ -118,10 +119,61 @@ def check(manifest_path):
     return 0
 
 
+def check_orphans(out_dir):
+    """产物目录里有没有元数据不认识的 PNG（孤儿），以及元数据声明了却不存在的（缺失）。
+
+    这条是踩过才加的：把某个状态的 `frames` 从 `[1,7,11,16]` 改成 `[1,7,13,19]` 之后，
+    旧的 `_11` / `_16` 八个文件**留在磁盘上**——`--only` 重渲只覆盖同名文件、不删旧的。
+    症状是纯静默的：元数据是对的、前端按元数据取图也是对的，
+    只有**交付包会多带一批没人引用的图**，而那正是交付清单要求精简的东西。
+
+    「缺失」那一半同样重要：`--only` 渲了一半中断时元数据已写、文件没齐，
+    前端会在运行时报文件找不到，而那时人会先怀疑前端。
+    """
+    meta_path = os.path.join(out_dir, "_sprite_meta.json")
+    if not os.path.exists(meta_path):
+        print(f"跳过产物检查：{meta_path} 不存在（还没渲过）")
+        return 0
+    with open(meta_path, encoding="utf-8") as f:
+        meta = json.load(f)
+
+    want = set()
+    for ident, spr in meta["sprites"].items():
+        for st, info in spr["states"].items():
+            frs = info["frames"]
+            for d in meta["dirs"]:
+                for fr in frs:
+                    sfx = f"_{fr}" if len(frs) > 1 else ""
+                    want.add(f"{ident}_{st}_{d}{sfx}.png")
+
+    # 下划线开头的是汇总图 / 预览图 / 元数据本身，不属于精灵
+    have = {os.path.basename(p) for p in glob.glob(os.path.join(out_dir, "*.png"))
+            if not os.path.basename(p).startswith("_")}
+
+    orphan, missing = sorted(have - want), sorted(want - have)
+    if not orphan and not missing:
+        print(f"产物检查通过（{len(want)} 张精灵，与元数据一致）")
+        return 0
+    if orphan:
+        print(f"\n产物检查失败：{len(orphan)} 张 PNG 不在元数据里（孤儿）")
+        for f in orphan[:12]:
+            print("  · " + f)
+        if len(orphan) > 12:
+            print(f"  · …另有 {len(orphan) - 12} 张")
+        print("  改过某个状态的 frames 之后要删掉旧帧号的文件；--only 重渲不会删。")
+    if missing:
+        print(f"\n产物检查失败：{len(missing)} 张元数据声明了但磁盘上没有")
+        for f in missing[:12]:
+            print("  · " + f)
+    return 1
+
+
 def main():
     path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
         os.path.dirname(os.path.abspath(__file__)), "assets.json")
-    return check(path)
+    rc = check(path)
+    out = os.path.join(os.path.dirname(os.path.abspath(path)), "out_3d")
+    return rc | check_orphans(out)
 
 
 if __name__ == "__main__":

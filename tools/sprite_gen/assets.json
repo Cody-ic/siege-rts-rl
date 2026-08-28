@@ -72,6 +72,16 @@
             11,
             16
           ]
+        },
+        "attack": {
+          "action": "Sword_Attack",
+          "frames": [
+            1,
+            7,
+            13,
+            19
+          ],
+          "impact_frame": 13
         }
       },
       "max_width": 0.8
@@ -96,6 +106,16 @@
             11,
             16
           ]
+        },
+        "attack": {
+          "action": "Bow_Attack_Shoot",
+          "frames": [
+            1,
+            9,
+            12,
+            15
+          ],
+          "impact_frame": 9
         }
       },
       "max_width": 0.8
@@ -174,6 +194,28 @@
               "action": "Run"
             }
           }
+        },
+        "attack": {
+          "frames": [
+            1,
+            6,
+            11,
+            16
+          ],
+          "impact_frame": 11,
+          "parts": {
+            "1": {
+              "action": "Dagger_Attack",
+              "pose_frame": 11
+            },
+            "2": {
+              "rot": [
+                -60,
+                0,
+                0
+              ]
+            }
+          }
         }
       }
     },
@@ -221,6 +263,16 @@
             11,
             16
           ]
+        },
+        "work": {
+          "action": "Staff_Attack",
+          "frames": [
+            1,
+            5,
+            11,
+            15
+          ],
+          "impact_frame": 11
         }
       },
       "max_width": 0.8
@@ -276,6 +328,20 @@
           "parts": {
             "0": {
               "action": "Skeleton_Running"
+            }
+          }
+        },
+        "attack": {
+          "frames": [
+            1,
+            13,
+            19,
+            25
+          ],
+          "impact_frame": 19,
+          "parts": {
+            "0": {
+              "action": "Skeleton_Attack"
             }
           }
         }
@@ -445,6 +511,28 @@
           "parts": {
             "0": {
               "action": "Run"
+            }
+          }
+        },
+        "attack": {
+          "frames": [
+            1,
+            6,
+            11,
+            16
+          ],
+          "impact_frame": 11,
+          "parts": {
+            "1": {
+              "action": "Skeleton_Attack",
+              "pose_frame": 13
+            },
+            "2": {
+              "rot": [
+                -75,
+                0,
+                0
+              ]
             }
           }
         }
