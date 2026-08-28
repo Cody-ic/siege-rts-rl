@@ -18,9 +18,13 @@ import bpy, sys, os, json, math, colorsys
 from mathutils import Vector, Matrix
 
 # 俯角 30° => 投影瓦片 2:1。真等距（各轴等比）是 35.264°，本项目不用。
-TILE_W, TILE_H = 128, 64       # 等距瓦片，固定 2:1，与 isolib 一致
 CAM_PITCH = math.radians(60.0)
 CAM_YAW = math.radians(45.0)
+
+# 一格地砖的世界边长。约定「1 世界单位 = px_per_tile 像素（沿屏幕横轴）」，
+# 而边长 s 的正方形投影后横跨 sqrt(2)*s，故 s = 1/sqrt(2) 才能让菱形正好
+# 占满 px_per_tile 像素宽、px_per_tile/2 像素高。改这个数等于改掉整套地砖。
+TILE_SIDE = 1.0 / math.sqrt(2.0)
 
 # 朝向 -> 模型绕 Z 轴的额外旋转（度）。
 # 首次接入新模型时请渲一张出来目视确认，不对就改 assets.json 里的 yaw。
@@ -192,12 +196,22 @@ def world_bbox(objs):
     return (lo, hi) if found else None
 
 
-def normalize(objs, target_h, lift, max_w=1.45):
-    """把模型缩放到统一高度、底面贴地，并挂到一个空物体上便于整体旋转。
+def normalize(objs, target_h, lift, max_w=1.45, tile=False, modules=None):
+    """把模型定标、底面贴地，并挂到一个空物体上便于整体旋转。
 
-    统一尺度是跨来源风格一致的第一步：各家模型的原始尺度毫无可比性。
-    除高度外还需约束**水平尺寸**——展翅的鸟类宽度可达高度的 8 倍，
-    只按高度归一化会让翼展撑爆画面。
+    **尺寸一律以「格子边长」为 1**，不是以菱形的屏幕宽度为 1。后者是早先的约定，
+    导致所有实体被放大了 √2 倍——单位比地砖还大，大树比战马还矮。
+
+    三种定标方式：
+
+    - `modules=k`：**1 个模型单位 = k 格边长**，不做归一化。Kenney 整套件都建在
+      1.0 模数上且内部自洽（墙高 1.31、塔身 1.01、大树 1.85、攻城锤长 2.09），
+      统一乘一个系数即可让全套件与格子、以及彼此之间的比例自动正确。
+      逐个手调高度反而会破坏这份自洽。
+    - `tile=True`：按水平 footprint 定标到一格。地砖尺寸由格子决定，与自身高度无关。
+    - 默认：按 `target_h`（单位：格边长）定标，并用 `max_w` 约束水平尺寸——
+      展翅的鸟类宽度可达高度的 8 倍，只按高度归一化会让翼展撑爆画面。
+      Quaternius 的角色原始尺度毫无可比性，只能走这条。
     """
     # 素材包中常有对象被作者关掉渲染可见性（如 Quaternius 的 Skeleton），
     # 不强制打开会渲出空图。
@@ -213,15 +227,20 @@ def normalize(objs, target_h, lift, max_w=1.45):
     lo, hi = bb
     h = max(hi.z - lo.z, 1e-6)
     w = max(hi.x - lo.x, hi.y - lo.y, 1e-6)
-    s = target_h / h
-    if w * s > max_w:                      # 宽度超限时改按宽度定标
-        s = max_w / w
+    if modules:
+        s = TILE_SIDE * modules
+    elif tile:
+        s = TILE_SIDE / w
+    else:
+        s = target_h * TILE_SIDE / h
+        if w * s > max_w * TILE_SIDE:      # 宽度超限时改按宽度定标
+            s = max_w * TILE_SIDE / w
     cx, cy = (lo.x + hi.x) / 2, (lo.y + hi.y) / 2
     for o in objs:
         if o.parent is None:
             o.parent = pivot
     pivot.scale = (s, s, s)
-    pivot.location = (-cx * s, -cy * s, -lo.z * s + lift)
+    pivot.location = (-cx * s, -cy * s, -lo.z * s + lift * TILE_SIDE)
     return pivot
 
 
@@ -544,7 +563,8 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
     # 归一化必须在设定姿势之后：包围盒取自求值网格，姿势会改变它
     bpy.context.scene.frame_set(frames[0])
     pivot = normalize(objs, spec.get("height", 0.9), spec.get("lift", 0.0),
-                      spec.get("max_width", 1.45))
+                      spec.get("max_width", 1.45), spec.get("kind") == "tile",
+                      spec.get("modules"))
 
     # 取景须在归一化之后：画布按实测投影范围确定，而非按声明尺寸估算
     W, H, ortho, shift_x, shift_y = frame_for(objs, spec, dirs, frames, px_per_tile, margin)
@@ -562,8 +582,11 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
             n += 1
     print(f"  {ident:8s} -> {n} 帧  {W}x{H}")
     # frames 写进元数据：多帧时文件名带 _<帧号> 后缀，单帧时不带，前端据此取名
-    return n, {"canvas": [W, H], "ground_anchor": ground_anchor(cam, W, H),
-               "frames": list(frames)}
+    info = {"canvas": [W, H], "ground_anchor": ground_anchor(cam, W, H),
+            "frames": list(frames)}
+    if spec.get("kind"):
+        info["kind"] = spec["kind"]        # 后处理据此跳过描边与地面投影
+    return n, info
 
 
 # 底部预留量，须覆盖 postprocess.add_shadow 画的椭圆（其半高约为实体像素宽的 0.21 倍）。
@@ -607,10 +630,14 @@ def frame_for(objs, spec, dirs, frames, px_per_tile, margin):
                 vs.append(r.dot(up))
     bpy.context.scene.frame_set(frames[0])
     u0, u1, v0, v1 = min(us), max(us), min(vs), max(vs)
-    v0 -= max(margin, SHADOW_PAD * (u1 - u0))   # 底部留白与投影预留取其大，不叠加
-    v1 += margin
-    u0 -= margin
-    u1 += margin
+    if spec.get("kind") == "tile":
+        # 地砖不留白、不预留投影：菱形必须正好占满画布，相邻格才能严丝合缝
+        pass
+    else:
+        v0 -= max(margin, SHADOW_PAD * (u1 - u0))   # 留白与投影预留取其大，不叠加
+        v1 += margin
+        u0 -= margin
+        u1 += margin
 
     W = int(round((u1 - u0) * px_per_tile))
     H = int(round((v1 - v0) * px_per_tile))
@@ -646,9 +673,11 @@ def write_meta(out_dir, px_per_tile, dirs, sprites):
             pass
     meta = {
         "px_per_tile": px_per_tile,
-        "tile": [TILE_W, TILE_H],
+        "tile": [px_per_tile, px_per_tile // 2],   # 一格菱形的像素尺寸，固定 2:1
         "dirs": dirs,
         "note": ("文件名 <标识符>_<状态>_<朝向>[_<帧号>].png，单帧时无帧号后缀。"
+                 "kind==tile 的条目是地砖：画布正好等于一格菱形、无留白无投影，"
+                 "锚点在菱形中心，按格心贴图即可无缝平铺。"
                  "所有精灵共用同一世界->像素缩放（px_per_tile），故相对大小正确；"
                  "画布逐状态适配，canvas 与 ground_anchor 必须按 (标识符,状态) 读取。"
                  "状态间画布不同但锚点对齐，故 idle/move 切换不会跳动。"
@@ -675,7 +704,7 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
 
     entries = {}
-    for group in ("units", "buildings"):
+    for group in ("units", "buildings", "terrain"):
         entries.update(mf.get(group, {}))
 
     total, sprites = 0, {}

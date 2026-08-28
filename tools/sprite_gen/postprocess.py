@@ -208,13 +208,17 @@ def main():
         if done and not a.force:
             skipped += 1                      # 已处理过，直接收入对照图，不再叠加
         else:
-            anchor = (meta.get("sprites", {}).get(ident, {})
-                      .get("states", {}).get(state, {}).get("ground_anchor"))
-            # 顺序不可颠倒：先描边，再把投影合成到描边之下。
-            # 反过来的话投影自己也会被描边，变成带黑边的独立圆盘。
-            img = add_outline(img, ol_col, ol_w)
-            img = add_shadow(img, specs.get(ident, {}), ratio, anchor)
-            save_marked(img, os.path.join(outdir, fn))
+            st = meta.get("sprites", {}).get(ident, {}).get("states", {}).get(state, {})
+            if st.get("kind") == "tile":
+                # 地砖既不描边也不画投影：描边会让整片地面变成一张黑格子网，
+                # 而地砖本身就是地面，没有投影可言。
+                save_marked(img, os.path.join(outdir, fn))
+            else:
+                # 顺序不可颠倒：先描边，再把投影合成到描边之下。
+                # 反过来的话投影自己也会被描边，变成带黑边的独立圆盘。
+                img = add_outline(img, ol_col, ol_w)
+                img = add_shadow(img, specs.get(ident, {}), ratio, st.get("ground_anchor"))
+                save_marked(img, os.path.join(outdir, fn))
         counts[ident] = counts.get(ident, 0) + 1
         if state != "idle":
             continue
