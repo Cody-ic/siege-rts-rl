@@ -332,6 +332,23 @@
             15,
             22
           ]
+        },
+        "attack": {
+          "canvas": [
+            236,
+            316
+          ],
+          "ground_anchor": [
+            118.0,
+            228.3
+          ],
+          "frames": [
+            1,
+            20,
+            40,
+            60
+          ],
+          "impact_frame": 20
         }
       }
     },
@@ -591,6 +608,23 @@
           "frames": [
             1
           ]
+        },
+        "attack": {
+          "canvas": [
+            440,
+            908
+          ],
+          "ground_anchor": [
+            220.0,
+            747.8
+          ],
+          "frames": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "impact_frame": 3
         }
       }
     },
