@@ -72,33 +72,107 @@
             11,
             16
           ]
+        },
+        "attack": {
+          "action": "Sword_Attack",
+          "frames": [
+            1,
+            7,
+            13,
+            19
+          ],
+          "impact_frame": 13
         }
       },
       "max_width": 0.8
     },
     "Archer": {
-      "model": "models/q_rpg/Blends/Ranger.blend",
       "yaw": 0,
       "height": 0.9,
       "cn": "戍卫弓手",
       "states": {
         "idle": {
-          "action": "Idle_Weapon",
           "frames": [
             1
-          ]
+          ],
+          "parts": {
+            "0": {
+              "action": "Idle_Weapon"
+            }
+          },
+          "mesh_anim": {
+            "Ranger_Arrow": {
+              "visible": [
+                false
+              ]
+            }
+          }
         },
         "move": {
-          "action": "Run_Holding",
           "frames": [
             1,
             6,
             11,
             16
-          ]
+          ],
+          "parts": {
+            "0": {
+              "action": "Run_Holding"
+            }
+          },
+          "mesh_anim": {
+            "Ranger_Arrow": {
+              "visible": [
+                false
+              ]
+            }
+          }
+        },
+        "attack": {
+          "frames": [
+            1,
+            9,
+            12,
+            15
+          ],
+          "impact_frame": 9,
+          "parts": {
+            "0": {
+              "action": "Bow_Attack_Shoot"
+            }
+          },
+          "mesh_anim": {
+            "Ranger_Arrow": {
+              "visible": [
+                true,
+                true,
+                false,
+                false
+              ]
+            }
+          }
         }
       },
-      "max_width": 0.8
+      "max_width": 0.8,
+      "parts": [
+        {
+          "model": "models/q_rpg/Blends/Ranger.blend",
+          "action": "Idle_Weapon"
+        },
+        {
+          "model": "models/q_rpg/Blends/Only Weapons/Ranger_Bow.blend",
+          "only_meshes": [
+            "Ranger_Arrow"
+          ],
+          "attach": "Weapon.R",
+          "scale": 0.5,
+          "rot": [
+            -90,
+            0,
+            0
+          ]
+        }
+      ]
     },
     "Ranger": {
       "cn": "逐风猎骑",
@@ -174,6 +248,28 @@
               "action": "Run"
             }
           }
+        },
+        "attack": {
+          "frames": [
+            1,
+            6,
+            11,
+            16
+          ],
+          "impact_frame": 11,
+          "parts": {
+            "1": {
+              "action": "Dagger_Attack",
+              "pose_frame": 11
+            },
+            "2": {
+              "rot": [
+                -60,
+                0,
+                0
+              ]
+            }
+          }
         }
       }
     },
@@ -221,6 +317,16 @@
             11,
             16
           ]
+        },
+        "work": {
+          "action": "Staff_Attack",
+          "frames": [
+            1,
+            5,
+            11,
+            15
+          ],
+          "impact_frame": 11
         }
       },
       "max_width": 0.8
@@ -278,12 +384,26 @@
               "action": "Skeleton_Running"
             }
           }
+        },
+        "attack": {
+          "frames": [
+            1,
+            13,
+            19,
+            25
+          ],
+          "impact_frame": 19,
+          "parts": {
+            "0": {
+              "action": "Skeleton_Attack"
+            }
+          }
         }
       }
     },
     "Shade": {
       "cn": "亡灵弓手",
-      "_note": "骷髅持弓。此前与守方戍卫弓手共用同一模型、仅靠染色区分，阵营读不出来",
+      "_note": "亡灵弓手。弓必须**读得出是弓**——它是「持续压制墙头」的那个单位，玩家要能一眼数清编成里有几个远程。原先 0.72 + 侧对镜头 + 与骨同色，三者叠加成一条看不出是什么的细线。。**没有射箭动作**：骷髅只有 `Skeleton_Attack`（近战挥砍），而它拿着弓；试过用那个动作，f19 骷髅弯折成一团、是坏帧。改成两件都不靠动作：攻击态把**弓从横持贴身转成竖立身前**（同骑兵武器转角那条思路），并让弦上那支箭在**命中帧之后消失**——箭射出去了，弦上就该空。骷髅本体保持待机动作，所以它不是定格的。弓与箭同在 `Ranger_Bow.blend` 里，所以这支箭本来就有、不需要新挂件",
       "yaw": 0,
       "height": 0.9,
       "max_width": 0.9,
@@ -302,13 +422,20 @@
         {
           "_note": "弓模型以握把为中心，绑到左前臂骨尾即落在手上，上下各伸出一半，正是长弓的持法",
           "model": "models/q_rpg/Blends/Only Weapons/Ranger_Bow.blend",
-          "scale": 0.72,
+          "scale": 0.95,
           "attach": "L.DownLeg.001",
           "rot": [
             -90,
             0,
-            0
-          ]
+            90
+          ],
+          "tint": [
+            120,
+            72,
+            38,
+            0.85
+          ],
+          "tint_mode": "MIX"
         }
       ],
       "states": {
@@ -332,6 +459,37 @@
           "parts": {
             "0": {
               "action": "Skeleton_Running"
+            }
+          }
+        },
+        "attack": {
+          "frames": [
+            1,
+            20,
+            40,
+            60
+          ],
+          "impact_frame": 20,
+          "parts": {
+            "0": {
+              "action": "Skeleton_Idle"
+            },
+            "1": {
+              "rot": [
+                -45,
+                -40,
+                90
+              ]
+            }
+          },
+          "mesh_anim": {
+            "Ranger_Arrow": {
+              "visible": [
+                true,
+                true,
+                false,
+                false
+              ]
             }
           }
         }
@@ -447,6 +605,28 @@
               "action": "Run"
             }
           }
+        },
+        "attack": {
+          "frames": [
+            1,
+            6,
+            11,
+            16
+          ],
+          "impact_frame": 11,
+          "parts": {
+            "1": {
+              "action": "Skeleton_Attack",
+              "pose_frame": 13
+            },
+            "2": {
+              "rot": [
+                -75,
+                0,
+                0
+              ]
+            }
+          }
         }
       }
     },
@@ -485,7 +665,7 @@
     },
     "Phoenix": {
       "cn": "不死鸟",
-      "_note": "改用鹰模型：名为不死鸟却与幽影窥使共用同一蝙蝠模型，剪影完全相同，而两者玩家该做的事相反——一个查防空覆盖，一个派机动单位猎杀。染色须用 MIX：鹰的翅膀本色明度只有 0.04，COLOR 混合照抄明度，提亮到 2.6 仍是一团黑",
+      "_note": "唯一的空中单位。Eagle.blend **只有 Flying 与 Idle 两个动作、没有攻击**，所以俯冲不靠动作表达——它是整只鸟的姿态：`attack` 用顶层 rot 把机身**下压** 50°（负号；正号是抬头爬升，第一版就搞反了，且渲出来不看头尾相对高度是发现不了的），配 Flying 中翅膀后掠的几帧。**lift 刻意与其余状态一致**：CLAUDE.md 靠「本体与投影的间距」让玩家分辨幽影窥使（地面）与不死鸟（空中），俯冲时压低 lift 会破坏那条结构性区分。",
       "model": "models/q_animals/Blends/Eagle.blend",
       "yaw": 0,
       "height": 0.95,
@@ -513,6 +693,21 @@
             15,
             22
           ]
+        },
+        "attack": {
+          "action": "Flying",
+          "frames": [
+            5,
+            8,
+            11,
+            14
+          ],
+          "impact_frame": 11,
+          "rot": [
+            -50,
+            0,
+            0
+          ]
         }
       },
       "tint_mode": "MIX"
@@ -529,7 +724,119 @@
         0.45
       ],
       "brightness": 0.88,
-      "modules": 1
+      "modules": 1,
+      "states": {
+        "idle": {
+          "frames": [
+            1
+          ],
+          "mesh_anim": {
+            "ram": {
+              "offset": [
+                [
+                  0.28,
+                  0,
+                  0
+                ]
+              ]
+            }
+          }
+        },
+        "move": {
+          "frames": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "mesh_anim": {
+            "ram": {
+              "offset": [
+                [
+                  0.28,
+                  0,
+                  0
+                ],
+                [
+                  0.28,
+                  0,
+                  0
+                ],
+                [
+                  0.28,
+                  0,
+                  0
+                ],
+                [
+                  0.28,
+                  0,
+                  0
+                ]
+              ]
+            },
+            "wheel*": {
+              "pivot_center": true,
+              "rot": [
+                [
+                  0,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  45,
+                  0
+                ],
+                [
+                  0,
+                  90,
+                  0
+                ],
+                [
+                  0,
+                  135,
+                  0
+                ]
+              ]
+            }
+          }
+        },
+        "attack": {
+          "frames": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "impact_frame": 3,
+          "mesh_anim": {
+            "ram": {
+              "offset": [
+                [
+                  -0.15,
+                  0,
+                  0
+                ],
+                [
+                  -0.45,
+                  0,
+                  0
+                ],
+                [
+                  0.4,
+                  0,
+                  0
+                ],
+                [
+                  0.1,
+                  0,
+                  0
+                ]
+              ]
+            }
+          }
+        }
+      }
     }
   },
   "buildings": {
@@ -567,7 +874,7 @@
     },
     "Flak": {
       "cn": "蔽空弩楼",
-      "_note": "与镇野箭楼同一族塔身，靠顶部区分：箭楼是封闭尖顶（对地齐射），弩楼是开放垛口 + 朝天弩炮（仅对空）。这条区分是机制性的——AA 不能兼顾对地，玩家必须一眼看出哪座位置放弃了对地火力",
+      "_note": "与镇野箭楼同一族塔身，靠顶部区分：箭楼是封闭尖顶（对地齐射），弩楼是开放垛口 + 朝天弩炮（仅对空）。这条区分是机制性的——AA 不能兼顾对地，玩家必须一眼看出哪座位置放弃了对地火力。攻击态摆 `arm` 子网格（投石机零动作但有可分离子网格）。**模型没有换成弩炮，尽管「单体狙击」的机制更像弩**——评审时试过，弩炮无论仰多少度在这个尺寸下都是一台低平装置，读不出「朝天」，而「仅对空」是玩家真正要读的那一位（每座 AA 意味着该位置少一座对地火力）；「单体 vs 群伤」不是玩家的决策（AA 只有一座），所以不需要可读。反光的抛臂不随攻击摆动（它是 arm 的兄弟节点不是子节点），这个尺度下抛臂自己已经承担了全部可读性",
       "yaw": 0,
       "parts": [
         {
@@ -586,7 +893,49 @@
           "gap": -0.2
         }
       ],
-      "modules": 1
+      "modules": 1,
+      "states": {
+        "idle": {
+          "frames": [
+            1
+          ]
+        },
+        "attack": {
+          "frames": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "impact_frame": 3,
+          "mesh_anim": {
+            "arm": {
+              "rot": [
+                [
+                  0,
+                  -30,
+                  0
+                ],
+                [
+                  0,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  60,
+                  0
+                ],
+                [
+                  0,
+                  25,
+                  0
+                ]
+              ]
+            }
+          }
+        }
+      }
     },
     "Keep": {
       "cn": "领主堡垒",

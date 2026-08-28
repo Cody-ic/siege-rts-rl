@@ -241,8 +241,13 @@ def make_objects():
           (14, 2, "ForestB", {}), (13, 12, "Sapling", {}), (14, 14, "ForestB", {})]
 
     # ── 守方 ─────────────────────────────────────────────────────
-    o += [(CX - 1, CY + 2, "Archer", {}), (CX + 1, CY + 2, "Archer", {})]
-    o += [(CX + 2, CY, "Spear", {}), (CX + 2, CY + 1, "Mason", {})]   # 堵缺口 + 抢修
+    # 攻击态刻意摆在「正在交战」的位置上，而不是随便放几个——目的是让这张图
+    # 同时校验「同一帧里 idle / move / attack 三种状态并排是否读得出区别」。
+    # 两名弓手都在开火（墙内朝城门方向），枪卫在缺口边挥击，工匠在抢修残墙。
+    o += [(CX - 1, CY + 2, "Archer", {"state": "attack", "frame": 9}),    # frame 9 = 命中帧
+          (CX + 1, CY + 2, "Archer", {"state": "attack", "frame": 1})]    # frame 1 = 满弓待发
+    o += [(CX + 2, CY, "Spear", {"state": "attack", "frame": 13}),        # 13 = 刀锋落下
+          (CX + 2, CY + 1, "Mason", {"state": "work", "frame": 11})]      # 工匠是 work 不是 attack
     o += [(3, 10, "Ranger", {"state": "move", "frame": 6})]           # 出城去外部簇
     o += [(5, 11, "Scout", {"state": "move", "frame": 11})]
 
@@ -251,8 +256,8 @@ def make_objects():
           (CX - 1, CY + 5, "Ghoul", {"state": "move", "frame": 8}),
           (CX + 1, CY + 5, "Ghoul", {"state": "move", "frame": 15}),
           (CX, CY + 6, "Shade", {}),
-          (CX - 2, CY + 5, "Knight", {"state": "move", "frame": 6})]
-    o += [(CX + 5, CY, "Ghoul", {"state": "move", "frame": 22}),
+          (CX - 2, CY + 5, "Knight", {"state": "attack", "frame": 11})]   # 前刺的长刀
+    o += [(CX + 5, CY, "Ghoul", {"state": "attack", "frame": 13}),   # 骨剑举过头顶
           (CX + 5, CY - 1, "Wraith", {"state": "move", "frame": 8}),
           (CX + 4, CY + 1, "Shade", {})]
     o += [(3, 7, "Phoenix", {"state": "move", "frame": 8})]   # 空军绕开正面点经济

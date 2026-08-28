@@ -17,7 +17,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `CMakeLists.txt` / `cmake/` | 双工具链构建配置（MSVC + GCC），`render/` 默认不参与 |
 | `rts_core/` | **仅有确定性地基**：实体句柄、可播种 PRNG、状态哈希。仿真本体一行都没有 |
 | `tests/` | Catch2（经 FetchContent），7 条 ctest |
-| `tools/sprite_gen/` | 纯 Python 精灵预渲染流水线，35 实体 × 4 朝向 × idle/move = 300 张成品已入库 |
+| `tools/sprite_gen/` | 纯 Python 精灵预渲染流水线，35 实体 × 4 朝向 × 逐实体状态 = 476 张成品已入库（`idle` / `move` / `attack` / `work`） |
 | `tools/check_determinism_bans.py` | 把本文的确定性禁令变成会红的 ctest |
 | `.mailmap` / `.gitattributes` | 作者名规范化；数据文件强制 LF（理由见 `地图与场景设计.md` 6.3） |
 
