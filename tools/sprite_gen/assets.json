@@ -692,32 +692,45 @@
     },
     "Lumber": {
       "cn": "伐木场",
-      "_note": "三座资源建筑给**三个完全不同的剪影**：拱架 / 斜木架 / 尖顶屋。上一版三座共用 `tower-square-base`，那其实是塔的地基构件——没门没顶的浅粉方块，单独放既难看又和城墙同色，三座的区别全靠贴地的小配件，等距下根本看不见。剪影是玩家在游戏节奏下唯一读得到的东西。 木晾架是本包里最直接读作「木料作坊」的构件。",
+      "_note": "三座资源建筑给三个完全不同的剪影：拱架 / 木构棚架 / 尖顶屋。**主体不得与任何其他实体同模**——上一版用了 `wall-narrow-wood-fence`，而那正是 `Fence`（木栅）的主体模型，两者机制完全不同（应急工事 vs 经济建筑）却共用一张图。`check_assets.py` 现在会拦住这类错误。",
       "yaw": 0,
       "modules": 1.15,
       "parts": [
         {
-          "_note": "靠墙的木晾架：主体，斜撑的剪影与另两座都不同",
-          "model": "models/kenney_castle/glb/wall-narrow-wood-fence.glb"
+          "_note": "开放式木构棚架：主体。四柱 + 交叉支撑的镂空形体，与拱架的实心石拱、井口房的实心尖顶都不同族；且本包内没有别的实体用它",
+          "model": "models/kenney_castle/glb/tower-square-mid-open.glb",
+          "tint": [
+            150,
+            104,
+            58,
+            0.6
+          ],
+          "brightness": 0.92
         },
         {
-          "_note": "待锯的木料",
+          "_note": "架下待锯的木料。tree-log 未被任何其他实体使用",
           "model": "models/kenney_castle/glb/tree-log.glb",
           "offset": [
-            0.9,
-            -0.44,
+            0.52,
+            -0.86,
             0.0
           ],
-          "scale": 0.85
+          "scale": 0.9
         },
         {
-          "model": "models/kenney_castle/glb/tree-trunk.glb",
+          "_note": "第二根木料，换角度堆放。**不用 tree-trunk**——那是可破坏障碍 Stump 的主体模型，摆在这里玩家会以为能打穿",
+          "model": "models/kenney_castle/glb/tree-log.glb",
           "offset": [
-            0.66,
-            0.46,
-            0.0
+            -0.3,
+            -0.94,
+            0.16
           ],
-          "scale": 0.7
+          "scale": 0.75,
+          "rot": [
+            0,
+            0,
+            38
+          ]
         },
         {
           "_note": "旗色 = 产哪一种资源。**必须放在 -x/-y 这一侧**——那是面向相机的一面；上一版放在 +y，三面旗全被建筑本体挡住、一面都没渲出来",
