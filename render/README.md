@@ -25,6 +25,10 @@ cmake --build build --config Release
     --map game/testdata/fixture_min.json \
     --sprites tools/sprite_gen/out_3d \
     --screenshot out.png --size 1200 700
+
+# 素材校验：把元数据声明的每一张精灵都载入一遍。不需要 --map
+./build/render/Release/rts_render.exe \
+    --verify-assets --sprites tools/sprite_gen/out_3d
 ```
 
 窗口模式下：方向键 / WASD 平移，滚轮缩放（以鼠标为锚），中键拖拽，`F` 重新入画。
@@ -46,6 +50,28 @@ cmake -B build -DRTS_BUILD_RENDER=ON -DFETCHCONTENT_SOURCE_DIR_RAYLIB=<路径>
 
 它用 `RenderTexture` 而不是 `TakeScreenshot`：**隐藏窗口的默认帧缓冲在 Windows 上
 读回来是黑的**（实测），而离屏纹理不依赖窗口可见性。
+
+### `--verify-assets` 补的是哪块空白
+
+在它之前，「元数据声明了某个状态、但 PNG 没渲出来」**没有任何检查覆盖**：
+
+- `tools/sprite_gen/check_assets.py` 查的是 `assets.json`——模型路径存在、
+  主体模型没被两个实体共用。它不看渲染产物
+- `SpriteAtlas::preload_idle()` 只覆盖 `idle` 四朝向
+
+于是那类错最早暴露的时机是**动画第一次播到那个状态**，也就是实体渲染做完之后。
+`#41` 把素材从 300 张扩到 476 张、状态从 `idle`/`move` 扩到含 `attack`/`work`
+之后，这块地带就不再是可以不管的了。
+
+**它与 `check_assets.py` 互补而非重复**，因为它跑的是**读取器这一侧**的文件名规则
+（`SpriteAtlas::file_name()`）。生成器侧或读取器侧各自的检查都抓不到
+「两侧约定漂移」，而换素材包时那正是最容易发生的事——两边都自认为对。
+
+两条 ctest：`render_verify_assets`（真素材必须全绿）与
+`render_verify_assets_missing_is_red`（`WILL_FAIL`，夹具声明了两张精灵、
+目录里零 PNG）。后者的夹具刻意带**真的** `px_per_tile` / `tile`，
+为的是走到「载入 PNG」这一步才失败——否则它会因为「元数据格式不对」而红，
+看着一样绿，实际没验到想验的那一步。
 
 ## 分层
 

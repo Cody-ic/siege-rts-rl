@@ -49,6 +49,7 @@ struct Options {
     std::string sprite_dir;
     std::string screenshot;      // 非空 = 截图模式
     std::string font_path;       // 非空 = 只用这个字体，不试候选
+    bool verify_assets = false;  // 只校验素材，不渲场景
     int width = 1600;
     int height = 900;
 };
@@ -60,6 +61,8 @@ void print_usage(const char* argv0) {
         "  --map <路径>          地图文件。仓库里有一张临时夹具：game/testdata/fixture_min.json\n"
         "  --sprites <目录>      精灵成品目录，通常是 tools/sprite_gen/out_3d\n"
         "  --screenshot <路径>   渲一帧导出成 PNG 后退出，不开窗口\n"
+        "  --verify-assets       把元数据声明的每一张精灵都载入一遍，缺的全报出来后退出。\n"
+        "                        不渲场景、不需要 --map\n"
         "  --font <路径>         中文字体，必须是**纯 TTF**（.ttc 字体集合不行，理由见\n"
         "                        render/text.hpp）。不给则依次试 simhei.ttf、Deng.ttf\n"
         "  --size <宽> <高>      画面尺寸，默认 1600x900\n"
@@ -108,6 +111,8 @@ bool parse(int argc, char** argv, Options& out) {
                 std::fprintf(stderr, "--size 必须为正\n");
                 return false;
             }
+        } else if (a == "--verify-assets") {
+            out.verify_assets = true;
         } else if (a == "-h" || a == "--help") {
             return false;
         } else {
@@ -115,11 +120,43 @@ bool parse(int argc, char** argv, Options& out) {
             return false;
         }
     }
-    if (out.map_path.empty() || out.sprite_dir.empty()) {
-        std::fprintf(stderr, "--map 与 --sprites 都是必需的\n");
+    if (out.sprite_dir.empty()) {
+        std::fprintf(stderr, "--sprites 是必需的\n");
+        return false;
+    }
+    // `--verify-assets` 不看地图，所以不强求 `--map`。
+    // 分开判而不是合成一句，是为了让报错说出**缺的是哪一个**。
+    if (!out.verify_assets && out.map_path.empty()) {
+        std::fprintf(stderr, "--map 是必需的（除 --verify-assets 外）\n");
         return false;
     }
     return true;
+}
+
+// 只校验素材。**要 GL 上下文**（纹理），所以照样开窗——但隐藏。
+//
+// 这是一条与 `check_assets.py` 互补而非重复的检查，理由见
+// `SpriteAtlas::verify_all_declared()` 的注释：那个脚本查 `assets.json` 的模型，
+// 这个查渲染产物，而且跑的是**读取器这一侧**的文件名规则。
+int run_verify(const Options& opt) {
+    SetConfigFlags(FLAG_WINDOW_HIDDEN);
+    SetTraceLogLevel(LOG_WARNING);
+    InitWindow(64, 64, "verify-assets");
+    if (!IsWindowReady()) {
+        std::fprintf(stderr, "开不了窗口（没有可用的 OpenGL 上下文？）\n");
+        return 2;
+    }
+    int rc = 0;
+    try {
+        render::SpriteAtlas atlas(opt.sprite_dir);
+        const std::size_t n = atlas.verify_all_declared();
+        std::printf("素材校验通过：%zu 张，px_per_tile = %d\n", n, atlas.px_per_tile());
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "失败：%s\n", e.what());
+        rc = 4;
+    }
+    CloseWindow();
+    return rc;
 }
 
 // 字体要覆盖的全部串。
@@ -284,7 +321,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     try {
-        return run(opt);
+        return opt.verify_assets ? run_verify(opt) : run(opt);
     } catch (const std::exception& e) {
         // 地图格式错、素材缺失、字体缺字都走这里。**打完整信息再退非零**——
         // 这几类失败的报错里带着「哪个文件、哪个字段、哪个字符、哪些可选值」，

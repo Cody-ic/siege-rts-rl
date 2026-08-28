@@ -119,6 +119,32 @@ if(RTS_BUILD_TESTS)
                      --size 64 64)
     set_tests_properties(render_missing_assets_is_red PROPERTIES WILL_FAIL TRUE)
 
+    # 素材校验：元数据声明的每一张精灵都必须真的载入得上。
+    #
+    # 与 tools/sprite_gen/check_assets.py **互补而非重复**：那个脚本查 assets.json
+    # 的模型路径与主体共用，不看渲染产物；这条查渲染产物，而且跑的是
+    # **C++ 读取器那一侧**的文件名规则。两侧各自的检查都抓不到「两侧约定漂移」，
+    # 而换素材包时那正是最容易发生的事——两边都自认为对。
+    #
+    # #41 把素材从 300 张扩到 476 张（新增 attack / work 状态）之后，
+    # 「声明了某状态但没渲出来」这块地带就不再是可以不管的了：
+    # 没有这条，它最早暴露的时机是动画第一次播到那个状态。
+    add_test(NAME render_verify_assets
+             COMMAND rts_render --verify-assets
+                     --sprites "${CMAKE_SOURCE_DIR}/tools/sprite_gen/out_3d")
+
+    # 上面那条的防退化。**一条只会绿的检查等于没有检查**——同
+    # determinism_bans_empty_is_red 与 map_gen_validate_empty_is_red。
+    #
+    # 夹具目录里声明了两张精灵、一张 PNG 都没有，所以 `--verify-assets` 必须非零退出。
+    # 它刻意带真的 px_per_tile / tile，为的是**通过前面几道检查、走到载入 PNG 这一步
+    # 才失败**——否则这条测试会因为「元数据格式不对」而红，看着一样绿，
+    # 实际根本没验到我们想验的那一步。
+    add_test(NAME render_verify_assets_missing_is_red
+             COMMAND rts_render --verify-assets
+                     --sprites "${CMAKE_CURRENT_LIST_DIR}/testdata/declared_but_missing")
+    set_tests_properties(render_verify_assets_missing_is_red PROPERTIES WILL_FAIL TRUE)
+
     # 字体路径写错时必须红。
     #
     # 单独一条而不是靠上面那条兜着：素材与字体是两条独立的失败路径，
