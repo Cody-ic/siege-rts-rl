@@ -227,6 +227,25 @@ std::vector<Unit*> units;                     // ❌ 每个单位一次堆分配
 
 反过来同样成立：**用了扁平数组也不等于自动确定**。若在别处用 `unordered_map<int, State>` 驱动仿真遍历，一样会坏。本条约束消除的是一类错误，不是全部。
 
+### 地基已经提供的基元：先看这三个头，别自己造
+
+接口契约未定稿**不影响这一层**——它已入库、且刻意切成与花名册/地形枚举零依赖，不打算变动。
+写在这里是因为**不知道它们存在的人会先去拿 `<random>`，被确定性守卫拦下才回头找**
+（守卫的报错信息里点了名，但那已经是撞上之后了）。
+
+| 头 | 提供什么 | 一句话 |
+|---|---|---|
+| `rts/types.hpp` | `Tick`、`kTicksPerSecond`、`Side`、`Vec2`、`GridPos`、`Handle<Tag>` → `UnitId` / `BldId` | **`UnitId` 与 `BldId` 不可互换**（Tag 模板挡住）——单位与建筑是两组独立的扁平数组 |
+| `rts/rng.hpp` | `Rng`（xoshiro128\*\*） | **状态可存取**，因为回放要存档恢复；不要用 `<random>` 的分布适配器 |
+| `rts/hash.hpp` | `StateHash`（FNV-1a 64） | 选它**只因为它顺序敏感**；浮点必须走 `feed_f32` / `feed_f64` |
+
+**方法名以头文件为准，此处不复制一份**（会漂移）。但有一条碰头时很难自查的要写下来：
+
+> **`Vec2::operator==` 与 `StateHash` 对 ±0.0 的判断相反，这是有意分工**，
+> 因此 **`a == b` 并不蕴含 `hash(a) == hash(b)`**。回放比对用哈希、单元测试比较位置用 `==`，
+> 两者迟早在同一处碰头，看到的现象是「状态相等但哈希不等」。
+> 理由见 `types.hpp` 该处注释——**只留指针，不复制内容。**
+
 ### AoS 还是 SoA：实现细节，不作硬性规定
 
 这一层留给实现者判断，两种都可以：
@@ -599,6 +618,23 @@ ctest --test-dir build -C Release -R <name>     # 按 ctest 条目挑
 code page 下这条链路会把名字弄乱，结果是 ctest 报「No tests ran」——**测试被静默跳过，
 比测试失败危险**。标签是 ASCII，不受影响。挑单条用例请直接用测试二进制。
 
+条目按**族**列在下面。**权威清单是 `ctest --test-dir build -C Release -N`，不是这张表**——
+条目每个 PR 都可能增加，此处刻意不写总数（原先 `tests/CMakeLists.txt` 里那句「现有 5 条」
+已经过期成 7 条，就是这么来的；写死的数字对读者没用，只会漂移）。
+
+| 族 | 条目 | 是什么 |
+|---|---|---|
+| Catch2 标签 | `rts_tests_<标签>` | 每个标签一条，标签清单在 `tests/CMakeLists.txt` |
+| 兜底 | `rts_tests_all` | 不带过滤器，防标签漏登记，见下 |
+| 确定性守卫 | `determinism_bans` | 扫 `rts_core/` |
+| | `determinism_bans_self_test` | 防守卫自己退化成永远绿 |
+| | `determinism_bans_empty_is_red` | **`WILL_FAIL`**：扫空目录，期望脚本非零退出 |
+
+最后那类要单独说一句：**`WILL_FAIL` 条目在 ctest 里显示 `Passed`（结果已反转），
+但单独跑脚本时退出码是 1。** 后者才是会被误判成「坏了」然后去「修」的地方。
+`tools/map_gen/` 合并后会再添一条同类的（校验器读不到地图必须红），
+所以这不是一次性的注意事项。
+
 **但标签清单是白名单，所以另有一条不带过滤器的 `rts_tests_all`。** 标签写错能被抓到
 （Catch2 匹配不到用例会非零退出），标签**没写进清单**抓不到——那条 ctest 条目根本不
 存在，ctest 仍然全绿。新增测试文件时不必担心漏登记，但**仍应顺手把新标签加进清单**，
@@ -613,10 +649,50 @@ code page 下这条链路会把名字弄乱，结果是 ctest 报「No tests ran
 `RTS_REQUIRE_DETERMINISM_GUARD`（默认 ON：找不到 Python3 时**让配置失败**，
 而不是把下面那条守卫静默摘掉；确实没有 Python 的环境显式关掉它）。
 
-**Windows 上 `cmake -B build` 不给 `-DCMAKE_BUILD_TYPE` 也会落在 Release**，
-因为顶层有一条跨 `project()` 的守卫。这条曾经写错过：判空放在 `project()` 之后，
-而 `Platform/Windows-MSVC.cmake` 已经把平台默认值定成 `Debug` 写进缓存了，
-于是那段代码只在 Linux/GCC 上有效。**改动它之前先读 `CMakeLists.txt` 里那段注释。**
+### 构建类型：那条守卫只在**单配置生成器**上生效
+
+**Windows 上不给 `-DCMAKE_BUILD_TYPE` 不会落在 Release。** 本节此前的写法是错的，
+而且错在全组每天走的那条路径上，已实测订正：
+
+```console
+$ cmake -B build                                  # 不给 -G，默认生成器
+-- Building for: Visual Studio 17 2022            # ← 多配置
+$ grep -c '^CMAKE_BUILD_TYPE' build/CMakeCache.txt
+0                                                 # ← 缓存里一项都没有
+```
+
+顶层那条守卫的条件是 `if(NOT _rts_build_type_given AND NOT CMAKE_CONFIGURATION_TYPES)`。
+VS 是多配置生成器，`CMAKE_CONFIGURATION_TYPES` 有值 ⇒ **守卫被跳过**，
+配置改由构建期的 `--config` 决定，而 `vcxproj` 的首个配置是 `Debug`：
+
+> **`cmake --build build` 不给 `--config` 构建的是 Debug。**
+> Windows 上的 Release 靠 `cmake --build build --config Release`，不靠那条守卫。
+
+**这条与本节末尾「性能相关的改动请在 Release 下测量」是连着读的**——原来那句转述会让人
+以为 Windows 上不必操心配置，于是 `cmake -B build && cmake --build build` 拿到 Debug，
+然后在 Debug 下量吞吐，**正好是那句要防的事**。
+
+守卫真正生效的场合是**单配置生成器**：Linux/GCC，以及 Windows 上显式 `-G Ninja`。
+它曾经写错过一次：判空放在 `project()` 之后，而 `Platform/Windows-MSVC.cmake` 那时
+已经把平台默认值 `Debug` 写进缓存，于是那段代码只在 Linux/GCC 上有效——
+**注意那次的 bug 与本次的转述错误不是同一件事**：那次坏的是单配置路径上的代码，
+这次错的是对多配置路径的描述。**改动它之前先读 `CMakeLists.txt` 里那段注释。**
+
+### 单配置生成器（Linux/GCC）的命令不一样
+
+上面那组命令只对 MSVC 多配置成立。训练服务器是 Makefiles（单配置），而本节开头
+那条「要尽早、频繁地在服务器上跑构建」是对**每个人**说的，所以这组命令是常用的、
+不是一次性的：
+
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release   # 单配置必须在**配置期**给
+cmake --build build                         # 无需 --config
+ctest --test-dir build                      # 无需 -C
+./build/tests/rts_tests "<用例名>"           # 注意不是 tests/Release/
+```
+
+单配置的另一个后果：Release 与 Debug **必须各占一个构建目录**（构建类型烤在缓存里），
+而多配置是一个目录里两套。所以服务器上是 `build-Release/` 与 `build-Debug/` 两个。
 
 **头文件必须自足**（能被单独 `#include` 而不依赖任何先行的头）。这条有结构性守卫：
 `rts_core/CMakeLists.txt` 给 `include/rts/` 下每个头各自生成一个只包含它自己的 TU
@@ -628,6 +704,18 @@ code page 下这条链路会把名字弄乱，结果是 ctest 报「No tests ran
 里的 `unordered_*`、C 库随机函数、标准库分布适配器、挂钟、以指针为 key 的有序容器，
 注册为 ctest。本节与「确定性要求」一节的禁令因此不只是文字——违反会在测试里红。
 确属误报时在该行末尾加 `// determinism-ok: <理由>` 放行（刻意要求写理由，使放行可评审）。
+
+**改 `rts_core/` 时它是最快的反馈回路，不必走整个 ctest**：
+
+```bash
+py tools/check_determinism_bans.py rts_core      # 退出码 0：确定性检查通过（扫了 4 个源文件）
+py tools/check_determinism_bans.py --self-test   # 退出码 0：自检通过（13 条应报、12 条不应报）
+```
+
+两个与内容无关但会浪费时间的坑：**若 `python` 打不开**（某些机器上 PATH 里的
+`python` / `python3` 是 Microsoft Store 的占位 alias，运行会直接退出并提示去装商店版），
+用 `py`；**Git Bash 下中文输出会乱码**，加 `PYTHONIOENCODING=utf-8`。
+后者与「ctest 按 ASCII 标签注册」是同一个原因的两个产物。
 它自己也有两道防退化：`--self-test`（应报 / 不应报各十余条），以及**扫到 0 个文件即失败**
 （路径写错时必须红，不能报「通过（0 个文件）」）。
 
