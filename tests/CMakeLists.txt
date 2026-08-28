@@ -108,6 +108,18 @@ if(Python3_FOUND)
     add_test(NAME determinism_bans_empty_is_red
              COMMAND "${Python3_EXECUTABLE}" "${_checker}" "${_empty_probe}")
     set_tests_properties(determinism_bans_empty_is_red PROPERTIES WILL_FAIL TRUE)
+
+    # tools/map_gen/ 的自检。与上面同一条原则：把 `地图与场景设计.md` 的规范
+    # 变成会红的测试，而不是只留在文档里等人记得。
+    #
+    # 它自己也带一道防退化：跑完一条断言都没执行就判失败（脚本里的 count == 0），
+    # 所以「用例表被清空」或「import 挂了」不会以全绿收场 —— 同 determinism 那条
+    # 「扫到 0 个文件即失败」。
+    #
+    # 脚本用 sys.path[0]（脚本所在目录）互相 import，不依赖 ctest 的工作目录。
+    add_test(NAME map_gen_self_test
+             COMMAND "${Python3_EXECUTABLE}"
+                     "${CMAKE_SOURCE_DIR}/tools/map_gen/selftest.py")
 else()
     message(WARNING "未找到 Python3：确定性禁令检查不会作为测试运行"
                     "（RTS_REQUIRE_DETERMINISM_GUARD=OFF）。"
