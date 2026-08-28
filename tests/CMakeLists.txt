@@ -54,16 +54,58 @@ foreach(_tag rng hash types)
     add_test(NAME rts_tests_${_tag} COMMAND rts_tests "[${_tag}]")
 endforeach()
 
+# 再注册一条**不带过滤器**的条目。
+#
+# 上面那份标签清单是一份白名单，而白名单只挡住了一半的错：标签**写错**能被抓到
+# （Catch2 匹配不到任何用例会非零退出，实测 `rts_tests "[nosuchtag]"` 退出码 2），
+# 但标签**没写进清单**抓不到——那条 ctest 条目根本不存在，ctest 仍然全绿。
+#
+# 这一条不是假设的风险：PR 2 会加 replay_test.cpp 与 determinism_test.cpp，
+# 大概率带 [replay] / [determinism]。忘了改上面那行，就等于新写的回放测试一次都没跑过
+# ——而回放测试是本项目主要的防 bug 手段，漏跑它的代价比漏跑一条单元测试大一个量级。
+#
+# 代价可忽略：现有 5 条总耗时不到半秒。标签条目留着，用于快速定位是哪一块坏了。
+add_test(NAME rts_tests_all COMMAND rts_tests)
+
 # 把 CLAUDE.md 的确定性禁令变成一条真的会红的测试，而不是只写在文档里。
 # 两条：一条扫 rts_core/，一条是检查器自己的自检——后者防的是"检查器退化成永远绿"。
 find_package(Python3 COMPONENTS Interpreter QUIET)
+
+# 找不到 Python3 时**默认让配置失败**，而不是打一句 message(WARNING) 就过去。
+#
+# 原来的写法是后者，后果是：配置退出码 0、警告随日志翻页消失、ctest 从 5 条变 3 条，
+# 一样全绿——**没有任何东西说守卫没了**。这和上面 catch_discover_tests 那段是同一条
+# 原则（「测试被静默跳过比测试失败危险得多」），只是当初没把它应用到这个 Python 依赖上。
+# 而最可能触发的地方恰好是那台至今没人编过的 Linux 服务器：`python3` 在不在 CMake
+# 找得到的位置，取决于那台机器怎么配的。
+#
+# 现在「守卫不在」是一个需要主动声明的决定：确实没有 Python 的环境显式加
+# -DRTS_REQUIRE_DETERMINISM_GUARD=OFF。
+if(NOT Python3_FOUND AND RTS_REQUIRE_DETERMINISM_GUARD)
+    message(FATAL_ERROR
+            "未找到 Python3，确定性禁令检查无法注册为测试。\n"
+            "  CLAUDE.md 的确定性禁令靠 tools/check_determinism_bans.py 变成会红的 ctest；"
+            "少了它，违反禁令的代码会一路编过去，直到某次回放对不上。\n"
+            "  确实没有 Python 的环境请显式关掉：-DRTS_REQUIRE_DETERMINISM_GUARD=OFF")
+endif()
+
 if(Python3_FOUND)
     set(_checker "${CMAKE_SOURCE_DIR}/tools/check_determinism_bans.py")
     add_test(NAME determinism_bans
              COMMAND "${Python3_EXECUTABLE}" "${_checker}" "${CMAKE_SOURCE_DIR}/rts_core")
     add_test(NAME determinism_bans_self_test
              COMMAND "${Python3_EXECUTABLE}" "${_checker}" --self-test)
+
+    # 检查器"扫到 0 个文件也返回绿"曾经是个洞：路径写错、目录改名、或把 rts_core/
+    # 拆成子目录忘了改上面那行，这条 ctest 就静默通过、什么都没检查。脚本侧已改成失败，
+    # 这条 WILL_FAIL 测试把它钉住——自检只覆盖 scan_text()，够不到 main() 这一层。
+    set(_empty_probe "${CMAKE_CURRENT_BINARY_DIR}/determinism_empty_probe")
+    file(MAKE_DIRECTORY "${_empty_probe}")
+    add_test(NAME determinism_bans_empty_is_red
+             COMMAND "${Python3_EXECUTABLE}" "${_checker}" "${_empty_probe}")
+    set_tests_properties(determinism_bans_empty_is_red PROPERTIES WILL_FAIL TRUE)
 else()
-    message(WARNING "未找到 Python3：确定性禁令检查不会作为测试运行。"
+    message(WARNING "未找到 Python3：确定性禁令检查不会作为测试运行"
+                    "（RTS_REQUIRE_DETERMINISM_GUARD=OFF）。"
                     "手动跑 python tools/check_determinism_bans.py rts_core")
 endif()

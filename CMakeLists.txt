@@ -44,6 +44,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(RTS_BUILD_TESTS  "构建测试（Catch2 经 FetchContent 拉取）" ON)
 option(RTS_BUILD_RENDER "构建前端 render/" OFF)
 option(RTS_WARNINGS_AS_ERRORS "把警告当错误（仅第一方代码）" ON)
+# 默认 ON：找不到 Python3 时让配置失败，而不是把确定性守卫静默摘掉。
+# 「守卫不在」必须是一个需要主动声明的决定，理由见 tests/CMakeLists.txt。
+option(RTS_REQUIRE_DETERMINISM_GUARD "找不到 Python3 时让配置失败（而非静默跳过确定性守卫）" ON)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 include(CompilerWarnings)

@@ -9,6 +9,8 @@ CLAUDE.md 里有几条硬性禁令——禁 `rand()`、禁依赖未定序容器�
 不指望每个人都记得规则，让违反规则的代码过不了测试。
 
 **它是一条粗筛，不是解析器。** 只做注释与字符串剥离 + 正则匹配，不理解 C++ 语法。
+已知漏网的一类是**跨行的声明**：匹配是逐行做的，所以被 clang-format 拆成
+`std::map<\n    Unit*, int>` 的写法逃得掉。
 误报时在该行末尾加 `// determinism-ok: <理由>` 放行——刻意要求写理由，
 这样放行是可评审的，而不是悄悄绕过。
 
@@ -64,6 +66,29 @@ BANS = [
 COMPILED = [(re.compile(pat), why) for pat, why in BANS]
 
 
+def is_digit_separator(text, i):
+    """text[i] 是 `'` 时，判断它是 C++14 的数字分隔符（`1'000`）还是字符字面量的起引号。
+
+    不做这个区分的话，`'` 会被当成字面量起点、往后扫不到配对的引号、撞上换行才停，
+    于是**该行剩下的内容全被丢掉**——`constexpr int k = 1'000; int x = rand();`
+    里的 rand() 就查不出来。本项目将来会有一大批造价、血量、tick、地图尺寸常量，
+    写成 `1'200` 是最自然的写法，所以这不是刁钻构造。
+
+    判据：往前找出这一串由字母数字与 `'` 组成的 token 的开头，以数字开头才是数值
+    字面量。这样能排除 `L'x'` 与 `u8'y'` —— 后者前一个字符是数字 `8`，光看前一个
+    字符会误判。
+    """
+    n = len(text)
+    if i == 0 or i + 1 >= n:
+        return False
+    if not text[i - 1].isalnum() or not text[i + 1].isalnum():
+        return False
+    k = i - 1
+    while k > 0 and (text[k - 1].isalnum() or text[k - 1] == "'"):
+        k -= 1
+    return text[k].isdigit()
+
+
 def strip_noncode(text):
     """剥掉注释与字符串字面量的内容，保留行数与列的大致位置。
 
@@ -87,6 +112,10 @@ def strip_noncode(text):
             chunk = text[i:n] if j < 0 else text[i:j + 2]
             out.append("\n" * chunk.count("\n"))   # 只保留换行，内容丢掉
             i = n if j < 0 else j + 2
+        elif text[i] == "'" and is_digit_separator(text, i):
+            # `1'000` 里的 `'`：普通字符，不是字面量起点。
+            out.append(text[i])
+            i += 1
         elif text[i] in "\"'":
             # 字符串 / 字符字面量：整段替换成空，注意反斜杠转义。
             quote = text[i]
@@ -151,6 +180,12 @@ def self_test():
         "std::set<Unit*> s;",
         "auto t0 = std::chrono::steady_clock::now();",
         "std::time_t now = std::time(nullptr);",
+        # 数字分隔符不得吃掉行内其余部分（下面三行只差那个 `'` 的位置与前缀）。
+        "constexpr int k = 1'000; int x = rand();",
+        "constexpr int m = 0xFF'FF; std::unordered_map<int, int> u;",
+        # 字符字面量的剥离仍要正常工作：这两行的 rand() 在字面量之后，必须报出来。
+        "char c = 'x'; int r = rand();",
+        "wchar_t w = L'y'; int r = rand();",
     ]
     must_pass = [
         "// 这里解释为什么不能用 unordered_map 与 rand()",
@@ -162,6 +197,9 @@ def self_test():
         "auto mix = type_distribution(budget);",   # 兵种配比也叫 distribution
         "std::uint32_t r = rng_.below(6);",   # 我们自己的 PRNG
         "std::unordered_map<int, int> cache;  // determinism-ok: 仅用于离线工具，不进仿真",
+        "constexpr int hp = 1'200;",          # 数字分隔符本身不是违规
+        "char8_t c8 = u8'z';",                # 前一个字符是数字 8，但这是字符字面量
+        'const char* s = "1\'000 rand()";',   # 字符串里的分隔符与禁词都不算
     ]
     failures = []
     for src in must_flag:
@@ -191,10 +229,27 @@ def main():
     if not a.targets:
         ap.error("需要至少一个目录或文件，或用 --self-test")
 
+    # 路径写错必须红。原先只往 stderr 打一句"跳过（不存在）"然后照样返回 0，
+    # 于是目录改名、或将来把 rts_core/ 拆成几个子目录忘了改 add_test，
+    # 这条 ctest 会**静默通过、什么都没检查**——正是这份脚本要防的那种退化。
+    missing = [t for t in a.targets if not Path(t).exists()]
+    if missing:
+        print("确定性检查失败：以下路径不存在 —— " + "、".join(missing))
+        print("    这条检查的全部价值在于它真的扫过代码，所以路径错时必须红，"
+              "不能报「通过（0 个文件）」。")
+        return 1
+
     hits, n_files = [], 0
     for f in iter_sources(a.targets):
         n_files += 1
         hits += scan_text(f.read_text(encoding="utf-8"), str(f))
+
+    # 同上：一个源文件都没扫到，只能说明参数或目录结构变了，不能算通过。
+    if n_files == 0:
+        print("确定性检查失败：一个源文件都没扫到（目标存在但里面没有 C/C++ 源文件）。")
+        print(f"    目标：{'、'.join(a.targets)}")
+        print(f"    认的后缀：{'、'.join(sorted(EXTS))}")
+        return 1
 
     if not hits:
         print(f"确定性检查通过（扫了 {n_files} 个源文件）")

@@ -9,6 +9,13 @@
 #ifndef RTS_TYPES_HPP
 #define RTS_TYPES_HPP
 
+#include <cassert>
+// <compare> 是 operator<=> = default 的硬性要求（见下面的 Handle）。
+// 这条曾经漏掉，而它一直编得过——三个测试文件都先 include 了 <catch2/...>，
+// 把 <compare> 顺带拉进来了。这类漏 include 只在**该头被单独包含**时才暴露，
+// 而 libstdc++ 与 MSVC STL 的内部包含图不同，它还可能只在一个平台上炸。
+// rts_core/CMakeLists.txt 里的「头文件自足性守卫」现在把这条钉住了。
+#include <compare>
 #include <cstdint>
 #include <type_traits>
 
@@ -42,6 +49,14 @@ inline constexpr int index_of(Side s) noexcept {
 // 连续世界坐标。用 float 而非定点数：CLAUDE.md 只要求**同平台同编译器**可复现，
 // 不要求跨平台位级一致（回放文件在 Windows 与 Linux 之间本来就不可复现）。
 // 定点数的实现与调试成本换不来任何本项目需要的性质。
+//
+// **注意 operator== 与状态哈希对 ±0.0 的判断相反，这是有意的分工，不是疏漏。**
+// 下面的 == 是默认逐成员浮点比较，`+0.0 == -0.0` 为真；hash.hpp 的 feed_f32 是按位
+// 喂入，两者不同。因此 `a == b` 并不蕴含 `hash(a) == hash(b)`。
+// 两个方向的统一都更坏：统一到位语义会让 Vec2{0.0f, y} == Vec2{-0.0f, y} 为假，
+// 违反直觉；统一到浮点语义会让回放哈希查不出位级差异，而那正是它唯一要查的东西。
+// 所以缺的不是设计而是这段说明——它们迟早会在同一处碰头（回放比对用哈希、
+// 单元测试里比较位置用 ==），到时候看到的现象是"状态相等但哈希不等"。
 struct Vec2 {
     float x = 0.0f;
     float y = 0.0f;
@@ -85,6 +100,10 @@ public:
     constexpr Handle() noexcept = default;
 
     static constexpr Handle make(std::uint16_t index, std::uint16_t generation) noexcept {
+        // 上面 kMaxIndex 那条不变量此前只活在注释里。make(0xFFFF, 0xFFFF) 逐位恰好
+        // 等于 kInvalidRaw，于是会造出一个 valid() 为假的"有效"句柄——40 单位的规模
+        // 够不着，但这是"该红却绿"的形态。Release 下 assert 是空操作，成本为零。
+        assert(index <= kMaxIndex);
         // 必须先转成 Raw 再移位：uint16 会被整型提升为 int，index >= 0x8000 时
         // 左移 16 位就是有符号溢出（未定义行为）。
         return Handle{(static_cast<Raw>(index) << 16) | static_cast<Raw>(generation)};
