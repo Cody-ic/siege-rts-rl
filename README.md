@@ -190,6 +190,9 @@ CM="/c/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonEx
 "$CM" --build build --config Release
 ```
 
+**VS 18（2026）同样可用**（已实测，Release/Debug 双配置零警告、ctest 全绿）：
+路径里的 `2022/Community` 换成 `18/Community`，生成器用 `-G "Visual Studio 18 2026"`。
+
 首次配置会经 FetchContent 下载 Catch2（约 1 MB，**需要联网**）；之后可加
 `-DFETCHCONTENT_FULLY_DISCONNECTED=ON` 离线复用。
 
