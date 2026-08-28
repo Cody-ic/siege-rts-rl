@@ -5,15 +5,31 @@
 
 cmake_minimum_required(VERSION 3.20)
 
+# 「用户显式给过构建类型没有」这个信息**只在 project() 之前存在**，所以先记一笔。
+#
+# project() 会经 Modules/CMakeInitializeConfigs.cmake 把平台默认值写进缓存，而
+# Modules/Platform/Windows-MSVC.cmake 把那个默认值定成 Debug。于是在 project() 之后，
+# 「用户没给」和「平台给了 Debug」这两种情况长得一模一样，任何写法都分不开。
+#
+# 这条曾经写错过：判空的守卫放在 project() 之后，于是它**只在 Linux/GCC 上有效**
+# （那边平台默认值是空），而在全组每天用的 Windows 上是死代码——`cmake -B build`
+# 拿到的是 Debug。当时没发现是因为验证只走了 VS 多配置生成器这条路，那条分支本来就该跳过。
+if(DEFINED CMAKE_BUILD_TYPE)
+    set(_rts_build_type_given TRUE)
+endif()
+
 project(siege_rts_rl
         VERSION 0.1.0
         DESCRIPTION "不对称波次生存 RTS：玩家守城，RL 驱动攻方"
         LANGUAGES CXX)
 
 # 默认 Release。CLAUDE.md 要求性能相关改动一律在 Release 下测量，Debug 构建的仿真
-# 吞吐不具参考意义；单配置生成器（Ninja / Makefile）若不给默认值会得到一个既无优化
-# 也无调试信息的空构建类型，那是最容易被误当成 Release 的状态。
-if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+# 吞吐不具参考意义。
+#
+# 判「多配置」放在 project() 之后，因为 CMAKE_CONFIGURATION_TYPES 也是那时才有值；
+# 判「用户给过」用上面那个哨兵，所以显式的 -DCMAKE_BUILD_TYPE=Debug 不会被 FORCE 顶掉
+# （复配时缓存里的值在 project() 前就已 DEFINED，因此也不会回弹成 Release）。
+if(NOT _rts_build_type_given AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "构建类型" FORCE)
     set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release RelWithDebInfo)
 endif()
