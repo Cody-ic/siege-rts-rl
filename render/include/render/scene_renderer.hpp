@@ -9,14 +9,14 @@
 #define RENDER_SCENE_RENDERER_HPP
 
 #include "game/scene_model.hpp"
-#include "render/iso_projection.hpp"
+#include "game/iso_projection.hpp"
 #include "render/sprite_atlas.hpp"
 
 namespace render {
 
 class SceneRenderer {
 public:
-    SceneRenderer(SpriteAtlas& atlas, IsoProjection projection) noexcept
+    SceneRenderer(SpriteAtlas& atlas, game::IsoProjection projection) noexcept
         : atlas_(&atlas), proj_(projection) {}
 
     // 必须在 `BeginMode2D` 与 `EndMode2D` 之间调用——平移与缩放由相机负责，
@@ -34,7 +34,7 @@ private:
     void place(const game::DrawItem& item);
 
     SpriteAtlas* atlas_;
-    IsoProjection proj_;
+    game::IsoProjection proj_;
 };
 
 }  // namespace render

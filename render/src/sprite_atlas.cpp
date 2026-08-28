@@ -212,6 +212,49 @@ const Sprite& SpriteAtlas::get(std::string_view ident, std::string_view state,
     return cache_.emplace(name, Sprite{tex, sm.ground_anchor}).first->second;
 }
 
+std::size_t SpriteAtlas::verify_all_declared() {
+    static const char* const kFacings[] = {"SE", "SW", "NE", "NW"};
+    std::vector<std::string> missing;
+    std::size_t loaded = 0;
+
+    // `meta_` 是 std::map，所以遍历顺序稳定——报错清单每次跑都一样，
+    // 便于 diff。（渲染顺序不进仿真，这里不是确定性要求，但廉价。）
+    for (const auto& [ident, states] : meta_) {
+        for (const auto& [state, sm] : states) {
+            for (const char* facing : kFacings) {
+                // 单帧状态传 0（`file_name()` 会取 frames 首项且不加后缀）；
+                // 多帧状态**逐帧**要，因为「声明了 4 帧只渲出 3 帧」正是要抓的错。
+                const std::vector<int> frames =
+                    (sm.frames.size() > 1) ? sm.frames : std::vector<int>{0};
+                for (int f : frames) {
+                    try {
+                        get(ident, state, facing, f);
+                        ++loaded;
+                    } catch (const AssetError& e) {
+                        missing.push_back(std::string(e.what()));
+                    }
+                }
+            }
+        }
+    }
+    if (!missing.empty()) {
+        // 同 preload_idle：一次把全部缺失报出来。缺素材通常是一批
+        // （漏渲一个状态 = 缺四个朝向 × 帧数），一个一个修很蠢。
+        std::string all = "元数据声明的素材有 " + std::to_string(missing.size()) +
+                          " 处载入不了（已成功 " + std::to_string(loaded) + " 张）：";
+        int shown = 0;
+        for (const std::string& m : missing) {
+            if (++shown > 20) {
+                all += "\n  … 另有 " + std::to_string(missing.size() - 20) + " 处";
+                break;
+            }
+            all += "\n  - " + m;
+        }
+        throw AssetError(all);
+    }
+    return loaded;
+}
+
 void SpriteAtlas::preload_idle(const std::vector<std::string>& idents) {
     static const char* const kFacings[] = {"SE", "SW", "NE", "NW"};
     std::vector<std::string> missing;

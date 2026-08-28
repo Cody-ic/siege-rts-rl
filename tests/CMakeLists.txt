@@ -51,6 +51,8 @@ add_executable(rts_tests
     types_test.cpp
     map_loader_test.cpp
     scene_model_test.cpp
+    iso_projection_test.cpp
+    display_names_test.cpp
 )
 
 target_link_libraries(rts_tests PRIVATE rts_core game Catch2::Catch2WithMain)
@@ -69,12 +71,12 @@ target_compile_definitions(rts_tests PRIVATE
 # 下这条链路会把名字弄乱，ctest 于是报「No tests ran」——**测试被静默跳过**，
 # 这比测试失败危险得多。标签是 ASCII，不受影响。
 #
-# 三个标签正好划分全部用例（每个 TEST_CASE 都带且只带其中一个）。若某个标签匹配不到
+# 这些标签正好划分全部用例（每个 TEST_CASE 都带且只带其中一个）。若某个标签匹配不到
 # 任何用例，Catch2 会以非零码退出，ctest 会红——所以"标签写错导致漏跑"也是可检出的。
 #
 # 挑单条用例跑仍按 CLAUDE.md 写的那样直接用二进制：
 #     ./build/tests/Release/rts_tests "<用例名>"
-foreach(_tag rng hash types map scene)
+foreach(_tag rng hash types map scene iso names)
     add_test(NAME rts_tests_${_tag} COMMAND rts_tests "[${_tag}]")
 endforeach()
 
