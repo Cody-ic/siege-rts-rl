@@ -622,30 +622,105 @@
       "modules": 1
     },
     "Quarry": {
-      "model": "models/kenney_castle/glb/rocks-large.glb",
-      "yaw": 0,
       "cn": "采石场",
-      "modules": 1
+      "_note": "三座资源建筑共享「人造物」视觉语言（旗 + 一件加工构件），与纯自然的景物和地形区分。原则是：**人造 = 玩家建筑，纯自然 = 景物或地形**。此前采石场与碎石、岩壁同为三堆灰石头、只有大小之差，而三者机制正好相反（无机制 / 必须守的经济建筑 / 走不进去的地形）；且「攻其必救」是头号演示点，观众必须看出 AI 是奔着采石场去的",
+      "yaw": 0,
+      "modules": 1,
+      "parts": [
+        {
+          "model": "models/kenney_castle/glb/rocks-large.glb"
+        },
+        {
+          "_note": "切出的台阶，读作「已开采的石壁」而非天然乱石。必须染成石色：模型本色是土黄，等距下读作木梯，而石材与木材是两条不同的决策轴，采石场挂木构件是反向提示",
+          "model": "models/kenney_castle/glb/stairs-stone.glb",
+          "offset": [
+            0.62,
+            -0.15,
+            0.0
+          ],
+          "scale": 1.15,
+          "tint": [
+            138,
+            146,
+            166,
+            0.92
+          ]
+        },
+        {
+          "_note": "旗色 = 产哪一种资源（石灰白）。旗子同时承载两个位：有旗即玩家建筑，旗色即资源种类。按 CLAUDE.md「交错杂居」，一簇内本就混有石/木/金，相邻的异种资源建筑是常见情形，而「攻其必救」要求玩家一眼看出 AI 在打哪一种——只靠底座（石堆 vs 木料 vs 石堆+门）在相邻摆放时会读成同一堆",
+          "model": "models/kenney_castle/glb/flag-pennant.glb",
+          "offset": [
+            -0.55,
+            0.5,
+            0.42
+          ],
+          "tint": [
+            226,
+            230,
+            236,
+            0.9
+          ]
+        }
+      ]
     },
     "Lumber": {
-      "model": "models/kenney_castle/glb/tree-log.glb",
-      "yaw": 0,
       "cn": "伐木场",
-      "modules": 1
+      "_note": "同 Quarry 的「人造物」视觉语言：旗 + 一件加工构件。此处的加工构件是锯木架，与作为景物、只是躺在地上的树桩区分",
+      "yaw": 0,
+      "modules": 1,
+      "parts": [
+        {
+          "model": "models/kenney_castle/glb/tree-log.glb"
+        },
+        {
+          "_note": "锯木架：横木料 + 立木桩，与单独躺着的木料（景物）区分",
+          "model": "models/kenney_castle/glb/tree-trunk.glb",
+          "offset": [
+            0.42,
+            0.34,
+            0.0
+          ]
+        },
+        {
+          "model": "models/kenney_castle/glb/tree-trunk.glb",
+          "offset": [
+            0.4,
+            -0.34,
+            0.0
+          ],
+          "scale": 0.85
+        },
+        {
+          "_note": "旗色 = 产哪一种资源（木绿），理由见 Quarry 的旗",
+          "model": "models/kenney_castle/glb/flag-pennant.glb",
+          "offset": [
+            -0.45,
+            0.0,
+            0.2
+          ],
+          "tint": [
+            62,
+            196,
+            56,
+            0.95
+          ],
+          "brightness": 0.82
+        }
+      ]
     },
     "Mine": {
       "cn": "金矿场",
-      "_note": "金币的唯一来源。石堆 + 坑口门，与作为景物的碎石区分",
+      "_note": "同 Quarry 的「人造物」视觉语言：旗 + 一件加工构件。此处的加工构件是坑口门，另给石堆上金色 tint，与采石场区分「产哪一种」",
       "yaw": 0,
       "modules": 1,
       "parts": [
         {
           "model": "models/kenney_castle/glb/rocks-large.glb",
           "tint": [
-            196,
-            158,
-            74,
-            0.55
+            198,
+            156,
+            62,
+            0.72
           ]
         },
         {
@@ -656,6 +731,22 @@
             0.0
           ],
           "scale": 1.1
+        },
+        {
+          "_note": "旗色 = 产哪一种资源（金黄），理由见 Quarry 的旗",
+          "model": "models/kenney_castle/glb/flag-pennant.glb",
+          "offset": [
+            -0.5,
+            0.55,
+            0.4
+          ],
+          "tint": [
+            255,
+            186,
+            18,
+            1.0
+          ],
+          "brightness": 0.86
         }
       ]
     },

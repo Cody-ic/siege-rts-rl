@@ -31,6 +31,28 @@ def grid_to_screen(gi, gj, ox, oy):
     return ox + (gi - gj) * TW // 2, oy + (gi + gj) * TH // 2
 
 
+# 地形枚举 -> (底衬地砖, 可选叠加物件)。**一格要画两张图，不是一张。**
+#
+# 只有 Plain* 与 Water 有自己的地砖（`kind: "tile"`：画布正好占满菱形、锚点在格心、
+# 不描边不投影）。Rock / Forest / Bridge 是立体物件——锚点在脚底、带描边与地面投影，
+# 单独贴上去底下是透明的，必须叠在某张地砖之上。
+#
+# 桥的底衬是 `Water` 而不是平地：真桥看得见水从底下过，铺平地会让河在桥这里断掉。
+OVERLAY = {
+    "Rock":   ("Plain", "Rock"),
+    "Forest": ("Plain", "Forest"),
+    "Bridge": ("Water", "Bridge"),
+}
+
+
+def expand(terrain):
+    """地形枚举 -> (地砖标识符, 叠加物标识符或 None)。
+
+    Plain 的四种贴图变体不占枚举位，由调用方按坐标哈希挑，见下面 `variant()`。
+    """
+    return OVERLAY.get(terrain, (terrain, None))
+
+
 def build(n=9):
     canvas = Image.new("RGBA", (TW * n + TW, TH * n + TW * 3), (0, 0, 0, 0))
     ox, oy = canvas.width // 2, TW * 2   # 顶部留够：塔与堡垒高达 4 格边长
@@ -42,37 +64,50 @@ def build(n=9):
         x, y = grid_to_screen(gi, gj, ox, oy)
         canvas.alpha_composite(img, (int(x - ax), int(y - ay)))
 
-    # 一条隘口：巨石与密林把进攻收束到中间两格，水域上架桥
-    road = {(4, j) for j in range(n)} | {(i, 5) for i in range(5, n)}
-    water = {(i, 8) for i in range(n)} - {(4, 8)}
-    ash = {(7, 7), (8, 7), (7, 8)} - water
+    # 一条隘口：巨石与密林把进攻收束到中间两格，一条河横切地图、只在 (4,8) 有桥。
+    # 真前端这里读地图文件的 `terrain` 层，此处手造一张只为演示。
+    rock = {(2, 2), (3, 2), (8, 4)}
+    forest = {(6, 2), (7, 2), (0, 6)}
+    terrain = {}
+    for gi in range(n):
+        for gj in range(n):
+            k = (gi, gj)
+            terrain[k] = ("Bridge" if k == (4, 8) else
+                          "Water" if gj == 8 else
+                          "Rock" if k in rock else
+                          "Forest" if k in forest else "Plain")
 
-    def ground(k):
-        if k in water:
-            return "Water"
+    road = {(4, j) for j in range(n)} | {(i, 5) for i in range(5, n)}
+    ash = {(7, 7), (8, 7), (7, 8)}
+
+    def variant(tile, k):
+        """`Plain` 的贴图变体按坐标挑，不写进地图文件（契约 4.1：变体不占枚举位）。"""
+        if tile != "Plain":
+            return tile
         if k in road:
             return "PlainRoad"
         if k in ash:
             return "PlainAsh"
         return "PlainB" if (k[0] + k[1]) % 3 == 0 else "Plain"
 
-    # 画家算法：按 gi+gj（即离屏幕上方的深度）从小到大画，后画的自然遮住先画的。
-    # 地面与其上的物件都遵循同一个顺序，混排也不会穿插错。
-    for s in range(2 * n - 1):
-        for gi in range(n):
-            gj = s - gi
-            if not 0 <= gj < n:
-                continue
-            place(ground((gi, gj)), gi, gj)
+    # 第一遍：只铺地砖。地砖是平的、永远不遮挡别的东西，所以可以先整片铺完。
+    overlays = []
+    for gi in range(n):
+        for gj in range(n):
+            k = (gi, gj)
+            tile, over = expand(terrain[k])
+            place(variant(tile, k), gi, gj)
+            if over:
+                overlays.append((gi, gj, over, {}))
 
-    objs = [
-        (4, 8, "Bridge", {}),
-        (2, 2, "Rock", {}), (3, 2, "Rock", {}), (6, 2, "Forest", {}),
-        (7, 2, "Forest", {}), (0, 6, "Forest", {}), (8, 4, "Rock", {}),
+    # 第二遍：叠加物件与单位混在**同一个**深度序列里排序。
+    # 画家算法：按 gi+gj（离屏幕上方的深度）从小到大画，后画的自然遮住先画的。
+    # 岩壁与单位必须一起排——站在岩壁前面的单位要遮住岩壁，反之则被遮住。
+    objs = overlays + [
         (1, 1, "TreeSmall", {}), (8, 1, "RockSmall", {}), (2, 6, "Stump", {}),
         (1, 4, "Wall", {}), (2, 4, "Wall", {}), (3, 4, "Gate", {}),
         (0, 4, "Tower", {}), (0, 2, "Keep", {}), (6, 6, "Mine", {}),
-        (4, 1, "Watch", {}), (5, 0, "Barrack", {}),
+        (4, 1, "Watch", {}), (5, 0, "Barrack", {}), (7, 6, "Quarry", {}),
         (4, 3, "Archer", {}), (5, 4, "Spear", {}),
         (5, 6, "Ghoul", {"state": "move", "frame": 8}),
         (6, 4, "Knight", {"state": "move", "frame": 6}),
