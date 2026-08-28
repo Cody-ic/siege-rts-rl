@@ -10,10 +10,26 @@ endif()
 
 # Catch2 经 FetchContent 引入，不要求队友在系统里预装（CLAUDE.md「关于第三方库」）。
 # 用 URL + SHA256 而不是 GIT_TAG：tag 在理论上可以被移动，哈希不能，构建因此可复现。
-# 离线时加 -DFETCHCONTENT_FULLY_DISCONNECTED=ON 复用已下载的副本。
+# 离线时加 -DFETCHCONTENT_FULLY_DISCONNECTED=ON 复用已下载的副本；
+# 已有本地副本时用 -DFETCHCONTENT_SOURCE_DIR_CATCH2=<路径> 完全不走网络。
+#
+# 第二个 URL 是兜底，`TIMEOUT` 是为了让兜底能在合理时间内接手。两者都来自
+# 训练服务器上的实测（首次 Linux/GCC 构建）：那台机器到 `github.com` 的连通性是
+# **间歇性**的（DNS 正常、`github.com:443` 的 TCP 直接不可达，而同期
+# `codeload.github.com` 与 `pypi.org` 都通）。
+#
+# 不给 TIMEOUT 时，第一个 URL 不可达要等约 133 秒才轮到第二个（黑洞地址实测）；
+# 给了 20 秒则 23 秒完成。而在网络正常的机器上这两处都不生效，行为一字不变。
+#
+# 兜底 URL 的安全性由 `URL_HASH` 保证，不靠信任那个域名：codeload 上那份归档
+# 与 `github.com` 重定向过去的是同一个对象，已实测 SHA256 逐字节相同。
+# **换 Catch2 版本时两个 URL 要一起改**，否则兜底会拉到旧版、被 URL_HASH 判错，
+# 而报错信息只会说哈希不符、不会指出是哪个 URL 给的。
 FetchContent_Declare(Catch2
     URL      https://github.com/catchorg/Catch2/archive/refs/tags/v3.7.1.tar.gz
+             https://codeload.github.com/catchorg/Catch2/tar.gz/refs/tags/v3.7.1
     URL_HASH SHA256=c991b247a1a0d7bb9c39aa35faf0fe9e19764213f28ffba3109388e62ee0269c
+    TIMEOUT  20
 )
 FetchContent_MakeAvailable(Catch2)
 

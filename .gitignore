@@ -1,5 +1,10 @@
 # ---- C++ / CMake ----
 build/
+# Makefiles / Ninja 是**单配置**生成器，构建类型烤在缓存里，所以 Linux 上想同时留
+# Release 与 Debug 只能一个配置一个目录，`build-Release/` 是最自然的命名。
+# Windows 用 VS 生成器是单目录多配置，因此这个需求在本地开发时不会出现——
+# 这一条是首次 Linux/GCC 构建时才暴露的。
+build-*/
 cmake-build-*/
 CMakeCache.txt
 CMakeFiles/
