@@ -1154,43 +1154,33 @@
     },
     "Watch": {
       "cn": "瞭望塔",
-      "_note": "大视野、零战力，与箭楼争同一个位置。木色 + 开放平台 + 旗，刻意不带武器：它的职能是看见，不是打着",
+      "_note": "大视野、零战力，与箭楼争同一个位置。**木质由镂空骨架承担，不靠染色。** 上一版是拿实心砌体（tower-square-base/mid，与箭楼、弩楼、兵营同族）染棕，渲出来是一根刷了棕漆的石柱——染色只改色相，改不掉「实心砌体」这个形体。这是「共用主体 + 配件/染色区分」在本仓库第三次失败（前两次：三座资源建筑共用塔基、采石场撞岩壁）。现在下半是两节四柱斜撑木架，剪影**透光、看得见背景**，与两座战斗塔的实心塔身不同族；上半是开放平台，对应「看得见 vs 打得着」里的前者。**全条目零 tint**：木色是构件本色，COLOR/MIX/压暗四种染法实测都更差，会把平台读成泥板",
       "yaw": 0,
       "modules": 1,
       "parts": [
         {
-          "model": "models/kenney_castle/glb/tower-square-base.glb",
-          "tint": [
-            120,
-            72,
-            32,
-            0.85
-          ],
-          "brightness": 0.85
+          "_note": "镂空木架下节。tower-square-mid-open-simple 未被任何其他实体引用，满足「主体不得共用」",
+          "model": "models/kenney_castle/glb/tower-square-mid-open-simple.glb"
         },
         {
-          "model": "models/kenney_castle/glb/tower-square-mid.glb",
-          "tint": [
-            134,
-            84,
-            40,
-            0.85
-          ],
-          "brightness": 0.85
+          "model": "models/kenney_castle/glb/tower-square-mid-open-simple.glb"
         },
         {
-          "model": "models/kenney_castle/glb/tower-square-top.glb",
-          "tint": [
-            120,
-            72,
-            32,
-            0.85
-          ],
-          "brightness": 0.85
+          "_note": "第三节。三节 0.88 + 平台 0.30 = 2.94 格边长，与箭楼 3.67 / 弩楼 3.59 同一档——**高度是「大视野」唯一的视觉表达**，两节版（2.06）实测读作脚手架而非塔。仍矮于箭楼，因为箭楼那 1.35 是屋顶；瞭望塔的平台反而比箭楼的垛口高，正合「看得远」。这也是与同为镂空木构的伐木场（1.15、矮方单层）拉开距离的主要手段",
+          "model": "models/kenney_castle/glb/tower-square-mid-open-simple.glb"
         },
         {
+          "_note": "开放平台，方形、与木架对齐。六角的 tower-hexagon-top-wood 虽名带 wood，但 0.86 宽配 0.93 的方架会向外挑出、垛口角与立柱错开，读作「架子上扣了顶帽子」，实测已否。此件是 Tower/Flak 的配件而非主体，不触发共用检查",
+          "model": "models/kenney_castle/glb/tower-square-top.glb"
+        },
+        {
+          "_note": "旗挪到面向相机的一角（-x/-y，同资源建筑那条）。原先堆在正中，四个朝向都被垛口挡掉大半",
           "model": "models/kenney_castle/glb/flag-pennant.glb",
-          "gap": -0.1
+          "offset": [
+            -0.28,
+            -0.28,
+            2.74
+          ]
         }
       ]
     },
