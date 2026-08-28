@@ -87,38 +87,92 @@
       "max_width": 0.8
     },
     "Archer": {
-      "model": "models/q_rpg/Blends/Ranger.blend",
       "yaw": 0,
       "height": 0.9,
       "cn": "戍卫弓手",
       "states": {
         "idle": {
-          "action": "Idle_Weapon",
           "frames": [
             1
-          ]
+          ],
+          "parts": {
+            "0": {
+              "action": "Idle_Weapon"
+            }
+          },
+          "mesh_anim": {
+            "Ranger_Arrow": {
+              "visible": [
+                false
+              ]
+            }
+          }
         },
         "move": {
-          "action": "Run_Holding",
           "frames": [
             1,
             6,
             11,
             16
-          ]
+          ],
+          "parts": {
+            "0": {
+              "action": "Run_Holding"
+            }
+          },
+          "mesh_anim": {
+            "Ranger_Arrow": {
+              "visible": [
+                false
+              ]
+            }
+          }
         },
         "attack": {
-          "action": "Bow_Attack_Shoot",
           "frames": [
             1,
             9,
             12,
             15
           ],
-          "impact_frame": 9
+          "impact_frame": 9,
+          "parts": {
+            "0": {
+              "action": "Bow_Attack_Shoot"
+            }
+          },
+          "mesh_anim": {
+            "Ranger_Arrow": {
+              "visible": [
+                true,
+                true,
+                false,
+                false
+              ]
+            }
+          }
         }
       },
-      "max_width": 0.8
+      "max_width": 0.8,
+      "parts": [
+        {
+          "model": "models/q_rpg/Blends/Ranger.blend",
+          "action": "Idle_Weapon"
+        },
+        {
+          "model": "models/q_rpg/Blends/Only Weapons/Ranger_Bow.blend",
+          "only_meshes": [
+            "Ranger_Arrow"
+          ],
+          "attach": "Weapon.R",
+          "scale": 0.5,
+          "rot": [
+            -90,
+            0,
+            0
+          ]
+        }
+      ]
     },
     "Ranger": {
       "cn": "逐风猎骑",
@@ -349,7 +403,7 @@
     },
     "Shade": {
       "cn": "亡灵弓手",
-      "_note": "骷髅持弓。此前与守方戍卫弓手共用同一模型、仅靠染色区分，阵营读不出来",
+      "_note": "亡灵弓手。弓必须**读得出是弓**——它是「持续压制墙头」的那个单位，玩家要能一眼数清编成里有几个远程。原先 0.72 + 侧对镜头 + 与骨同色，三者叠加成一条看不出是什么的细线。",
       "yaw": 0,
       "height": 0.9,
       "max_width": 0.9,
@@ -368,13 +422,20 @@
         {
           "_note": "弓模型以握把为中心，绑到左前臂骨尾即落在手上，上下各伸出一半，正是长弓的持法",
           "model": "models/q_rpg/Blends/Only Weapons/Ranger_Bow.blend",
-          "scale": 0.72,
+          "scale": 0.95,
           "attach": "L.DownLeg.001",
           "rot": [
             -90,
             0,
-            0
-          ]
+            90
+          ],
+          "tint": [
+            120,
+            72,
+            38,
+            0.85
+          ],
+          "tint_mode": "MIX"
         }
       ],
       "states": {
@@ -573,7 +634,7 @@
     },
     "Phoenix": {
       "cn": "不死鸟",
-      "_note": "改用鹰模型：名为不死鸟却与幽影窥使共用同一蝙蝠模型，剪影完全相同，而两者玩家该做的事相反——一个查防空覆盖，一个派机动单位猎杀。染色须用 MIX：鹰的翅膀本色明度只有 0.04，COLOR 混合照抄明度，提亮到 2.6 仍是一团黑",
+      "_note": "唯一的空中单位。Eagle.blend **只有 Flying 与 Idle 两个动作、没有攻击**，所以俯冲不靠动作表达——它是整只鸟的姿态：顶层 rot 把机身下压 50°，配 Flying 中翅膀后掠的几帧。**lift 刻意与其余状态一致**：CLAUDE.md 靠「本体与投影的间距」让玩家分辨幽影窥使（地面）与不死鸟（空中），俯冲时压低 lift 会破坏那条结构性区分。",
       "model": "models/q_animals/Blends/Eagle.blend",
       "yaw": 0,
       "height": 0.95,
@@ -601,6 +662,21 @@
             15,
             22
           ]
+        },
+        "attack": {
+          "action": "Flying",
+          "frames": [
+            5,
+            8,
+            11,
+            14
+          ],
+          "impact_frame": 11,
+          "rot": [
+            50,
+            0,
+            0
+          ]
         }
       },
       "tint_mode": "MIX"
@@ -617,7 +693,119 @@
         0.45
       ],
       "brightness": 0.88,
-      "modules": 1
+      "modules": 1,
+      "states": {
+        "idle": {
+          "frames": [
+            1
+          ],
+          "mesh_anim": {
+            "ram": {
+              "offset": [
+                [
+                  0.28,
+                  0,
+                  0
+                ]
+              ]
+            }
+          }
+        },
+        "move": {
+          "frames": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "mesh_anim": {
+            "ram": {
+              "offset": [
+                [
+                  0.28,
+                  0,
+                  0
+                ],
+                [
+                  0.28,
+                  0,
+                  0
+                ],
+                [
+                  0.28,
+                  0,
+                  0
+                ],
+                [
+                  0.28,
+                  0,
+                  0
+                ]
+              ]
+            },
+            "wheel*": {
+              "pivot_center": true,
+              "rot": [
+                [
+                  0,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  45,
+                  0
+                ],
+                [
+                  0,
+                  90,
+                  0
+                ],
+                [
+                  0,
+                  135,
+                  0
+                ]
+              ]
+            }
+          }
+        },
+        "attack": {
+          "frames": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "impact_frame": 3,
+          "mesh_anim": {
+            "ram": {
+              "offset": [
+                [
+                  -0.15,
+                  0,
+                  0
+                ],
+                [
+                  -0.45,
+                  0,
+                  0
+                ],
+                [
+                  0.4,
+                  0,
+                  0
+                ],
+                [
+                  0.1,
+                  0,
+                  0
+                ]
+              ]
+            }
+          }
+        }
+      }
     }
   },
   "buildings": {

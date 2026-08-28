@@ -47,7 +47,7 @@ def load(path):
 def entities(manifest):
     """-> [(标识符, [模型路径...])]，列表首项是主体。"""
     out = []
-    for section in ("units", "buildings", "terrain", "obstacles"):
+    for section in ("units", "buildings", "terrain", "obstacles", "projectiles"):
         for ident, spec in manifest.get(section, {}).items():
             # 分组内允许放 `_comment` 之类的说明，它们不是实体
             if ident.startswith("_"):
