@@ -50,6 +50,19 @@ option(RTS_REQUIRE_DETERMINISM_GUARD "找不到 Python3 时让配置失败（而
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 include(CompilerWarnings)
+# 被 game/ 与 render/ 共用的第三方依赖（目前只有 nlohmann/json）。
+# 集中声明而不是各自 FetchContent 一遍，理由见该文件开头。
+include(ThirdParty)
+
+# `enable_testing()` 必须早于**任何** add_test，而 render/ 也注册两条（截图冒烟 +
+# 素材缺失必须红）。它原来跟在 add_subdirectory(tests) 前面，那时只有 tests/ 注册测试，
+# 现在不够了——放在这里，与「谁注册测试」解耦。
+#
+# 这条错了的症状是「那两条 ctest 根本不存在，而 ctest 仍然全绿」，
+# 又是一次静默跳过，所以刻意写明为什么在这个位置。
+if(RTS_BUILD_TESTS)
+    enable_testing()
+endif()
 
 add_subdirectory(rts_core)
 
@@ -72,6 +85,5 @@ if(RTS_BUILD_RENDER)
 endif()
 
 if(RTS_BUILD_TESTS)
-    enable_testing()
     add_subdirectory(tests)
 endif()
