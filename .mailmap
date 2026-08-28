@@ -1,0 +1,14 @@
+# 提交作者名的规范化表。
+#
+# 为什么需要它：交付要求「人员分工单独一页，作为个人成绩重要依据」，而 git history 是
+# 那一页最硬的证据。但通过 GitHub 网页端合并 PR 产生的提交，作者名用的是账号的**显示名**，
+# 与本地 `git config user.name` 配的用户名不一定相同。于是同一个人会在
+# `git shortlog -sn` 里被拆成两个贡献者，各自的提交数都不完整——查历史的人会得到
+# 错误的分工印象。
+#
+# .mailmap 让 git log / shortlog / blame 自动把左边的规范身份认作右边的别名，
+# 不改写任何历史。新成员若出现同样情况，在下面照格式加一行。
+#
+# 格式：<规范名> <规范邮箱> <出现过的别名> <该别名的邮箱>
+
+zhxxx233 <89250276+zhxxx233@users.noreply.github.com> zhuozhuo233 <89250276+zhxxx233@users.noreply.github.com>
