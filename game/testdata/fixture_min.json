@@ -1,0 +1,144 @@
+{
+  "_note": "临时测试夹具，不是 §9 的演示地图。这里的一切数值（尺寸、集结点数量、坐标、hp_frac）都是为了驱动 MapLoader 与 SceneModel 的测试而随手取的占位值，不构成任何设计结论，也不要被当作参照——按 CLAUDE.md「关于数值」，那些值一律待定。刻意做成 7x5 非方形：坐标约定写反（rows[x][y] 而非 rows[y][x]）在方形地图上不报错、只是整张图转置。",
+  "content_hash": "sha256:27f2ba2cc5ffb748890ddbc2a6c4a043d30b2732143f7880e075abefeff1c60f",
+  "format": 1,
+  "initial_walls": [
+    {
+      "hp_frac": 1.0,
+      "kind": "Wall",
+      "pos": [
+        0,
+        4
+      ]
+    },
+    {
+      "hp_frac": 0.45,
+      "kind": "Wall",
+      "pos": [
+        1,
+        4
+      ]
+    },
+    {
+      "hp_frac": 1.0,
+      "kind": "Gate",
+      "pos": [
+        2,
+        4
+      ]
+    },
+    {
+      "hp_frac": 1.0,
+      "kind": "Wall",
+      "pos": [
+        6,
+        0
+      ]
+    },
+    {
+      "hp_frac": 1.0,
+      "kind": "Wall",
+      "pos": [
+        6,
+        1
+      ]
+    },
+    {
+      "hp_frac": 0.8,
+      "kind": "Wall",
+      "pos": [
+        6,
+        2
+      ]
+    }
+  ],
+  "keep": [
+    1,
+    1
+  ],
+  "layers": {
+    "no_build": {
+      "rows": [
+        "0000000",
+        "0000000",
+        "0000000",
+        "0000010",
+        "0000000"
+      ]
+    },
+    "terrain": {
+      "palette": [
+        "Plain",
+        "Rock",
+        "Forest",
+        "Water",
+        "Bridge"
+      ],
+      "rows": [
+        "0123300",
+        "0003300",
+        "0004400",
+        "0003300",
+        "0003300"
+      ]
+    }
+  },
+  "map_id": "fixture_min",
+  "name": "最小夹具",
+  "resources": [
+    {
+      "pos": [
+        1,
+        3
+      ],
+      "tier": "inner",
+      "type": "stone"
+    },
+    {
+      "pos": [
+        2,
+        1
+      ],
+      "tier": "inner",
+      "type": "wood"
+    },
+    {
+      "pos": [
+        0,
+        2
+      ],
+      "tier": "inner",
+      "type": "gold"
+    },
+    {
+      "pos": [
+        5,
+        0
+      ],
+      "tier": "outer",
+      "type": "wood"
+    }
+  ],
+  "size": [
+    7,
+    5
+  ],
+  "spawns": [
+    {
+      "corridor": "open",
+      "id": 0,
+      "pos": [
+        0,
+        0
+      ]
+    },
+    {
+      "corridor": "defile",
+      "id": 1,
+      "pos": [
+        6,
+        4
+      ]
+    }
+  ]
+}

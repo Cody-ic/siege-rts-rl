@@ -49,10 +49,18 @@ add_executable(rts_tests
     rng_test.cpp
     hash_test.cpp
     types_test.cpp
+    map_loader_test.cpp
+    scene_model_test.cpp
 )
 
-target_link_libraries(rts_tests PRIVATE rts_core Catch2::Catch2WithMain)
+target_link_libraries(rts_tests PRIVATE rts_core game Catch2::Catch2WithMain)
 rts_set_warnings(rts_tests TESTS)
+
+# 夹具地图的路径作为编译期常量给测试，**不依赖 ctest 的工作目录**。
+# 靠工作目录的话，从 build/ 里跑与从仓库根跑会得到不同结果，
+# 而「找不到夹具」在某些写法下会退化成「跳过那条用例」——又是静默跳过。
+target_compile_definitions(rts_tests PRIVATE
+    GAME_TESTDATA_DIR="${GAME_TESTDATA_DIR}")
 
 # 按**标签**注册 ctest 条目，而不是用 catch_discover_tests 逐用例注册。
 #
@@ -66,7 +74,7 @@ rts_set_warnings(rts_tests TESTS)
 #
 # 挑单条用例跑仍按 CLAUDE.md 写的那样直接用二进制：
 #     ./build/tests/Release/rts_tests "<用例名>"
-foreach(_tag rng hash types)
+foreach(_tag rng hash types map scene)
     add_test(NAME rts_tests_${_tag} COMMAND rts_tests "[${_tag}]")
 endforeach()
 
@@ -111,8 +119,17 @@ endif()
 
 if(Python3_FOUND)
     set(_checker "${CMAKE_SOURCE_DIR}/tools/check_determinism_bans.py")
+    # 扫 rts_core/ 与 game/ 两处。
+    #
+    # 加上 game/ 是 #20 的复核就留下的后续（「守卫目前只扫 rts_core/，应扩到
+    # bindings/ 与 game/」），现在 game/ 存在了就一并做掉。它确实需要被扫：
+    # 地图载入产出的是喂给仿真的地形数据，若哪天有人在这里用 `unordered_map`
+    # 驱动一次遍历，症状会出现在仿真侧而根因在这里。
+    #
+    # `bindings/` 还不存在，等它建起来时再加进这一行。
     add_test(NAME determinism_bans
-             COMMAND "${Python3_EXECUTABLE}" "${_checker}" "${CMAKE_SOURCE_DIR}/rts_core")
+             COMMAND "${Python3_EXECUTABLE}" "${_checker}"
+                     "${CMAKE_SOURCE_DIR}/rts_core" "${CMAKE_SOURCE_DIR}/game")
     add_test(NAME determinism_bans_self_test
              COMMAND "${Python3_EXECUTABLE}" "${_checker}" --self-test)
 

@@ -53,6 +53,13 @@ include(CompilerWarnings)
 
 add_subdirectory(rts_core)
 
+# game：玩家侧的非渲染部分（目前是关卡加载与场景装配）。
+#
+# **无条件构建，与 render/ 不同**，这是刻意的：render/ 默认不配置，挂在它下面的测试
+# 在默认构建里根本不存在、ctest 照样全绿，而「地形枚举展开成哪两张图」这类规则
+# 正是错了才发现的那种。放在这里它们就一定被测到。理由详见 game/CMakeLists.txt 开头。
+add_subdirectory(game)
+
 # 不变量 2 与 3 的构建侧落地：RTS_BUILD_RENDER 默认 OFF，于是训练构建**根本不配置**
 # render/ 这个子目录——不是"编译了但不链接"，而是它连 CMake 层面都不参与。
 # 这条同时缩小了需要在服务器 GCC 上编译的代码面。
