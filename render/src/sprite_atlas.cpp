@@ -1,10 +1,14 @@
 #include "render/sprite_atlas.hpp"
 
+#include <cstddef>
 #include <fstream>
 #include <ios>
 #include <sstream>
+#include <vector>
 
 #include <nlohmann/json.hpp>
+
+#include "rts/utf8_path.hpp"
 
 namespace render {
 namespace {
@@ -22,7 +26,7 @@ Vector2 need_vec2(const json& v, const std::string& where) {
 
 SpriteAtlas::SpriteAtlas(const std::string& sprite_dir) : dir_(sprite_dir) {
     const std::string meta_path = dir_ + "/_sprite_meta.json";
-    std::ifstream in(meta_path, std::ios::binary);
+    std::ifstream in(rts::path_from_utf8(meta_path), std::ios::binary);
     if (!in) {
         throw AssetError("打不开 " + meta_path +
                          "\n    精灵成品在 tools/sprite_gen/out_3d/，用 --sprites 指定目录");
@@ -200,13 +204,26 @@ const Sprite& SpriteAtlas::get(std::string_view ident, std::string_view state,
     if (hit != cache_.end()) return hit->second;
 
     const std::string path = dir_ + "/" + name;
-    Texture2D tex = LoadTexture(path.c_str());
-    if (tex.id == 0) {
+
+    // **不用 `LoadTexture(path)`。** raylib 的文件读取走窄 `fopen`，路径含非 ASCII
+    // 字符时会失败。自己读字节 + 内存版 API，理由见 rts/utf8_path.hpp。
+    bool ok = false;
+    const std::vector<unsigned char> bytes = rts::read_file_bytes(path, &ok);
+    if (!ok) {
         // **不退化成占位图。** 占位图会把「素材没渲」变成一个要盯着画面才发现的问题，
         // 而这个仓库已经两次靠「渲完看图」才发现素材撞车（#19、#27）。
         throw AssetError("载入不了 " + path +
                          "\n    元数据登记了它，磁盘上却没有——先跑一遍精灵流水线，"
                          "或核对 tools/sprite_gen/check_assets.py");
+    }
+    Image img = LoadImageFromMemory(".png", bytes.data(), static_cast<int>(bytes.size()));
+    if (img.data == nullptr) {
+        throw AssetError("解不开 " + path + "，文件在但不是有效的 PNG");
+    }
+    Texture2D tex = LoadTextureFromImage(img);
+    UnloadImage(img);
+    if (tex.id == 0) {
+        throw AssetError("传不上 GPU：" + path);
     }
     const StateMeta& sm = state_meta(ident, state);
     return cache_.emplace(name, Sprite{tex, sm.ground_anchor}).first->second;

@@ -52,4 +52,14 @@ target_link_libraries(game PUBLIC rts_core PRIVATE nlohmann_json_hdr)
 rts_set_warnings(game)
 
 # 测试要读夹具地图，把路径作为编译期常量给它，避免依赖 ctest 的工作目录。
-set(GAME_TESTDATA_DIR "${CMAKE_CURRENT_LIST_DIR}/testdata" PARENT_SCOPE)
+#
+# 用 `file(REAL_PATH)` 规范化一遍。这不是洁癖：从 Git Bash 调用 cmake 时
+# `CMAKE_CURRENT_LIST_DIR` 可能是 MSYS 形式（`/Users/...`），而测试二进制是原生
+# Windows 程序。REAL_PATH 会把它解成绝对真实路径。
+#
+# **但这一步不是那个 bug 的修法。** 真正让队友 4 条 ctest 变红的是**编码**而不是形式：
+# 他的仓库在 `.../计算机程序设计大作业/`，而 MSVC 的窄路径按 ANSI 代码页解释、
+# CMake 烤进来的是 UTF-8。规范化后仍然打不开。修法在 `rts/utf8_path.hpp`，
+# 并由 `game_testdata_utf8_path` 那条 ctest 钉住（见 tests/CMakeLists.txt）。
+file(REAL_PATH "${CMAKE_CURRENT_LIST_DIR}/testdata" _game_testdata)
+set(GAME_TESTDATA_DIR "${_game_testdata}" PARENT_SCOPE)

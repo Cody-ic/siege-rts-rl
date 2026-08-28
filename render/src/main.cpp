@@ -31,10 +31,12 @@
 #include "game/map_loader.hpp"
 #include "game/scene_model.hpp"
 #include "render/camera_controller.hpp"
+#include "render/cli.hpp"
 #include "render/scene_overlay.hpp"
 #include "render/scene_renderer.hpp"
 #include "render/sprite_atlas.hpp"
 #include "render/text.hpp"
+#include "rts/utf8_path.hpp"
 
 namespace {
 
@@ -74,39 +76,43 @@ void print_usage(const char* argv0) {
 
 // 手写参数解析而不引第三方库：五个选项不值得一个依赖，
 // 而 CLAUDE.md 对第三方库的要求是「优先 header-only 且要在两套工具链上调通」。
-bool parse(int argc, char** argv, Options& out) {
-    for (int i = 1; i < argc; ++i) {
-        const std::string a = argv[i];
-        const auto next = [&](const char* what) -> const char* {
-            if (i + 1 >= argc) {
+//
+// **收 `vector<string>` 而不是 `char**`。** 不是风格问题：Windows 上的 `argv` 是
+// ANSI 代码页，必须在入口处转成 UTF-8（见文件末尾），而转完自然就是字符串了。
+// 让这一层拿不到 `char**`，也就写不出「忘了转就直接用」这种代码。
+bool parse(const std::vector<std::string>& args, Options& out) {
+    for (std::size_t i = 1; i < args.size(); ++i) {
+        const std::string& a = args[i];
+        const auto next = [&](const char* what) -> const std::string* {
+            if (i + 1 >= args.size()) {
                 std::fprintf(stderr, "%s 后面缺少参数\n", what);
                 return nullptr;
             }
-            return argv[++i];
+            return &args[++i];
         };
         if (a == "--map") {
-            const char* v = next("--map");
+            const std::string* v = next("--map");
             if (!v) return false;
-            out.map_path = v;
+            out.map_path = *v;
         } else if (a == "--sprites") {
-            const char* v = next("--sprites");
+            const std::string* v = next("--sprites");
             if (!v) return false;
-            out.sprite_dir = v;
+            out.sprite_dir = *v;
         } else if (a == "--screenshot") {
-            const char* v = next("--screenshot");
+            const std::string* v = next("--screenshot");
             if (!v) return false;
-            out.screenshot = v;
+            out.screenshot = *v;
         } else if (a == "--font") {
-            const char* v = next("--font");
+            const std::string* v = next("--font");
             if (!v) return false;
-            out.font_path = v;
+            out.font_path = *v;
         } else if (a == "--size") {
-            const char* w = next("--size");
+            const std::string* w = next("--size");
             if (!w) return false;
-            const char* h = next("--size");
+            const std::string* h = next("--size");
             if (!h) return false;
-            out.width = std::atoi(w);
-            out.height = std::atoi(h);
+            out.width = std::atoi(w->c_str());
+            out.height = std::atoi(h->c_str());
             if (out.width <= 0 || out.height <= 0) {
                 std::fprintf(stderr, "--size 必须为正\n");
                 return false;
@@ -260,7 +266,16 @@ int run(const Options& opt) {
 
         Image img = LoadImageFromTexture(rt.texture);
         ImageFlipVertical(&img);      // 离屏纹理的 y 是反的
-        const bool ok = ExportImage(img, opt.screenshot.c_str());
+        // **不用 `ExportImage(img, path)`。** raylib 的文件写入同样走窄 `fopen`，
+        // 路径含非 ASCII 字符时会失败（见 rts/utf8_path.hpp）。而截图路径极可能含中文
+        // ——它是用户随手给的。所以先导到内存、再自己写字节。
+        int png_size = 0;
+        unsigned char* png = ExportImageToMemory(img, ".png", &png_size);
+        bool ok = false;
+        if (png != nullptr && png_size > 0) {
+            ok = rts::write_file_bytes(opt.screenshot, png, static_cast<std::size_t>(png_size));
+        }
+        if (png != nullptr) MemFree(png);
         UnloadImage(img);
         UnloadRenderTexture(rt);
         CloseWindow();
@@ -312,12 +327,12 @@ int run(const Options& opt) {
     return 0;
 }
 
-}  // namespace
 
-int main(int argc, char** argv) {
+// 真正的入口。**约定：进来的每一条参数都是 UTF-8**，由 `cli_entry.cpp` 保证。
+int cli_main_impl(const std::vector<std::string>& args) {
     Options opt;
-    if (!parse(argc, argv, opt)) {
-        print_usage(argv[0]);
+    if (!parse(args, opt)) {
+        print_usage(args.empty() ? "rts_render" : args[0].c_str());
         return 1;
     }
     try {
@@ -330,3 +345,11 @@ int main(int argc, char** argv) {
         return 4;
     }
 }
+
+}  // namespace
+
+namespace render {
+
+int cli_main(const std::vector<std::string>& args) { return cli_main_impl(args); }
+
+}  // namespace render

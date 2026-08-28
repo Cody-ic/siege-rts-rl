@@ -9,6 +9,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include "rts/utf8_path.hpp"
+
 namespace game {
 namespace {
 
@@ -160,8 +162,15 @@ const std::map<std::string, WallKind> kWallKinds{
 }  // namespace
 
 MapData MapLoader::from_file(const std::string& path) {
-    std::ifstream in(path, std::ios::binary);
-    if (!in) throw MapFormatError(path + "：打不开这个文件");
+    // **必须经 `rts::path_from_utf8`。** 直接 `ifstream in(path)` 在 MSVC 上会把
+    // 这串 UTF-8 字节按当前 ANSI 代码页解释，于是路径里有中文就打不开，
+    // 而症状是「打不开这个文件」而那个文件明明就在。理由见 rts/utf8_path.hpp。
+    std::ifstream in(rts::path_from_utf8(path), std::ios::binary);
+    if (!in) {
+        throw MapFormatError(path +
+                             "：打不开这个文件"
+                             "\n    （路径含非 ASCII 字符时尤其要注意——见 rts/utf8_path.hpp）");
+    }
     std::ostringstream buf;
     buf << in.rdbuf();
     return from_string(buf.str(), path);

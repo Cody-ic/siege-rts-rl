@@ -90,7 +90,7 @@ target_link_libraries(render_lib
     PRIVATE nlohmann_json_hdr)
 rts_set_warnings(render_lib)
 
-add_executable(rts_render src/main.cpp)
+add_executable(rts_render src/main.cpp src/cli_entry.cpp)
 target_link_libraries(rts_render PRIVATE render_lib)
 rts_set_warnings(rts_render)
 
@@ -132,6 +132,42 @@ if(RTS_BUILD_TESTS)
     add_test(NAME render_verify_assets
              COMMAND rts_render --verify-assets
                      --sprites "${CMAKE_SOURCE_DIR}/tools/sprite_gen/out_3d")
+
+    # ——含非 ASCII 字符的路径——
+    #
+    # raylib 的文件读写**全部**走窄 `fopen`（`utils.c` 的 `LoadFileData` /
+    # `SaveFileData`，已核源码：零处 `_wfopen`），所以 `LoadTexture` / `LoadFontEx` /
+    # `ExportImage` 在路径含中文时会失败。本目录因此改走「自己读字节 + 内存版 API」，
+    # 而这条 ctest 是那件事的回归测试。病因见 `rts/utf8_path.hpp`。
+    #
+    # 一次跑通三条 I/O：读地图（`game/`）、读精灵与元数据、**写**截图 PNG。
+    # 三条都在中文目录里。
+    #
+    # 做成 ctest 而不是手跑：从 Git Bash 传含中文的 argv 会被 MSYS 的命令行转换弄坏
+    # （实测程序根本起不来，退出码 127），而 CMake 写进 ctest 的参数不经 shell。
+    set(_u8 "${CMAKE_CURRENT_BINARY_DIR}/中文路径测试")
+    file(MAKE_DIRECTORY "${_u8}")
+    file(COPY "${GAME_TESTDATA_DIR}/fixture_min.json" DESTINATION "${_u8}")
+    # 复制**真的**元数据 + 全部 `idle` 精灵（140 张，约 8 MB），而不是手写一份裁剪版。
+    #
+    # 手写过一版，两个问题：一是要在 CMake 里抄 canvas / ground_anchor 的数字，
+    # 那**直接违反 §7「像素几何只有一个来源」**；二是抄多少个实体取决于夹具地图
+    # 用到哪些地形，夹具一改这条测试就报「元数据里没有标识符 X」。
+    #
+    # 只取 `idle` 而不是全部 476 张：这条测试渲的是一张静态地图，
+    # `SceneRenderer::preload` 也只载入 idle。`attack` / `move` 那些由
+    # `render_verify_assets` 覆盖（那条走真目录，不需要复制）。
+    file(GLOB _u8_idle "${CMAKE_SOURCE_DIR}/tools/sprite_gen/out_3d/*_idle_*.png")
+    file(COPY ${_u8_idle} DESTINATION "${_u8}")
+    file(COPY "${CMAKE_SOURCE_DIR}/tools/sprite_gen/out_3d/_sprite_meta.json"
+         DESTINATION "${_u8}")
+
+    add_test(NAME render_utf8_path
+             COMMAND rts_render
+                     --map "${_u8}/fixture_min.json"
+                     --sprites "${_u8}"
+                     --screenshot "${_u8}/截图.png"
+                     --size 320 200)
 
     # 上面那条的防退化。**一条只会绿的检查等于没有检查**——同
     # determinism_bans_empty_is_red 与 map_gen_validate_empty_is_red。
