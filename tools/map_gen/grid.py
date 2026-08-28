@@ -148,6 +148,18 @@ class Grid:
             if self.in_bounds(nx, ny):
                 yield nx, ny
 
+    def neighbors8(self, x, y):
+        """纯八邻，不带通行判断、也不管穿角。
+
+        与 `neighbors()` 问的是两件事：那个问「走不走得过去」，这个问「挨没挨着」。
+        第 10 条判「遮蔽通道有没有触到城墙」用的是后者 —— 单位能否走过去，
+        与森林是否连到了墙边，是两回事。
+        """
+        for dx, dy in _ORTHO + _DIAG:
+            nx, ny = x + dx, y + dy
+            if self.in_bounds(nx, ny):
+                yield nx, ny
+
     def flood(self, starts, passable, diagonal=True):
         """从 starts 出发的连通域。starts 自身不做 passable 检查。
 

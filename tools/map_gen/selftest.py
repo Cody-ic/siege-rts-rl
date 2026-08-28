@@ -19,6 +19,7 @@ import mapfile
 from mapfile import MapFormatError
 import grid as gridmod
 from grid import Grid
+import validate
 
 
 # --------------------------------------------------------------------------
@@ -358,6 +359,197 @@ def check_format_accepts(c):
         "带 content_hash 的地图不该被拒")
 
 
+# --------------------------------------------------------------------------
+# 第 8 节校验器
+# --------------------------------------------------------------------------
+
+def _gv(rows, **kw):
+    """构造 (doc, grid) 一对，省得每条用例写两行。"""
+    doc = make_doc(rows, **kw)
+    return doc, Grid(doc)
+
+
+def check_registry_covers_spec(c):
+    """注册表必须正好覆盖第 8 节的 1..15，不重不漏。
+
+    这一条防的是「白名单漏登记」——`tests/CMakeLists.txt` 里 ctest 标签清单
+    已经踩过一次：写错抓得到，**没写进清单抓不到**。第 8 节将来加条目
+    （例如 #26 的 A5 若通过要加「§2 必须配 §3」），这里会立刻红。
+    """
+    nos = [chk.no for chk in validate.CHECKS]
+    c.eq(sorted(nos), list(range(1, validate.SPEC_CHECK_COUNT + 1)),
+         "CHECKS 必须正好覆盖第 8 节的 1..15")
+    c.eq(len(set(nos)), len(nos), "条目编号不得重复")
+
+    for chk in validate.CHECKS:
+        if chk.status == validate.IMPLEMENTED:
+            c.true(chk.fn is not None,
+                   f"第 {chk.no} 条标为「已实现」却没挂函数")
+        else:
+            c.true(chk.fn is None,
+                   f"第 {chk.no} 条标为「{chk.status}」却挂了函数")
+            c.true(bool(chk.note),
+                   f"第 {chk.no} 条未实现，必须写明原因（否则会慢慢变成默认跳过）")
+
+
+def check_v3_corridors(c):
+    two = [{"id": 0, "pos": [0, 0], "corridor": "open"},
+           {"id": 1, "pos": [6, 0], "corridor": "open"}]
+    doc, g = _gv(OBLONG, keep=[3, 3], spawns=two)
+    c.true(validate.check_corridor_kinds(doc, g), "重复的 corridor 应当报")
+
+    two[1]["corridor"] = "defile"
+    doc, g = _gv(OBLONG, keep=[3, 3], spawns=two)
+    c.true(not validate.check_corridor_kinds(doc, g),
+           "各不相同的 corridor 不该报")
+
+
+def check_v4_reachable(c):
+    # spawn 被 Rock 团团围住。
+    walled_in = ["00000", "01110", "01010", "01110", "00000"]
+    doc, g = _gv(walled_in, keep=[0, 0], spawns=[
+        {"id": 0, "pos": [2, 2], "corridor": "open"}])
+    c.true(validate.check_spawn_reachable(doc, g),
+           "被 Rock 围死的集结点应当报不通")
+
+    doc, g = _gv(["000", "000", "000"], keep=[0, 0], spawns=[
+        {"id": 0, "pos": [2, 2], "corridor": "open"}])
+    c.true(not validate.check_spawn_reachable(doc, g), "空旷地图不该报")
+
+    # 唯一通路上摆一段墙：墙是高代价可通行，仍应算通（5.1）。
+    corridor = ["000", "101", "000"]
+    doc, g = _gv(corridor, keep=[0, 0], spawns=[
+        {"id": 0, "pos": [0, 2], "corridor": "open"}],
+        walls=[{"kind": "Wall", "pos": [1, 1], "hp_frac": 1.0}])
+    c.true(not validate.check_spawn_reachable(doc, g),
+           "唯一通路被墙挡住仍应判为通 —— 墙是高代价可通行，不是障碍（5.1）")
+
+
+def check_v6_inner_resources(c):
+    three = [{"type": t, "pos": [i, 0], "tier": "inner"}
+             for i, t in enumerate(["stone", "wood", "gold"])]
+    doc, g = _gv(OBLONG, keep=[3, 3], resources=three)
+    c.true(not validate.check_inner_resources(doc, g), "三种齐全不该报")
+
+    doc, g = _gv(OBLONG, keep=[3, 3], resources=three[:2])
+    c.true(validate.check_inner_resources(doc, g), "inner 缺 gold 应当报")
+
+    # 只有 outer 有金币也不行 —— 4.4 要求的是 inner 侧三种全覆盖。
+    mixed = three[:2] + [{"type": "gold", "pos": [4, 0], "tier": "outer"}]
+    doc, g = _gv(OBLONG, keep=[3, 3], resources=mixed)
+    c.true(validate.check_inner_resources(doc, g),
+           "金币只在 outer 侧仍应报 —— 保底看的是 inner")
+
+
+def check_v10_forest_corridor(c):
+    # (1,0)-(2,0)-(2,1)-(2,2) 一条森林带，墙在 (2,3) 紧挨着它。
+    forest_lane = ["0220000", "0020000", "0020000", "0000000", "0000000"]
+    spawns = [{"id": 0, "pos": [1, 0], "corridor": "forest"}]
+    wall = [{"kind": "Wall", "pos": [2, 3], "hp_frac": 1.0}]
+    doc, g = _gv(forest_lane, keep=[5, 4], spawns=spawns, walls=wall)
+    c.true(validate.check_forest_corridor(doc, g),
+           "从集结点直达城墙的连续森林带应当报（4.1）")
+
+    # 同一张图，把森林带在中间断开一格。
+    broken = ["0220000", "0000000", "0020000", "0000000", "0000000"]
+    doc, g = _gv(broken, keep=[5, 4], spawns=spawns, walls=wall)
+    c.true(not validate.check_forest_corridor(doc, g), "森林带断开后不该报")
+
+    # 没有墙就谈不上「直达城墙」。
+    doc, g = _gv(forest_lane, keep=[5, 4], spawns=spawns)
+    c.true(not validate.check_forest_corridor(doc, g),
+           "地图没有 initial_walls 时这条应当自动通过")
+
+
+def check_v11_islands(c):
+    island = ["00000", "01110", "01010", "01110", "00000"]
+    doc, g = _gv(island, keep=[0, 0], spawns=[
+        {"id": 0, "pos": [0, 4], "corridor": "open"}])
+    c.true(validate.check_plain_islands(doc, g),
+           "被 Rock 围住的 Plain 格应当报为孤岛")
+
+    doc, g = _gv(["000", "010", "000"], keep=[0, 0], spawns=[
+        {"id": 0, "pos": [2, 2], "corridor": "open"}])
+    c.true(not validate.check_plain_islands(doc, g),
+           "孤零零一块 Rock 不制造孤岛")
+
+
+def check_v12_water_cuts(c):
+    spawns = [{"id": 0, "pos": [0, 2], "corridor": "open"}]
+    river = ["00000", "33333", "00000"]
+    doc, g = _gv(river, keep=[0, 0], spawns=spawns)
+    c.true(validate.check_water_cuts_corridor(doc, g),
+           "被河横断且无桥应当报")
+
+    bridged = ["00000", "33433", "00000"]
+    doc, g = _gv(bridged, keep=[0, 0], spawns=spawns)
+    c.true(not validate.check_water_cuts_corridor(doc, g), "有桥就不该报")
+
+    # 被 Rock 断开也不通，但那属第 4 条，第 12 条不该抢着报。
+    rocked = ["00000", "11111", "00000"]
+    doc, g = _gv(rocked, keep=[0, 0], spawns=spawns)
+    c.true(not validate.check_water_cuts_corridor(doc, g),
+           "Rock 切断应当归第 4 条，第 12 条只管水")
+    c.true(validate.check_spawn_reachable(doc, g),
+           "前提：Rock 切断确实会被第 4 条报出来")
+
+
+def check_v13_bridge_on_water(c):
+    doc, g = _gv(["000", "040", "000"], keep=[0, 0])
+    c.true(validate.check_bridge_on_water(doc, g),
+           "四邻没有 Water 的桥应当报（4.2.1 的底衬映射会渲出孤立的水）")
+
+    doc, g = _gv(["030", "040", "000"], keep=[0, 0])
+    c.true(not validate.check_bridge_on_water(doc, g), "桥挨着水就不该报")
+
+    # 只在对角有水不算 —— 第 13 条明写「四邻」。
+    doc, g = _gv(["300", "040", "000"], keep=[0, 0])
+    c.true(validate.check_bridge_on_water(doc, g),
+           "水只在对角时应当报 —— 第 13 条要求的是四邻")
+
+
+def check_v15_hash(c):
+    doc = make_doc(OBLONG, keep=[3, 3])
+    g = Grid(doc)
+    c.true(validate.check_content_hash(doc, g), "没有 content_hash 字段应当报")
+
+    mapfile.stamp_content_hash(doc)
+    c.true(not validate.check_content_hash(doc, g), "盖过章的地图不该报")
+
+    doc["name"] = "改了名字但没重新盖章"
+    c.true(validate.check_content_hash(doc, g), "内容改了而哈希没更新应当报")
+
+
+def check_validator_on_clean_map(c):
+    """一张各条都过得去的地图，跑完整 run() 不应有任何失败。
+
+    这一条是上面各条的反面：单条检查各自「不该报」不等于合在一起也干净，
+    比如某条检查的测试地图恰好触发了另一条。
+    """
+    rows = ["0000000", "0000000", "0000000", "0000000", "0000000"]
+    doc = make_doc(
+        rows, keep=[3, 2],
+        spawns=[{"id": 0, "pos": [0, 0], "corridor": "open"},
+                {"id": 1, "pos": [6, 4], "corridor": "defile"}],
+        resources=[{"type": t, "pos": [i + 1, 2], "tier": "inner"}
+                   for i, t in enumerate(["stone", "wood", "gold"])])
+    mapfile.stamp_content_hash(doc)
+
+    failures = [(chk.no, problems) for chk, problems in validate.run(doc)
+                if problems]
+    c.true(not failures, f"干净地图不该有任何失败，实际：{failures}")
+
+    # 顺带钉住三类计数，避免有人「顺手」把某条改成跳过。
+    n_impl = sum(1 for chk in validate.CHECKS
+                 if chk.status == validate.IMPLEMENTED)
+    n_block = sum(1 for chk in validate.CHECKS
+                  if chk.status == validate.BLOCKED)
+    n_pend = sum(1 for chk in validate.CHECKS
+                 if chk.status == validate.PENDING)
+    c.eq((n_impl, n_block, n_pend), (8, 3, 4),
+         "条目状态计数变了：改动状态时要同步这条断言与 README 的进度表")
+
+
 GROUPS = [
     ("坐标约定", check_coordinates),
     ("地形标志位（4.1）", check_terrain_flags),
@@ -370,6 +562,16 @@ GROUPS = [
     ("读写往返", check_roundtrip),
     ("格式层：应当拒绝", check_format_rejects),
     ("格式层：应当接受", check_format_accepts),
+    ("第 8 节：注册表覆盖性", check_registry_covers_spec),
+    ("第 3 条 corridor", check_v3_corridors),
+    ("第 4 条 集结点可达", check_v4_reachable),
+    ("第 6 条 inner 三种资源", check_v6_inner_resources),
+    ("第 10 条 森林遮蔽通道", check_v10_forest_corridor),
+    ("第 11 条 Plain 孤岛", check_v11_islands),
+    ("第 12 条 水切断走廊", check_v12_water_cuts),
+    ("第 13 条 桥在水上", check_v13_bridge_on_water),
+    ("第 15 条 content_hash", check_v15_hash),
+    ("干净地图跑完整 run()", check_validator_on_clean_map),
 ]
 
 
