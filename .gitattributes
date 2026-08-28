@@ -24,6 +24,13 @@
 *.cmake text eol=lf
 CMakeLists.txt text eol=lf
 
+# Shell 脚本：这一条不是「省去无谓的 diff」，是**不这么写就跑不了**。
+# `tools/server/*.sh` 在 Windows 上编辑、到 Linux 上执行，若被 `core.autocrlf`
+# 转成 CRLF，shebang 会变成 `#!/usr/bin/env bash\r`，内核把整个 `bash\r` 当程序名，
+# 报 `bad interpreter: /usr/bin/env: no such file or directory`
+# ——错误信息指向 `/usr/bin/env`，而那个文件明明就在，于是完全查不到真因。
+*.sh    text eol=lf
+
 # 二进制，不做任何换行处理（写出来是为了让意图明确，不靠 git 猜）。
 *.png   binary
 *.glb   binary

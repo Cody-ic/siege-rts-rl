@@ -600,7 +600,9 @@ Mason    ──►  Phoenix、Shade 狙杀
 
 ## 构建与测试
 
-采用 CMake。骨架已落地（Windows/MSVC 上可编可测；**Linux/GCC 侧尚未验证**）：
+采用 CMake。骨架已落地，**两套工具链都实测过**（Windows/MSVC 与 Linux/GCC 各跑过
+Release + Debug，7 条 ctest 全绿、零警告；服务器侧的记录与同步办法见
+`训练服务器环境.md` 第 5 节）：
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
