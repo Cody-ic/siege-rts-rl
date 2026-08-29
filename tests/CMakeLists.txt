@@ -177,6 +177,22 @@ if(Python3_FOUND)
     add_test(NAME map_gen_self_test
              COMMAND "${Python3_EXECUTABLE}"
                      "${CMAKE_SOURCE_DIR}/tools/map_gen/selftest.py")
+
+    # 校验器的「一张地图都没读到必须红」。与上面那条 determinism 探针同一道钉子：
+    # 「目录改名后校验器什么都没校验却全绿」正是要防的那种失败。
+    #
+    # 与之成对的「读到了一些、另一些路径不存在也必须红」**留在 selftest.py 里**
+    # （它 patch sys.argv 直接调 validate.main()）。那一条在这里做不了：
+    # 仓库现在一张地图文件都没有，所以「一张真图 + 一个坏路径」这个场景在 CLI
+    # 层构造不出来，而少了那张真图，先命中的是「0 张即失败」——
+    # **那样它就会因为错误的理由通过**，正是 selftest.py 开头那段要防的形态。
+    set(_map_empty_probe "${CMAKE_CURRENT_BINARY_DIR}/map_gen_empty_probe")
+    file(MAKE_DIRECTORY "${_map_empty_probe}")
+    add_test(NAME map_gen_validate_empty_is_red
+             COMMAND "${Python3_EXECUTABLE}"
+                     "${CMAKE_SOURCE_DIR}/tools/map_gen/validate.py"
+                     "${_map_empty_probe}")
+    set_tests_properties(map_gen_validate_empty_is_red PROPERTIES WILL_FAIL TRUE)
 else()
     message(WARNING "未找到 Python3：确定性禁令检查不会作为测试运行"
                     "（RTS_REQUIRE_DETERMINISM_GUARD=OFF）。"
