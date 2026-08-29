@@ -1,0 +1,22 @@
+{
+  "_note": "**故意坏的**测试夹具，不是素材。它声明了两张精灵、目录里一张 PNG 都没有，用来钉住 ctest 条目 render_verify_assets_missing_is_red —— 若 `--verify-assets` 哪天退化成永远返回 0，那条 WILL_FAIL 测试会红。别把它当素材用，也别往这个目录里放 PNG。这里的 px_per_tile 与 tile 是真值（256 / [256,128]），因为要让它通过前面那几道检查、走到「载入 PNG」这一步才失败。",
+  "px_per_tile": 256,
+  "tile": [256, 128],
+  "sprites": {
+    "Nope": {
+      "states": {
+        "idle": {
+          "kind": "tile",
+          "canvas": [256, 128],
+          "ground_anchor": [128.0, 64.0],
+          "frames": [1]
+        },
+        "move": {
+          "canvas": [256, 128],
+          "ground_anchor": [128.0, 64.0],
+          "frames": [1, 2]
+        }
+      }
+    }
+  }
+}

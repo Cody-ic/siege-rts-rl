@@ -72,33 +72,107 @@
             11,
             16
           ]
+        },
+        "attack": {
+          "action": "Sword_Attack",
+          "frames": [
+            1,
+            7,
+            13,
+            19
+          ],
+          "impact_frame": 13
         }
       },
       "max_width": 0.8
     },
     "Archer": {
-      "model": "models/q_rpg/Blends/Ranger.blend",
       "yaw": 0,
       "height": 0.9,
       "cn": "戍卫弓手",
       "states": {
         "idle": {
-          "action": "Idle_Weapon",
           "frames": [
             1
-          ]
+          ],
+          "parts": {
+            "0": {
+              "action": "Idle_Weapon"
+            }
+          },
+          "mesh_anim": {
+            "Ranger_Arrow": {
+              "visible": [
+                false
+              ]
+            }
+          }
         },
         "move": {
-          "action": "Run_Holding",
           "frames": [
             1,
             6,
             11,
             16
-          ]
+          ],
+          "parts": {
+            "0": {
+              "action": "Run_Holding"
+            }
+          },
+          "mesh_anim": {
+            "Ranger_Arrow": {
+              "visible": [
+                false
+              ]
+            }
+          }
+        },
+        "attack": {
+          "frames": [
+            1,
+            9,
+            12,
+            15
+          ],
+          "impact_frame": 9,
+          "parts": {
+            "0": {
+              "action": "Bow_Attack_Shoot"
+            }
+          },
+          "mesh_anim": {
+            "Ranger_Arrow": {
+              "visible": [
+                true,
+                true,
+                false,
+                false
+              ]
+            }
+          }
         }
       },
-      "max_width": 0.8
+      "max_width": 0.8,
+      "parts": [
+        {
+          "model": "models/q_rpg/Blends/Ranger.blend",
+          "action": "Idle_Weapon"
+        },
+        {
+          "model": "models/q_rpg/Blends/Only Weapons/Ranger_Bow.blend",
+          "only_meshes": [
+            "Ranger_Arrow"
+          ],
+          "attach": "Weapon.R",
+          "scale": 0.5,
+          "rot": [
+            -90,
+            0,
+            0
+          ]
+        }
+      ]
     },
     "Ranger": {
       "cn": "逐风猎骑",
@@ -174,6 +248,28 @@
               "action": "Run"
             }
           }
+        },
+        "attack": {
+          "frames": [
+            1,
+            6,
+            11,
+            16
+          ],
+          "impact_frame": 11,
+          "parts": {
+            "1": {
+              "action": "Dagger_Attack",
+              "pose_frame": 11
+            },
+            "2": {
+              "rot": [
+                -60,
+                0,
+                0
+              ]
+            }
+          }
         }
       }
     },
@@ -221,6 +317,16 @@
             11,
             16
           ]
+        },
+        "work": {
+          "action": "Staff_Attack",
+          "frames": [
+            1,
+            5,
+            11,
+            15
+          ],
+          "impact_frame": 11
         }
       },
       "max_width": 0.8
@@ -278,12 +384,26 @@
               "action": "Skeleton_Running"
             }
           }
+        },
+        "attack": {
+          "frames": [
+            1,
+            13,
+            19,
+            25
+          ],
+          "impact_frame": 19,
+          "parts": {
+            "0": {
+              "action": "Skeleton_Attack"
+            }
+          }
         }
       }
     },
     "Shade": {
       "cn": "亡灵弓手",
-      "_note": "骷髅持弓。此前与守方戍卫弓手共用同一模型、仅靠染色区分，阵营读不出来",
+      "_note": "亡灵弓手。弓必须**读得出是弓**——它是「持续压制墙头」的那个单位，玩家要能一眼数清编成里有几个远程。原先 0.72 + 侧对镜头 + 与骨同色，三者叠加成一条看不出是什么的细线。。**没有射箭动作**：骷髅只有 `Skeleton_Attack`（近战挥砍），而它拿着弓；试过用那个动作，f19 骷髅弯折成一团、是坏帧。改成两件都不靠动作：攻击态把**弓从横持贴身转成竖立身前**（同骑兵武器转角那条思路），并让弦上那支箭在**命中帧之后消失**——箭射出去了，弦上就该空。骷髅本体保持待机动作，所以它不是定格的。弓与箭同在 `Ranger_Bow.blend` 里，所以这支箭本来就有、不需要新挂件",
       "yaw": 0,
       "height": 0.9,
       "max_width": 0.9,
@@ -302,13 +422,20 @@
         {
           "_note": "弓模型以握把为中心，绑到左前臂骨尾即落在手上，上下各伸出一半，正是长弓的持法",
           "model": "models/q_rpg/Blends/Only Weapons/Ranger_Bow.blend",
-          "scale": 0.72,
+          "scale": 0.95,
           "attach": "L.DownLeg.001",
           "rot": [
             -90,
             0,
-            0
-          ]
+            90
+          ],
+          "tint": [
+            120,
+            72,
+            38,
+            0.85
+          ],
+          "tint_mode": "MIX"
         }
       ],
       "states": {
@@ -332,6 +459,37 @@
           "parts": {
             "0": {
               "action": "Skeleton_Running"
+            }
+          }
+        },
+        "attack": {
+          "frames": [
+            1,
+            20,
+            40,
+            60
+          ],
+          "impact_frame": 20,
+          "parts": {
+            "0": {
+              "action": "Skeleton_Idle"
+            },
+            "1": {
+              "rot": [
+                -45,
+                -40,
+                90
+              ]
+            }
+          },
+          "mesh_anim": {
+            "Ranger_Arrow": {
+              "visible": [
+                true,
+                true,
+                false,
+                false
+              ]
             }
           }
         }
@@ -447,6 +605,28 @@
               "action": "Run"
             }
           }
+        },
+        "attack": {
+          "frames": [
+            1,
+            6,
+            11,
+            16
+          ],
+          "impact_frame": 11,
+          "parts": {
+            "1": {
+              "action": "Skeleton_Attack",
+              "pose_frame": 13
+            },
+            "2": {
+              "rot": [
+                -75,
+                0,
+                0
+              ]
+            }
+          }
         }
       }
     },
@@ -485,7 +665,7 @@
     },
     "Phoenix": {
       "cn": "不死鸟",
-      "_note": "改用鹰模型：名为不死鸟却与幽影窥使共用同一蝙蝠模型，剪影完全相同，而两者玩家该做的事相反——一个查防空覆盖，一个派机动单位猎杀。染色须用 MIX：鹰的翅膀本色明度只有 0.04，COLOR 混合照抄明度，提亮到 2.6 仍是一团黑",
+      "_note": "唯一的空中单位。Eagle.blend **只有 Flying 与 Idle 两个动作、没有攻击**，所以俯冲不靠动作表达——它是整只鸟的姿态：`attack` 用顶层 rot 把机身**下压** 50°（负号；正号是抬头爬升，第一版就搞反了，且渲出来不看头尾相对高度是发现不了的），配 Flying 中翅膀后掠的几帧。**lift 刻意与其余状态一致**：CLAUDE.md 靠「本体与投影的间距」让玩家分辨幽影窥使（地面）与不死鸟（空中），俯冲时压低 lift 会破坏那条结构性区分。",
       "model": "models/q_animals/Blends/Eagle.blend",
       "yaw": 0,
       "height": 0.95,
@@ -513,6 +693,21 @@
             15,
             22
           ]
+        },
+        "attack": {
+          "action": "Flying",
+          "frames": [
+            5,
+            8,
+            11,
+            14
+          ],
+          "impact_frame": 11,
+          "rot": [
+            -50,
+            0,
+            0
+          ]
         }
       },
       "tint_mode": "MIX"
@@ -529,7 +724,119 @@
         0.45
       ],
       "brightness": 0.88,
-      "modules": 1
+      "modules": 1,
+      "states": {
+        "idle": {
+          "frames": [
+            1
+          ],
+          "mesh_anim": {
+            "ram": {
+              "offset": [
+                [
+                  0.28,
+                  0,
+                  0
+                ]
+              ]
+            }
+          }
+        },
+        "move": {
+          "frames": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "mesh_anim": {
+            "ram": {
+              "offset": [
+                [
+                  0.28,
+                  0,
+                  0
+                ],
+                [
+                  0.28,
+                  0,
+                  0
+                ],
+                [
+                  0.28,
+                  0,
+                  0
+                ],
+                [
+                  0.28,
+                  0,
+                  0
+                ]
+              ]
+            },
+            "wheel*": {
+              "pivot_center": true,
+              "rot": [
+                [
+                  0,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  45,
+                  0
+                ],
+                [
+                  0,
+                  90,
+                  0
+                ],
+                [
+                  0,
+                  135,
+                  0
+                ]
+              ]
+            }
+          }
+        },
+        "attack": {
+          "frames": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "impact_frame": 3,
+          "mesh_anim": {
+            "ram": {
+              "offset": [
+                [
+                  -0.15,
+                  0,
+                  0
+                ],
+                [
+                  -0.45,
+                  0,
+                  0
+                ],
+                [
+                  0.4,
+                  0,
+                  0
+                ],
+                [
+                  0.1,
+                  0,
+                  0
+                ]
+              ]
+            }
+          }
+        }
+      }
     }
   },
   "buildings": {
@@ -567,7 +874,7 @@
     },
     "Flak": {
       "cn": "蔽空弩楼",
-      "_note": "与镇野箭楼同一族塔身，靠顶部区分：箭楼是封闭尖顶（对地齐射），弩楼是开放垛口 + 朝天弩炮（仅对空）。这条区分是机制性的——AA 不能兼顾对地，玩家必须一眼看出哪座位置放弃了对地火力",
+      "_note": "与镇野箭楼同一族塔身，靠顶部区分：箭楼是封闭尖顶（对地齐射），弩楼是开放垛口 + 朝天弩炮（仅对空）。这条区分是机制性的——AA 不能兼顾对地，玩家必须一眼看出哪座位置放弃了对地火力。攻击态摆 `arm` 子网格（投石机零动作但有可分离子网格）。**模型没有换成弩炮，尽管「单体狙击」的机制更像弩**——评审时试过，弩炮无论仰多少度在这个尺寸下都是一台低平装置，读不出「朝天」，而「仅对空」是玩家真正要读的那一位（每座 AA 意味着该位置少一座对地火力）；「单体 vs 群伤」不是玩家的决策（AA 只有一座），所以不需要可读。反光的抛臂不随攻击摆动（它是 arm 的兄弟节点不是子节点），这个尺度下抛臂自己已经承担了全部可读性",
       "yaw": 0,
       "parts": [
         {
@@ -586,7 +893,49 @@
           "gap": -0.2
         }
       ],
-      "modules": 1
+      "modules": 1,
+      "states": {
+        "idle": {
+          "frames": [
+            1
+          ]
+        },
+        "attack": {
+          "frames": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "impact_frame": 3,
+          "mesh_anim": {
+            "arm": {
+              "rot": [
+                [
+                  0,
+                  -30,
+                  0
+                ],
+                [
+                  0,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  60,
+                  0
+                ],
+                [
+                  0,
+                  25,
+                  0
+                ]
+              ]
+            }
+          }
+        }
+      }
     },
     "Keep": {
       "cn": "领主堡垒",
@@ -623,172 +972,215 @@
     },
     "Quarry": {
       "cn": "采石场",
-      "_note": "三座资源建筑共享「人造物」视觉语言（旗 + 一件加工构件），与纯自然的景物和地形区分。原则是：**人造 = 玩家建筑，纯自然 = 景物或地形**。此前采石场与碎石、岩壁同为三堆灰石头、只有大小之差，而三者机制正好相反（无机制 / 必须守的经济建筑 / 走不进去的地形）；且「攻其必救」是头号演示点，观众必须看出 AI 是奔着采石场去的",
+      "_note": "三座资源建筑给**三个完全不同的剪影**：拱架 / 斜木架 / 尖顶屋。上一版三座共用 `tower-square-base`，那其实是塔的地基构件——没门没顶的浅粉方块，单独放既难看又和城墙同色，三座的区别全靠贴地的小配件，等距下根本看不见。剪影是玩家在游戏节奏下唯一读得到的东西。 采石场**不含任何天然石堆**——与岩壁/碎石的区分因此不靠大小，而是根本不同族。",
       "yaw": 0,
-      "modules": 1,
+      "modules": 1.15,
       "parts": [
         {
-          "model": "models/kenney_castle/glb/rocks-large.glb"
+          "_note": "四腿石拱吊架：主体。规则的拱是纯人造形体，自然界没有这个剪影。压暗是必须的：COLOR 照抄原纹理明度，而这些构件本色偏白，不压暗读作白大理石而非石料",
+          "model": "models/kenney_castle/glb/tower-square-arch.glb",
+          "tint": [
+            118,
+            128,
+            152,
+            0.95
+          ],
+          "brightness": 0.7
         },
         {
-          "_note": "切出的台阶，读作「已开采的石壁」而非天然乱石。必须染成石色：模型本色是土黄，等距下读作木梯，而石材与木材是两条不同的决策轴，采石场挂木构件是反向提示",
-          "model": "models/kenney_castle/glb/stairs-stone.glb",
+          "_note": "切出的石楔，读作「已开采的台面」。压暗是必须的：COLOR 照抄原纹理明度，而这些构件本色偏白，不压暗读作白大理石而非石料",
+          "model": "models/kenney_castle/glb/stairs-stone-square.glb",
           "offset": [
-            0.62,
-            -0.15,
+            0.42,
+            -0.9,
             0.0
           ],
-          "scale": 1.15,
+          "scale": 0.9,
           "tint": [
-            138,
+            118,
+            128,
+            152,
+            0.95
+          ],
+          "brightness": 0.7
+        },
+        {
+          "_note": "开采出的石料，点缀",
+          "model": "models/kenney_castle/glb/rocks-small.glb",
+          "offset": [
+            -0.86,
+            -0.3,
+            0.0
+          ],
+          "scale": 0.5,
+          "tint": [
             146,
-            166,
-            0.92
+            152,
+            168,
+            0.7
           ]
         },
         {
-          "_note": "旗色 = 产哪一种资源（石灰白）。旗子同时承载两个位：有旗即玩家建筑，旗色即资源种类。按 CLAUDE.md「交错杂居」，一簇内本就混有石/木/金，相邻的异种资源建筑是常见情形，而「攻其必救」要求玩家一眼看出 AI 在打哪一种——只靠底座（石堆 vs 木料 vs 石堆+门）在相邻摆放时会读成同一堆",
-          "model": "models/kenney_castle/glb/flag-pennant.glb",
+          "_note": "旗色 = 产哪一种资源。**必须放在 -x/-y 这一侧**——那是面向相机的一面；上一版放在 +y，三面旗全被建筑本体挡住、一面都没渲出来",
+          "model": "models/kenney_castle/glb/flag-wide.glb",
           "offset": [
-            -0.55,
-            0.5,
-            0.42
+            -0.72,
+            -0.62,
+            0.0
           ],
+          "scale": 1.2,
           "tint": [
-            226,
-            230,
-            236,
-            0.9
-          ]
+            150,
+            160,
+            178,
+            0.95
+          ],
+          "brightness": 0.95
         }
       ]
     },
     "Lumber": {
       "cn": "伐木场",
-      "_note": "同 Quarry 的「人造物」视觉语言：旗 + 一件加工构件。此处的加工构件是锯木架，与作为景物、只是躺在地上的树桩区分",
+      "_note": "三座资源建筑给三个完全不同的剪影：拱架 / 木构棚架 / 尖顶屋。**主体不得与任何其他实体同模**——上一版用了 `wall-narrow-wood-fence`，而那正是 `Fence`（木栅）的主体模型，两者机制完全不同（应急工事 vs 经济建筑）却共用一张图。`check_assets.py` 现在会拦住这类错误。",
       "yaw": 0,
-      "modules": 1,
+      "modules": 1.15,
       "parts": [
         {
-          "model": "models/kenney_castle/glb/tree-log.glb"
+          "_note": "开放式木构棚架：主体。四柱 + 交叉支撑的镂空形体，与拱架的实心石拱、井口房的实心尖顶都不同族；且本包内没有别的实体用它",
+          "model": "models/kenney_castle/glb/tower-square-mid-open.glb",
+          "tint": [
+            150,
+            104,
+            58,
+            0.6
+          ],
+          "brightness": 0.92
         },
         {
-          "_note": "锯木架：横木料 + 立木桩，与单独躺着的木料（景物）区分",
-          "model": "models/kenney_castle/glb/tree-trunk.glb",
+          "_note": "架下待锯的木料。tree-log 未被任何其他实体使用",
+          "model": "models/kenney_castle/glb/tree-log.glb",
           "offset": [
-            0.42,
-            0.34,
+            0.52,
+            -0.86,
             0.0
+          ],
+          "scale": 0.9
+        },
+        {
+          "_note": "第二根木料，换角度堆放。**不用 tree-trunk**——那是可破坏障碍 Stump 的主体模型，摆在这里玩家会以为能打穿",
+          "model": "models/kenney_castle/glb/tree-log.glb",
+          "offset": [
+            -0.3,
+            -0.94,
+            0.16
+          ],
+          "scale": 0.75,
+          "rot": [
+            0,
+            0,
+            38
           ]
         },
         {
-          "model": "models/kenney_castle/glb/tree-trunk.glb",
+          "_note": "旗色 = 产哪一种资源。**必须放在 -x/-y 这一侧**——那是面向相机的一面；上一版放在 +y，三面旗全被建筑本体挡住、一面都没渲出来",
+          "model": "models/kenney_castle/glb/flag-wide.glb",
           "offset": [
-            0.4,
-            -0.34,
+            -0.72,
+            -0.62,
             0.0
           ],
-          "scale": 0.85
-        },
-        {
-          "_note": "旗色 = 产哪一种资源（木绿），理由见 Quarry 的旗",
-          "model": "models/kenney_castle/glb/flag-pennant.glb",
-          "offset": [
-            -0.45,
-            0.0,
-            0.2
-          ],
+          "scale": 1.2,
           "tint": [
-            62,
-            196,
-            56,
+            70,
+            190,
+            64,
             0.95
           ],
-          "brightness": 0.82
+          "brightness": 0.85
         }
       ]
     },
     "Mine": {
       "cn": "金矿场",
-      "_note": "同 Quarry 的「人造物」视觉语言：旗 + 一件加工构件。此处的加工构件是坑口门，另给石堆上金色 tint，与采石场区分「产哪一种」",
+      "_note": "三座资源建筑给**三个完全不同的剪影**：拱架 / 斜木架 / 尖顶屋。上一版三座共用 `tower-square-base`，那其实是塔的地基构件——没门没顶的浅粉方块，单独放既难看又和城墙同色，三座的区别全靠贴地的小配件，等距下根本看不见。剪影是玩家在游戏节奏下唯一读得到的东西。 井口房是唯一带尖顶的一座，顶色染暗以免与防御塔的蓝顶混。",
       "yaw": 0,
-      "modules": 1,
+      "modules": 1.15,
       "parts": [
         {
-          "model": "models/kenney_castle/glb/rocks-large.glb",
+          "_note": "尖顶井口房：主体。本包里 tower-slant-roof 是一整座带门的小屋，不是屋顶构件",
+          "model": "models/kenney_castle/glb/tower-slant-roof.glb",
           "tint": [
-            198,
-            156,
-            62,
-            0.72
+            148,
+            92,
+            52,
+            0.8
+          ],
+          "brightness": 0.72
+        },
+        {
+          "_note": "含金矿脉，点缀。金色 tint 是「产哪一种」的第二重提示",
+          "model": "models/kenney_castle/glb/rocks-large.glb",
+          "offset": [
+            0.88,
+            -0.42,
+            0.0
+          ],
+          "scale": 0.55,
+          "tint": [
+            200,
+            158,
+            60,
+            0.75
           ]
         },
         {
-          "model": "models/kenney_castle/glb/door.glb",
+          "_note": "旗色 = 产哪一种资源。**必须放在 -x/-y 这一侧**——那是面向相机的一面；上一版放在 +y，三面旗全被建筑本体挡住、一面都没渲出来",
+          "model": "models/kenney_castle/glb/flag-wide.glb",
           "offset": [
-            -0.25,
+            -0.72,
             -0.62,
             0.0
           ],
-          "scale": 1.1
-        },
-        {
-          "_note": "旗色 = 产哪一种资源（金黄），理由见 Quarry 的旗",
-          "model": "models/kenney_castle/glb/flag-pennant.glb",
-          "offset": [
-            -0.5,
-            0.55,
-            0.4
-          ],
+          "scale": 1.2,
           "tint": [
             255,
-            186,
-            18,
+            190,
+            20,
             1.0
           ],
-          "brightness": 0.86
+          "brightness": 0.9
         }
       ]
     },
     "Watch": {
       "cn": "瞭望塔",
-      "_note": "大视野、零战力，与箭楼争同一个位置。木色 + 开放平台 + 旗，刻意不带武器：它的职能是看见，不是打着",
+      "_note": "大视野、零战力，与箭楼争同一个位置。**木质由镂空骨架承担，不靠染色。** 上一版是拿实心砌体（tower-square-base/mid，与箭楼、弩楼、兵营同族）染棕，渲出来是一根刷了棕漆的石柱——染色只改色相，改不掉「实心砌体」这个形体。这是「共用主体 + 配件/染色区分」在本仓库第三次失败（前两次：三座资源建筑共用塔基、采石场撞岩壁）。现在下半是两节四柱斜撑木架，剪影**透光、看得见背景**，与两座战斗塔的实心塔身不同族；上半是开放平台，对应「看得见 vs 打得着」里的前者。**全条目零 tint**：木色是构件本色，COLOR/MIX/压暗四种染法实测都更差，会把平台读成泥板",
       "yaw": 0,
       "modules": 1,
       "parts": [
         {
-          "model": "models/kenney_castle/glb/tower-square-base.glb",
-          "tint": [
-            120,
-            72,
-            32,
-            0.85
-          ],
-          "brightness": 0.85
+          "_note": "镂空木架下节。tower-square-mid-open-simple 未被任何其他实体引用，满足「主体不得共用」",
+          "model": "models/kenney_castle/glb/tower-square-mid-open-simple.glb"
         },
         {
-          "model": "models/kenney_castle/glb/tower-square-mid.glb",
-          "tint": [
-            134,
-            84,
-            40,
-            0.85
-          ],
-          "brightness": 0.85
+          "model": "models/kenney_castle/glb/tower-square-mid-open-simple.glb"
         },
         {
-          "model": "models/kenney_castle/glb/tower-square-top.glb",
-          "tint": [
-            120,
-            72,
-            32,
-            0.85
-          ],
-          "brightness": 0.85
+          "_note": "第三节。三节 0.88 + 平台 0.30 = 2.94 格边长，与箭楼 3.67 / 弩楼 3.59 同一档——**高度是「大视野」唯一的视觉表达**，两节版（2.06）实测读作脚手架而非塔。仍矮于箭楼，因为箭楼那 1.35 是屋顶；瞭望塔的平台反而比箭楼的垛口高，正合「看得远」。这也是与同为镂空木构的伐木场（1.15、矮方单层）拉开距离的主要手段",
+          "model": "models/kenney_castle/glb/tower-square-mid-open-simple.glb"
         },
         {
+          "_note": "开放平台，方形、与木架对齐。六角的 tower-hexagon-top-wood 虽名带 wood，但 0.86 宽配 0.93 的方架会向外挑出、垛口角与立柱错开，读作「架子上扣了顶帽子」，实测已否。此件是 Tower/Flak 的配件而非主体，不触发共用检查",
+          "model": "models/kenney_castle/glb/tower-square-top.glb"
+        },
+        {
+          "_note": "旗挪到面向相机的一角（-x/-y，同资源建筑那条）。原先堆在正中，四个朝向都被垛口挡掉大半",
           "model": "models/kenney_castle/glb/flag-pennant.glb",
-          "gap": -0.1
+          "offset": [
+            -0.28,
+            -0.28,
+            2.74
+          ]
         }
       ]
     },
@@ -808,6 +1200,7 @@
     }
   },
   "terrain": {
+    "_comment": "本分组只放**静态地形**：地形是枚举，载入时展开成 passable / buildable / blocks_vision 三张位图，没有血量、不进实体数组。带血量的可破坏障碍在 `obstacles` 分组。`Plain*` 与 `ForestB` 是**贴图变体**，不占枚举位，渲染层按坐标哈希选。",
     "Plain": {
       "cn": "平地",
       "kind": "tile",
@@ -875,32 +1268,6 @@
       "brightness": 0.5,
       "modules": 1
     },
-    "TreeBig": {
-      "cn": "大树",
-      "model": "models/kenney_castle/glb/tree-large.glb",
-      "yaw": 0,
-      "_note": "景物，不是伐木场。modules 1.4 让它明显高过战马——树比马矮很离谱",
-      "modules": 1.4
-    },
-    "TreeSmall": {
-      "cn": "小树",
-      "model": "models/kenney_castle/glb/tree-small.glb",
-      "yaw": 0,
-      "modules": 1.4
-    },
-    "Stump": {
-      "cn": "树桩",
-      "model": "models/kenney_castle/glb/tree-trunk.glb",
-      "yaw": 0,
-      "modules": 1.0
-    },
-    "RockSmall": {
-      "cn": "碎石",
-      "model": "models/kenney_castle/glb/rocks-small.glb",
-      "yaw": 0,
-      "_note": "景物，不是采石场。同上，须与采石场可区分",
-      "modules": 0.8
-    },
     "Water": {
       "cn": "水域",
       "kind": "tile",
@@ -919,16 +1286,16 @@
     },
     "Bridge": {
       "cn": "桥",
-      "model": "models/kenney_castle/glb/bridge-straight.glb",
+      "model": "models/kenney_castle/glb/bridge-draw.glb",
       "yaw": 0,
       "modules": 1,
-      "_note": "地形枚举 Bridge：跨水的唯一通路，最窄的隘口。不可建造，玩家无法在桥上砌墙封死它"
+      "_note": "地形枚举 Bridge：跨水的唯一通路，最窄的隘口。不可建造，玩家无法在桥上砌墙封死它。**用平木板而不是 `bridge-straight`**——后者在这个尺度下是一块带雉堞的浅色砌体方块，与城墙同料同高，摆在水面上读作「河里立了一段墙」。桥面必须是低平的。"
     },
     "Rock": {
       "cn": "岩壁",
-      "_note": "地形枚举 Rock：挡路且挡视野。封死城区周长、夹出隘口，把需要人工设防的正面压缩到几条走廊口",
+      "_note": "地形枚举 `Rock`：挡路且挡视野。封死城区周长、夹出隘口。**不可破坏障碍**：静态地形，展开进 passable/blocks_vision 位图。同上视觉规则的另一半：高而厚重。`Forest` 不可破坏是**结构要求**而非风味——可破坏则玩家清掉森林带照旧砌墙，反围墙设计整个失效",
       "yaw": 0,
-      "modules": 1.3,
+      "modules": 1.5,
       "parts": [
         {
           "model": "models/kenney_castle/glb/rocks-large.glb"
@@ -946,9 +1313,9 @@
     },
     "Forest": {
       "cn": "密林",
-      "_note": "地形枚举 Forest：可通行但挡视野，不设移动减速。侦查博弈的地形载体。三棵树挤在一格内，与单株景物区分",
+      "_note": "地形枚举 `Forest`：可通行但挡视野，不设移动减速。侦查博弈的地形载体。**不可破坏障碍**：静态地形，展开进 passable/blocks_vision 位图。同上视觉规则的另一半：高而厚重。`Forest` 不可破坏是**结构要求**而非风味——可破坏则玩家清掉森林带照旧砌墙，反围墙设计整个失效",
       "yaw": 0,
-      "modules": 1.25,
+      "modules": 1.35,
       "parts": [
         {
           "model": "models/kenney_castle/glb/tree-large.glb"
@@ -972,6 +1339,36 @@
           "scale": 0.7
         }
       ]
+    },
+    "ForestB": {
+      "cn": "巨树（密林变体）",
+      "model": "models/kenney_castle/glb/tree-large.glb",
+      "yaw": 0,
+      "_note": "**`Forest` 枚举的贴图变体**，不是独立枚举值——单株巨树占满一格，机制与密林相同（可通行、挡视野、不可破坏），渲染层按坐标哈希在「三株成簇」与「单株巨树」之间选。**键必须是 `Forest*` 前缀**：CLAUDE.md 的命名纪律要求「素材键须与它所属的枚举成员同前缀，否则渲染层挑变体时无从归类」，写法同 `PlainB`。此前叫 `TreeBig`，那时它还是景物、不属于任何枚举成员，是改成 `Forest` 变体之后才越了线。",
+      "modules": 1.6
+    }
+  },
+  "obstacles": {
+    "Sapling": {
+      "cn": "幼树",
+      "model": "models/kenney_castle/glb/tree-small.glb",
+      "yaw": 0,
+      "modules": 0.95,
+      "_note": "**可破坏障碍**：有血量的实体，**不在地形层**。地形是静态枚举、展开成三张位图，带血量的东西必须进实体扁平数组（与建筑同类，只是无归属、无战力）。因此它们也不该待在本文件的 `terrain` 分组里——那正是「文件结构与文件说明互相矛盾」。视觉规则一维：**矮而单薄 = 可破坏；高而厚重 = 不可破坏**——等距下剪影高度是最稳的线索，而玩家把防线靠在一段其实能被打穿的障碍上是一次不可挽回的误判。（原名 `TreeSmall`，超 7 字符；见下）"
+    },
+    "Rubble": {
+      "cn": "碎石",
+      "model": "models/kenney_castle/glb/rocks-small.glb",
+      "yaw": 0,
+      "_note": "**可破坏障碍**：有血量的实体，**不在地形层**。地形是静态枚举、展开成三张位图，带血量的东西必须进实体扁平数组（与建筑同类，只是无归属、无战力）。因此它们也不该待在本文件的 `terrain` 分组里——那正是「文件结构与文件说明互相矛盾」。视觉规则一维：**矮而单薄 = 可破坏；高而厚重 = 不可破坏**——等距下剪影高度是最稳的线索，而玩家把防线靠在一段其实能被打穿的障碍上是一次不可挽回的误判。（原名 `RockSmall`，超 7 字符；见下）",
+      "modules": 0.7
+    },
+    "Stump": {
+      "cn": "树桩",
+      "model": "models/kenney_castle/glb/tree-trunk.glb",
+      "yaw": 0,
+      "modules": 0.55,
+      "_note": "**可破坏障碍**：有血量的实体，**不在地形层**。地形是静态枚举、展开成三张位图，带血量的东西必须进实体扁平数组（与建筑同类，只是无归属、无战力）。因此它们也不该待在本文件的 `terrain` 分组里——那正是「文件结构与文件说明互相矛盾」。视觉规则一维：**矮而单薄 = 可破坏；高而厚重 = 不可破坏**——等距下剪影高度是最稳的线索，而玩家把防线靠在一段其实能被打穿的障碍上是一次不可挽回的误判。（原名 `Stump`，本就合规；见下）"
     }
   }
 }
