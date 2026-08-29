@@ -644,8 +644,8 @@ TEST_CASE("WorldView 的数组长度是槽位数，含空槽", "[world]") {
 
     const rts::WorldView v = w.view(rts::Side::Attacker);
     REQUIRE(v.unit_alive().size() == 2);
-    REQUIRE(v.unit_type().size() == v.unit_alive().size());
-    REQUIRE(v.unit_pos().size() == v.unit_alive().size());
+    // 单位改为对象之后没有连续数组了（issue #64），改查槽位数一致。
+    REQUIRE(v.unit_slot_count() == v.unit_alive().size());
     REQUIRE(v.unit_alive()[0] == 0);
     REQUIRE(v.unit_alive()[1] != 0);
     REQUIRE(w.live_unit_count() == 1);

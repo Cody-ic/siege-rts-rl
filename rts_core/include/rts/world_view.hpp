@@ -76,21 +76,37 @@ public:
     // **长度是槽位数，含空槽。** 用 `unit_alive()` 过滤，不要假设前 N 个活着：
     // 槽位会被复用（`SlotPool`），死掉的单位留下的洞就在数组中间。
     // 这条读错的症状是「偶尔渲染出一个血量为 0 的幽灵单位」。
-    std::span<const UnitType> unit_type() const noexcept { return sp(w_->u_type_); }
-    std::span<const std::int32_t> unit_level() const noexcept { return sp(w_->u_level_); }
-    std::span<const std::int64_t> unit_hp() const noexcept { return sp(w_->u_hp_); }
-    std::span<const std::int64_t> unit_max_hp() const noexcept {
-        return sp(w_->u_max_hp_);
+    // **单位侧改为逐单位访问**（issue #64）。原先这里是九个 `std::span`，
+    // 直接映射 `World` 的平行数组；单位对象化之后连续数组不复存在。
+    //
+    // 代价写在明处：观测打包从「按数组一次遍历」退化为逐单位 gather
+    // （`rts/obs.hpp`）。这是那次方向变更认下的三笔代价之一，**需在 Release 下实测**。
+    //
+    // 用法不变的那一半：**下标是槽位、含空槽**，仍要用 `unit_alive()` 过滤，
+    // 不要假设前 N 个活着。空槽上调用下面任何一个都是未定义行为，先过滤。
+    std::size_t unit_slot_count() const noexcept { return w_->unit_pool_.slot_count(); }
+
+    // 取某个槽位上的单位。**调用前必须确认该槽存活。**
+    const Unit& unit_at_slot(std::size_t k) const noexcept { return *w_->units_[k]; }
+
+    UnitType unit_type(std::size_t k) const noexcept { return w_->units_[k]->type(); }
+    std::int32_t unit_level(std::size_t k) const noexcept { return w_->units_[k]->level(); }
+    std::int64_t unit_hp(std::size_t k) const noexcept { return w_->units_[k]->hp(); }
+    std::int64_t unit_max_hp(std::size_t k) const noexcept {
+        return w_->units_[k]->max_hp();
     }
-    std::span<const Vec2> unit_pos() const noexcept { return sp(w_->u_pos_); }
-    std::span<const std::int32_t> unit_windup() const noexcept {
-        return sp(w_->u_windup_);
+    Vec2 unit_pos(std::size_t k) const noexcept { return w_->units_[k]->pos(); }
+    std::int32_t unit_windup(std::size_t k) const noexcept {
+        return w_->units_[k]->windup();
     }
-    std::span<const UnitAction> unit_action() const noexcept { return sp(w_->u_action_); }
-    std::span<const std::uint16_t> unit_garrison() const noexcept {
-        return sp(w_->u_garrison_);
+    UnitAction unit_action(std::size_t k) const noexcept {
+        return w_->units_[k]->action();
     }
-    std::span<const std::uint8_t> unit_force() const noexcept { return sp(w_->u_force_); }
+    std::uint16_t unit_garrison(std::size_t k) const noexcept {
+        return w_->units_[k]->garrison();
+    }
+    std::uint8_t unit_force(std::size_t k) const noexcept { return w_->units_[k]->force(); }
+
     std::span<const std::uint8_t> unit_alive() const noexcept {
         return std::span<const std::uint8_t>(w_->unit_pool_.alive_bytes(),
                                              w_->unit_pool_.slot_count());

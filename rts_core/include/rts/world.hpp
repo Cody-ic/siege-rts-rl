@@ -39,6 +39,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -52,23 +53,9 @@
 #include "rts/roster.hpp"
 #include "rts/terrain.hpp"
 #include "rts/types.hpp"
+#include "rts/unit.hpp"
 
 namespace rts {
-
-// 调用方违反了接口契约：动作数组长度不对、命令给错了侧、句柄已失效、槽位越界。
-//
-// **为什么是异常而不是断言。** `assert` 只在 Debug 生效，而这些错误的唯一
-// 现实来源是 Python 侧（`bindings/`）——训练一律跑 Release。断言在那条路径上
-// 等于没写，而症状会是「训练不收敛」：动作数组少一格，此后每个单位都拿到
-// 邻居的动作，一切照常运行。
-//
-// **它不在 tick 热路径上。** 抛出点全在 `submit*` 与按句柄的访问器里，
-// 每个决策步各一次；`advance()` 内部不抛。热路径读的是 `WorldView` 的连续数组，
-// 那条路上一次检查都没有。
-class ContractError : public std::logic_error {
-public:
-    explicit ContractError(const std::string& what) : std::logic_error(what) {}
-};
 
 // 波次阶段。一波 = 一个 RL episode，波与波之间是建造 / 准备阶段（CLAUDE.md）。
 enum class WavePhase : std::uint8_t {
@@ -303,7 +290,10 @@ inline GridPos pos_of_slot(std::uint16_t slot, int width) noexcept {
 // `"World/2"`，失效就会以「口径变了、重录」的形式报出来。所以回放格式
 // **不需要预留一组空的实体位**（那是原先打算的兜底），需要的只是改布局时
 // 顺手改这个串。
-inline constexpr std::string_view kWorldHashTag = "World/1";
+// `World/1` → `World/2`：单位从平行数组改为对象，`state_hash()` 的喂入口径
+// 随之从「按数组整块喂」变成「逐槽位喂 + 空槽标记」（issue #64）。
+// **旧回放要重录**，但那会以「口径不符」报出来，不会伪装成「跑歪了」。
+inline constexpr std::string_view kWorldHashTag = "World/2";
 
 class WorldView;
 
@@ -515,15 +505,12 @@ private:
     // **`side` 不存**：它由 `side_of(type)` 决定（`rts/roster.hpp`），
     // 存一份就是第二个真相来源，而两个真相来源迟早只更新一个。
     SlotPool<UnitTag> unit_pool_;
-    std::vector<UnitType> u_type_;
-    std::vector<std::int32_t> u_level_;
-    std::vector<std::int64_t> u_hp_;
-    std::vector<std::int64_t> u_max_hp_;
-    std::vector<Vec2> u_pos_;
-    std::vector<std::int32_t> u_windup_;      // 攻击前摇剩余 tick，0 = 可出手
-    std::vector<UnitAction> u_action_;        // 上个决策边界选的动作，保持 4–8 tick
-    std::vector<std::uint16_t> u_garrison_;   // 驻守的墙段槽位，kNoSlot = 没上墙
-    std::vector<std::uint8_t> u_force_;       // 编队，kNoForce = 未编队
+    // **单位是对象，不是平行数组**（issue #64：交付要求「类对象设计」）。
+    // 下标 =  的槽位，空槽为 nullptr。
+    //
+    // 遍历顺序 = 槽位顺序，**与对象地址无关**——确定性靠这一条守住，
+    // 而不是靠「没有指针可用」。详见 `rts/unit.hpp` 头注释。
+    std::vector<std::unique_ptr<Unit>> units_;
 
     // ——建筑（全部属守方，见 `rts/roster.hpp`：不存 side）——
     SlotPool<BldTag> bld_pool_;

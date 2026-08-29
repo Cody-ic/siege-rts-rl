@@ -42,7 +42,7 @@ add_library(rts_core STATIC
     src/fog.cpp
     src/world.cpp
     src/replay.cpp
-    src/unit_behavior.cpp
+    src/unit.cpp
     ${_rts_self_contained_srcs}
 )
 

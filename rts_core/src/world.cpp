@@ -237,8 +237,8 @@ void World::submit_actions(Side side, const UnitAction* actions, std::size_t cou
     std::size_t k = 0;
     for (std::size_t s = 0; s < unit_pool_.slot_count(); ++s) {
         if (!unit_pool_.alive_at(static_cast<std::uint16_t>(s))) continue;
-        if (side_of(u_type_[s]) != side) continue;
-        u_action_[s] = actions[k++];
+        if (side_of(units_[s]->type()) != side) continue;
+        units_[s]->set_action(actions[k++]);
     }
 }
 
@@ -289,8 +289,9 @@ void World::advance(int ticks) {
         // 递减不来自任何表），所以本版做完；也正因为有它们，
         // `advance()` 不是空操作，回放测试才不是永远绿的摆设。
         for (std::size_t k = 0; k < unit_pool_.slot_count(); ++k) {
-            if (unit_pool_.alive_at(static_cast<std::uint16_t>(k)) && u_windup_[k] > 0) {
-                --u_windup_[k];
+            if (unit_pool_.alive_at(static_cast<std::uint16_t>(k)) &&
+                units_[k]->windup() > 0) {
+                units_[k]->set_windup(units_[k]->windup() - 1);
             }
         }
         for (std::size_t k = 0; k < bld_pool_.slot_count(); ++k) {
@@ -319,28 +320,15 @@ UnitId World::spawn_unit(UnitType type, Vec2 pos, std::int32_t level, std::int64
 
     const std::uint16_t k = unit_pool_.acquire();
     const std::size_t n = unit_pool_.slot_count();
-    if (u_type_.size() < n) {
-        u_type_.resize(n);
-        u_level_.resize(n);
-        u_hp_.resize(n);
-        u_max_hp_.resize(n);
-        u_pos_.resize(n);
-        u_windup_.resize(n);
-        u_action_.resize(n);
-        u_garrison_.resize(n);
-        u_force_.resize(n);
-    }
-    u_type_[k] = type;
-    u_level_[k] = level;
-    u_hp_[k] = hp;
-    u_max_hp_[k] = max_hp;
-    u_pos_[k] = pos;
-    u_windup_[k] = 0;
-    // 新单位的默认动作是 `Stop`。零初始化的动作数组等于「全体停住」，
-    // 那是唯一安全的默认值（`rts/action.hpp`）。
-    u_action_[k] = UnitAction::Stop;
-    u_garrison_[k] = kNoSlot;
-    u_force_[k] = kNoForce;
+    if (units_.size() < n) units_.resize(n);
+
+    // `make_unit()` 是全仓库唯一按兵种分支的地方（`rts_core/src/unit.cpp`）。
+    // 其余字段取构造后的默认值：`windup = 0`、`action = Stop`、
+    // `garrison = kNoSlot`、`force = kNoForce`——**默认值收在 `Unit` 的成员初始化里**，
+    // 不再在这里逐个赋。早先那九行赋值漏掉任何一行都不会有编译错误。
+    units_[k] = make_unit(type, level, max_hp, pos);
+    // `hp` 可以低于 `max_hp`（残血单位从地图载入），所以构造后单独设。
+    units_[k]->set_hp(hp);
     return unit_pool_.id_at(k);
 }
 
@@ -398,15 +386,10 @@ ObstacleId World::place_obstacle(ObstacleType type, GridPos pos, std::int64_t hp
 // 而回放测试于是变成偶发失败。清一遍是 O(1)。
 void World::kill_unit(UnitId id) {
     const std::size_t k = require(id);
-    u_type_[k] = UnitType::Archer;
-    u_level_[k] = kMinUnitLevel;
-    u_hp_[k] = 0;
-    u_max_hp_[k] = 0;
-    u_pos_[k] = Vec2{};
-    u_windup_[k] = 0;
-    u_action_[k] = UnitAction::Stop;
-    u_garrison_[k] = kNoSlot;
-    u_force_[k] = kNoForce;
+    // **改用对象之后这里从九行清字段变成一行。** 上面那段注释讲的问题
+    // （`state_hash` 不得取决于「这个槽以前装的是什么」）依然成立，
+    // 但现在由空指针天然满足——而漏清一个字段这种错误**已经写不出来了**。
+    units_[k].reset();
     unit_pool_.release(static_cast<std::uint16_t>(k));
 }
 
@@ -433,7 +416,7 @@ int World::live_unit_count(Side side) const noexcept {
     int n = 0;
     for (std::size_t k = 0; k < unit_pool_.slot_count(); ++k) {
         if (unit_pool_.alive_at(static_cast<std::uint16_t>(k)) &&
-            side_of(u_type_[k]) == side) {
+            side_of(units_[k]->type()) == side) {
             ++n;
         }
     }
@@ -444,7 +427,7 @@ void World::enumerate_units(Side side, std::vector<UnitId>& out) const {
     out.clear();
     for (std::size_t k = 0; k < unit_pool_.slot_count(); ++k) {
         const std::uint16_t s = static_cast<std::uint16_t>(k);
-        if (unit_pool_.alive_at(s) && side_of(u_type_[k]) == side) {
+        if (unit_pool_.alive_at(s) && side_of(units_[k]->type()) == side) {
             out.push_back(unit_pool_.id_at(s));
         }
     }
@@ -465,13 +448,13 @@ std::size_t World::require(ObstacleId id) const {
     return id.index();
 }
 
-UnitType World::unit_type(UnitId id) const { return u_type_[require(id)]; }
-Side World::unit_side(UnitId id) const { return side_of(u_type_[require(id)]); }
-std::int32_t World::unit_level(UnitId id) const { return u_level_[require(id)]; }
-std::int64_t World::unit_hp(UnitId id) const { return u_hp_[require(id)]; }
-Vec2 World::unit_pos(UnitId id) const { return u_pos_[require(id)]; }
-UnitAction World::unit_action(UnitId id) const { return u_action_[require(id)]; }
-std::int32_t World::unit_windup(UnitId id) const { return u_windup_[require(id)]; }
+UnitType World::unit_type(UnitId id) const { return units_[require(id)]->type(); }
+Side World::unit_side(UnitId id) const { return side_of(units_[require(id)]->type()); }
+std::int32_t World::unit_level(UnitId id) const { return units_[require(id)]->level(); }
+std::int64_t World::unit_hp(UnitId id) const { return units_[require(id)]->hp(); }
+Vec2 World::unit_pos(UnitId id) const { return units_[require(id)]->pos(); }
+UnitAction World::unit_action(UnitId id) const { return units_[require(id)]->action(); }
+std::int32_t World::unit_windup(UnitId id) const { return units_[require(id)]->windup(); }
 
 BldType World::bld_type(BldId id) const { return b_type_[require(id)]; }
 GridPos World::bld_pos(BldId id) const { return b_pos_[require(id)]; }
@@ -491,8 +474,8 @@ bool World::spawn_chosen(std::size_t spawn_index) const {
 
 std::uint16_t World::action_mask(UnitId id) const {
     const std::size_t k = require(id);
-    const Mobility mob = is_aerial(u_type_[k]) ? Mobility::Aerial : Mobility::Ground;
-    const GridPos here = grid_of(u_pos_[k]);
+    const Mobility mob = is_aerial(units_[k]->type()) ? Mobility::Aerial : Mobility::Ground;
+    const GridPos here = grid_of(units_[k]->pos());
 
     // 攻击四位与 Stop 默认允许，理由见头文件（错误地禁止比错误地允许坏得多）。
     std::uint16_t mask = static_cast<std::uint16_t>(
@@ -572,21 +555,37 @@ std::uint64_t World::state_hash() const noexcept {
     h.feed(rs.data(), rs.size() * sizeof(std::uint32_t));
 
     unit_pool_.feed_hash(h);
-    h.feed(u_type_.data(), u_type_.size() * sizeof(UnitType));
-    h.feed(u_level_.data(), u_level_.size() * sizeof(std::int32_t));
-    h.feed(u_hp_.data(), u_hp_.size() * sizeof(std::int64_t));
-    h.feed(u_max_hp_.data(), u_max_hp_.size() * sizeof(std::int64_t));
-    // 位置是浮点，**必须按位喂**（`rts/hash.hpp` 的 feed_f32）：
-    // `feed_pod(Vec2)` 会被那条 has_unique_object_representations 断言挡下，
-    // 因为 ±0.0 值相等而字节不同。
-    for (const Vec2& p : u_pos_) {
-        h.feed_f32(p.x);
-        h.feed_f32(p.y);
+    // ——单位：逐槽位喂，不再按数组整块喂——
+    //
+    // 单位对象化之后（issue #64）没有连续数组可整块喂了。**口径因此变了，
+    // 旧回放要重录**——这会以「口径不符」报出来（`kWorldHashTag` 已从
+    // `World/1` 推到 `World/2`），不会伪装成「跑歪了」。
+    //
+    // **空槽也必须喂。** 槽位数是状态的一部分：`SlotPool` 的 LIFO 复用顺序
+    // 决定后续单位落到哪个下标，而下标顺序决定观测的打包顺序。
+    // 原先靠「`kill_unit` 把字段清成规范值」隐式满足这一条；现在显式喂一个
+    // 空槽标记，**比原来更结实**——它不依赖任何人记得去清字段。
+    for (std::size_t k = 0; k < unit_pool_.slot_count(); ++k) {
+        const Unit* u = units_[k].get();
+        if (u == nullptr) {
+            h.feed_pod(std::uint8_t{0});
+            continue;
+        }
+        h.feed_pod(std::uint8_t{1});
+        h.feed_pod(u->type());
+        h.feed_pod(u->level());
+        h.feed_pod(u->hp());
+        h.feed_pod(u->max_hp());
+        // 位置是浮点，**必须按位喂**（`rts/hash.hpp` 的 feed_f32）：
+        // `feed_pod(Vec2)` 会被那条 has_unique_object_representations 断言挡下，
+        // 因为 ±0.0 值相等而字节不同。
+        h.feed_f32(u->pos().x);
+        h.feed_f32(u->pos().y);
+        h.feed_pod(u->windup());
+        h.feed_pod(u->action());
+        h.feed_pod(u->garrison());
+        h.feed_pod(u->force());
     }
-    h.feed(u_windup_.data(), u_windup_.size() * sizeof(std::int32_t));
-    h.feed(u_action_.data(), u_action_.size() * sizeof(UnitAction));
-    h.feed(u_garrison_.data(), u_garrison_.size() * sizeof(std::uint16_t));
-    h.feed(u_force_.data(), u_force_.size());
 
     bld_pool_.feed_hash(h);
     h.feed(b_type_.data(), b_type_.size() * sizeof(BldType));

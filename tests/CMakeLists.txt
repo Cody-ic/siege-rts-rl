@@ -55,7 +55,7 @@ add_executable(rts_tests
     display_names_test.cpp
     utf8_path_test.cpp
     roster_test.cpp
-    unit_behavior_test.cpp
+    unit_test.cpp
     action_test.cpp
     command_test.cpp
     obs_test.cpp

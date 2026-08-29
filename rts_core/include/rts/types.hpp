@@ -19,6 +19,8 @@
 #include <cmath>
 #include <compare>
 #include <cstdint>
+#include <stdexcept>
+#include <string>
 #include <string_view>
 #include <type_traits>
 
@@ -204,6 +206,27 @@ static_assert(!std::is_convertible_v<UnitId, BldId>);
 static_assert(!std::is_convertible_v<BldId, UnitId>);
 static_assert(!std::is_convertible_v<UnitId, ObstacleId>);
 static_assert(!std::is_convertible_v<ObstacleId, BldId>);
+
+// ——契约违反——
+//
+// **本类原先在 `world.hpp`，因 `unit.hpp` 也要抛它而下移到这里**（见 issue #64）：
+// `world.hpp` 现在 include `unit.hpp`（`World` 持有 `unique_ptr<Unit>`），
+// 留在原处会成环。完全限定名 `rts::ContractError` 未变，
+// 既有的九十余处使用一行都不用改——它们经 `world.hpp` → `types.hpp` 仍能拿到。
+// 调用方违反了接口契约：动作数组长度不对、命令给错了侧、句柄已失效、槽位越界。
+//
+// **为什么是异常而不是断言。** `assert` 只在 Debug 生效，而这些错误的唯一
+// 现实来源是 Python 侧（`bindings/`）——训练一律跑 Release。断言在那条路径上
+// 等于没写，而症状会是「训练不收敛」：动作数组少一格，此后每个单位都拿到
+// 邻居的动作，一切照常运行。
+//
+// **它不在 tick 热路径上。** 抛出点全在 `submit*` 与按句柄的访问器里，
+// 每个决策步各一次；`advance()` 内部不抛。热路径读的是 `WorldView` 的连续数组，
+// 那条路上一次检查都没有。
+class ContractError : public std::logic_error {
+public:
+    explicit ContractError(const std::string& what) : std::logic_error(what) {}
+};
 
 }  // namespace rts
 

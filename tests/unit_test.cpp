@@ -1,9 +1,11 @@
 #include <catch2/catch_test_macros.hpp>
 
-#include <set>
 
 #include "rts/roster.hpp"
-#include "rts/unit_behavior.hpp"
+#include <memory>
+#include <vector>
+
+#include "rts/unit.hpp"
 
 // 这份测试的首要职责是**补回一道编译器不再提供的保证**。
 //
@@ -19,6 +21,20 @@
 // 第二组查的是结构约束的**总数**——那些 CLAUDE.md 逐条写成
 // 「结构性决定，不要改」的东西，最容易被后人当成数值调掉。
 
+
+// 造一个用于探测的单位。血量与位置在本文件里无关紧要——查的是**结构性属性**，
+// 而那些与状态无关。用 `unique_ptr` 存活到用例结束（`probe()` 返回引用）。
+namespace {
+std::vector<std::unique_ptr<rts::Unit>>& pool() {
+    static std::vector<std::unique_ptr<rts::Unit>> p;
+    return p;
+}
+const rts::Unit& probe(rts::UnitType t) {
+    pool().push_back(rts::make_unit(t, rts::kMinUnitLevel, 100, rts::Vec2{}));
+    return *pool().back();
+}
+}  // namespace
+
 // ——第一组：注册表与花名册必须逐项对上——
 
 TEST_CASE("behavior_of 取到的就是那个兵种，没有串位", "[behavior]") {
@@ -26,21 +42,21 @@ TEST_CASE("behavior_of 取到的就是那个兵种，没有串位", "[behavior]"
     // 排错一个下标不会有任何编译期反应，只会让属性静默串到隔壁兵种上。
     for (int i = 0; i < rts::kUnitTypeCount; ++i) {
         const rts::UnitType t = rts::unit_at(i);
-        REQUIRE(rts::behavior_of(t).type() == t);
+        REQUIRE(probe(t).type() == t);
     }
 }
 
-TEST_CASE("每个兵种都有自己的行为实例，没有共用", "[behavior]") {
-    // 若某个派生类被漏掉、而注册表里用同一个指针填了两格，上一条用例仍会过
-    // （两格的 `type()` 只有一个对得上……不，两格返回同一个 type，
-    // 于是另一格必然对不上）——但如果漏的是**两个相邻兵种同时填成同一个**，
-    // 就要靠这条。地址在这里只用于「互不相同」，不作 key、不排序，
-    // 因此不违反确定性约束。
-    std::set<const rts::UnitBehavior*> seen;
+TEST_CASE("make_unit 的 switch 没有把类型映射写串", "[behavior]") {
+    // **对象化之后这条的守卫换人了。** 早先是一张手写下标的注册表数组，
+    // 排错一个下标编译器毫无反应；现在是 `make_unit()` 里一个无 `default` 的
+    // switch，**漏掉**一个枚举值会被 `/w14062` 与 `-Wswitch` 逮住。
+    //
+    // 编译器仍然逮不住的是**写串**——`case Spear: return make_unique<RangerUnit>`
+    // 这种。所以这条用例保留，查的正是那一种。
     for (int i = 0; i < rts::kUnitTypeCount; ++i) {
-        seen.insert(&rts::behavior_of(rts::unit_at(i)));
+        const rts::UnitType t = rts::unit_at(i);
+        REQUIRE(probe(t).type() == t);
     }
-    REQUIRE(seen.size() == static_cast<std::size_t>(rts::kUnitTypeCount));
 }
 
 TEST_CASE("委托方法与 roster.hpp 的 constexpr 函数一致", "[behavior]") {
@@ -48,7 +64,7 @@ TEST_CASE("委托方法与 roster.hpp 的 constexpr 函数一致", "[behavior]")
     // 就是为了不产生第二份会漂移的真相。这条用例把「不漂移」变成会红的检查。
     for (int i = 0; i < rts::kUnitTypeCount; ++i) {
         const rts::UnitType t = rts::unit_at(i);
-        const rts::UnitBehavior& b = rts::behavior_of(t);
+        const rts::Unit& b = probe(t);
         REQUIRE(b.side() == rts::side_of(t));
         REQUIRE(b.aerial() == rts::is_aerial(t));
         REQUIRE(b.combat() == rts::is_combat(t));
@@ -65,7 +81,7 @@ TEST_CASE("Aerial 机动性与 is_aerial 必须互相蕴含", "[behavior]") {
     for (int i = 0; i < rts::kUnitTypeCount; ++i) {
         const rts::UnitType t = rts::unit_at(i);
         const bool by_mobility =
-            rts::behavior_of(t).mobility() == rts::MobilityKind::Aerial;
+            probe(t).mobility() == rts::MobilityKind::Aerial;
         REQUIRE(by_mobility == rts::is_aerial(t));
     }
 }
@@ -77,12 +93,12 @@ TEST_CASE("只有一个空中单位，且是 Phoenix", "[behavior]") {
     // 这是结构性决定，不要改。」
     int n = 0;
     for (int i = 0; i < rts::kUnitTypeCount; ++i) {
-        if (rts::behavior_of(rts::unit_at(i)).mobility() == rts::MobilityKind::Aerial) {
+        if (probe(rts::unit_at(i)).mobility() == rts::MobilityKind::Aerial) {
             ++n;
         }
     }
     REQUIRE(n == 1);
-    REQUIRE(rts::behavior_of(rts::UnitType::Phoenix).mobility() ==
+    REQUIRE(probe(rts::UnitType::Phoenix).mobility() ==
             rts::MobilityKind::Aerial);
 }
 
@@ -92,13 +108,13 @@ TEST_CASE("只有一个兵种吃冲锋助跑，且是 Knight", "[behavior]") {
     // 「开阔地 vs 巷战」这条地形相关的取舍就被摊薄了。
     int n = 0;
     for (int i = 0; i < rts::kUnitTypeCount; ++i) {
-        if (rts::behavior_of(rts::unit_at(i)).charges()) ++n;
+        if (probe(rts::unit_at(i)).charges()) ++n;
     }
     REQUIRE(n == 1);
-    REQUIRE(rts::behavior_of(rts::UnitType::Knight).charges());
+    REQUIRE(probe(rts::UnitType::Knight).charges());
     // 守方骑兵**不**吃冲锋——克制表里「`Ranger` ──► `Knight`（骑兵对冲，遏制出城）」
     // 那条不对称正依赖于此。
-    REQUIRE_FALSE(rts::behavior_of(rts::UnitType::Ranger).charges());
+    REQUIRE_FALSE(probe(rts::UnitType::Ranger).charges());
 }
 
 TEST_CASE("没有任何单位能攻击空中目标", "[behavior]") {
@@ -106,7 +122,7 @@ TEST_CASE("没有任何单位能攻击空中目标", "[behavior]") {
     // 这条连着「守方没有空军，空中威胁只能被位置性否定」整段论证——
     // 任何一个能对空的单位都会让 AA 的机会成本失去两难性质。
     for (int i = 0; i < rts::kUnitTypeCount; ++i) {
-        const rts::UnitBehavior& b = rts::behavior_of(rts::unit_at(i));
+        const rts::Unit& b = probe(rts::unit_at(i));
         REQUIRE_FALSE(b.can_engage(rts::UnitType::Phoenix));
     }
 }
@@ -117,7 +133,7 @@ TEST_CASE("无战力单位既打不了单位也拆不了结构", "[behavior]") {
     // 而不是碰巧没人测。
     for (const rts::UnitType t :
          {rts::UnitType::Scout, rts::UnitType::Mason, rts::UnitType::Wraith}) {
-        const rts::UnitBehavior& b = rts::behavior_of(t);
+        const rts::Unit& b = probe(t);
         REQUIRE_FALSE(b.combat());
         REQUIRE_FALSE(b.can_break_structure());
         REQUIRE_FALSE(b.can_engage(rts::UnitType::Ghoul));
@@ -132,12 +148,12 @@ TEST_CASE("Phoenix 拆不了结构，而其余战斗单位都能", "[behavior]")
     //
     // 后者是全表唯一的 override。它最容易被当成数值调掉——
     // 「让不死鸟稍微能拆一点墙」听起来无害，实际废掉三阶段攻防的中段。
-    REQUIRE_FALSE(rts::behavior_of(rts::UnitType::Phoenix).can_break_structure());
+    REQUIRE_FALSE(probe(rts::UnitType::Phoenix).can_break_structure());
 
     for (int i = 0; i < rts::kUnitTypeCount; ++i) {
         const rts::UnitType t = rts::unit_at(i);
         if (t == rts::UnitType::Phoenix) continue;
-        const rts::UnitBehavior& b = rts::behavior_of(t);
+        const rts::Unit& b = probe(t);
         // 战斗单位能拆，无战力的不能——两者合起来正好覆盖全表。
         REQUIRE(b.can_break_structure() == rts::is_combat(t));
     }
@@ -149,14 +165,14 @@ TEST_CASE("攻城形态只有 Ram，且它同时是 Structural", "[behavior]") {
     // （CLAUDE.md「结构破坏规则」）。
     int siege = 0;
     for (int i = 0; i < rts::kUnitTypeCount; ++i) {
-        if (rts::behavior_of(rts::unit_at(i)).engage_range() ==
+        if (probe(rts::unit_at(i)).engage_range() ==
             rts::EngageRange::Siege) {
             ++siege;
         }
     }
     REQUIRE(siege == 1);
 
-    const rts::UnitBehavior& ram = rts::behavior_of(rts::UnitType::Ram);
+    const rts::Unit& ram = probe(rts::UnitType::Ram);
     REQUIRE(ram.engage_range() == rts::EngageRange::Siege);
     REQUIRE(ram.strike_form() == rts::StrikeForm::Structural);
     REQUIRE(ram.can_break_structure());
@@ -166,7 +182,7 @@ TEST_CASE("三轴取值都落在合法范围内", "[behavior]") {
     // 防的是「加了新枚举成员但忘了更新计数常量」，与 roster_test 里
     // 「三个计数常量与枚举末尾一致」同源。
     for (int i = 0; i < rts::kUnitTypeCount; ++i) {
-        const rts::UnitBehavior& b = rts::behavior_of(rts::unit_at(i));
+        const rts::Unit& b = probe(rts::unit_at(i));
         REQUIRE(static_cast<int>(b.engage_range()) < rts::kEngageRangeCount);
         REQUIRE(static_cast<int>(b.strike_form()) < rts::kStrikeFormCount);
         REQUIRE(static_cast<int>(b.mobility()) < rts::kMobilityKindCount);
@@ -177,8 +193,8 @@ TEST_CASE("二部图对称的一对，结构相同而阵营不同", "[behavior]"
     // `Archer` 与 `Shade` 都是中程单体轻甲——**这是对的**，
     // 它们是克制二部图里对称的一对，差别在阵营与数值，不在结构。
     // 写成用例是为了让「三轴相同」成为一个有意的结论，而不是看起来像复制粘贴的疏漏。
-    const rts::UnitBehavior& archer = rts::behavior_of(rts::UnitType::Archer);
-    const rts::UnitBehavior& shade = rts::behavior_of(rts::UnitType::Shade);
+    const rts::Unit& archer = probe(rts::UnitType::Archer);
+    const rts::Unit& shade = probe(rts::UnitType::Shade);
 
     REQUIRE(archer.engage_range() == shade.engage_range());
     REQUIRE(archer.strike_form() == shade.strike_form());
