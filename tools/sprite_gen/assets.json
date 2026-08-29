@@ -1370,5 +1370,60 @@
       "modules": 0.55,
       "_note": "**可破坏障碍**：有血量的实体，**不在地形层**。地形是静态枚举、展开成三张位图，带血量的东西必须进实体扁平数组（与建筑同类，只是无归属、无战力）。因此它们也不该待在本文件的 `terrain` 分组里——那正是「文件结构与文件说明互相矛盾」。视觉规则一维：**矮而单薄 = 可破坏；高而厚重 = 不可破坏**——等距下剪影高度是最稳的线索，而玩家把防线靠在一段其实能被打穿的障碍上是一次不可挽回的误判。（原名 `Stump`，本就合规；见下）"
     }
+  },
+  "projectiles": {
+    "_comment": [
+      "在途弹丸。**只渲一个朝向（FREE）**，由前端按飞行角 2D 旋转——飞行方向是连续的，四个量化方位表达不了（README 8）。",
+      "**只有两种，不是四种。** 该由剪影承担的是机制差异（轻箭 vs 重狙击弹），而**阵营不是机制信息**：守方箭与攻方箭机制完全相同（中程单体），且飞行方向已经区分了它们。",
+      "Ram 不在此列：它是贴身撞锤、没有弹丸（2026-08-29 定案，见 CLAUDE.md 结构破坏规则）。Phoenix 的俯冲是姿态，近战与无战力单位不需要。"
+    ],
+    "Arrow": {
+      "cn": "箭",
+      "kind": "projectile",
+      "dirs": [
+        "FREE"
+      ],
+      "height": 1.0,
+      "max_width": 0.45,
+      "yaw": 0,
+      "parts": [
+        {
+          "model": "models/q_rpg/Blends/Only Weapons/Ranger_Bow.blend",
+          "only_meshes": [
+            "Ranger_Arrow"
+          ],
+          "rot": [
+            0,
+            90,
+            0
+          ]
+        }
+      ],
+      "_note": "Archer / Shade / Tower 共用。用的正是双方弦上那支箭的 mesh（两者都从 Ranger_Bow.blend 提 Ranger_Arrow），所以射出去的和弦上那支是同一个形体。rot [0,90,0] 把模型的竖直长轴转成 +X，再由 FREE 的 45 度绕 Z 对准屏幕水平——实测内容框 92x10（比 9.2），箭头朝右。"
+    },
+    "Bolt": {
+      "cn": "弩矢",
+      "kind": "projectile",
+      "dirs": [
+        "FREE"
+      ],
+      "height": 1.0,
+      "max_width": 0.3,
+      "yaw": 0,
+      "parts": [
+        {
+          "model": "models/kenney_castle/glb/siege-ballista.glb",
+          "only_meshes": [
+            "arrow"
+          ],
+          "rot": [
+            0,
+            90,
+            0
+          ]
+        }
+      ],
+      "_note": "Flak 专用。比 Arrow 更短更粗，表达「单体狙击」——那一位信息正是 Flak 的剪影没有承担的（见 README 2.1：投石机造型占的是「仅对空」那一位）。"
+    }
   }
 }

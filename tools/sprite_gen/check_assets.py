@@ -144,9 +144,15 @@ def check_orphans(out_dir):
 
     want = set()
     for ident, spr in meta["sprites"].items():
+        # **朝向集合按实体取。** `meta["dirs"]` 只是默认值，自带 `dirs` 的实体
+        # （弹丸只有 `FREE`）以它为准。用全局那一份的话，这个检查会**同时**
+        # 报两遍同一件事：`Arrow_idle_FREE.png` 成了「孤儿」、
+        # 四张 `Arrow_idle_SE/SW/NE/NW.png` 成了「缺失」——
+        # 而真相是它们本来就不该存在。
+        dirs = spr.get("dirs", meta["dirs"])
         for st, info in spr["states"].items():
             frs = info["frames"]
-            for d in meta["dirs"]:
+            for d in dirs:
                 for fr in frs:
                     sfx = f"_{fr}" if len(frs) > 1 else ""
                     want.add(f"{ident}_{st}_{d}{sfx}.png")
@@ -173,12 +179,83 @@ def check_orphans(out_dir):
     return 1
 
 
+def check_projectiles(out_dir):
+    """弹丸必须**横躺**、且 `pivot` 必须落在图上。
+
+    两条都是「静态图上看不出来、转起来才暴露」的那类，所以只能靠检查守。
+
+    **横躺**：`dirs: ["FREE"]` 的整个前提是前端按飞行角 2D 旋转，而旋转的
+    起点必须是水平（屏幕 +X = 0 弧度）。若哪天有人改了 `yaw` 或 part 的 `rot`
+    让箭变斜，前端画出来就是「箭大致朝目标飞、但总歪一个固定角度」——
+    那看着像弹道算错，不像资产不对。判据取内容框宽高比：横躺的箭实测 9.3、
+    弩矢 5.1，而斜 45° 的话会掉到 2 以下。阈值 3.0 两边都有余量。
+
+    **pivot 落在图上**：它是几何 bbox 中心的投影，而 alpha 内容框中心是
+    渲染出来的实际中心，两者只该差抗锯齿那点量（实测 0.4 与 1.9 px）。
+    差多了说明 `mesh_center_px()` 与实际渲的不是同一批网格。
+    """
+    meta_path = os.path.join(out_dir, "_sprite_meta.json")
+    if not os.path.exists(meta_path):
+        return 0
+    with open(meta_path, encoding="utf-8") as f:
+        meta = json.load(f)
+    try:
+        from PIL import Image
+    except ImportError:
+        print("跳过弹丸检查：没有 Pillow")
+        return 0
+
+    RATIO_MIN, PIVOT_TOL = 3.0, 4.0
+    bad, n = [], 0
+    for ident, spr in meta["sprites"].items():
+        for st, info in spr["states"].items():
+            if info.get("kind") != "projectile":
+                continue
+            for d in spr.get("dirs", meta["dirs"]):
+                frs = info["frames"]
+                for fr in frs:
+                    sfx = f"_{fr}" if len(frs) > 1 else ""
+                    fn = f"{ident}_{st}_{d}{sfx}.png"
+                    p = os.path.join(out_dir, fn)
+                    if not os.path.exists(p):
+                        continue          # 缺图由 check_orphans 报，这里不重复
+                    n += 1
+                    bb = Image.open(p).convert("RGBA").split()[3].getbbox()
+                    if bb is None:
+                        bad.append(f"{fn}: 整张全透明")
+                        continue
+                    w, h = bb[2] - bb[0], bb[3] - bb[1]
+                    ratio = w / max(h, 1)
+                    if ratio < RATIO_MIN:
+                        bad.append(f"{fn}: 内容框 {w}x{h}，宽高比 {ratio:.2f} < "
+                                   f"{RATIO_MIN}——没有横躺，前端的 2D 旋转会带一个"
+                                   f"固定偏角")
+                    pv = info.get("pivot")
+                    if pv is None:
+                        bad.append(f"{fn}: kind 是 projectile 但元数据没有 pivot")
+                        continue
+                    cx, cy = (bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2
+                    dx, dy = abs(pv[0] - cx), abs(pv[1] - cy)
+                    if dx > PIVOT_TOL or dy > PIVOT_TOL:
+                        bad.append(f"{fn}: pivot {pv} 离内容框中心 "
+                                   f"({cx:.1f},{cy:.1f}) 差 ({dx:.1f},{dy:.1f})，"
+                                   f"超过 {PIVOT_TOL} px——箭会绕一个偏离自身的点转")
+    if bad:
+        print(f"\n弹丸检查失败：{len(bad)} 处")
+        for b in bad:
+            print("  · " + b)
+        return 1
+    if n:
+        print(f"弹丸检查通过（{n} 张，横躺且 pivot 落在图上）")
+    return 0
+
+
 def main():
     path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
         os.path.dirname(os.path.abspath(__file__)), "assets.json")
     rc = check(path)
     out = os.path.join(os.path.dirname(os.path.abspath(path)), "out_3d")
-    return rc | check_orphans(out)
+    return rc | check_orphans(out) | check_projectiles(out)
 
 
 if __name__ == "__main__":
