@@ -28,10 +28,11 @@
 //
 // ## 数值一个都不在这里
 //
-// 血量、造价、速度、射程、破坏速率全部由**调用方**给（`WorldInit` 与
-// `spawn_unit` 的参数）。`World` 只搬运与记账。这是契约规则
-// 「接口与回放格式的承诺不得依赖任何待定数值」在数据布局这一层的形式：
-// 那份 JSON 数值表还不存在，而本文件的字节布局已经可以定死。
+// 血量、造价、速度、射程、破坏速率全部由**调用方**给：批量的经
+// `WorldInit::stats`（数值表，`rts/stats.hpp`），逐实体的经 `spawn_unit` 一族的
+// 参数。`World` 存表、算指纹、搬运与记账，但**本文件的字节布局不依赖表里的
+// 任何一个值**——这是契约规则「接口与回放格式的承诺不得依赖任何待定数值」
+// 在数据布局这一层的形式。
 
 #ifndef RTS_WORLD_HPP
 #define RTS_WORLD_HPP
@@ -51,6 +52,7 @@
 #include "rts/hash.hpp"
 #include "rts/rng.hpp"
 #include "rts/roster.hpp"
+#include "rts/stats.hpp"
 #include "rts/terrain.hpp"
 #include "rts/types.hpp"
 
@@ -204,8 +206,8 @@ struct ResourceSite {
 //
 // **`hp` 与 `max_hp` 都由调用方给**，`World` 不查任何表。初始城圈是**残破**的
 // （`地图与场景设计.md` 2.3），地图文件给的是 `hp_frac`，把它乘成绝对值需要
-// `max_hp`——而 `max_hp` 在那份还不存在的数值表里。于是这一步留在调用方，
-// 契约本身对数值零依赖。
+// `max_hp`——那一步在 `game::make_world_init`（查数值表做乘法），
+// 这里保持对数值零依赖。
 struct BldInit {
     BldType type = BldType::Wall;
     GridPos pos{};
@@ -251,7 +253,8 @@ struct ObstacleInit {
 // 与 `advance()` 若是空操作的那个问题同一族。
 //
 // 与 `BldInit` 同样的纪律：`hp` / `max_hp` / `level` 全部由调用方给，
-// `World` 不查任何表（数值表还不存在）。
+// `World` 建局时不查表（等级怎么缩放血量归调用方——`§1.4` 未定，
+// 见 `rts/stats.hpp` 的 `GlobalStats`）。
 struct UnitInit {
     UnitType type = UnitType::Ghoul;
     Vec2 pos{};
@@ -286,6 +289,13 @@ struct WorldInit {
     // 本波名义等级 `L(w)` = 兵力预算 ÷ 编成位（决定 ⑨），观测里一切等级通道的分母。
     // 两条曲线都待标定，所以**由外部给**，`rts_core` 不知道任何曲线。
     std::int32_t nominal_level = kMinUnitLevel;
+
+    // 数值表（`rts/stats.hpp`）。**这是外生数值进入仿真的唯一路径**：
+    // 射程、伤害、速度、视野、破坏倍率全从这里读，机制不得在别处藏一个数。
+    // 指纹由 `World` 自己从它算（不由调用方给，理由见 stats.hpp 文件头），
+    // 喂进 `state_hash` 并进回放头——于是「改了一个数字」报「数值表变了、重录」，
+    // 而不是「第 N tick 状态不一致」。
+    StatsTable stats{};
 };
 
 // ——`Command::slot` 对建造 / 维修 / 驻守这一族的编码：**格线性下标 `y*w + x`**——
@@ -336,7 +346,11 @@ inline GridPos pos_of_slot(std::uint16_t slot, int width) noexcept {
 //
 // **教训值得留着：改哈希口径的不一定是「加了一组实体」这种显眼的改动。**
 // 这次只是往一个枚举末尾加了一个成员，而那个枚举恰好是一个进哈希的数组的长度。
-inline constexpr std::string_view kWorldHashTag = "World/2";
+//
+// `World/2` → `World/3`：数值表指纹进了喂入清单（`rts_core 接口契约.md` §1.1.2，
+// 数值表的进入路径与指纹）。这次是**主动挑的时机**——当时已录的回放只有 `tests/`
+// 里现生成的那几份，而往后每实现一条机制都会多一批夹具回放，越晚改越贵。
+inline constexpr std::string_view kWorldHashTag = "World/3";
 
 class WorldView;
 
@@ -370,6 +384,11 @@ public:
     // **刻意不进 `state_hash`**：播种之后的 RNG 状态已经在哈希里了，
     // 而它是种子的单射函数。存两份等于给同一件事两个真相来源。
     std::uint64_t seed() const noexcept { return seed_; }
+
+    // 数值表与它的指纹。表在建局时定死、之后不变——「波次进行中改数值」不是
+    // 设计里的东西，而且它若可变，指纹就得变成逐 tick 状态而不是头部字段。
+    const StatsTable& stats() const noexcept { return stats_; }
+    std::uint64_t stats_fingerprint() const noexcept { return stats_fp_; }
 
     // 波次推进。**两者都是公开的，因为触发条件在 1c**：
     // 「波长到了」与「本波打完了」都要读机制。本版的触发者只有
@@ -543,6 +562,8 @@ private:
     std::string map_id_;
     std::array<unsigned char, 32> map_content_hash_{};
     std::uint64_t seed_ = 0;
+    StatsTable stats_{};
+    std::uint64_t stats_fp_ = 0;   // 建局时从 stats_ 算一次，之后只读
 
     // ——时间与波次——
     Tick tick_ = 0;

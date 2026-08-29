@@ -40,6 +40,7 @@ add_library(game STATIC
     src/scene_model.cpp
     src/display_names.cpp
     src/world_builder.cpp
+    src/stats_loader.cpp
     ${_game_self_contained_srcs}
 )
 
@@ -64,3 +65,9 @@ rts_set_warnings(game)
 # 并由 `game_testdata_utf8_path` 那条 ctest 钉住（见 tests/CMakeLists.txt）。
 file(REAL_PATH "${CMAKE_CURRENT_LIST_DIR}/testdata" _game_testdata)
 set(GAME_TESTDATA_DIR "${_game_testdata}" PARENT_SCOPE)
+
+# 数值表所在的数据目录（`stats_placeholder.json`）。与 testdata 分开：
+# testdata 是**测试专用**夹具，data/ 是**交付物**的一部分（交付清单要求
+# 「软件源代码包括输入文件」，JSON 数值表被 CLAUDE.md 点名列在其中）。
+file(REAL_PATH "${CMAKE_CURRENT_LIST_DIR}/data" _game_data)
+set(GAME_DATA_DIR "${_game_data}" PARENT_SCOPE)

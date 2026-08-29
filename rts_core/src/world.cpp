@@ -63,6 +63,8 @@ World::World(WorldInit init)
       map_id_(std::move(init.map_id)),
       map_content_hash_(init.map_content_hash),
       seed_(init.seed),
+      stats_(init.stats),
+      stats_fp_(init.stats.fingerprint()),
       nominal_level_(init.nominal_level),
       rng_(init.seed),
       fog_{FogLayer(init.width, init.height), FogLayer(init.width, init.height)} {
@@ -560,7 +562,10 @@ std::uint16_t World::command_mask(Side side) const noexcept {
 //   1. 格式标签（`kWorldHashTag`）—— 改了布局就改这个串，于是旧回放当场对不上
 //      而不是悄悄给出一个不同的数。它公开在头文件里，因为回放文件头要存一份，
 //      好让「口径变了」与「跑歪了」在诊断上分开
-//   2. 地图身份：map_id、content_hash、地形三张位图的 layout_hash
+//   2. 地图身份：map_id、content_hash、地形三张位图的 layout_hash；
+//      **以及数值表指纹**——数值表是外生输入，它变了第 0 tick 就该分歧（早报），
+//      成因翻译（「是数值表变了」）由回放头里的那一份承担，两个落点各担一职
+//      （`rts/stats.hpp` 文件头）
 //   3. 时间与波次：tick、wave、phase、nominal_level
 //   4. RNG 状态
 //   5. 三组实体：各自的槽位池（alive + 代数 + 空闲表）+ 全部字段数组
@@ -581,6 +586,7 @@ std::uint64_t World::state_hash() const noexcept {
     h.feed_text(map_id_);
     h.feed(map_content_hash_.data(), map_content_hash_.size());
     h.feed_pod(terrain_.layout_hash());
+    h.feed_pod(stats_fp_);
 
     h.feed_pod(tick_);
     h.feed_pod(wave_);

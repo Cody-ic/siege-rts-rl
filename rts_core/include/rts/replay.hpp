@@ -38,10 +38,10 @@
 // 代价：重放需要那张地图在手。这是可接受的——演示地图入库，训练地图由
 // `tools/map_gen/` 按种子重生成。
 //
-// ## 头里那三个「让诊断不再是猜」的字段
+// ## 头里那四个「让诊断不再是猜」的字段
 //
 // 回放对不上时，**最贵的不是修 bug，是分辨这到底是不是 bug**。
-// 三个字段各消掉一种误判：
+// 四个字段各消掉一种误判：
 //
 // 1. **`platform_fp`** —— 编译器 + 操作系统 + 架构。`CLAUDE.md` 明写
 //    「回放文件在 Windows 与 Linux 之间不可复现」，而本项目**天生跨两套工具链**
@@ -63,6 +63,11 @@
 //
 // 3. **`file_hash`** —— 全文 FNV-1a。截断或损坏的文件报「文件坏了」，
 //    不报「第 N tick 状态不一致」。
+//
+// 4. **`stats_fp`** —— 数值表指纹（`rts/stats.hpp`）。数值表是外生输入，
+//    改一个数字就该重录；没有这个字段，症状是「第 0 tick 状态不一致」，
+//    与「地图变了」「初始单位不同」并回同一句话（三者是 tick 0 分歧的
+//    全部成因，前两个已各有字段分开）。见 `rts_core 接口契约.md` §1.1.2。
 //
 // **刻意不存 `kObsVersion` 与观测指纹。** 回放里没有观测——观测是从状态派生的。
 // 存进去会暗示「改了观测布局则旧回放失效」，而那不成立，
@@ -87,6 +92,7 @@
 //              2+n  hash_tag        同上
 //              2+n  map_id          同上
 //               32  map_content_hash
+//                8  stats_fp        u64   —— 数值表指纹
 //                8  seed            u64
 //                4  nominal_level   i32
 //                4  hash_period     u32
@@ -161,7 +167,10 @@ static_assert(kReplayMagic.size() == 8);
 // **改字节布局就 +1。** 与 `kWorldHashTag` 分工不同：
 // 这个管「文件怎么排」，那个管「状态怎么折成一个数」。
 // 两者会各自独立地变，所以是两个字段。
-inline constexpr std::uint16_t kReplayFormatVersion = 1;
+//
+// 1 → 2：头部加了 `stats_fp`（数值表指纹）。这次两个都动了（布局变了、
+// 喂入清单也变了），但那是巧合不是规律——上一次 `World/1 → World/2` 就只动了一边。
+inline constexpr std::uint16_t kReplayFormatVersion = 2;
 
 // ——平台指纹——
 //
@@ -267,6 +276,7 @@ public:
     const std::array<unsigned char, 32>& map_content_hash() const noexcept {
         return map_content_hash_;
     }
+    std::uint64_t stats_fp() const noexcept { return stats_fp_; }
     std::uint64_t seed() const noexcept { return seed_; }
     std::int32_t nominal_level() const noexcept { return nominal_level_; }
     std::uint32_t hash_period() const noexcept { return hash_period_; }
@@ -306,6 +316,7 @@ private:
     std::string hash_tag_{kWorldHashTag};
     std::string map_id_;
     std::array<unsigned char, 32> map_content_hash_{};
+    std::uint64_t stats_fp_ = 0;
     std::uint64_t seed_ = 0;
     std::int32_t nominal_level_ = kMinUnitLevel;
     std::uint32_t hash_period_ = 1;
@@ -342,11 +353,12 @@ private:
 
 // ——比对——
 
-// **三项头部核对里有两项当场拦、一项留到分歧之后**，因为三者的契约不同：
+// **四项头部核对里有三项当场拦、一项留到分歧之后**，因为契约不同：
 //
 //   * `hash_tag` 不同 ⇒ 两个二进制对「状态是什么」的定义都不一样，
 //     比对本身没有意义，哈希碰巧相等也不构成证据。**当场拦。**
 //   * 地图身份不同 ⇒ 调用方拿错了地图，不是仿真的发现。**当场拦。**
+//   * 数值表指纹不同 ⇒ 两局跑在不同的规则下，同上没有比对的意义。**当场拦。**
 //   * `platform_fp` 只管**浮点**可复现性。纯整数的仿真跨平台确实给出同一个结果，
 //     所以那里的 `Match` 是真话，硬拦会挡掉有用的比对。
 //     它因此只在真的对不上时才升格成成因。
@@ -356,6 +368,7 @@ enum class ReplayVerdict : std::uint8_t {
     PlatformMismatch,   // 对不上，且平台指纹不同 ⇒ 预期，换回录制平台再比
     HashTagMismatch,    // 状态哈希口径不同 ⇒ 比对没有意义，重录
     MapMismatch,        // 地图身份不同 ⇒ 换对的地图
+    StatsMismatch,      // 数值表不同 ⇒ 表改过了，重录；不是确定性缺陷
     Vacuous,            // 一个哈希点都没有 ⇒ 验证不了任何东西，判失败
     BadInput,           // 给的世界不是新建的，或流里的输入应用不上
 };
@@ -367,6 +380,7 @@ constexpr std::string_view ident_of(ReplayVerdict v) noexcept {
         case ReplayVerdict::PlatformMismatch: return "PlatformMismatch";
         case ReplayVerdict::HashTagMismatch:  return "HashTagMismatch";
         case ReplayVerdict::MapMismatch:      return "MapMismatch";
+        case ReplayVerdict::StatsMismatch:    return "StatsMismatch";
         case ReplayVerdict::Vacuous:          return "Vacuous";
         case ReplayVerdict::BadInput:         return "BadInput";
     }
@@ -383,6 +397,9 @@ struct ReplayResult {
     bool platform_matches = false;
     bool hash_tag_matches = false;
     bool map_matches = false;
+    // 数值表指纹。契约同 `map_matches`：不同 ⇒ 两局跑在不同的规则下，
+    // 比对没有意义，**当场拦**（`StatsMismatch`）。
+    bool stats_matches = false;
 
     int checked_hashes = 0;
     Tick first_divergent_tick = -1;      // -1 = 无分歧

@@ -13,11 +13,13 @@
 //
 // ## 数值一个都不在这里
 //
-// 血量由调用方经 `InitialHp` 给。地图文件给的是**残血比例**
-// （`地图与场景设计.md` 2.3：初始城圈是残破的），把它乘成绝对值需要 `max_hp`,
-// 而 `max_hp` 在那份**还不存在的** JSON 数值表里。
-// 于是这一层只做乘法，不知道任何数字——契约规则「接口与回放格式的承诺
-// 不得依赖任何待定数值」在这里的形式。
+// 血量来自数值表（`rts/stats.hpp`，经 `game::StatsLoader` 从 JSON 进来）。
+// 地图文件给的是**残血比例**（`地图与场景设计.md` 2.3：初始城圈是残破的），
+// 本层只做「比例 × 表里的 max_hp」这一步乘法，自己不知道任何数字。
+//
+// > 历史：这里曾有一个 `InitialHp`（keep / wall / gate / obstacle 四个裸数），
+// > 那是「数值表还不存在」时期的桥。表落地后它就是**第二个真相来源**
+// > （同一个 `max_hp` 有两条来路，迟早只更新一条），所以随数值表 PR 一并删掉。
 
 #ifndef GAME_WORLD_BUILDER_HPP
 #define GAME_WORLD_BUILDER_HPP
@@ -27,33 +29,19 @@
 
 #include "game/map_data.hpp"
 #include "rts/roster.hpp"
+#include "rts/stats.hpp"
 #include "rts/world.hpp"
 
 namespace game {
 
-// 建局要用到的那几个 `max_hp`，**全部由调用方给**（见文件头）。
-//
-// 默认值刻意是 1 而不是某个"看起来合理"的数：1 是能让 `0 < hp <= max_hp`
-// 成立的最小值，**一眼就能看出它不是标定过的**。给个 1000 之类的默认值，
-// 半年后一定有人把它当成已定数值引用——那正是 `CLAUDE.md`「关于数值」
-// 末尾那两条纪律要防的事。
-struct InitialHp {
-    std::int64_t keep = 1;
-    std::int64_t wall = 1;
-    std::int64_t gate = 1;
-    // 可破坏障碍。**三种共用一个**，这是刻意的：让它们逐种取值等于在这个结构里
-    // 断言「树桩比碎石好打」，而那个比较关系本身还没有人定过。
-    // 三种各自的血量是三个待标定数值，而这里只需要一个「不是标定值」的占位。
-    std::int64_t obstacle = 1;
-};
-
-// 从一张地图装配建局参数。
+// 从一张地图 + 一份数值表装配建局参数。`stats` 同时被塞进 `WorldInit::stats`
+// ——它是外生输入，`World` 要从它算指纹（`rts/stats.hpp` 文件头）。
 //
 // `content_hash` 由调用方给：`MapLoader` **刻意不算**它（要先证明 C++ 的规范
 // 序列化与 `mapfile.py` 逐字节一致，见 `game/map_loader.hpp` 那段），
 // 而回放头必须记它（6.3）。全零表示「还没算」，这在本阶段是诚实的；
 // 等那条跨语言比对测试写好，这个参数就有真值可填，**接口不必改**。
-rts::WorldInit make_world_init(const MapData& map, const InitialHp& hp,
+rts::WorldInit make_world_init(const MapData& map, const rts::StatsTable& stats,
                               std::uint64_t seed, std::int32_t nominal_level,
                               const std::array<unsigned char, 32>& content_hash = {});
 

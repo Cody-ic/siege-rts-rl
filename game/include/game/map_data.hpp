@@ -97,8 +97,9 @@ struct WallSegment {
 // 城墙的残血是 2.3 的一条设计要求（初始城圈是残破的），而障碍是地图上的原生景物、
 // 没有任何设计要求说它开局就该带伤。满血就是它的初始状态，不需要一个字段来说。
 //
-// 绝对血量同样不在这里（它在那份还不存在的 JSON 数值表里），
-// 由 `game::InitialHp` 在装配时给——同 `world_builder.hpp` 文件头那条。
+// 绝对血量同样不在这里（它在数值表里：`game/data/stats_placeholder.json`，
+// 经 `game::StatsLoader` 进来），由 `make_world_init` 在装配时查表乘上
+// ——同 `world_builder.hpp` 文件头那条。
 struct ObstacleNode {
     rts::ObstacleType type = rts::ObstacleType::Stump;
     rts::GridPos pos{};

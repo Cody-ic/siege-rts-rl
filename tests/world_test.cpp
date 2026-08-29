@@ -743,8 +743,12 @@ TEST_CASE("夹具地图能装配成一个合法的世界", "[world]") {
     // 一个能跑通的适配层是这个问题唯一能自己动手补的部分。
     const game::MapData map =
         game::MapLoader::from_file(std::string(GAME_TESTDATA_DIR) + "/fixture_min.json");
-    const game::InitialHp hp{100, 200, 150};
-    rts::WorldInit init = game::make_world_init(map, hp, 99, 1);
+    // 建局血量从数值表读（原先的 `InitialHp` 已随数值表落地收编）。
+    rts::StatsTable stats;
+    stats.bld[static_cast<std::size_t>(rts::BldType::Keep)].max_hp = 100;
+    stats.bld[static_cast<std::size_t>(rts::BldType::Wall)].max_hp = 200;
+    stats.bld[static_cast<std::size_t>(rts::BldType::Gate)].max_hp = 150;
+    rts::WorldInit init = game::make_world_init(map, stats, 99, 1);
 
     REQUIRE(init.width == 7);
     REQUIRE(init.height == 5);
@@ -771,8 +775,11 @@ TEST_CASE("残血比例乘成绝对血量，四舍五入且不塌成 0", "[world
     // 夹具里有 hp_frac 0.45 与 0.8 两段（初始城圈是**残破**的，2.3）。
     const game::MapData map =
         game::MapLoader::from_file(std::string(GAME_TESTDATA_DIR) + "/fixture_min.json");
-    const game::InitialHp hp{100, 200, 150};
-    const rts::WorldInit init = game::make_world_init(map, hp, 0, 1);
+    rts::StatsTable stats;
+    stats.bld[static_cast<std::size_t>(rts::BldType::Keep)].max_hp = 100;
+    stats.bld[static_cast<std::size_t>(rts::BldType::Wall)].max_hp = 200;
+    stats.bld[static_cast<std::size_t>(rts::BldType::Gate)].max_hp = 150;
+    const rts::WorldInit init = game::make_world_init(map, stats, 0, 1);
 
     std::set<std::int64_t> wall_hps;
     for (const rts::BldInit& b : init.buildings) {

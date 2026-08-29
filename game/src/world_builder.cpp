@@ -23,7 +23,7 @@ std::int64_t scale_hp(float frac, std::int64_t max_hp) {
 
 }  // namespace
 
-rts::WorldInit make_world_init(const MapData& map, const InitialHp& hp,
+rts::WorldInit make_world_init(const MapData& map, const rts::StatsTable& stats,
                               std::uint64_t seed, std::int32_t nominal_level,
                               const std::array<unsigned char, 32>& content_hash) {
     rts::WorldInit init;
@@ -34,6 +34,7 @@ rts::WorldInit make_world_init(const MapData& map, const InitialHp& hp,
     init.map_id = map.map_id();
     init.map_content_hash = content_hash;
     init.keep = map.keep();
+    init.stats = stats;
 
     // 地形与 no_build 都摊平成行主序，与 `MapData` 内部同序（`y * width + x`）。
     // **这一步没有转置的机会**：两侧用同一个下标式子，而那个式子在
@@ -71,26 +72,25 @@ rts::WorldInit make_world_init(const MapData& map, const InitialHp& hp,
     // 领主堡垒。**地图文件里没有它**（`walls` 只有 `Wall` / `Gate`），
     // 而 `rts::World` 要求恰好一座——「丢失即败」这个败北条件否则无从表达。
     // 合成它正是这个适配层的活。
-    init.buildings.push_back(
-        rts::BldInit{rts::BldType::Keep, map.keep(), hp.keep, hp.keep});
+    const std::int64_t keep_hp = stats.of(rts::BldType::Keep).max_hp;
+    init.buildings.push_back(rts::BldInit{rts::BldType::Keep, map.keep(),
+                                          keep_hp, keep_hp});
 
     init.buildings.reserve(init.buildings.size() + map.walls().size());
     for (const WallSegment& w : map.walls()) {
         const bool is_gate = w.kind == WallKind::Gate;
         const rts::BldType type = is_gate ? rts::BldType::Gate : rts::BldType::Wall;
-        const std::int64_t max_hp = is_gate ? hp.gate : hp.wall;
+        const std::int64_t max_hp = stats.of(type).max_hp;
         init.buildings.push_back(
             rts::BldInit{type, w.pos, scale_hp(w.hp_frac, max_hp), max_hp});
     }
 
     // 可破坏障碍。**满血进场**——`ObstacleNode` 不带残血比例，理由见它的注释
     // （城墙的残血来自 2.3 的设计要求，障碍没有对应的要求）。
-    //
-    // 三种共用 `hp.obstacle`，见 `InitialHp` 那一项的注释。
     init.obstacles.reserve(map.obstacles().size());
     for (const ObstacleNode& o : map.obstacles()) {
-        init.obstacles.push_back(
-            rts::ObstacleInit{o.type, o.pos, hp.obstacle, hp.obstacle});
+        const std::int64_t max_hp = stats.of(o.type).max_hp;
+        init.obstacles.push_back(rts::ObstacleInit{o.type, o.pos, max_hp, max_hp});
     }
 
     return init;
