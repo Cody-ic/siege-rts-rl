@@ -17,6 +17,23 @@
 *.toml  text eol=lf
 *.csv   text eol=lf
 
+# 文档：本仓库的设计契约就是这些 .md，四个人并行改同一批文件。
+#
+# 这条是漏掉的，而且已经出过一次：一次用 Python 脚本批量改文档（写的时候给了
+# `newline="\n"`）之后，`git add` 打出
+# `warning: in the working copy of 'README.md', LF will be replaced by CRLF`，
+# 而 `git ls-files --eol` 显示工作区**已经混着**了 —— 被脚本重写的那两份是 `w/lf`，
+# 其余是 `w/crlf`。
+#
+# 危害与上面「省去无谓的 diff」那条同族但更重：**.md 是评审面最大的文件**。
+# 只要两个人的 `core.autocrlf` 不一致，一次一行的改动就会显示成整份文件重写，
+# 而那让 review 完全没法做 —— 在只有一个人评审的时候，等于这份改动没人看。
+#
+# 加它是零风险的：`git ls-files --eol` 显示索引里**全部已经是 `i/lf`**
+# （`core.autocrlf=true` 提交时已经规范化过），所以这条只影响 checkout，
+# 不改索引、不产生任何内容 diff。已有工作副本在下次 checkout 到该文件时自动收敛。
+*.md    text eol=lf
+
 # 构建与源码：跨两套工具链，统一 LF 省去无谓的 diff。
 *.cpp   text eol=lf
 *.hpp   text eol=lf

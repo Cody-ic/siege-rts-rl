@@ -20,6 +20,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `tests/` | Catch2（经 FetchContent）。条目数不写死，要数就 `ctest -N` |
 | `tools/sprite_gen/` | 纯 Python 精灵预渲染流水线，35 实体 × 4 朝向 × 逐实体状态 = 476 张成品已入库（`idle` / `move` / `attack` / `work`） |
 | `tools/check_determinism_bans.py` | 把本文的确定性禁令变成会红的 ctest |
+| `tools/check_cmake_freshness.py` | 把「构建目录的配置比 `CMakeLists.txt` 旧」变成会红的 ctest。**`ctest` 单独跑不会发现这件事**，会给出一个绿色的子集 |
 | `.mailmap` / `.gitattributes` | 作者名规范化；数据文件强制 LF（理由见 `地图与场景设计.md` 6.3） |
 
 `守方AI与协同演化.md` 与 `演示与可视化清单.md` **已经合并且方向已定**（#15/#16 合入，
@@ -736,11 +737,44 @@ code page 下这条链路会把名字弄乱，结果是 ctest 报「No tests ran
 | 确定性守卫 | `determinism_bans` | 扫 `rts_core/` 与 `game/`（扫哪些目录以 `tests/CMakeLists.txt` 为准） |
 | | `determinism_bans_self_test` | 防守卫自己退化成永远绿 |
 | | `determinism_bans_empty_is_red` | **`WILL_FAIL`**：扫空目录，期望脚本非零退出 |
+| 地图校验器 | `map_gen_self_test` | `tools/map_gen/` 的自检 |
+| | `map_gen_validate_fixture` | 拿 `game/testdata/fixture_min.json` **真的读一张真图**（全仓唯一一张，两侧共用） |
+| | `map_gen_validate_empty_is_red` / `..._partial_path_is_red` | **`WILL_FAIL`**：一张都没读到 / 读到一些但另一些路径不存在 |
+| 配置陈旧 | `cmake_configure_is_current` | **`ctest` 不会自己发现 `CMakeLists.txt` 变了**，见下 |
+| | `cmake_freshness_missing_stamp_is_red` / `..._empty_root_is_red` | **`WILL_FAIL`**：上一条自己能不能变红 |
 
 最后那类要单独说一句：**`WILL_FAIL` 条目在 ctest 里显示 `Passed`（结果已反转），
 但单独跑脚本时退出码是 1。** 后者才是会被误判成「坏了」然后去「修」的地方。
-`tools/map_gen/` 合并后会再添一条同类的（校验器读不到地图必须红），
-所以这不是一次性的注意事项。
+**这类条目现在有五条**（确定性 1 + 地图 2 + 配置陈旧 2），所以这不是一次性的注意事项。
+
+### `ctest` 单独跑会得到一个绿色的子集
+
+**`ctest` 不会发现 `CMakeLists.txt` 变了。** 它读的是构建目录里生成好的
+`CTestTestfile.cmake`，而那份文件只在**配置**时重写；只有 `cmake --build` 会顺带触发
+重新配置，`ctest` 自己不会。于是：
+
+```console
+$ git pull                      # 别人加了几个测试文件与 ctest 条目
+$ ctest --test-dir build -C Release
+100% tests passed, 21 of 21     # ← 该有 29 条
+```
+
+这是真事：`build/` 是契约那个 PR 之前配置的，`roster` / `action` / `command` / `obs` /
+`terrain` / `fog` / `world` / `replay` 八个标签的条目**根本不存在**，所以 ctest 当然全绿。
+
+它与上面「标签清单是白名单」同源，但**更隐蔽一层**——标签写错会红（Catch2 非零退出），
+而**条目不存在连红的机会都没有**：它不是一条失败的测试，是一条不存在的测试。
+
+`cmake_configure_is_current` 把它变成会红的：配置时把每个 CMake 输入文件的 sha256
+记进构建目录（`tools/check_cmake_freshness.py --stamp`），跑测试时重算一遍比对。
+**按内容比而不是比 mtime**——CMake 只在内容变了时才重写生成物，所以一次什么都没改的
+重新配置**不会**更新 `CMakeCache.txt` 的 mtime（实测），而 `git checkout` 会更新源文件
+mtime，两者一凑那条守卫会永远红。
+
+**它有一条绕不过去的边界：配置早于这条守卫存在的构建目录，不会注册它。** 自举问题，
+一个不存在的条目没法报告自己不存在。代价一次性——重新配置一次就落进覆盖范围。
+
+**所以习惯上就该 `cmake --build` 再 `ctest`，不要单跑 ctest。**
 
 **但标签清单是白名单，所以另有一条不带过滤器的 `rts_tests_all`。** 标签写错能被抓到
 （Catch2 匹配不到用例会非零退出），标签**没写进清单**抓不到——那条 ctest 条目根本不

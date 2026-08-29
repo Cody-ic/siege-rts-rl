@@ -175,6 +175,60 @@ if(Python3_FOUND)
              COMMAND "${Python3_EXECUTABLE}" "${_checker}" "${_empty_probe}")
     set_tests_properties(determinism_bans_empty_is_red PROPERTIES WILL_FAIL TRUE)
 
+    # **配置陈旧守卫。** 详细理由在 tools/check_cmake_freshness.py 的 docstring 里，
+    # 这里只记它为什么必须是一条 ctest 而不是一句文档：
+    #
+    # `ctest` 读的是构建目录里生成好的 CTestTestfile.cmake，那份文件只在**配置**时
+    # 重写，而只有 `cmake --build` 会顺带触发重新配置 —— `ctest` 自己不会。于是
+    # `git pull` 之后单跑 ctest 会得到一个**绿色的子集**，新增的条目根本不存在。
+    # 真事：`build/` 是契约那个 PR 之前配置的，ctest 报 21/21 全绿而该有 29 条。
+    #
+    # 这与上面「标签清单是白名单」同源，但更隐蔽一层 —— **标签写错会红，条目不存在
+    # 连红的机会都没有。** 它不是一条失败的测试，是一条不存在的测试。
+    #
+    # 戳文件在配置时写。用 execute_process 而不是 add_custom_command：后者在构建时
+    # 才跑，而我们要的时间点正是**配置**（戳必须代表「这次配置看到的输入」）。
+    set(_cmake_stamp "${CMAKE_BINARY_DIR}/cmake_input_hash.txt")
+    set(_freshness "${CMAKE_SOURCE_DIR}/tools/check_cmake_freshness.py")
+    execute_process(
+        COMMAND "${Python3_EXECUTABLE}" "${_freshness}"
+                --stamp "${_cmake_stamp}" --root "${CMAKE_SOURCE_DIR}"
+        RESULT_VARIABLE _stamp_rc)
+    # 写不出戳就让配置失败，不要打个 WARNING 过去 —— 那样 --verify 会因为
+    # 「找不到戳文件」而红，而报错指向的是守卫自己，不是真正的原因。
+    # 同本文件上面那条「找不到 Python3 时默认让配置失败」。
+    if(NOT _stamp_rc EQUAL 0)
+        message(FATAL_ERROR
+                "写不出 CMake 输入哈希戳（退出码 ${_stamp_rc}）。\n"
+                "  它是「配置陈旧」那条 ctest 的依据，没有它那条检查会永远红。")
+    endif()
+    add_test(NAME cmake_configure_is_current
+             COMMAND "${Python3_EXECUTABLE}" "${_freshness}"
+                     --verify "${_cmake_stamp}" --root "${CMAKE_SOURCE_DIR}")
+
+    # 上面那条在正常情况下**永远是绿的**，所以它自己需要两道「能不能变红」的证明
+    # ——同 determinism_bans_empty_is_red 与 map_gen_validate_empty_is_red。
+    # 一条守卫若从没人见过它红，它和不存在没有区别。
+    #
+    # (a) 戳文件不存在：这是「构建目录配置于本守卫之前」的形态，必须红而不是空过。
+    add_test(NAME cmake_freshness_missing_stamp_is_red
+             COMMAND "${Python3_EXECUTABLE}" "${_freshness}"
+                     --verify "${CMAKE_CURRENT_BINARY_DIR}/no_such_stamp.txt"
+                     --root "${CMAKE_SOURCE_DIR}")
+    set_tests_properties(cmake_freshness_missing_stamp_is_red
+                         PROPERTIES WILL_FAIL TRUE)
+
+    # (b) --root 底下一个 CMake 输入都没有：路径写错时必须红。
+    # 若它空过，戳会是空的，于是 --verify 也永远通过 —— 那是最坏的那种绿，
+    # 因为它同时废掉了上面那条。
+    set(_cmake_empty_probe "${CMAKE_CURRENT_BINARY_DIR}/cmake_freshness_empty")
+    file(MAKE_DIRECTORY "${_cmake_empty_probe}")
+    add_test(NAME cmake_freshness_empty_root_is_red
+             COMMAND "${Python3_EXECUTABLE}" "${_freshness}"
+                     --verify "${_cmake_stamp}" --root "${_cmake_empty_probe}")
+    set_tests_properties(cmake_freshness_empty_root_is_red
+                         PROPERTIES WILL_FAIL TRUE)
+
     # tools/map_gen/ 的自检。与上面同一条原则：把 `地图与场景设计.md` 的规范
     # 变成会红的测试，而不是只留在文档里等人记得。
     #
