@@ -379,7 +379,7 @@ def check_registry_covers_spec(c):
     """
     nos = [chk.no for chk in validate.CHECKS]
     c.eq(sorted(nos), list(range(1, validate.SPEC_CHECK_COUNT + 1)),
-         "CHECKS 必须正好覆盖第 8 节的 1..15")
+         "CHECKS 必须正好覆盖第 8 节的 1..21（含 8.1 那批）")
     c.eq(len(set(nos)), len(nos), "条目编号不得重复")
 
     for chk in validate.CHECKS:
@@ -457,6 +457,34 @@ def _rows(w, h, forest=()):
 # 三种 inner 资源，用来让第 6 条别在第 7 条的用例里跟着报。
 _INNER3 = [{"type": t, "pos": [i, 0], "tier": "inner"}
            for i, t in enumerate(["stone", "wood", "gold"])]
+
+
+def make_clean_doc():
+    """一张各条都过得去的地图。**只此一份**，两处用例共用。
+
+    此前是两份拷贝（`check_validator_on_clean_map` 与那条 CLI 用例各一份），
+    于是第 21 条落地时**只改了一份**，另一份红在「一张干净地图应当退出 0」
+    这句话上 —— 而那条报错完全不指向真正的原因。两份「同一张图」的拷贝就是
+    在等这件事发生。
+
+    x=5 那两格 `Forest` 与 (5,2) 的 `outer` 资源点是**第 7 与第 21 条一起**
+    要求的：21 条要至少有一个 `outer`，7 条要它有一条 4 连通的森林带通到边界。
+    这张图原先只有 inner 资源点 —— 而它能通过当时的全部检查，**正是第 21 条
+    存在的理由**。
+
+    `keep` 从 (3,2) 挪到了 (3,3)：原来它与金币资源点**同格**。那不违反任何已有
+    条目（第 17 条按 §8.1 字面只管墙与集结点），但一张「干净地图」不该演示一个
+    我们其实不希望出现的摆法。keep 与资源点重合值不值得单开一条，
+    记在 `地图与场景设计.md` 第 10 节。
+    """
+    return make_doc(
+        ["0000020", "0000020", "0000000", "0000000", "0000000"],
+        keep=[3, 3],
+        spawns=[{"id": 0, "pos": [0, 0], "corridor": "open"},
+                {"id": 1, "pos": [6, 4], "corridor": "defile"}],
+        resources=[{"type": t, "pos": [i + 1, 2], "tier": "inner"}
+                   for i, t in enumerate(["stone", "wood", "gold"])]
+                  + [{"type": "wood", "pos": [5, 2], "tier": "outer"}])
 
 
 def check_v7_outer_unenclosable(c):
@@ -734,19 +762,107 @@ def check_v15_hash(c):
     c.true(validate.check_content_hash(doc, g), "内容改了而哈希没更新应当报")
 
 
+def check_v16_entity_cells(c):
+    """第 16 条：`resources` 与 `keep` 必须落在可通行且可建造的格上。
+
+    来源是实测：把资源点摆进水里、把另一个摆进岩壁里，**格式层与那 15 条全部
+    放行**。所以这一组逐个把实体摆到四种「盖不上去」的格上。
+    """
+    # OBLONG: (5,1) 是 Rock，(2,2) 是 Water，其余 Plain。
+    ok = [{"type": t, "pos": [i, 0], "tier": "inner"}
+          for i, t in enumerate(["stone", "wood", "gold"])]
+    doc, g = _gv(OBLONG, keep=[3, 3], resources=ok)
+    c.true(not validate.check_entity_cells(doc, g), "都在 Plain 上不该报")
+
+    for bad_pos, what in ([5, 1], "Rock"), ([2, 2], "Water"):
+        doc, g = _gv(OBLONG, keep=[3, 3],
+                     resources=ok[:2] + [{"type": "gold", "pos": bad_pos,
+                                          "tier": "inner"}])
+        problems = validate.check_entity_cells(doc, g)
+        c.true(problems, f"资源点摆在 {what} 上应当报")
+        c.true(any(what in p for p in problems),
+               f"报告要点出是 {what}，否则收到失败的人得自己去数格子")
+
+    doc, g = _gv(OBLONG, keep=[5, 1], resources=ok)
+    c.true(validate.check_entity_cells(doc, g), "keep 摆在 Rock 上应当报")
+
+    # no_build 也算 —— 4.2 的组合规则是 buildable AND NOT no_build。
+    nb = ["0000000", "0000000", "0000000", "0001000", "0000000"]
+    doc, g = _gv(OBLONG, keep=[3, 3], no_build=nb, resources=ok)
+    problems = validate.check_entity_cells(doc, g)
+    c.true(problems, "keep 落在 no_build 格上应当报（地形是 Plain，但盖不了）")
+    c.true(any("no_build=True" in p for p in problems),
+           "报告要说明是 no_build 挡的，否则看到「地形是 Plain」会以为是误报")
+
+
+def check_v17_placement_conflicts(c):
+    """第 17 条：墙不在 `Rock`/`Water` 上、同格不叠墙、集结点不重合。
+
+    **同格叠墙必须查 `doc` 而不是 `grid`**：`Grid.walls` 是按坐标索引的字典，
+    重复在构造时就被覆盖了。这一组会抓到「拿 grid 去找重复」这种写法 ——
+    那样写它永远报通过。
+    """
+    doc, g = _gv(OBLONG, keep=[3, 3],
+                 walls=[{"kind": "Wall", "pos": [0, 0], "hp_frac": 1.0}])
+    c.true(not validate.check_placement_conflicts(doc, g), "干净摆放不该报")
+
+    for bad_pos, what in ([5, 1], "Rock"), ([2, 2], "Water"):
+        doc, g = _gv(OBLONG, keep=[3, 3],
+                     walls=[{"kind": "Wall", "pos": bad_pos, "hp_frac": 1.0}])
+        problems = validate.check_placement_conflicts(doc, g)
+        c.true(problems, f"墙摆在 {what} 上应当报")
+        c.true(any(what in p for p in problems), f"报告要点出是 {what}")
+
+    dup = [{"kind": "Wall", "pos": [1, 1], "hp_frac": 1.0},
+           {"kind": "Gate", "pos": [1, 1], "hp_frac": 0.5}]
+    doc, g = _gv(OBLONG, keep=[3, 3], walls=dup)
+    c.true(len(g.walls) == 1,
+           "前提：Grid 把同格重复墙折叠掉了（所以本条只能查 doc）")
+    c.true(validate.check_placement_conflicts(doc, g), "同格两条墙应当报")
+
+    same = [{"id": 0, "pos": [0, 0], "corridor": "open"},
+            {"id": 1, "pos": [0, 0], "corridor": "defile"}]
+    doc, g = _gv(OBLONG, keep=[3, 3], spawns=same)
+    c.true(validate.check_placement_conflicts(doc, g),
+           "两个集结点重合应当报 —— 格式层只查了 id 不重复")
+    # 反面：id 相同才是格式层的事，本条不该越界去管。
+    c.no_raise(lambda: mapfile.check_format(make_doc(OBLONG, keep=[3, 3],
+                                                     spawns=same)),
+               "pos 重合但 id 不同，格式层应当放行（所以必须由本条兜住）")
+
+
+def check_v21_has_outer(c):
+    """第 21 条：至少一个 `outer` 资源点。
+
+    **这一组同时钉住这条为什么必须存在**：第 7 条在没有 `outer` 时空过，
+    第 6 条只查 `inner`，所以少了本条，一张把所有资源都放在城里的地图
+    能通过全部检查。下面第二段就是那张图。
+    """
+    inner_only = [{"type": t, "pos": [i, 0], "tier": "inner"}
+                  for i, t in enumerate(["stone", "wood", "gold"])]
+    doc, g = _gv(OBLONG, keep=[3, 3], resources=inner_only)
+    c.true(validate.check_has_outer_resource(doc, g),
+           "一个 outer 都没有应当报")
+    # 那张图确实能过第 6、7 条 —— 这才是本条存在的理由。
+    c.true(not validate.check_inner_resources(doc, g),
+           "前提：全在城里的图过得了第 6 条")
+    c.true(not validate.check_outer_unenclosable(doc, g),
+           "前提：全在城里的图**空过**第 7 条，所以第 7 条兜不住这个洞")
+
+    with_outer = inner_only + [{"type": "wood", "pos": [4, 0],
+                                "tier": "outer"}]
+    doc, g = _gv(OBLONG, keep=[3, 3], resources=with_outer)
+    c.true(not validate.check_has_outer_resource(doc, g),
+           "有一个 outer 就够（数量属数值，本条只查 ≥ 1）")
+
+
 def check_validator_on_clean_map(c):
     """一张各条都过得去的地图，跑完整 run() 不应有任何失败。
 
     这一条是上面各条的反面：单条检查各自「不该报」不等于合在一起也干净，
     比如某条检查的测试地图恰好触发了另一条。
     """
-    rows = ["0000000", "0000000", "0000000", "0000000", "0000000"]
-    doc = make_doc(
-        rows, keep=[3, 2],
-        spawns=[{"id": 0, "pos": [0, 0], "corridor": "open"},
-                {"id": 1, "pos": [6, 4], "corridor": "defile"}],
-        resources=[{"type": t, "pos": [i + 1, 2], "tier": "inner"}
-                   for i, t in enumerate(["stone", "wood", "gold"])])
+    doc = make_clean_doc()
     mapfile.stamp_content_hash(doc)
 
     failures = [(chk.no, problems) for chk, problems in validate.run(doc)
@@ -760,7 +876,7 @@ def check_validator_on_clean_map(c):
                   if chk.status == validate.BLOCKED)
     n_pend = sum(1 for chk in validate.CHECKS
                  if chk.status == validate.PENDING)
-    c.eq((n_impl, n_block, n_pend), (10, 1, 4),
+    c.eq((n_impl, n_block, n_pend), (13, 4, 4),
          "条目状态计数变了：改动状态时要同步这条断言与 README 的进度表")
 
 
@@ -818,14 +934,7 @@ def check_cli_missing_path_is_red(c):
 
     with tempfile.TemporaryDirectory() as d:
         good = os.path.join(d, "clean.json")
-        rows = ["0000000"] * 5
-        doc = make_doc(
-            rows, keep=[3, 2],
-            spawns=[{"id": 0, "pos": [0, 0], "corridor": "open"},
-                    {"id": 1, "pos": [6, 4], "corridor": "defile"}],
-            resources=[{"type": t, "pos": [i + 1, 2], "tier": "inner"}
-                       for i, t in enumerate(["stone", "wood", "gold"])])
-        mapfile.save(good, doc)
+        mapfile.save(good, make_clean_doc())
 
         # 吞掉 main() 的报告：这一组只关心退出码，而把整份校验报告灌进自检
         # 日志会把真正的失败信息淹掉。失败时再原样打出来。
@@ -875,6 +984,9 @@ GROUPS = [
     ("第 12 条 水切断走廊", check_v12_water_cuts),
     ("第 13 条 桥在水上", check_v13_bridge_on_water),
     ("第 15 条 content_hash", check_v15_hash),
+    ("第 16 条 实体落在可建造格", check_v16_entity_cells),
+    ("第 17 条 摆放冲突", check_v17_placement_conflicts),
+    ("第 21 条 至少一个 outer 资源点", check_v21_has_outer),
     ("干净地图跑完整 run()", check_validator_on_clean_map),
     ("第 14 条的度量：切比雪夫且形状无关", check_chebyshev_is_conservative),
     ("调色板 ≤ 10 项", check_palette_bound),
