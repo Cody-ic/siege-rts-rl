@@ -63,6 +63,14 @@ HASH_PREFIX = "sha256:"
 # 悄悄用上 'a'、'b' 这类字符，那会让 rows 变成一个没人看得懂的东西。
 TERRAIN_PALETTE = ["Plain", "Rock", "Forest", "Water", "Bridge"]
 
+# 上面那句注释说「越界要报错」，而在加这行之前它并不会报。
+# `_check_rows` 用的允许字符集是 `{str(i) for i in range(len(TERRAIN_PALETTE))}`，
+# 第 11 项时集合里放进去的是**两字符**的 "10"，而 `set(row)` 里全是单字符，
+# 于是它永远匹配不上：第 11 种地形既编不进去、也不会有任何东西红。
+# 地形枚举这一周刚从 3 变 5，这不是纯理论。
+assert len(TERRAIN_PALETTE) <= 10, \
+    "rows 是单字符编码，调色板超过 10 项要先改编码（见 6.1）"
+
 # `layers` 只认这两层，多出来的一律报错而不是忽略 —— 理由见 check_format。
 KNOWN_LAYERS = frozenset({"terrain", "no_build"})
 
