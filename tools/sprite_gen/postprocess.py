@@ -209,7 +209,18 @@ def main():
             skipped += 1                      # 已处理过，直接收入对照图，不再叠加
         else:
             st = meta.get("sprites", {}).get(ident, {}).get("states", {}).get(state, {})
-            if st.get("kind") == "tile":
+            if st.get("kind") == "projectile":
+                # 弹丸只描边、不画地面投影。投影的职责是「表达高度」——
+                # 空中单位本体抬高、投影留在地面，玩家靠间距判断它在飞。
+                # 而弹丸的高度**每一刻都在变**（它在飞行途中），由 render/ 按弹道算，
+                # 精灵里烤一个固定投影只会和真实高度矛盾。
+                #
+                # 描边也要减半：单位的描边宽度是按「几十像素宽的身体」调的，
+                # 而箭只有三四像素粗，同样的描边会把它变成一根黑棍、白色的箭身
+                # 反倒成了内嵌的细线。这是**同一个参数在两种尺度下含义不同**。
+                img = add_outline(img, ol_col, max(1, ol_w // 2))
+                save_marked(img, os.path.join(outdir, fn))
+            elif st.get("kind") == "tile":
                 # 地砖既不描边也不画投影：描边会让整片地面变成一张黑格子网，
                 # 而地砖本身就是地面，没有投影可言。
                 save_marked(img, os.path.join(outdir, fn))

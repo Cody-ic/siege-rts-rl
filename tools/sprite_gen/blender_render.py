@@ -165,6 +165,30 @@ def import_model(path):
     return [o for o in bpy.data.objects if o not in before]
 
 
+def filter_meshes(objs, keep, ident):
+    """只保留指定名字的网格，其余删掉。`keep` 为空则原样返回。
+
+    一个 `.blend` 里常有多个网格，而这里只想要其中一个：`Ranger_Bow.blend` 同时含
+    `Ranger_Bow` 与 `Ranger_Arrow`——弓手本体（`Ranger.blend`）**自带弓但不带箭**，
+    所以要单独把箭挂上去，不筛就会多出第二把弓叠在原来那把上；
+    而在途箭矢那个条目要的**只有箭**，不筛渲出来的就是一把弓。
+
+    这两处一个走 `parts`、一个走顶层 `model`，所以筛选必须两条路径都有。
+    第一版只做了 `parts` 那条，结果箭矢精灵渲出来是一把弓——**而它不报错**，
+    只是图不对。
+    """
+    if not keep:
+        return objs
+    miss = set(keep) - {o.name for o in objs}
+    if miss:
+        print(f"    [警告] {ident}: only_meshes 找不到 {sorted(miss)}，"
+              f"该文件里有 {sorted(o.name for o in objs if o.type == 'MESH')}")
+    drop = [o for o in objs if o.type == "MESH" and o.name not in keep]
+    for o in drop:
+        bpy.data.objects.remove(o, do_unlink=True)
+    return [o for o in objs if o not in drop]
+
+
 def world_bbox(objs):
     """求值后的世界包围盒。
 
@@ -177,8 +201,8 @@ def world_bbox(objs):
     hi = Vector((-1e9,) * 3)
     found = False
     for o in objs:
-        if o.type != "MESH":
-            continue
+        if o.type != "MESH" or o.hide_render:
+            continue        # 逐帧隐藏的部件（射出去的箭）不该把画布撑大
         oe = o.evaluated_get(dg)
         try:
             me = oe.to_mesh()
@@ -410,6 +434,12 @@ def set_pose(objs, pose, freeze_frame):
 
     素材包普遍没有"骑乘"动作，骑手直接放上马背时双腿会插进马身。
     这里用它把大腿前摆、小腿外张，绕开马腹。
+
+    `freeze_frame` 默认是 `frames[0]`，但可用 `pose_frame` 单独指定。
+    这个区分在做**骑兵的攻击态**时是必需的：定格的骑手的手臂姿态来自
+    「该动作在 freeze_frame 上的求值」，而 `frames` 同时还在驱动**马**的步态。
+    两者绑在一起的话，要让骑手停在挥击帧就得把马的步态也从那一帧起采，
+    于是攻击态与移动态的马腿顺序不同、看着像卡了一下。
     """
     bpy.context.scene.frame_set(freeze_frame)
     for o in objs:
@@ -428,6 +458,74 @@ def set_pose(objs, pose, freeze_frame):
                 b.rotation_euler = [math.radians(x) for x in s["rot"]]
             if "loc" in s:
                 b.location = s["loc"]
+
+
+def collect_mesh_anim(objs, mesh_anim):
+    """把 `mesh_anim` 的对象名解析成实际对象，并记下它们的静止变换。
+
+    存在的理由是 Kenney 的攻城器械**没有任何动作，但有可分离的子网格**：
+    `siege-ram.glb` 里 `ram`（撞木）与六个 `wheel` 各自是独立网格。
+    撞木前后滑动就是撞击、轮子绕轴转就是行进——两者都是**纯物体变换**，
+    不需要骨架，也就不需要素材包提供动作。
+
+    早先把这类模型判成「静态网格、零动作、做不了攻击动画」是**只查了动作数**，
+    没看结构。查动作之外还要看子网格。
+
+    名字支持末尾通配（`wheel*` 命中六个轮子）。静止变换要在**归一化之后**取，
+    因为归一化会改根对象的缩放，而子对象的局部位移会被那份缩放带着走——
+    这正好是我们要的：偏移量用**模型单位**写，与素材的原始尺度一致。
+    """
+    rest = []
+    for pattern, spec in mesh_anim.items():
+        pref = pattern[:-1] if pattern.endswith("*") else None
+        hit = [o for o in objs
+               if (o.name.startswith(pref) if pref else o.name == pattern)]
+        if not hit:
+            print(f"    [警告] mesh_anim 找不到对象 {pattern!r}，"
+                  f"可用: {sorted(o.name for o in objs)}")
+            continue
+        if spec.get("pivot_center"):
+            # 旋转是绕**对象原点**的，而素材里原点常常不在几何中心：
+            # `siege-ram.glb` 的 `wheel` 原点在 (0.67, 0.5, 0)、几何中心在 (0.47, 0.43, 0.20)，
+            # 直接转它得到的是**绕车体公转**而不是自转——看着像轮子往外甩出去。
+            # 症状只在多帧并排看时才显形，单帧完全正常。
+            bpy.ops.object.select_all(action="DESELECT")
+            for o in hit:
+                o.select_set(True)
+            bpy.context.view_layer.objects.active = hit[0]
+            bpy.ops.object.origin_set(type="ORIGIN_GEOMETRY", center="BOUNDS")
+            bpy.ops.object.select_all(action="DESELECT")
+        for o in hit:
+            rest.append((o, tuple(o.location), tuple(o.rotation_euler), spec))
+    return rest
+
+
+def apply_mesh_anim(rest, idx):
+    """把第 `idx` 帧的偏移/旋转施加到子网格上（相对静止变换，不累加）。
+
+    每帧都从静止量重算，而不是在上一帧基础上叠加——叠加的话渲染顺序一变
+    （比如加了个朝向循环）结果就不同，而那种错**只在多帧时才显形**。
+    """
+    for o, loc0, rot0, spec in rest:
+        vis = spec.get("visible")
+        if vis is not None:
+            # 逐帧显隐。弓手的箭要在**命中帧之后消失**——箭射出去了，弦上就该空。
+            # 这也是 `attack` 之外的状态里把箭藏起来的手段：部件是实体级的、不分状态，
+            # 而待机与奔跑时弓上本就不该搭着箭。
+            o.hide_render = not bool(vis[idx % len(vis)])
+        off = spec.get("offset")
+        if off:
+            d = off[idx % len(off)]
+            o.location = (loc0[0] + d[0], loc0[1] + d[1], loc0[2] + d[2])
+        rot = spec.get("rot")
+        if rot:
+            d = rot[idx % len(rot)]
+            o.rotation_mode = "XYZ"
+            o.rotation_euler = (rot0[0] + math.radians(d[0]),
+                                rot0[1] + math.radians(d[1]),
+                                rot0[2] + math.radians(d[2]))
+    if rest:
+        bpy.context.view_layer.update()   # matrix_world 要立刻可用（取景要读它）
 
 
 def find_bone(name):
@@ -454,7 +552,7 @@ def states_of(spec):
     for name, ov in st.items():
         e = json.loads(json.dumps(spec))
         e.pop("states", None)
-        for k in ("action", "frames"):
+        for k in ("action", "frames", "pose_frame", "impact_frame", "mesh_anim", "rot"):
             if k in ov:
                 e[k] = ov[k]
         for idx, pov in (ov.get("parts") or {}).items():
@@ -482,10 +580,11 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
             po = import_model(pp)
             new_acts = [a for a in bpy.data.actions if a not in before_acts]
             relocate_missing_textures(pp)
+            po = filter_meshes(po, part.get("only_meshes"), ident)
             if part.get("action"):
                 set_action(po, part["action"], new_acts)
             if part.get("pose"):
-                set_pose(po, part["pose"], frames[0])
+                set_pose(po, part["pose"], part.get("pose_frame", frames[0]))
             roots = [o for o in po if o.parent is None]
             # 各素材包尺度互不相干，跨包组合（如骑手上马）须先按 scale 对齐比例
             s = part.get("scale", 1.0)
@@ -550,13 +649,29 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
             return 0, None
         objs = import_model(path)
         relocate_missing_textures(path)
+        objs = filter_meshes(objs, spec.get("only_meshes"), ident)
         tinted = []
     # 顶层 action 只对单模型有效：parts 拼装时每个部件的动作各不相同（马在腾跃、
     # 骑手在待机），在这里统一绑定会把先前逐部件设好的动作全部覆盖掉。
     if spec.get("action") and not spec.get("parts"):
         set_action(objs, spec["action"])
+    # 顶层 rot：整体俯仰 / 翻滚，`yaw` 管不了的那两个轴。
+    #
+    # 两处要用：**在途箭矢**的模型长轴是竖直的（Z 向 1.93），不放平就是一根竖着飞的箭；
+    # **不死鸟俯冲**同理——Eagle.blend 只有 `Flying` 与 `Idle` 两个动作、没有攻击，
+    # 而俯冲本来也不该靠动作表达，它是整只鸟的姿态。
+    #
+    # 必须在归一化**之前**施加：归一化按包围盒定标，而俯仰会改变包围盒
+    # （竖直的箭放平之后，高度与宽度整个对调）。
+    if spec.get("rot"):
+        rx, ry, rz = [math.radians(v) for v in spec["rot"]]
+        for o in [o for o in objs if o.parent is None]:
+            o.rotation_euler = (o.rotation_euler[0] + rx,
+                                o.rotation_euler[1] + ry,
+                                o.rotation_euler[2] + rz)
+        bpy.context.view_layer.update()
     if spec.get("pose"):
-        set_pose(objs, spec["pose"], frames[0])
+        set_pose(objs, spec["pose"], spec.get("pose_frame", frames[0]))
     if spec.get("tint"):        # 已单独指定染色的部件不再被整体染色覆盖
         apply_tint([o for o in objs if o not in tinted], spec["tint"],
                    spec.get("tint_mode", "COLOR"), spec.get("brightness"))
@@ -566,15 +681,21 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
                       spec.get("max_width", 1.45), spec.get("kind") == "tile",
                       spec.get("modules"))
 
+    # 子网格的逐帧变换要在归一化之后收集（静止量含归一化后的缩放），
+    # 且必须在取景之前——撞木伸出去那一帧决定了画布该多宽。
+    mesh_rest = collect_mesh_anim(objs, spec["mesh_anim"]) if spec.get("mesh_anim") else []
+
     # 取景须在归一化之后：画布按实测投影范围确定，而非按声明尺寸估算
-    W, H, ortho, shift_x, shift_y = frame_for(objs, spec, dirs, frames, px_per_tile, margin)
+    W, H, ortho, shift_x, shift_y = frame_for(objs, spec, dirs, frames, px_per_tile,
+                                              margin, mesh_rest)
     setup_render(W, H)
     cam = setup_camera(ortho, shift_x, shift_y)
 
     n = 0
     for d in dirs:
-        for fr in frames:
+        for i, fr in enumerate(frames):
             bpy.context.scene.frame_set(fr)
+            apply_mesh_anim(mesh_rest, i)      # 顺序不可颠倒：frame_set 之后才施加
             pivot.rotation_euler[2] = math.radians(DIR_YAW[d] + spec.get("yaw", 0))
             suffix = f"_{fr}" if len(frames) > 1 else ""
             bpy.context.scene.render.filepath = os.path.join(out_dir, f"{ident}_{d}{suffix}.png")
@@ -586,6 +707,14 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
             "frames": list(frames)}
     if spec.get("kind"):
         info["kind"] = spec["kind"]        # 后处理据此跳过描边与地面投影
+    # impact_frame：本状态里「打出去」的那一帧（弓弦松开 / 刀锋落下）。
+    #
+    # 它存在的理由是**精灵资产不得编码任何待定数值**：`CLAUDE.md` 有「弓手有攻击前摇」
+    # 这条机制，而前摇时长是待标定的数值。若前端按「N 帧循环播完」来放攻击动画，
+    # 改前摇就要重渲精灵。给出命中帧之后，前端可以**保持命中前的帧**直到仿真说前摇结束，
+    # 再播其余帧 —— 帧数与 tick 因此解耦，动画只提供关键姿态、不提供时长。
+    if spec.get("impact_frame") is not None:
+        info["impact_frame"] = spec["impact_frame"]
     return n, info
 
 
@@ -594,7 +723,7 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
 SHADOW_PAD = 0.24
 
 
-def frame_for(objs, spec, dirs, frames, px_per_tile, margin):
+def frame_for(objs, spec, dirs, frames, px_per_tile, margin, mesh_rest=()):
     """把归一化后的几何投影到相机平面，按**实测范围**定画布与相机参数。
 
     必须在 normalize 之后调用。早先的做法是按 `height` / `max_width` 估算，
@@ -613,8 +742,9 @@ def frame_for(objs, spec, dirs, frames, px_per_tile, margin):
     us, vs = [0.0], [0.0]
     # 各朝向、各动画帧共用同一画布，故取全部的并集。只按首帧定画布的话，
     # 奔跑循环里前后腿全展的那几帧会被悄悄裁掉。
-    for f in frames:
+    for i, f in enumerate(frames):
         bpy.context.scene.frame_set(f)
+        apply_mesh_anim(mesh_rest, i)   # 撞木伸出去的那一帧也要算进画布，否则被裁掉
         bb = world_bbox(objs)
         if not bb:
             continue
@@ -680,8 +810,13 @@ def write_meta(out_dir, px_per_tile, dirs, sprites):
                  "锚点在菱形中心，按格心贴图即可无缝平铺。"
                  "所有精灵共用同一世界->像素缩放（px_per_tile），故相对大小正确；"
                  "画布逐状态适配，canvas 与 ground_anchor 必须按 (标识符,状态) 读取。"
-                 "状态间画布不同但锚点对齐，故 idle/move 切换不会跳动。"
-                 "ground_anchor 是画布内代表实体脚底的像素坐标。"),
+                 "状态间画布不同但锚点对齐，故状态切换不会跳动。"
+                 "ground_anchor 是画布内代表实体脚底的像素坐标。"
+                 "状态名不是固定集合，按实体声明：单位有 idle/move，能攻击的还有 attack，"
+                 "工匠是 work（它无战力，叫 attack 是错的）；未声明状态的实体只有 idle。"
+                 "impact_frame 是该状态里「打出去」的那一帧（弓弦松开 / 刀锋落下）。"
+                 "前端应当**保持命中前的帧**直到仿真说前摇结束、再播其余帧 —— "
+                 "不要按固定节奏播完，攻击前摇是待标定数值，精灵不编码时长。"),
         "sprites": sprites,
     }
     with open(path, "w", encoding="utf-8") as f:
@@ -704,8 +839,10 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
 
     entries = {}
-    for group in ("units", "buildings", "terrain"):
-        entries.update(mf.get(group, {}))
+    for group in ("units", "buildings", "terrain", "obstacles", "projectiles"):
+        # 跳过 `_` 开头的键：分组内允许放 `_comment` 之类的说明，它们不是实体
+        entries.update({k: v for k, v in mf.get(group, {}).items()
+                        if not k.startswith("_")})
 
     total, sprites = 0, {}
     for ident, spec in entries.items():
