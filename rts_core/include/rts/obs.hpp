@@ -46,7 +46,22 @@
 namespace rts {
 
 // 语义版本。**改通道含义时手动 +1。** 增删或重排通道不必靠它——指纹会变。
-inline constexpr int kObsVersion = 1;
+//
+// **版本 2：`visible` 从两档变三档。** 这一改动同时是「为什么指纹不够、
+// 必须再有一个版本号」的现成例子——通道名、归一化方式、成对标记一个字都没动，
+// 所以 `kObsLayoutFingerprint` **完全不变**，而含义变了。
+// 只靠指纹的话，一个用版本 1 权重的 checkpoint 会被判为兼容，然后学出来的
+// 「0 = 看不见」在新语义下是「从未见过」——不报错、不崩、只是策略是错的。
+//
+// 改动的理由见 `rts/fog.hpp` 文件头「三态，不是两态」：两档时
+// 「从未侦查过」与「侦查过、那里是个缺口」在张量里是同一串字节，
+// 而后者正是核心评估指标「AI 是否发现并利用已有缺口」要的东西。
+inline constexpr int kObsVersion = 2;
+
+static_assert(kObsVersion >= 2,
+              "visible 通道是三档（见 rts/fog.hpp 的 vis_value）。"
+              "把版本号退回 1 意味着有人把它改回了布尔——那会让「从未见过」"
+              "与「记忆里是缺口」再次不可区分。");
 
 // ——K×K 局部视野的边长——
 //
@@ -119,7 +134,9 @@ enum class ObsChannel : std::uint8_t {
     BldHp,             // 非墙建筑（塔、防空、兵营、采集……）血量比例
     ObstacleHp,        // 中立可破坏障碍
     Passable,          // 可通行地形
-    Visible,           // **观测者自己的迷雾状态**
+    Visible,           // **观测者自己的迷雾状态，三档**：0 从未见过 / 0.5 记忆 / 1 可见
+                       // 取值一律经 `rts::vis_value()`（`rts/fog.hpp`），
+                       // 不要在打包器里写 `vis != Unseen` 之类——那就压回两档了
     FlowDi,            // 目标方向场，格坐标 i 分量
     FlowDj,            // 同上，j 分量
 };
@@ -140,6 +157,10 @@ static_assert(static_cast<int>(ObsChannel::WallHp) == kObsPairedCount,
 // 在张量里是同一个 0。整套侦查博弈（佯攻诱饵、藏不死鸟、屏蔽集结区）
 // 都建立在这两者的区别上——分不开的话，AI 会把所有迷雾格当成空地，
 // 于是它永远不会学「先派斥候」。
+//
+// **而它必须是三档，两档不够**——同一条推理再走一步：两档时
+// 「从未见过」与「见过、那里是个缺口」又撞成同一串字节（两者的 `visible`
+// 与 `wall_hp` 全为 0）。完整推导在 `rts/fog.hpp` 文件头。
 
 struct ObsChannelSpec {
     std::string_view name;   // Python 侧的通道名，ASCII，snake_case

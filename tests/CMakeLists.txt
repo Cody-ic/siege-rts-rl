@@ -58,6 +58,9 @@ add_executable(rts_tests
     action_test.cpp
     command_test.cpp
     obs_test.cpp
+    terrain_test.cpp
+    fog_test.cpp
+    world_test.cpp
 )
 
 target_link_libraries(rts_tests PRIVATE rts_core game Catch2::Catch2WithMain)
@@ -102,7 +105,8 @@ target_compile_definitions(rts_tests PRIVATE
 #
 # 挑单条用例跑仍按 CLAUDE.md 写的那样直接用二进制：
 #     ./build/tests/Release/rts_tests "<用例名>"
-foreach(_tag rng hash types map scene iso names utf8path roster action command obs)
+foreach(_tag rng hash types map scene iso names utf8path roster action command obs
+        terrain fog world)
     add_test(NAME rts_tests_${_tag} COMMAND rts_tests "[${_tag}]")
 endforeach()
 

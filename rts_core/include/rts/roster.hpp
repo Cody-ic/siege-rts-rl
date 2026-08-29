@@ -30,6 +30,9 @@
 #ifndef RTS_ROSTER_HPP
 #define RTS_ROSTER_HPP
 
+// <cassert> 是 resource_of() 那条断言的硬性要求。types.hpp 也 include 它，
+// 但靠传递包含正是「头文件自足性守卫」要防的事（见 rts_core/CMakeLists.txt）。
+#include <cassert>
 #include <cstdint>
 #include <string_view>
 
@@ -92,6 +95,28 @@ enum class BldType : std::uint8_t {
 inline constexpr int kBldTypeCount = 11;
 
 static_assert(static_cast<int>(BldType::Mine) == kBldTypeCount - 1);
+
+// ——守方的三种资源——
+//
+// **三种，各对应一条不同的决策轴，且不可自由兑换**（CLAUDE.md「守方多资源」）：
+// 石材 = 硬防御的上限、木材 = 恢复速度与可维持性、金币 = 机动人力。
+// 攻方没有经济系统，所以这个枚举**只对守方有意义**——它不按 `Side` 参数化。
+//
+// 放在花名册这一头而不是另开一个 `economy.hpp`：它与下面那三座采集建筑是
+// **1:1 的一对**，而「一对」的两半分居两个头必然漂移。
+//
+// `game::ResourceType` 现在是本枚举的别名（`game/map_data.hpp`），
+// 理由与 `rts::Terrain` 那次相同：地图文件里的资源点要喂进仿真，
+// 而 `game` 链接 `rts_core`、反过来不行。
+enum class Resource : std::uint8_t {
+    Stone = 0,    // 石材：永久建筑的**主体**
+    Wood,         // 木材：**每座建筑的配料** + 维修 + 应急工事
+    Gold,         // 金币：部队、维持费
+};
+
+inline constexpr int kResourceCount = 3;
+
+static_assert(static_cast<int>(Resource::Gold) == kResourceCount - 1);
 
 // ——中立可破坏障碍——
 //
@@ -213,6 +238,62 @@ constexpr bool is_combat(UnitType t) noexcept {
     return true;
 }
 
+// ——采集建筑 ↔ 资源，两个方向都要——
+//
+// CLAUDE.md：「三种资源的主要来源都是地图上的资源点（对应采集建筑
+// `Quarry` / `Lumber` / `Mine`）」。这条 1:1 有两个消费者，方向相反：
+// 建造合法性要问「这座建筑能不能建在这个资源点上」（建筑 → 资源），
+// 地图装配要问「这个资源点上能建哪一座」（资源 → 建筑）。
+//
+// 两个方向都写出来，并由测试钉住它们互为逆——只写一个方向，另一侧就会在调用处
+// 手写一个 `if / else if / else`，而那份手写的副本正是漂移的起点。
+constexpr bool is_gatherer(BldType t) noexcept {
+    switch (t) {
+        case BldType::Quarry:
+        case BldType::Lumber:
+        case BldType::Mine:
+            return true;
+        case BldType::Keep:
+        case BldType::Wall:
+        case BldType::Gate:
+        case BldType::Tower:
+        case BldType::Flak:
+        case BldType::Watch:
+        case BldType::Barrack:
+        case BldType::Fence:
+            return false;
+    }
+    return false;
+}
+
+constexpr Resource resource_of(BldType t) noexcept {
+    assert(is_gatherer(t));
+    switch (t) {
+        case BldType::Quarry: return Resource::Stone;
+        case BldType::Lumber: return Resource::Wood;
+        case BldType::Mine:   return Resource::Gold;
+        case BldType::Keep:
+        case BldType::Wall:
+        case BldType::Gate:
+        case BldType::Tower:
+        case BldType::Flak:
+        case BldType::Watch:
+        case BldType::Barrack:
+        case BldType::Fence:
+            break;
+    }
+    return Resource::Stone;   // 不可达，上面已断言
+}
+
+constexpr BldType gatherer_of(Resource r) noexcept {
+    switch (r) {
+        case Resource::Stone: return BldType::Quarry;
+        case Resource::Wood:  return BldType::Lumber;
+        case Resource::Gold:  return BldType::Mine;
+    }
+    return BldType::Quarry;
+}
+
 // ——机械遍历——
 //
 // 存在的理由与 `game/map_data.hpp` 那组 count 常量相同：**要能把一个枚举遍历完**。
@@ -222,6 +303,7 @@ constexpr BldType bld_at(int i) noexcept { return static_cast<BldType>(i); }
 constexpr ObstacleType obstacle_at(int i) noexcept {
     return static_cast<ObstacleType>(i);
 }
+constexpr Resource resource_at(int i) noexcept { return static_cast<Resource>(i); }
 
 // ——代码标识符——
 //
@@ -272,6 +354,17 @@ constexpr std::string_view ident_of(ObstacleType t) noexcept {
         case ObstacleType::Stump:   return "Stump";
         case ObstacleType::Sapling: return "Sapling";
         case ObstacleType::Rubble:  return "Rubble";
+    }
+    return {};
+}
+
+// 资源没有精灵（它是一个数量，不是一个实体），所以这三个串只用于报错与
+// Python 侧的可读打印。用 snake_case 的小写形式与观测通道名同风格。
+constexpr std::string_view ident_of(Resource r) noexcept {
+    switch (r) {
+        case Resource::Stone: return "Stone";
+        case Resource::Wood:  return "Wood";
+        case Resource::Gold:  return "Gold";
     }
     return {};
 }
