@@ -32,6 +32,7 @@
 #include <vector>
 
 #include "game/map_data.hpp"
+#include "rts/roster.hpp"
 #include "rts/types.hpp"
 
 namespace game {
@@ -41,6 +42,23 @@ std::string_view display_name(ResourceType t) noexcept;
 std::string_view display_name(ResourceTier t) noexcept;
 std::string_view display_name(CorridorKind k) noexcept;
 std::string_view display_name(WallKind k) noexcept;
+
+// 花名册的展示名。**枚举在 `rts_core`，中文在这里**——这正是命名纪律的分工：
+// 仿真层只有标识符，中文一律留在展示层。
+//
+// 这三条与上面五条的一个区别值得留意：`rts::UnitType` 等是**仿真**的枚举，
+// 所以这里出现了一个跨层的对应关系（`rts_core` 的枚举 ↔ `game/` 的中文）。
+// 没有更好的放法——把中文放进 `rts_core` 会直接违反命名纪律，
+// 而在 `render/` 里翻译则让它退出默认构建、失去下面那条完备性保证。
+//
+// **`display_name(BldType::Wall)` 与 `display_name(WallKind::Wall)` 必须给出同一个词。**
+// `game::WallKind` 是 `rts::BldType` 在「地图文件里会出现的那两种」上的一个刻意的
+// 限制（于是构造不出 `WallSegment{Tower}`），代价就是同一个东西有两个枚举、
+// 各带一份中文。两份不一致的话，同一段墙在信息条与建造菜单里叫两个名字，
+// 而两边的代码都没错——所以由 `tests/display_names_test.cpp` 钉住。
+std::string_view display_name(rts::UnitType t) noexcept;
+std::string_view display_name(rts::BldType t) noexcept;
+std::string_view display_name(rts::ObstacleType t) noexcept;
 
 // 「这一格是什么」的一行中文。给光标旁的信息条用。
 //

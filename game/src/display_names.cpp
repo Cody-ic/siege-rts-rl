@@ -5,8 +5,9 @@
 namespace game {
 namespace {
 
-// 花名册里的中文展示名要与 CLAUDE.md 的对照表一致。这里只有地形与几个属性枚举
-// ——单位与建筑的花名册还在 `rts_core` 那边未定稿（#28），等它定了再在这里加一批。
+// 花名册里的中文展示名要与 CLAUDE.md 的三张对照表**逐字**一致。
+// 「逐字」不是洁癖：那三张表是四人对齐的依据，而玩家读到的就是这里的串，
+// 两边不一致时答辩材料里的名字与程序里的名字会对不上。
 
 // 别在这些 switch 上加 `default:`。整个完备性保证就靠「没有 default」——
 // 加了之后 MSVC 从 C4062 换成 C4061、GCC 的 -Wswitch 也不再报，
@@ -85,6 +86,51 @@ std::string_view display_name(WallKind k) noexcept {
     switch (k) {
         case WallKind::Wall: return "城墙";
         case WallKind::Gate: return "城门";
+    }
+    return {};
+}
+
+std::string_view display_name(rts::UnitType t) noexcept {
+    switch (t) {
+        case rts::UnitType::Archer:  return "戍卫弓手";
+        case rts::UnitType::Spear:   return "铁壁枪卫";
+        case rts::UnitType::Ranger:  return "逐风猎骑";
+        case rts::UnitType::Scout:   return "游猎斥候";
+        case rts::UnitType::Mason:   return "工匠";
+        case rts::UnitType::Ghoul:   return "亡灵步兵";
+        case rts::UnitType::Shade:   return "亡灵弓手";
+        case rts::UnitType::Knight:  return "鬼域骑士团";
+        case rts::UnitType::Phoenix: return "不死鸟";
+        case rts::UnitType::Wraith:  return "幽影窥使";
+        case rts::UnitType::Ram:     return "攻城锤";
+    }
+    return {};
+}
+
+std::string_view display_name(rts::BldType t) noexcept {
+    // 器物用描述名、阵营单位用风味名（CLAUDE.md 命名纪律）：所以建筑与器械这一栏
+    // 全是「一看就懂用途」的名字，而上面那栏活的单位才承载身份。
+    switch (t) {
+        case rts::BldType::Keep:    return "领主堡垒";
+        case rts::BldType::Wall:    return "城墙";
+        case rts::BldType::Gate:    return "城门";
+        case rts::BldType::Tower:   return "镇野箭楼";
+        case rts::BldType::Flak:    return "蔽空弩楼";
+        case rts::BldType::Watch:   return "瞭望塔";
+        case rts::BldType::Barrack: return "兵营";
+        case rts::BldType::Fence:   return "木栅";
+        case rts::BldType::Quarry:  return "采石场";
+        case rts::BldType::Lumber:  return "伐木场";
+        case rts::BldType::Mine:    return "金矿场";
+    }
+    return {};
+}
+
+std::string_view display_name(rts::ObstacleType t) noexcept {
+    switch (t) {
+        case rts::ObstacleType::Stump:   return "树桩";
+        case rts::ObstacleType::Sapling: return "幼树";
+        case rts::ObstacleType::Rubble:  return "碎石";
     }
     return {};
 }
@@ -172,6 +218,19 @@ const std::vector<std::string_view>& all_display_strings() {
         }
         for (int i = 0; i < kWallKindCount; ++i) {
             v.push_back(display_name(static_cast<WallKind>(i)));
+        }
+        // 花名册三张表。**加进来的直接后果是字体要多载约 40 个码点**，
+        // 而那正是它必须在这里出现的理由：PR D 一画实体就要显示单位名，
+        // 而没登记的汉字会渲成图集里的第一个字形——「镇野箭楼」变「平平平平」，
+        // 四个看着完全合理的汉字。等到那时才发现，就得反过来查为什么。
+        for (int i = 0; i < rts::kUnitTypeCount; ++i) {
+            v.push_back(display_name(rts::unit_at(i)));
+        }
+        for (int i = 0; i < rts::kBldTypeCount; ++i) {
+            v.push_back(display_name(rts::bld_at(i)));
+        }
+        for (int i = 0; i < rts::kObstacleTypeCount; ++i) {
+            v.push_back(display_name(rts::obstacle_at(i)));
         }
         return v;
     }();

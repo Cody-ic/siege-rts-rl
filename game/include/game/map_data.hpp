@@ -19,29 +19,35 @@
 #include <string>
 #include <vector>
 
+#include "rts/roster.hpp"
+#include "rts/terrain.hpp"
 #include "rts/types.hpp"
 
 namespace game {
 
-// 五种地形。顺序即 `layers.terrain.palette` 的下标，与 `地图与场景设计.md` 4.1 一致，
-// 也与 `tools/map_gen/mapfile.py` 的 TERRAIN_PALETTE 一致。**三处必须同序。**
-enum class Terrain : std::uint8_t {
-    Plain = 0,
-    Rock = 1,
-    Forest = 2,
-    Water = 3,
-    Bridge = 4,
-};
+// ——地形与资源种类现在定义在 `rts_core`，这里只是别名——
+//
+// 两者都被**仿真**消费，而依赖方向只能是 `game` → `rts_core`
+// （`game/CMakeLists.txt`：`target_link_libraries(game PUBLIC rts_core)`）。
+// `地图与场景设计.md` 4.2 明写「`rts_core` 载入时展开成三张按格的位图」，
+// 所以枚举住在 `game/` 是反的；搬家的完整理由见 `rts/terrain.hpp` 文件头。
+//
+// **用别名而不是逐处改名**：`game/` 与 `render/` 有 50 余处 `Terrain` 引用，
+// 而它们要表达的东西一个字都没变。别名不是「同一件事写在两处」——
+// 定义只有一份，这里只是给它一个本模块的名字。
+using Terrain = rts::Terrain;
+using ResourceType = rts::Resource;
 
-inline constexpr int kTerrainCount = 5;
+inline constexpr int kTerrainCount = rts::kTerrainCount;
 
 // `rows` 是逐**字符**解码的，所以调色板项数超过 10 时下标 ≥10 无法用单字符表达。
 // 五种远够，但把它写成编译期断言而不是注释——Python 侧同样的注释曾经声称会报错、
 // 实际不会（已在 #33 提出）。
+//
+// **这条留在 `game/` 而不是随枚举搬走**：它约束的是**地图文件的行编码**，
+// 而那是 `MapLoader` 的事；`rts_core` 不读文件，那边没有这条约束。
 static_assert(kTerrainCount <= 10,
               "rows 逐字符解码，palette 超过 10 项时下标 >=10 无法用单字符表达");
-
-enum class ResourceType : std::uint8_t { Stone, Wood, Gold };
 
 // `inner` 在城内、是保底收入；`outer` 在墙外、要派兵争夺（CLAUDE.md「资源分布形态」）。
 enum class ResourceTier : std::uint8_t { Inner, Outer };
@@ -61,7 +67,7 @@ enum class WallKind : std::uint8_t { Wall, Gate };
 // 所以名字一定会被加上；但 `all_display_strings()` 会漏掉它，字体因此少载几个码点。
 // 兜住这一步的是**画字的时候**——`render::FontSet::draw()` 逐码点核对集合成员，
 // 未登记的字符直接抛并指名是哪个字。所以这个洞的兜底在渲染侧，不在这里。
-inline constexpr int kResourceTypeCount = 3;
+inline constexpr int kResourceTypeCount = rts::kResourceCount;
 inline constexpr int kResourceTierCount = 2;
 inline constexpr int kCorridorKindCount = 4;
 inline constexpr int kWallKindCount = 2;

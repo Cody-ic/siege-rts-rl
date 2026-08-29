@@ -38,6 +38,10 @@ endforeach()
 
 add_library(rts_core STATIC
     src/rng.cpp
+    src/terrain.cpp
+    src/fog.cpp
+    src/world.cpp
+    src/replay.cpp
     ${_rts_self_contained_srcs}
 )
 

@@ -1,8 +1,9 @@
 // 仿真的基元类型。
 //
 // 这一层只放"不会因设计讨论而变"的东西：tick、阵营、格坐标、实体句柄。
-// 花名册枚举（UnitType / BldType）、地形枚举、动作枚举都**不在这里**——它们仍在
-// 变动中（PR #19 正在改花名册与地形），放进来会立刻过期。
+// 花名册枚举在 `rts/roster.hpp`、动作与命令在 `rts/action.hpp` / `rts/command.hpp`、
+// 观测通道在 `rts/obs.hpp`——**刻意分头放，因为它们的变动理由各不相同**：
+// 花名册随设计讨论变、观测通道随网络结构变，而本文件这一层不该被它们牵动。
 //
 // 依据：CLAUDE.md「rts_core 实现约定」与「确定性要求」。
 
@@ -15,8 +16,10 @@
 // 把 <compare> 顺带拉进来了。这类漏 include 只在**该头被单独包含**时才暴露，
 // 而 libstdc++ 与 MSVC STL 的内部包含图不同，它还可能只在一个平台上炸。
 // rts_core/CMakeLists.txt 里的「头文件自足性守卫」现在把这条钉住了。
+#include <cmath>
 #include <compare>
 #include <cstdint>
+#include <string_view>
 #include <type_traits>
 
 namespace rts {
@@ -46,6 +49,16 @@ inline constexpr int index_of(Side s) noexcept {
     return static_cast<int>(s);
 }
 
+// 代码标识符，给报错与日志用（同 `rts/roster.hpp` 的 `ident_of` 一族）。
+// 打整数值等于让读者自己去数哪一侧是 0。
+inline constexpr std::string_view ident_of(Side s) noexcept {
+    switch (s) {
+        case Side::Defender: return "Defender";
+        case Side::Attacker: return "Attacker";
+    }
+    return {};
+}
+
 // 连续世界坐标。用 float 而非定点数：CLAUDE.md 只要求**同平台同编译器**可复现，
 // 不要求跨平台位级一致（回放文件在 Windows 与 Linux 之间本来就不可复现）。
 // 定点数的实现与调试成本换不来任何本项目需要的性质。
@@ -72,6 +85,28 @@ struct GridPos {
 
     friend constexpr bool operator==(GridPos, GridPos) noexcept = default;
 };
+
+// ——连续坐标 ↔ 格坐标：约定只有这一份——
+//
+// 一格 `(i, j)` 覆盖 `[i, i+1) × [j, j+1)`，格心在 `(i + 0.5, j + 0.5)`。
+// 于是 `i = floor(x)`、`j = floor(y)`，而**格心不是格角**这一点必须写下来：
+// 取 `(i, j)` 当格心会让每个单位稳定偏半格，而半格偏移在等距投影下看起来
+// 像是「精灵锚点没对准」，第一反应会去查渲染而不是查这里。
+//
+// `i = x`、`j = y`：与地图文件的 `pos: [x, y]` 及 `rows[y][x]` 一致
+// （`game/map_data.hpp`、`tools/map_gen/mapfile.py`）。
+//
+// 用 `std::floor` 而不是强制转换：后者向零取整，`x = -0.5` 会得到格 0
+// 而正确答案是格 −1。地图内坐标非负，所以这条平时不生效——正因为不生效，
+// 它会一直是对的直到某次有人算出一个负的中间坐标。
+inline GridPos grid_of(Vec2 p) noexcept {
+    return GridPos{static_cast<std::int16_t>(std::floor(p.x)),
+                   static_cast<std::int16_t>(std::floor(p.y))};
+}
+
+inline Vec2 center_of(GridPos g) noexcept {
+    return Vec2{static_cast<float>(g.i) + 0.5f, static_cast<float>(g.j) + 0.5f};
+}
 
 // 实体句柄：索引 + 代数（generation），打包进一个 uint32。
 //
@@ -133,9 +168,24 @@ private:
 
 struct UnitTag {};
 struct BldTag {};
+struct ObstacleTag {};
 
 using UnitId = Handle<UnitTag>;
 using BldId = Handle<BldTag>;
+
+// 中立可破坏障碍（`Stump` / `Sapling` / `Rubble`，见 rts/roster.hpp）的句柄。
+//
+// **它现在几乎肯定还没有实体，位子仍然必须留。** 两个理由，第二个才是硬的：
+//
+//   * 不加 `Side::Neutral`。障碍不属于任何一侧，而观测通道是**按侧成对**定义的
+//     （rts/obs.hpp），塞一个第三侧进去会让成对通道变成奇数个，
+//     Python 侧按 (ally, enemy) 解包时**静默错位**——不报错，只是学不动
+//   * **回放的字节布局与 `state_hash` 的喂入顺序都要固定。** 事后新增一组实体
+//     会让所有已录回放失效，而回放是本项目主要的防 bug 手段
+//
+// 代价是一个空 tag 类型。这三种障碍本身随提案「无尽模式与地形分层」§6 待议
+// （CLAUDE.md 那张对照表下有同样的注），**即使被否，留着这一组的代价也不变**。
+using ObstacleId = Handle<ObstacleTag>;
 
 // 这些断言保护的是回放文件的字节布局与哈希的可比性：一旦某个基元类型的大小变了，
 // 旧回放会静默偏离，而"静默"是最坏的失败形态。
@@ -144,12 +194,16 @@ static_assert(sizeof(Vec2) == 8);
 static_assert(sizeof(GridPos) == 4);
 static_assert(sizeof(UnitId) == 4);
 static_assert(sizeof(BldId) == 4);
+static_assert(sizeof(ObstacleId) == 4);
 static_assert(std::is_trivially_copyable_v<Vec2>);
 static_assert(std::is_trivially_copyable_v<GridPos>);
 static_assert(std::is_trivially_copyable_v<UnitId>);
-// UnitId 与 BldId 不可互相转换——这正是 Tag 的目的。
+// 三种句柄两两不可互相转换——这正是 Tag 的目的。三组实体是三个独立的扁平数组，
+// 传错一个会静默索引到另一个数组，而下标恰好合法的概率很高。
 static_assert(!std::is_convertible_v<UnitId, BldId>);
 static_assert(!std::is_convertible_v<BldId, UnitId>);
+static_assert(!std::is_convertible_v<UnitId, ObstacleId>);
+static_assert(!std::is_convertible_v<ObstacleId, BldId>);
 
 }  // namespace rts
 

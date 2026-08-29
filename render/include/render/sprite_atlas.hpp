@@ -82,6 +82,20 @@ public:
     // （`--verify-assets`），不是每次启动都跑。
     std::size_t verify_all_declared();
 
+    // **花名册里的每一个实体都要有一张精灵。** 缺的一次全报出来。
+    //
+    // 上面那条查「元数据声明了的都渲出来了」，这条查**反方向**：
+    // 元数据自己没声明的，它当然不会报。而漏声明恰恰是更常见的那一半——
+    // 加一个单位只要改一个枚举，出图要跑 `tools/sprite_gen/`，两件事天然会脱节。
+    //
+    // 两组标识符现在正好 1:1（元数据 35 项 = 11 单位 + 11 建筑 + 3 障碍
+    // + 10 地形贴图变体）。**现在钉住是因为现在它是对的**——
+    // 等到某次真的对不上再补检查，就得先花时间弄清哪一边才是对的。
+    //
+    // 只查 `idle`：新增实体最起码要有 idle（`_sprite_meta.json` 的 note：
+    // 「未声明状态的实体只有 idle」）。逐状态的完整性由上面那条负责。
+    std::size_t verify_roster_covered();
+
     // 某个标识符的某个状态有几帧。渲染动画时要用。
     const std::vector<int>& frames_of(std::string_view ident,
                                       std::string_view state) const;

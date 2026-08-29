@@ -15,6 +15,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <string_view>
 #include <type_traits>
 
 namespace rts {
@@ -64,9 +65,26 @@ public:
         feed_pod(bits);
     }
 
-    std::uint64_t value() const noexcept { return h_; }
+    // 喂入一串字符，**可在编译期使用**。
+    //
+    // 上面那个 `feed(const void*, size_t)` 不能 constexpr（`static_cast` 到
+    // `unsigned char*` 在常量求值里不允许），所以要一条自己的重载。
+    //
+    // 加它的理由是一个具体需求：`rts/obs.hpp` 要在**编译期**把观测通道名折成一个
+    // 指纹，让「通道被重排、却忘了改版本号」变成加载权重时的硬失败，而不是
+    // Python 侧按旧顺序解包出一堆错位的通道——后者不报错、不崩，只是学不动。
+    //
+    // 刻意不另写一份 FNV：同一个算法在两处实现，迟早只改一处。
+    constexpr void feed_text(std::string_view s) noexcept {
+        for (const char c : s) {
+            h_ ^= static_cast<std::uint64_t>(static_cast<unsigned char>(c));
+            h_ *= kPrime;
+        }
+    }
 
-    void reset() noexcept { h_ = kOffsetBasis; }
+    constexpr std::uint64_t value() const noexcept { return h_; }
+
+    constexpr void reset() noexcept { h_ = kOffsetBasis; }
 
 private:
     std::uint64_t h_ = kOffsetBasis;

@@ -9,6 +9,7 @@
 #include "game/display_names.hpp"
 #include "game/map_data.hpp"
 #include "game/map_loader.hpp"
+#include "rts/roster.hpp"
 
 #ifndef GAME_TESTDATA_DIR
 #error "GAME_TESTDATA_DIR 未定义，见 tests/CMakeLists.txt"
@@ -101,6 +102,71 @@ TEST_CASE("每个枚举值都有非空且互异的中文名", "[names]") {
             v.push_back(game::display_name(static_cast<game::WallKind>(i)));
         }
         check(v);
+    }
+    SECTION("UnitType") {
+        std::vector<std::string_view> v;
+        for (int i = 0; i < rts::kUnitTypeCount; ++i) {
+            v.push_back(game::display_name(rts::unit_at(i)));
+        }
+        check(v);
+        // 抽查两个：一个守方风味名、一个攻方器械描述名。
+        // 「器物用描述名、阵营单位用风味名」是命名纪律里的一条，
+        // 而它只在这一层看得见——枚举标识符两类都是英文单词。
+        REQUIRE(game::display_name(rts::UnitType::Archer) == "戍卫弓手");
+        REQUIRE(game::display_name(rts::UnitType::Ram) == "攻城锤");
+    }
+    SECTION("BldType") {
+        std::vector<std::string_view> v;
+        for (int i = 0; i < rts::kBldTypeCount; ++i) {
+            v.push_back(game::display_name(rts::bld_at(i)));
+        }
+        check(v);
+    }
+    SECTION("ObstacleType") {
+        std::vector<std::string_view> v;
+        for (int i = 0; i < rts::kObstacleTypeCount; ++i) {
+            v.push_back(game::display_name(rts::obstacle_at(i)));
+        }
+        check(v);
+    }
+}
+
+TEST_CASE("城墙与城门在两个枚举里叫同一个名字", "[names]") {
+    // `game::WallKind` 是 `rts::BldType` 在「地图文件里会出现的那两种」上的
+    // 一个刻意的限制（于是构造不出 `WallSegment{Tower}`），代价是同一个东西
+    // 有两个枚举、各带一份中文。
+    //
+    // 两份不一致的话，同一段墙在光标信息条与建造菜单里叫两个名字——
+    // 而两边的代码都没错，编译器与上面那条互异性检查都不会说什么
+    // （它们各自在自己的枚举内互异）。这是**跨枚举**的一致性，只能单独查。
+    REQUIRE(game::display_name(game::WallKind::Wall) ==
+            game::display_name(rts::BldType::Wall));
+    REQUIRE(game::display_name(game::WallKind::Gate) ==
+            game::display_name(rts::BldType::Gate));
+}
+
+TEST_CASE("花名册的展示名全部进了字体码点清单", "[names]") {
+    // `all_display_strings()` 是前端推导字体码点集合的**唯一**输入。
+    // 加了 display_name 重载却忘了在那个函数里遍历它，后果是那批汉字没进码点集合
+    // ——而字体里明明有，于是渲成图集里的第一个字形（「镇野箭楼」→「平平平平」）。
+    //
+    // 这条查的正是那一步：25 个实体名，一个都不许漏。
+    std::set<std::string_view> registered(game::all_display_strings().begin(),
+                                          game::all_display_strings().end());
+    for (int i = 0; i < rts::kUnitTypeCount; ++i) {
+        const std::string_view n = game::display_name(rts::unit_at(i));
+        INFO("单位 " << rts::ident_of(rts::unit_at(i)));
+        REQUIRE(registered.count(n) == 1);
+    }
+    for (int i = 0; i < rts::kBldTypeCount; ++i) {
+        const std::string_view n = game::display_name(rts::bld_at(i));
+        INFO("建筑 " << rts::ident_of(rts::bld_at(i)));
+        REQUIRE(registered.count(n) == 1);
+    }
+    for (int i = 0; i < rts::kObstacleTypeCount; ++i) {
+        const std::string_view n = game::display_name(rts::obstacle_at(i));
+        INFO("障碍 " << rts::ident_of(rts::obstacle_at(i)));
+        REQUIRE(registered.count(n) == 1);
     }
 }
 

@@ -8,6 +8,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "rts/roster.hpp"
 #include "rts/utf8_path.hpp"
 
 namespace render {
@@ -270,6 +271,39 @@ std::size_t SpriteAtlas::verify_all_declared() {
         throw AssetError(all);
     }
     return loaded;
+}
+
+std::size_t SpriteAtlas::verify_roster_covered() {
+    std::vector<std::string> missing;
+    std::size_t checked = 0;
+
+    // **机械地按 count 遍历三个枚举**，不手抄名单。抄一份名单意味着
+    // 「加了枚举值忘了加进名单」这条路径没人管，而那正是本函数要防的那类脱节。
+    const auto want = [&](std::string_view ident, std::string_view what) {
+        ++checked;
+        if (meta_.find(std::string(ident)) == meta_.end()) {
+            missing.emplace_back(std::string(what) + " " + std::string(ident));
+        }
+    };
+    for (int i = 0; i < rts::kUnitTypeCount; ++i) {
+        want(rts::ident_of(rts::unit_at(i)), "单位");
+    }
+    for (int i = 0; i < rts::kBldTypeCount; ++i) {
+        want(rts::ident_of(rts::bld_at(i)), "建筑");
+    }
+    for (int i = 0; i < rts::kObstacleTypeCount; ++i) {
+        want(rts::ident_of(rts::obstacle_at(i)), "障碍");
+    }
+
+    if (!missing.empty()) {
+        std::string all = "花名册里有 " + std::to_string(missing.size()) +
+                          " 个实体在精灵元数据里没有条目（共查 " +
+                          std::to_string(checked) + " 个）：";
+        for (const std::string& m : missing) all += "\n  - " + m;
+        all += "\n  出图跑 tools/sprite_gen/，别只改枚举。";
+        throw AssetError(all);
+    }
+    return checked;
 }
 
 void SpriteAtlas::preload_idle(const std::vector<std::string>& idents) {
