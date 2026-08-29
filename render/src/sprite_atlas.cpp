@@ -68,12 +68,37 @@ SpriteAtlas::SpriteAtlas(const std::string& sprite_dir) : dir_(sprite_dir) {
         }
     }
 
+    // 顶层 `dirs`：默认朝向集合。缺了就退回四个方位——旧元数据（本字段之前录的）
+    // 没有它，而那时朝向集合确实就是这四个。
+    if (doc.contains("dirs") && doc["dirs"].is_array()) {
+        for (const json& d : doc["dirs"]) {
+            if (d.is_string()) default_dirs_.push_back(d.get<std::string>());
+        }
+    }
+    if (default_dirs_.empty()) {
+        default_dirs_ = {"SE", "SW", "NE", "NW"};
+    }
+
     const json& sprites = doc.contains("sprites") ? doc["sprites"] : json::object();
     if (!sprites.is_object() || sprites.empty()) {
         throw AssetError(meta_path + " 的 `sprites` 为空或不是对象");
     }
 
     for (auto it = sprites.begin(); it != sprites.end(); ++it) {
+        // 每实体可覆盖 `dirs`。只在与默认不同时元数据里才有这个字段，
+        // 所以「没有它」不是缺陷，是「用默认的」。
+        if (it.value().contains("dirs") && it.value()["dirs"].is_array()) {
+            std::vector<std::string> ds;
+            for (const json& d : it.value()["dirs"]) {
+                if (d.is_string()) ds.push_back(d.get<std::string>());
+            }
+            if (ds.empty()) {
+                throw AssetError(meta_path + "：`sprites." + it.key() +
+                                 ".dirs` 是空数组。要么给出朝向名，要么整个字段别写"
+                                 "（那表示用顶层的默认值）");
+            }
+            dirs_[it.key()] = std::move(ds);
+        }
         const json& states = it.value().contains("states") ? it.value()["states"]
                                                            : json::object();
         if (!states.is_object()) continue;
@@ -119,6 +144,24 @@ SpriteAtlas::SpriteAtlas(const std::string& sprite_dir) : dir_(sprite_dir) {
             sm.is_tile = st.value().contains("kind") &&
                          st.value()["kind"].is_string() &&
                          st.value()["kind"].get<std::string>() == "tile";
+            sm.is_projectile = st.value().contains("kind") &&
+                               st.value()["kind"].is_string() &&
+                               st.value()["kind"].get<std::string>() == "projectile";
+            // 旋转中心。**弹丸必须有**——缺了就是元数据坏了，而拿
+            // `ground_anchor` 顶上去的症状只在转起来之后才看得见，
+            // 那时根因已经很难追回到资产上。所以在这里就红。
+            if (sm.is_projectile) {
+                if (!st.value().contains("pivot")) {
+                    throw AssetError(meta_path + "：" + where +
+                                     " 的 kind 是 projectile 但缺少 `pivot`。"
+                                     "\n    出图跑 tools/sprite_gen/ 重渲——"
+                                     "不要拿 ground_anchor 代替它，那是脚底、不是旋转中心");
+                }
+                sm.pivot = need_vec2(st.value()["pivot"], where + ".pivot");
+            } else {
+                // 非弹丸不旋转，给一个不会被用错的退化值。
+                sm.pivot = sm.ground_anchor;
+            }
             meta_[it.key()][st.key()] = sm;
         }
     }
@@ -170,6 +213,23 @@ bool SpriteAtlas::has_state(std::string_view ident,
     const auto i = meta_.find(std::string(ident));
     if (i == meta_.end()) return false;
     return i->second.find(std::string(state)) != i->second.end();
+}
+
+const std::vector<std::string>& SpriteAtlas::dirs_of(std::string_view ident) const {
+    const auto i = dirs_.find(std::string(ident));
+    return (i != dirs_.end()) ? i->second : default_dirs_;
+}
+
+Vector2 SpriteAtlas::pivot_of(std::string_view ident,
+                              std::string_view state) const {
+    return state_meta(ident, state).pivot;
+}
+
+bool SpriteAtlas::is_projectile(std::string_view ident) const noexcept {
+    const auto i = meta_.find(std::string(ident));
+    if (i == meta_.end() || i->second.empty()) return false;
+    // 逐状态存的，但 `kind` 是实体级的属性——取任一状态即可。
+    return i->second.begin()->second.is_projectile;
 }
 
 std::string SpriteAtlas::file_name(std::string_view ident, std::string_view state,
@@ -231,7 +291,6 @@ const Sprite& SpriteAtlas::get(std::string_view ident, std::string_view state,
 }
 
 std::size_t SpriteAtlas::verify_all_declared() {
-    static const char* const kFacings[] = {"SE", "SW", "NE", "NW"};
     std::vector<std::string> missing;
     std::size_t loaded = 0;
 
@@ -239,7 +298,11 @@ std::size_t SpriteAtlas::verify_all_declared() {
     // 便于 diff。（渲染顺序不进仿真，这里不是确定性要求，但廉价。）
     for (const auto& [ident, states] : meta_) {
         for (const auto& [state, sm] : states) {
-            for (const char* facing : kFacings) {
+            // **朝向按实体取。** 这里曾硬编码 `{"SE","SW","NE","NW"}`，于是
+            // 只有 `FREE` 一个朝向的弹丸会被报成「缺 4 张素材」——而那 4 张
+            // 本来就不该存在。「本函数查的是元数据声明了的都渲出来了」，
+            // 那就必须按元数据说的朝向查，不能按一份写死的名单查。
+            for (const std::string& facing : dirs_of(ident)) {
                 // 单帧状态传 0（`file_name()` 会取 frames 首项且不加后缀）；
                 // 多帧状态**逐帧**要，因为「声明了 4 帧只渲出 3 帧」正是要抓的错。
                 const std::vector<int> frames =
@@ -307,10 +370,12 @@ std::size_t SpriteAtlas::verify_roster_covered() {
 }
 
 void SpriteAtlas::preload_idle(const std::vector<std::string>& idents) {
-    static const char* const kFacings[] = {"SE", "SW", "NE", "NW"};
     std::vector<std::string> missing;
     for (const std::string& id : idents) {
-        for (const char* f : kFacings) {
+        // 朝向按实体取，同 `verify_all_declared()`——这里曾是第二份写死的
+        // `{"SE","SW","NE","NW"}`。**同一个常量写在两处**，所以加 `FREE` 时
+        // 两处都会坏；一处修了另一处没修的话，症状是「校验通过但预载失败」。
+        for (const std::string& f : dirs_of(id)) {
             try {
                 get(id, "idle", f);
             } catch (const AssetError& e) {
@@ -320,7 +385,7 @@ void SpriteAtlas::preload_idle(const std::vector<std::string>& idents) {
     }
     if (!missing.empty()) {
         // 一次把**全部**缺失报出来，而不是抛第一个就走。
-        // 缺素材通常是一批（漏渲一个实体 = 缺四个朝向），一个一个修四遍很蠢。
+        // 缺素材通常是一批（漏渲一个实体 = 缺它的每个朝向），一个一个修很蠢。
         std::string all = "预载失败，共 " + std::to_string(missing.size()) + " 处：";
         for (const std::string& m : missing) all += "\n  - " + m;
         throw AssetError(all);

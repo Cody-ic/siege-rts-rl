@@ -28,7 +28,24 @@ TILE_SIDE = 1.0 / math.sqrt(2.0)
 
 # 朝向 -> 模型绕 Z 轴的额外旋转（度）。
 # 首次接入新模型时请渲一张出来目视确认，不对就改 assets.json 里的 yaw。
-DIR_YAW = {"SE": 0, "SW": 90, "NE": 270, "NW": 180}
+#
+# `FREE` 不是一个方位，它表示「**这张图不承诺任何朝向，方向由前端在运行时旋转**」。
+# 目前只有弹丸用它（`projectiles` 分组），理由见 README §8：弹丸的飞行方向是
+# **连续的**，四个量化方位本质上表达不了——初版硬渲四向的结果是三长一短
+# （某个方位恰好接近视线方向，内容框被压到不足一半）。
+#
+# 它的取值 45° 是**推导出来再实测确认的**，不是试出来的：相机 `rotation_euler`
+# 是 `(PITCH, 0, YAW)`，于是屏幕水平轴（相机 local +X）在世界里是
+# `(cos YAW, sin YAW, 0)`。让模型的长轴与它平行，投影后就水平——而水平是
+# 2D 旋转的正确起点（前端加 `atan2` 出来的屏幕角即可）。
+#
+# **`SE` 那个 0° 不能拿来当起点**：它让箭在屏幕上斜着，前端旋转时得先减掉这个
+# 未写在任何地方的固有偏角。这条偏角一旦漏掉，症状是「箭大致朝目标飞，但总歪一点」,
+# 而那看着像弹道算错，不像资产不对。
+DIR_YAW = {"SE": 0, "SW": 90, "NE": 270, "NW": 180, "FREE": 45}
+
+# 用 `FREE` 的条目必须渲成横躺。判据见 `check_assets.py`：内容框的高宽比要小。
+FREE_DIR = "FREE"
 
 
 def argv_after_ddash():
@@ -707,6 +724,19 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
             "frames": list(frames)}
     if spec.get("kind"):
         info["kind"] = spec["kind"]        # 后处理据此跳过描边与地面投影
+    if spec.get("kind") == "projectile":
+        # **弹丸另给一个 `pivot`：前端要绕它旋转的那个点。**
+        #
+        # `ground_anchor` 对弹丸是没有意义的——它是「实体脚底」，而弹丸不站在
+        # 地上。但它也不能就这么被当成旋转中心用：它是**世界原点**的投影，
+        # 而 `normalize()` 把 bbox 中心移到原点之后 `pivot` 又绕自身 location
+        # 旋转了 45°，于是原点的投影与箭的视觉中心实测差 19–26 px。
+        # 拿它当旋转中心，箭会绕一个看不见的点公转——那是很显眼的错，
+        # 但**在静态精灵上完全看不出来**，只有转起来才暴露。
+        #
+        # 所以这里算的是**几何中心**（pivot 下所有网格的世界 bbox 中心），
+        # 而不是原点。它与 alpha 内容框中心一致（描边对称，不改中心）。
+        info["pivot"] = mesh_center_px(pivot, cam, W, H)
     # impact_frame：本状态里「打出去」的那一帧（弓弦松开 / 刀锋落下）。
     #
     # 它存在的理由是**精灵资产不得编码任何待定数值**：`CLAUDE.md` 有「弓手有攻击前摇」
@@ -790,6 +820,42 @@ def ground_anchor(cam, W, H):
     return [round(co.x * W, 1), round((1.0 - co.y) * H, 1)]
 
 
+def mesh_center_px(pivot, cam, W, H):
+    """`pivot` 下所有网格的世界 bbox 中心在画布中的像素坐标。
+
+    只给弹丸用（见 `render_entry`）。与 `ground_anchor` 的区别是它取**几何中心**
+    而不是世界原点——旋转中心必须落在物体自己身上，而原点在旋转之后不一定还在。
+
+    投影的是 bbox 的**八个角点再取像素均值**，不是「先算世界中心再投影」。
+    两者在正交投影下等价，但前者对 `world_to_camera_view` 的实现细节
+    （shift / ortho_scale 怎么进矩阵）不做任何假设，改相机时不会静默偏掉。
+    """
+    from bpy_extras.object_utils import world_to_camera_view
+    objs = [o for o in bpy.data.objects
+            if o.type == "MESH" and _has_ancestor(o, pivot)]
+    bb = world_bbox(objs)
+    if bb is None:
+        return ground_anchor(cam, W, H)
+    lo, hi = bb
+    xs, ys = [], []
+    for x in (lo.x, hi.x):
+        for y in (lo.y, hi.y):
+            for z in (lo.z, hi.z):
+                co = world_to_camera_view(bpy.context.scene, cam, Vector((x, y, z)))
+                xs.append(co.x * W)
+                ys.append((1.0 - co.y) * H)
+    return [round((min(xs) + max(xs)) / 2, 1), round((min(ys) + max(ys)) / 2, 1)]
+
+
+def _has_ancestor(obj, anc):
+    p = obj.parent
+    while p is not None:
+        if p is anc:
+            return True
+        p = p.parent
+    return False
+
+
 def write_meta(out_dir, px_per_tile, dirs, sprites):
     # 与已有元数据合并：--only 只重渲部分实体时，直接覆盖会丢掉其余条目
     path = os.path.join(out_dir, "_sprite_meta.json")
@@ -816,7 +882,16 @@ def write_meta(out_dir, px_per_tile, dirs, sprites):
                  "工匠是 work（它无战力，叫 attack 是错的）；未声明状态的实体只有 idle。"
                  "impact_frame 是该状态里「打出去」的那一帧（弓弦松开 / 刀锋落下）。"
                  "前端应当**保持命中前的帧**直到仿真说前摇结束、再播其余帧 —— "
-                 "不要按固定节奏播完，攻击前摇是待标定数值，精灵不编码时长。"),
+                 "不要按固定节奏播完，攻击前摇是待标定数值，精灵不编码时长。"
+                 "顶层 dirs 是默认朝向集合；某个实体若自带 dirs 字段则以它为准"
+                 "（没有该字段就用顶层的，这是向后兼容的读法）。"
+                 "朝向名 FREE 表示**这张图不承诺任何朝向**：它渲成横躺、箭头朝右"
+                 "（屏幕 +X 即 0 弧度），方向由前端在运行时按飞行角 2D 旋转。"
+                 "弹丸用它，因为飞行方向是连续的、四个量化方位表达不了。"
+                 "kind==projectile 的条目另有 pivot 字段：**要绕它旋转的那个像素点**。"
+                 "不要拿 ground_anchor 当旋转中心——那是世界原点的投影、代表脚底，"
+                 "而弹丸不站在地上，两者实测差 19–26 px，"
+                 "用错的症状是箭绕一个看不见的点公转（静态图上看不出来）。"),
         "sprites": sprites,
     }
     with open(path, "w", encoding="utf-8") as f:
@@ -848,14 +923,24 @@ def main():
     for ident, spec in entries.items():
         if args["only"] and ident not in args["only"]:
             continue
+        # **每实体可覆盖 `dirs`。** 口子开在这里而不是给 `projectiles` 分组写一条
+        # 特例分支：分组名是给人读的归类，不该同时是渲染行为的开关——那样
+        # 「换个分组会不会改变出图」就成了一个要读代码才能回答的问题。
+        entry_dirs = spec.get("dirs", dirs)
         st_info = {}
         for st_name, eff in states_of(spec):
-            n, info = render_entry(f"{ident}_{st_name}", eff, base, out_dir, px, margin, dirs)
+            n, info = render_entry(f"{ident}_{st_name}", eff, base, out_dir, px,
+                                   margin, entry_dirs)
             total += n
             if info:
                 st_info[st_name] = info
         if st_info:
-            sprites[ident] = {"cn": spec.get("cn", ident), "states": st_info}
+            rec = {"cn": spec.get("cn", ident), "states": st_info}
+            # **只在与全局不同时才写**，于是 35 个老条目的元数据一个字节都不变，
+            # 而前端「没有这个字段就用顶层 dirs」是一条向后兼容的读法。
+            if entry_dirs != dirs:
+                rec["dirs"] = entry_dirs
+            sprites[ident] = rec
     if total:
         write_meta(out_dir, px, dirs, sprites)
     print(f"\n共 {total} 帧 -> {out_dir}")

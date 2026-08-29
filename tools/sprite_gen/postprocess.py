@@ -242,7 +242,26 @@ def main():
         return
     for ident, n in sorted(counts.items()):
         print(f"  {ident:8s} {n} 帧")
-    groups = {i: [d[k][1] for k in dirs_order if k in d] for i, d in picked.items()}
+    # **朝向集合按实体取，不是全局一份。** 用 `dirs: ["FREE"]` 的条目（弹丸）
+    # 一张也匹配不上顶层的 SE/SW/NE/NW，于是这个列表推导会得到空列表——
+    # 而空列表会让 `contact_sheet` 在 `max()` 上崩溃，traceback 指向那一行，
+    # **完全看不出真因是文件名的朝向与元数据对不上**。
+    def dirs_of(ident):
+        return meta.get("sprites", {}).get(ident, {}).get("dirs", dirs_order)
+
+    groups = {i: [d[k][1] for k in dirs_of(i) if k in d] for i, d in picked.items()}
+    # 上面那条只修真因。**这条是防御**：任何别的原因（手删过几张图、
+    # 元数据比图新）同样会造出空组，而下一步崩在 `max()` 上。报出来更有用。
+    empty = sorted(i for i, fr in groups.items() if not fr)
+    if empty:
+        for i in empty:
+            print(f"  [警告] {i}: 元数据声明的朝向 {dirs_of(i)} 一张都没匹配上，"
+                  f"实际找到 {sorted(picked[i])}；不进对照图")
+        groups = {i: fr for i, fr in groups.items() if fr}
+    if not groups:
+        print("没有任何条目能进对照图（见上面的警告）。图仍已逐张处理完毕。")
+        write_meta(outdir, cell, dfl)
+        return
     if skipped:
         print(f"\n跳过 {skipped} 张已处理的图（--force 可强制重处理，"
               f"但只应对未经后处理的原始渲染输出使用）")

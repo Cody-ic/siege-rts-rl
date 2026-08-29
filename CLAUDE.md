@@ -18,7 +18,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `rts_core/` | 确定性地基 + **接口契约（已全部落地）**：花名册与地形枚举、动作、命令、观测注册表、`World`、只读视图、迷雾、**确定性回放**。**机制仍是一行都没有**：战斗、寻路、视野、经济全在 1c |
 | `rts_core 接口契约.md` | 接口的**决定与理由**（形状看头文件）。含 PR #23 评论串里辩定的十三条，以及逐版答掉的七条 |
 | `tests/` | Catch2（经 FetchContent）。条目数不写死，要数就 `ctest -N` |
-| `tools/sprite_gen/` | 纯 Python 精灵预渲染流水线，35 实体 × 4 朝向 × 逐实体状态 = 476 张成品已入库（`idle` / `move` / `attack` / `work`） |
+| `tools/sprite_gen/` | 纯 Python 精灵预渲染流水线，37 实体 × 逐实体朝向 × 逐实体状态 = 478 张成品已入库（`idle` / `move` / `attack` / `work`）。**朝向数不再全局一致**：弹丸只有一个 `FREE`（横躺一张，前端按飞行角 2D 旋转），其余仍是四方位——所以别再假定「× 4」，问 `dirs_of(ident)` |
 | `tools/check_determinism_bans.py` | 把本文的确定性禁令变成会红的 ctest |
 | `tools/check_cmake_freshness.py` | 把「构建目录的配置比 `CMakeLists.txt` 旧」变成会红的 ctest。**`ctest` 单独跑不会发现这件事**，会给出一个绿色的子集 |
 | `.mailmap` / `.gitattributes` | 作者名规范化；数据文件强制 LF（理由见 `地图与场景设计.md` 6.3） |
