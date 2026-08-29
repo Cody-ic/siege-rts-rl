@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""地图校验器 —— `地图与场景设计.md` 第 8 节那 15 条的可执行形式。
+"""地图校验器 —— `地图与场景设计.md` 第 8 节那 21 条的可执行形式。
 
 第 8 节开头写「`tools/map_gen/` 的校验器是地图规范的可执行部分。手写地图与
 生成地图都必须通过」。本文件就是那一句。
 
 ## 三种状态，以及为什么「未实现」也要显式报出来
 
-15 条里现在有 10 条真正在跑。剩下的分两类，**都不静默跳过**：
+21 条里现在有 13 条真正在跑。剩下的分两类，**都不静默跳过**：
 
-- **阻塞**（第 9 条）—— 判据本身还写不出来，原因见 `README.md`
+- **阻塞**（第 9、18、19、20 条）—— 判据本身还写不出来，原因见 `README.md`
 - **待阈值**（第 1、2、5、14 条）—— 判据清楚，但要等 `thresholds.json`（PR 3）
 
 「跳过」若不出现在报告里，校验器就会随着条目增加而慢慢变成一个只查几条的东西，
@@ -17,14 +17,14 @@
 
 ## 一条防漂移的断言
 
-`CHECKS` 表必须正好覆盖 1..15、不重不漏，由 `selftest.py` 钉住。
+`CHECKS` 表必须正好覆盖 1..21、不重不漏，由 `selftest.py` 钉住。
 第 8 节将来若加条目（例如 #26 的 A5 若通过，要加一条「§2 必须配 §3」的检查），
 这条断言会立刻变红提醒同步 —— 白名单漏登记抓不到，是 `tests/CMakeLists.txt`
 里已经踩过的坑。
 
 用法:
     py validate.py <地图文件或目录> [更多...]
-    py validate.py --list          # 只列 15 条的状态，不读地图
+    py validate.py --list          # 只列 21 条的状态，不读地图
 """
 import argparse
 import sys
@@ -44,7 +44,7 @@ Check = namedtuple("Check", "no title fn status note")
 
 # 第 8 节要求的总条目数。写成常量而不是 len(CHECKS)，这样「漏写一条」会被
 # selftest 抓到 —— 用 len() 去校验 CHECKS 自己，等于用它证明它自己。
-SPEC_CHECK_COUNT = 15
+SPEC_CHECK_COUNT = 21
 
 
 # --------------------------------------------------------------------------
@@ -369,6 +369,117 @@ def check_content_hash(doc, grid):
     return [f"content_hash 对不上：文件里写的是 {stated}，实际算出 {actual}"]
 
 
+def check_entity_cells(doc, grid):
+    """第 16 条：`resources` 与 `keep` 必须落在**可通行且可建造**的格上。
+
+    §8.1 给这条标的来源是「实测」，症状写得很准：把资源点摆进水里、
+    把另一个摆进岩壁里，**格式层与那 15 条全部放行** —— 手画的图渲出来一切正常，
+    直到 `rts_core` 发现采石场盖不上去。
+
+    「可通行**且**可建造」按 §8.1 字面写两个条件，但要知道**今天只有后者在做功**：
+    五种地形里 `buildable` 的只有 `Plain`，而 `Plain` 可通行，所以
+    `buildable ⇒ passable` 恒成立。两个都写是为了地形表将来长出
+    「可建造但不可通行」那一格时不必回头改这条 —— **不是因为它现在能抓到什么**。
+    写明这点，免得有人把它「化简」掉，也免得有人以为那一半在保护什么。
+
+    `no_build` 也算在内，因为 `is_buildable()` 就是 4.2 那条组合规则
+    （`terrain.buildable AND NOT no_build`）的唯一实现处。
+    """
+    problems = []
+
+    def bad(x, y):
+        return not (grid.is_passable(x, y) and grid.is_buildable(x, y))
+
+    kx, ky = grid.keep
+    if bad(kx, ky):
+        problems.append(
+            f"keep {list(grid.keep)} 落在 {grid.terrain_at(kx, ky)} 上"
+            f"（no_build={grid.no_build[ky][kx]}）—— 堡垒盖不上去")
+    for r in doc["resources"]:
+        x, y = r["pos"]
+        if bad(x, y):
+            problems.append(
+                f"{r['tier']} 资源点 {r['type']} {list(r['pos'])} 落在 "
+                f"{grid.terrain_at(x, y)} 上（no_build={grid.no_build[y][x]}）"
+                f"—— 采集建筑盖不上去，而地图渲出来看不出任何异常")
+    return problems
+
+
+def check_placement_conflicts(doc, grid):
+    """第 17 条：墙不落在 `Rock` / `Water` 上；同格不得两条墙；集结点不得重合。
+
+    三条都来自实测，且**格式层查不到**：它按**字段**查（`spawns[i].id` 不重复、
+    坐标在界内），而这三条问的是**坐标之间**的关系。
+
+    墙的重复必须查 `doc["initial_walls"]`，**不能查 `grid.walls`** —— 后者是按
+    坐标索引的字典，重复在建 `Grid` 时就被后写的覆盖了（`grid.py` 那里明写
+    「重复本身由 validate 报」）。拿 `grid` 去找重复，等于用一个已经把证据丢掉的
+    结构找证据，而它会**永远报通过**。
+
+    **墙那一条按 §8.1 字面只查 `Rock` / `Water`，没有扩大成「必须可建造」。**
+    后者更严（会连 `Forest` 一起拒），而且有一条像样的理由：2.1 的森林带靠
+    「森林不可建造」封住围墙，地图作者若把初始墙直接摆在带子上，那条保证就被
+    绕过去了。但**扩大检查范围会拒掉今天合法的地图，那属于规范该不该改的问题，
+    不该由实现单方面决定** —— 同第 11 条对 `Forest` / `Bridge` 孤岛的处理。
+    已记进第 10 节。
+    """
+    problems = []
+
+    seen_wall = {}
+    for i, w in enumerate(doc["initial_walls"]):
+        pos = tuple(w["pos"])
+        x, y = pos
+        t = grid.terrain_at(x, y)
+        if t in gridmod.NATURAL_BLOCKERS:
+            problems.append(
+                f"initial_walls[{i}]（{w['kind']}）落在 {t} 上 {list(pos)} —— "
+                f"天然屏障上摆墙：渲出来是一段墙压在岩壁/水里，而寻路那侧"
+                f"「墙是高代价可通行」与「{t} 不可通行」互相矛盾")
+        if pos in seen_wall:
+            problems.append(
+                f"initial_walls[{i}] 与 [{seen_wall[pos]}] 同在 {list(pos)} —— "
+                f"同一格两条墙。载入时后写的覆盖先写的，于是**文件里的血量与"
+                f"实际生效的不一致**，而两者都看不出错")
+        else:
+            seen_wall[pos] = i
+
+    seen_spawn = {}
+    for s in doc["spawns"]:
+        pos = tuple(s["pos"])
+        if pos in seen_spawn:
+            problems.append(
+                f"集结点 id={s['id']} 与 id={seen_spawn[pos]} 同在 {list(pos)} —— "
+                f"格式层只查了 id 不重复。两个集结点重合会让第 3 条要求的"
+                f"「每条走廊性质不同」在几何上不成立：同一个位置没有两条走廊")
+        else:
+            seen_spawn[pos] = s["id"]
+    return problems
+
+
+def check_has_outer_resource(doc, grid):
+    """第 21 条：至少要有一个 `outer` 资源点。
+
+    **这条是落地第 7 条时查出来的洞**，编号接在 §8.1 的 16..20 之后。
+
+    第 7 条在一个 `outer` 都没有时空过，第 6 条只查 `inner` 侧三种齐全，
+    于是**一张把所有资源都放在城里的地图能通过全部检查** —— 而那等于砍掉
+    「部分资源点在墙外」，`CLAUDE.md` 把它列为**不能砍的两个机制之一**
+    （另一条是「城墙可站人」）。少了它，龟缩退化解不需要绕过 2.1，
+    它压根不必出城。
+
+    **只查「≥ 1」。** 具体要几个、三种如何分布、内外配比多少，全是数值，
+    现在不定（4.4 只给了「外部偏木材」这个倾向）。而「≥ 1」是结构性的：
+    0 与 1 的差别不是强度差别，是那条机制在不在。
+    """
+    n = sum(1 for r in doc["resources"] if r["tier"] == "outer")
+    if n:
+        return []
+    return ["一个 outer 资源点都没有 —— 「部分资源点在墙外」是 CLAUDE.md 列为"
+            "不能砍的两个机制之一（逼守方出城、杀死龟缩退化解、让野战机制有用"
+            "武之地）。注意第 7 条在这种地图上**空过**，所以少了本条这张图能"
+            "通过全部检查"]
+
+
 # --------------------------------------------------------------------------
 # 注册表
 # --------------------------------------------------------------------------
@@ -402,6 +513,32 @@ CHECKS = [
           "（`grid.chebyshev`），且这个选择不依赖「视野是圆还是方」——"
           "方形球包含同半径的圆形球，所以它对两种形状都保守。见 #29 第三条"),
     Check(15, "content_hash 与内容一致", check_content_hash, IMPLEMENTED, ""),
+    # —— 8.1 起的条目。编号在那里排定，落地时按那个顺序，不要重排 ——
+    Check(16, "resources 与 keep 落在可通行且可建造的格上",
+          check_entity_cells, IMPLEMENTED, ""),
+    Check(17, "墙不在 Rock/Water 上、同格不叠墙、集结点不重合",
+          check_placement_conflicts, IMPLEMENTED, ""),
+    Check(18, "resources 的解禁波数序列按距离单调", None, BLOCKED,
+          "**缺字段，不是缺判据**：6.2 的 `resources` 只有 type/pos/tier，"
+          "没有解禁波数，而它**不能混进 `tier`**（tier 只区分城内外且不影响仿真，"
+          "解禁波数影响仿真）。加它是一次跨模块契约变更，连带 `rts_core` 载入、"
+          "`mapfile.py` 读写与本条。见 `地图与场景设计.md` 第 10 节"),
+    Check(19, "Forest 与 Rock 不得出现在可破坏障碍列表里", None, BLOCKED,
+          "**双重阻塞。**(a) 地图格式里没有「可破坏障碍」这种点位实体，"
+          "所以本条现在无处可查；(b) 那种实体来自提案「无尽模式与地形分层」§6 "
+          "的机制那一半，而 **§6 从未被表决**（详见该文 10.1：§6 里 "
+          "`Forest`/`Rock` 不可破坏那一半已随 §4 落地，三种景物变成有血量那一半"
+          "仍待议）。**本条要保护的 2.1.5 已经有一半落在代码里**："
+          "`ObstacleType` 只有 Stump/Sapling/Rubble，由 `tests/roster_test.cpp` "
+          "钉住它不与地形枚举重名 —— 那是本条在没有地图字段时能做的全部"),
+    Check(20, "第 7 与第 10 条的联合可满足性", None, BLOCKED,
+          "**它不是一张图的检查，所以放在这里本身就有点勉强。** §8.1 明写它的"
+          "产出应当是**诊断信息**（丢弃率、哪一条更常否决），而丢弃率只有跑一批"
+          "生成才有，**而生成器（第 9 节）未开工**。逐图看没有新东西可查："
+          "两条各自已在第 7、10 条里跑了。**落地时它更可能是生成器的一份报告，"
+          "不是 CHECKS 里的一行** —— 真要那样就该从本表移走并在 §8.1 说明"),
+    Check(21, "至少有一个 outer 资源点",
+          check_has_outer_resource, IMPLEMENTED, ""),
 ]
 
 

@@ -4,6 +4,9 @@
 #include <string_view>
 
 #include "rts/roster.hpp"
+// 「可破坏障碍与地形枚举不重名」那条要同时看两张枚举。刻意显式 include 而不是
+// 靠 roster.hpp 顺带拉进来 —— 头文件自足性那条守卫防的正是这种隐式依赖。
+#include "rts/terrain.hpp"
 
 // 这份测试查的**不是「函数会不会算错」**——那些函数全是穷举 switch，写错一眼能看出来。
 // 查的是三类会静默漂移的东西：
@@ -46,6 +49,38 @@ TEST_CASE("标识符不重复，且一律不超过 7 字符", "[roster]") {
         check(rts::ident_of(rts::obstacle_at(i)));
     }
     REQUIRE(seen.size() == 25);   // 11 + 11 + 3
+}
+
+TEST_CASE("可破坏障碍与地形枚举不重名", "[roster]") {
+    // 这是 `地图与场景设计.md` §8.1 **第 19 条**在今天能落地的那一半。
+    //
+    // 第 19 条整条是「`Forest` 与 `Rock` 不得出现在可破坏障碍列表里」，它保护的是
+    // 2.1.5：森林带是 2.1 整节唯一的承载者，玩家若能砍掉一段森林就能围墙，
+    // 于是那一节退化成纯数值劝退。**2.1.5 已定案**（随 #23）。
+    //
+    // 它在校验器那一侧仍是「阻塞」，因为地图格式里还没有「可破坏障碍」这种点位
+    // 实体（那要等提案「无尽模式与地形分层」§6 的机制那一半，而 §6 从未被表决）。
+    // 但**代码里已经有那份列表了**——`ObstacleType`，三个成员。所以能查的部分现在就查：
+    // 一旦有人往 `ObstacleType` 里加 `Forest` 或 `Rock`（或任何与地形同名的东西），
+    // 这条立刻红。
+    //
+    // 查「重名」而不是查两个具体名字，是因为前者不随地形枚举增长而过期：
+    // 将来 4.1 若再添一种不可破坏地形，它自动被覆盖，不需要有人记得回来改这里。
+    std::set<std::string_view> terrain;
+    for (int i = 0; i < rts::kTerrainCount; ++i) {
+        terrain.insert(rts::ident_of(rts::terrain_at(i)));
+    }
+    REQUIRE(terrain.size() == static_cast<std::size_t>(rts::kTerrainCount));
+
+    for (int i = 0; i < rts::kObstacleTypeCount; ++i) {
+        const std::string_view id = rts::ident_of(rts::obstacle_at(i));
+        INFO("可破坏障碍 " << id);
+        REQUIRE(terrain.count(id) == 0);
+    }
+
+    // 反过来也钉一下，否则上面那条在 kObstacleTypeCount 被改成 0 时会空过 ——
+    // 「循环体一次都没执行」是这份测试开头列的第一类静默漂移。
+    REQUIRE(rts::kObstacleTypeCount > 0);
 }
 
 TEST_CASE("守方与攻方各自的单位数与常量一致", "[roster]") {
