@@ -196,6 +196,42 @@ struct Registry {
     };
 };
 
+// ——这 11 个派生类必须**无状态**，这条是编译期的——
+//
+// 它们是被**所有单位共用**的单例（`behavior_of()` 返回引用）。谁往某个派生类里
+// 加一个非静态数据成员——比如「这个兵种本波已出手几次」——立刻有两个后果，
+// 而两个都不是「稍微不好」：
+//
+//   1. **跨单位的隐式耦合**：所有该兵种的单位共享那一个字段
+//   2. **哈希两条路都错**：不进 `state_hash` 就是一份不被记录的仿真状态；
+//      进了就得给一个「按兵种」的东西找一个槽位顺序，而它根本不在任何实体数组里
+//
+// 判据与 `unit_behavior.hpp` 头注释那条同源（「若某项会随平衡标定而变，
+// 它就不属于这里」）——**无状态是它的必要条件**：一个字段一定是状态。
+//
+// **检查用 `sizeof` 相等而不是 `std::is_empty_v`。** 后者对**任何**多态类都返回
+// false（虚函数带来 vptr），所以写成 `is_empty_v` 会得到一条永远失败的断言——
+// 即「该红却绿」的镜像，一样没用。而基类正好只有一个 vptr、没有尾部填充，
+// 于是「派生类加了字段」必然让 `sizeof` 变大，这条比对是紧的。
+#define RTS_ASSERT_STATELESS(T)                                             \
+    static_assert(sizeof(T) == sizeof(UnitBehavior),                        \
+                  #T " 加了非静态数据成员。兵种 behavior 是被所有单位共用的" \
+                     "单例，不得有状态——见此处上方的注释。")
+
+RTS_ASSERT_STATELESS(ArcherBehavior);
+RTS_ASSERT_STATELESS(SpearBehavior);
+RTS_ASSERT_STATELESS(RangerBehavior);
+RTS_ASSERT_STATELESS(ScoutBehavior);
+RTS_ASSERT_STATELESS(MasonBehavior);
+RTS_ASSERT_STATELESS(GhoulBehavior);
+RTS_ASSERT_STATELESS(ShadeBehavior);
+RTS_ASSERT_STATELESS(KnightBehavior);
+RTS_ASSERT_STATELESS(PhoenixBehavior);
+RTS_ASSERT_STATELESS(WraithBehavior);
+RTS_ASSERT_STATELESS(RamBehavior);
+
+#undef RTS_ASSERT_STATELESS
+
 const Registry& registry() noexcept {
     static const Registry r;
     return r;
