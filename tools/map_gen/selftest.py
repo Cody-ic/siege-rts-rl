@@ -442,6 +442,139 @@ def check_v6_inner_resources(c):
            "金币只在 outer 侧仍应报 —— 保底看的是 inner")
 
 
+def _rows(w, h, forest=()):
+    """w×h 全 `Plain`，再把 `forest` 里那些格改成 `Forest`。
+
+    第 7、10 条的用例都是「一条森林带 + 大片平地」，逐行写字符串在 11×11 上
+    既难读也容易数错列。
+    """
+    out = [["0"] * w for _ in range(h)]
+    for x, y in forest:
+        out[y][x] = "2"
+    return ["".join(r) for r in out]
+
+
+# 三种 inner 资源，用来让第 6 条别在第 7 条的用例里跟着报。
+_INNER3 = [{"type": t, "pos": [i, 0], "tier": "inner"}
+           for i, t in enumerate(["stone", "wood", "gold"])]
+
+
+def check_v7_outer_unenclosable(c):
+    """第 7 条：`outer` 资源点周围的森林带必须 **4 连通**地通到地图边界。
+
+    这一组里最要紧的是**斜向森林链必须判失败**。它与第 10 条那条斜链用例形似
+    而结论相反，原因是两条问的不是同一件事（移动 vs 拓扑，见 validate 里的
+    docstring）：斜向森林链**走得过去**，所以第 10 条判它是遮蔽通道；
+    但它撑不起 2.1.1 的拓扑论证——墙线能从两格之间那个对角缺口穿过去，
+    一格森林都不碰，所以第 7 条必须判它没连上。
+
+    **有效的破坏性探针是给实现加上 `corner=grid.is_passable`（第 10 条那种写法），
+    加了这一组会红 2 条。**把 `diagonal=False` 翻成 `True` 是个**空探针**：
+    `neighbors()` 默认 `corner = passable`，一步斜向要求两个正交角格都在集合里，
+    而那两格都在的话 4 连通本来就走到了，所以两者恒等 —— 实测两种取法在斜链上
+    都只覆盖 1 格。这条写在这里是因为**空探针给出的绿与「测试没盯住」长得一样**，
+    而我第一次就指错了。
+
+    反过来若少了下面那条「改成竖直链就该通过」，上一条就可能只是「总是报」。
+    """
+    def outer_at(pos, tier="outer"):
+        return _INNER3 + [{"type": "wood", "pos": list(pos), "tier": tier}]
+
+    # -- 竖直森林带通到上边界：通过 --------------------------------------
+    band = ["0002000", "0002000", "0000000", "0000000", "0000000"]
+    doc, g = _gv(band, keep=[5, 4], resources=outer_at([3, 2]))
+    c.true(not validate.check_outer_unenclosable(doc, g),
+           "森林带 4 连通通到地图边界，不该报")
+
+    # -- 森林带存在但没通到边界：应当报 ----------------------------------
+    stub = ["0000000", "0000000", "0002000", "0000000", "0000000"]
+    doc, g = _gv(stub, keep=[5, 4], resources=outer_at([3, 3]))
+    c.true(validate.check_outer_unenclosable(doc, g),
+           "森林带没通到地图边界应当报 —— 玩家可以绕着它在外面画一圈更大的墙")
+
+    # -- 森林只**斜着**挨着资源点：应当报 --------------------------------
+    #
+    # (2,2) 与资源点 (3,3) 是对角相邻，而那条森林带本身一路通到左边界。
+    # 起点取四邻正是为了拦它：斜着挨上等于没连上，墙线能从对角缺口塞进去。
+    diag_touch = ["0000000", "0000000", "2220000", "0000000", "0000000"]
+    doc, g = _gv(diag_touch, keep=[5, 4], resources=outer_at([3, 3]))
+    c.true(validate.check_outer_unenclosable(doc, g),
+           "森林带只斜着挨着资源点应当报 —— 起点取四邻，不取八邻")
+
+    # -- 同一张图，改成 inner：本条不管 ----------------------------------
+    doc, g = _gv(diag_touch, keep=[5, 4],
+                 resources=outer_at([3, 3], tier="inner"))
+    c.true(not validate.check_outer_unenclosable(doc, g),
+           "inner 资源点不受本条约束（它本来就在城里）")
+
+    # -- 一个 outer 都没有：空过 -----------------------------------------
+    doc, g = _gv(diag_touch, keep=[5, 4], resources=_INNER3)
+    c.true(not validate.check_outer_unenclosable(doc, g),
+           "没有 outer 资源点时空过（**这是个已知的洞**，见第 10 节）")
+
+    # -- 斜向森林链：本条的关键用例 --------------------------------------
+    #
+    # (5,4) 起，(4,3)(3,2)(2,1)(1,0) 一路斜到左上边界。8 连通下它「通到了边界」，
+    # 4 连通下 flood 只覆盖 (5,4) 一格。判失败才是对的。
+    chain = [(5, 4), (4, 3), (3, 2), (2, 1), (1, 0)]
+    doc, g = _gv(_rows(11, 11, chain), keep=[5, 8],
+                 resources=outer_at([5, 5]))
+    problems = validate.check_outer_unenclosable(doc, g)
+    c.true(problems,
+           "**斜向**森林链应当报 —— 它撑不起 2.1.1 的拓扑论证，"
+           "墙线能从对角缺口穿过去（与第 10 条结论相反，因为问的不是同一件事）")
+    c.true(any("4 连通" in p for p in problems),
+           "报告要点明是 4 连通下不通，否则收到失败的人会去查森林画错没")
+
+    # -- 同一张图，把斜链改成竖直链：应当通过 ----------------------------
+    straight = [(5, y) for y in range(5)]
+    doc, g = _gv(_rows(11, 11, straight), keep=[5, 8],
+                 resources=outer_at([5, 5]))
+    c.true(not validate.check_outer_unenclosable(doc, g),
+           "竖直森林链不该报 —— 否则上一条只是「总是报」")
+
+
+def check_v7_v10_tension_is_real(c):
+    """第 7 与第 10 条**正面对立**（2.1.3），这一组把那句话变成两张具体的图。
+
+    §8.1 把「两条的联合可满足性」排为第 20 条，理由是「两条各自通过、合起来
+    不通过时，生成器陷入高丢弃率而不报原因」。第 20 条还没落地，
+    但**对立是不是真的**现在就能钉住，而且这两张图将来正好是它的夹具。
+
+    刻意只断言这两条，不要求整张图干净 —— 这一组问的是两条之间的关系。
+    """
+    # 墙横在 y=6，x=2..8，(5,6) 留缺口（第 8 条要的那种形态）。
+    walls = [{"kind": "Wall", "pos": [x, 6], "hp_frac": 1.0}
+             for x in (2, 3, 4, 6, 7, 8)]
+
+    # -- 可以同时满足：森林带在远离集结点与城墙的一侧 --------------------
+    far = [(0, 1), (0, 2), (0, 3), (1, 3)]
+    doc, g = _gv(_rows(11, 11, far), keep=[5, 8], walls=walls,
+                 spawns=[{"id": 0, "pos": [5, 0], "corridor": "open"}],
+                 resources=_INNER3 + [{"type": "wood", "pos": [2, 3],
+                                       "tier": "outer"}])
+    c.true(not validate.check_outer_unenclosable(doc, g),
+           "联合可满足：森林带通到左边界，第 7 条该过")
+    c.true(not validate.check_forest_corridor(doc, g),
+           "联合可满足：同一张图上森林没通到城墙，第 10 条也该过")
+
+    # -- 对立是真的：同一条森林带同时喂饱第 7 条、踩中第 10 条 ------------
+    #
+    # 森林 x=3 那一列从上边界一路下来（第 7 条要的），再斜挂一格 (2,5) ——
+    # 而 (2,5) 是墙 (3,6) 的八邻，于是它同时是「集结点直达城墙的遮蔽道」。
+    # 集结点挪到 (2,0)，紧挨着那条林带。
+    both = [(3, y) for y in range(5)] + [(2, 5)]
+    doc, g = _gv(_rows(11, 11, both), keep=[5, 8], walls=walls,
+                 spawns=[{"id": 0, "pos": [2, 0], "corridor": "forest"}],
+                 resources=_INNER3 + [{"type": "wood", "pos": [3, 5],
+                                       "tier": "outer"}])
+    c.true(not validate.check_outer_unenclosable(doc, g),
+           "对立用例：第 7 条该过（森林带 4 连通通到上边界）")
+    c.true(validate.check_forest_corridor(doc, g),
+           "对立用例：第 10 条该报 —— 同一条林带既是必须存在的通道，"
+           "又是通到城墙的遮蔽道。这就是 2.1.3 说的那件事")
+
+
 def check_v10_forest_corridor(c):
     # (1,0)-(2,0)-(2,1)-(2,2) 一条森林带，墙在 (2,3) 紧挨着它。
     forest_lane = ["0220000", "0020000", "0020000", "0000000", "0000000"]
@@ -627,7 +760,7 @@ def check_validator_on_clean_map(c):
                   if chk.status == validate.BLOCKED)
     n_pend = sum(1 for chk in validate.CHECKS
                  if chk.status == validate.PENDING)
-    c.eq((n_impl, n_block, n_pend), (9, 2, 4),
+    c.eq((n_impl, n_block, n_pend), (10, 1, 4),
          "条目状态计数变了：改动状态时要同步这条断言与 README 的进度表")
 
 
@@ -734,6 +867,8 @@ GROUPS = [
     ("第 3 条 corridor", check_v3_corridors),
     ("第 4 条 集结点可达", check_v4_reachable),
     ("第 6 条 inner 三种资源", check_v6_inner_resources),
+    ("第 7 条 外部资源点不可围", check_v7_outer_unenclosable),
+    ("第 7 与第 10 条的对立是真的", check_v7_v10_tension_is_real),
     ("第 8 条 初始城圈留缺口", check_v8_initial_breach),
     ("第 10 条 森林遮蔽通道", check_v10_forest_corridor),
     ("第 11 条 Plain 孤岛", check_v11_islands),
