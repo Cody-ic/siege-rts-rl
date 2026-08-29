@@ -16,12 +16,31 @@
 8 邻接移动的，连通性检查必须与之一致 —— 用 4 邻接会把「斜着能过去」的地方
 判成不通，于是校验器报一条根本不存在的问题。
 
-**但斜向是否允许穿角（两格正交邻居都是障碍时能否斜穿）文档没有定义**，
-这属于 `rts_core` 的移动模型，接口尚未定稿。这里取最保守的一种：
-**两个正交邻格都可通行才允许斜向通过**。保守的方向是「判成不通」，
-于是校验器可能多报、不会漏报 —— 对一个用来挡住坏地图的工具，多报是安全的那一侧。
+斜向是否允许穿角（两格正交邻居都是障碍时能否斜穿）现在**有归口了**：
+`rts_core` 的 `rts/action.hpp` 里 `kDiagonalNeedsBothOrthogonal = true`，
+唯一消费者是 `World::action_mask()`，并有一条拿岩壁逼出来的用例。
+**取值与本模块原先保守取的那一种一致**，所以行为不用改；改的只是
+「这条假设存放在哪里」——从两侧各存一份，变成两侧引用同一个名字。
+Python 侧读不到 C++ 常量，但「谁是规范来源」这件事有了答案。
 
-接口定稿后要回来对齐，届时只改 `neighbors()` 一个函数。
+## 「保守 = 安全」不是一条全局性质，它取决于该条检查的极性
+
+本模块原先写着「保守的方向是判成不通，于是校验器可能多报、不会漏报 ——
+对一个用来挡住坏地图的工具，多报是安全的那一侧」。**那句话只对一半检查成立**：
+
+| 检查形态 | 例 | 少给通路的后果 |
+|---|---|---|
+| 必须连通 | 第 4、11、12 条 | 多报（安全） |
+| 必须存在一条通路 | 第 8 条（缺口） | 多报（仍安全） |
+| **不得存在一条通路** | **第 10 条（遮蔽通道）** | **漏报（不安全）** |
+
+第 10 条曾经真的漏报：它用 `flood(starts, is_forest)`，于是**穿角也按「是不是
+森林」判**，而单位斜走时要求的是那两个角格**可通行**（它们可以是 `Plain`）。
+一条斜向森林链因此走得过去、检查却报「通过」——而斜向林带不是刁钻构造，
+生成器随机铺森林时它是常见形态。修法是 `neighbors()` 把 `passable` 与 `corner`
+分成两个谓词，见那里。
+
+**所以新增检查时先问它的极性**，别默认「保守就安全」。
 """
 from collections import deque
 
@@ -118,7 +137,7 @@ class Grid:
 
     # -- 邻接与连通 -------------------------------------------------------
 
-    def neighbors(self, x, y, passable, diagonal=True):
+    def neighbors(self, x, y, passable, diagonal=True, corner=None):
         """产出可从 (x, y) 走到的邻格。
 
         `passable` 是 `(x, y) -> bool`，由调用方给出 —— 不同的检查用不同的
@@ -126,7 +145,15 @@ class Grid:
         比在 Grid 上堆一排 `xxx_neighbors` 方法更不容易用错。
 
         斜向不穿角，理由见模块 docstring。
+
+        `corner` 是**穿角判定**用的谓词，默认等于 `passable`。两者必须能分开，
+        因为按「属性」flood 时（只走森林、只走水域、只走某个区域），角能不能过
+        取决于**移动**是否允许，与那个属性无关：一个单位从 (5,1) 斜走到 (6,2)，
+        要求的是那两个角格**可通行**，而它们完全可以是 `Plain`。
+        两者混用会让检查在斜向链上**漏报**，第 10 条踩过（见模块 docstring 末尾）。
         """
+        if corner is None:
+            corner = passable
         for dx, dy in _ORTHO:
             nx, ny = x + dx, y + dy
             if self.in_bounds(nx, ny) and passable(nx, ny):
@@ -137,8 +164,8 @@ class Grid:
             nx, ny = x + dx, y + dy
             if not (self.in_bounds(nx, ny) and passable(nx, ny)):
                 continue
-            # 不穿角：两个正交邻格都得能过。
-            if passable(x + dx, y) and passable(x, y + dy):
+            # 不穿角：两个正交邻格都得能过。**按 corner 判，不按 passable 判。**
+            if corner(x + dx, y) and corner(x, y + dy):
                 yield nx, ny
 
     def orthogonal_neighbors(self, x, y):
@@ -148,12 +175,26 @@ class Grid:
             if self.in_bounds(nx, ny):
                 yield nx, ny
 
-    def flood(self, starts, passable, diagonal=True):
+    def neighbors8(self, x, y):
+        """纯八邻，不带通行判断、也不管穿角。
+
+        与 `neighbors()` 问的是两件事：那个问「走不走得过去」，这个问「挨没挨着」。
+        第 10 条判「遮蔽通道有没有触到城墙」用的是后者 —— 单位能否走过去，
+        与森林是否连到了墙边，是两回事。
+        """
+        for dx, dy in _ORTHO + _DIAG:
+            nx, ny = x + dx, y + dy
+            if self.in_bounds(nx, ny):
+                yield nx, ny
+
+    def flood(self, starts, passable, diagonal=True, corner=None):
         """从 starts 出发的连通域。starts 自身不做 passable 检查。
 
         不检查起点是有意的：常见的用法是「从 keep 出发」，而 keep 那一格站着
         建筑、按某些通行定义并不 passable。让调用方为起点负责，比在这里
         猜一个规则更清楚。
+
+        `corner` 透传给 `neighbors()`，语义见那里。**按属性 flood 时一定要给它。**
         """
         seen = set()
         q = deque()
@@ -164,18 +205,22 @@ class Grid:
                 q.append(s)
         while q:
             x, y = q.popleft()
-            for n in self.neighbors(x, y, passable, diagonal=diagonal):
+            for n in self.neighbors(x, y, passable, diagonal=diagonal,
+                                    corner=corner):
                 if n not in seen:
                     seen.add(n)
                     q.append(n)
         return seen
 
-    def bfs_steps(self, starts, passable, diagonal=True):
+    def bfs_steps(self, starts, passable, diagonal=True, corner=None):
         """返回 {(x,y): 步数}。步数是格数，不是欧氏距离。
 
         用于第 5 条的行军时间估计。**它给的是步数不是时间** —— 换算成时间要乘
         单位速度，而速度是待定数值，所以换算留给校验器配合 thresholds.json 做，
         本模块不碰任何数值。
+
+        `corner` 同 `neighbors()`。这里也开出来不是为了对称：将来若有「沿某种
+        地形量距离」的检查，它会撞上第 10 条那个同样的坑。
         """
         dist = {}
         q = deque()
@@ -187,7 +232,8 @@ class Grid:
         while q:
             x, y = q.popleft()
             d = dist[(x, y)] + 1
-            for n in self.neighbors(x, y, passable, diagonal=diagonal):
+            for n in self.neighbors(x, y, passable, diagonal=diagonal,
+                                    corner=corner):
                 if n not in dist:
                     dist[n] = d
                     q.append(n)
@@ -238,6 +284,36 @@ class Grid:
 #
 # 整块推导刻意收在这里：城区来源一旦定下（显式 mask / 随 Keep 升级分级），
 # 要改的只有 derive_city_area() 一个函数。
+
+
+def chebyshev(a, b):
+    """两格之间的切比雪夫距离 `max(|dx|, |dy|)`。
+
+    **第 14 条（集结点到最近可建造格的距离 > 静态建筑视野半径上限）用它，
+    而且这个选择不依赖「视野是圆还是方」这个尚未定稿的问题。**
+
+    `rts/fog.hpp` 明写视野解算的形状还没定（「逐单位圆形 + `blocks_vision`
+    遮挡？分兵种半径？」），但第 14 条不必等它：
+
+    - 半径 R 的**方形**视野覆盖 `cheb ≤ R`，**圆形**覆盖 `euc ≤ R`
+    - 而 `cheb ≤ euc` 恒成立 ⇒ **方形球包含同半径的圆形球**，方是覆盖更大的
+    - 所以 `cheb(集结点, 可建造格) > R` ⇒ 该格在方形视野之外 ⇒ 也在圆形之外
+
+    对两种形状都成立，而且是所有满足这个性质的度量里**最弱**的一条。
+
+    反过来看欧氏为什么危险：`dx = dy = R` 时 `cheb = R`（方形视野**看得见**），
+    而 `euc = R√2 > R`（欧氏判据**放行**）。那正好是第 14 条要防的那件事的
+    一个实例 —— 静态建筑照亮集结区、侦查被一次性买断，而校验器报通过。
+    曼哈顿与 BFS 步数都 ≥ 切比雪夫，同样危险。
+
+    **刻意不做成可配置的旋钮。** 留一个 `vision_metric` 字段意味着有人某天会
+    把它拨到欧氏，而**拨错的症状是「校验通过」** —— 没有任何东西会提示。
+
+    另：**不要建模遮挡**（`blocks_vision`）。忽略遮挡等于高估覆盖，落在安全
+    那一侧；建模它反而要依赖一个 1c 还没写的遮挡模型，而且 `Forest` 若哪天
+    变成可破坏（提案「无尽模式与地形分层」§6），那份计算就失效了。
+    """
+    return max(abs(a[0] - b[0]), abs(a[1] - b[1]))
 
 
 class CityAreaUndecidable(RuntimeError):
