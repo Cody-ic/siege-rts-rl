@@ -144,13 +144,35 @@ public:
     // 要问。
     bool has_state(std::string_view ident, std::string_view state) const noexcept;
 
+    // 某个标识符的朝向集合。**不是固定的四个方位**——弹丸只有一个 `FREE`。
+    //
+    // 元数据顶层的 `dirs` 是默认值，某个实体自带 `dirs` 时以它为准。
+    // 本类**不再有任何硬编码的朝向名单**：曾经 `verify_all_declared()` 与
+    // `preload_idle()` 各写了一份 `{"SE","SW","NE","NW"}`，于是加进一个只有
+    // `FREE` 的条目会让它们报「缺 8 张素材」——而缺的那 8 张本来就不该存在。
+    const std::vector<std::string>& dirs_of(std::string_view ident) const;
+
+    // 绕它旋转的那个像素点。**只对 `kind == "projectile"` 有意义**，
+    // 其余实体返回 `ground_anchor`（它们不旋转，所以这个退化值不会被用错）。
+    //
+    // **不要拿 `ground_anchor` 当弹丸的旋转中心**：那是世界原点的投影、代表
+    // 「实体脚底」，而弹丸不站在地上。两者实测差 19–26 px，而症状只在
+    // **转起来之后**才看得见（箭绕一个看不见的点公转），静态图上完全正常。
+    Vector2 pivot_of(std::string_view ident, std::string_view state) const;
+
+    // 这个标识符是不是弹丸。决定要不要走「按飞行角旋转」那条绘制路径，
+    // 而不是「按朝向选图」。
+    bool is_projectile(std::string_view ident) const noexcept;
+
 private:
     struct StateMeta {
         Vector2 canvas{};
         Vector2 ground_anchor{};
+        Vector2 pivot{};        // kind == "projectile" 才有；否则复制 ground_anchor
         std::vector<int> frames;
         int impact_frame = 0;   // 0 = 该状态没有「命中帧」这个概念
         bool is_tile = false;   // 元数据里的 kind == "tile"
+        bool is_projectile = false;   // 元数据里的 kind == "projectile"
     };
 
     // 有序容器。渲染顺序不进仿真，所以这里不是确定性要求；
@@ -158,6 +180,12 @@ private:
     // 而且报错信息里列出「有哪些可用标识符」时有序的输出好读得多。
     std::map<std::string, std::map<std::string, StateMeta>> meta_;
     std::map<std::string, Sprite> cache_;
+
+    // 元数据顶层的 `dirs`，以及自带 `dirs` 的那些实体（当前只有弹丸）。
+    // 分开存而不是给每个 ident 都复制一份：默认值改动时只有一个地方要改，
+    // 而「这个实体是不是特殊的」也就能被直接读出来。
+    std::vector<std::string> default_dirs_;
+    std::map<std::string, std::vector<std::string>> dirs_;
 
     std::string dir_;
     int px_per_tile_ = 0;
