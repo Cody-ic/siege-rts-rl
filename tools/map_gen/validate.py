@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""地图校验器 —— `地图与场景设计.md` 第 8 节那 21 条的可执行形式。
+"""地图校验器 —— `地图与场景设计.md` 第 8 节那 22 条的可执行形式。
 
 第 8 节开头写「`tools/map_gen/` 的校验器是地图规范的可执行部分。手写地图与
 生成地图都必须通过」。本文件就是那一句。
 
 ## 三种状态，以及为什么「未实现」也要显式报出来
 
-21 条里现在有 13 条真正在跑。剩下的分两类，**都不静默跳过**：
+22 条里现在有 15 条真正在跑。剩下的分两类，**都不静默跳过**：
 
-- **阻塞**（第 9、18、19、20 条）—— 判据本身还写不出来，原因见 `README.md`
+- **阻塞**（第 9、18、20 条）—— 判据本身还写不出来，原因见 `README.md`
 - **待阈值**（第 1、2、5、14 条）—— 判据清楚，但要等 `thresholds.json`（PR 3）
 
 「跳过」若不出现在报告里，校验器就会随着条目增加而慢慢变成一个只查几条的东西，
@@ -17,14 +17,14 @@
 
 ## 一条防漂移的断言
 
-`CHECKS` 表必须正好覆盖 1..21、不重不漏，由 `selftest.py` 钉住。
+`CHECKS` 表必须正好覆盖 1..22、不重不漏，由 `selftest.py` 钉住。
 第 8 节将来若加条目（例如 #26 的 A5 若通过，要加一条「§2 必须配 §3」的检查），
 这条断言会立刻变红提醒同步 —— 白名单漏登记抓不到，是 `tests/CMakeLists.txt`
 里已经踩过的坑。
 
 用法:
     py validate.py <地图文件或目录> [更多...]
-    py validate.py --list          # 只列 21 条的状态，不读地图
+    py validate.py --list          # 只列 22 条的状态，不读地图
 """
 import argparse
 import sys
@@ -44,7 +44,7 @@ Check = namedtuple("Check", "no title fn status note")
 
 # 第 8 节要求的总条目数。写成常量而不是 len(CHECKS)，这样「漏写一条」会被
 # selftest 抓到 —— 用 len() 去校验 CHECKS 自己，等于用它证明它自己。
-SPEC_CHECK_COUNT = 21
+SPEC_CHECK_COUNT = 22
 
 
 # --------------------------------------------------------------------------
@@ -456,6 +456,97 @@ def check_placement_conflicts(doc, grid):
     return problems
 
 
+OBSTACLE_TYPES = frozenset({"Stump", "Sapling", "Rubble"})
+
+
+def check_obstacle_types(doc, grid):
+    """第 19 条：`Forest` 与 `Rock` 不得出现在可破坏障碍列表里。
+
+    **此前是双重阻塞，两条现在都解了**：§6 的机制那一半于 2026-08-29 表决通过，
+    6.2 随之新增 `obstacles` 字段，本条终于有东西可查。
+
+    它保护 2.1.5：森林带是 2.1 整节唯一的承载者，玩家若能砍掉一段森林就能照旧
+    砌墙围住外部资源簇，于是 2.1 退化成纯数值劝退。`Rock` 那一侧的理由是 2.2
+    ——岩壁承担大部分周长，可破坏则墙线随时可能被从侧后打穿。
+
+    **查白名单而不是查「不是 Forest / Rock」**，两条理由：
+
+      * 白名单同时抓住拼写错误（`Stmup`）与未来新增的地形名，
+        而黑名单只抓住今天已知的那两个
+      * 4.1 那张表把「地形一律不可破坏」写成了结论，所以任何地形名都不该出现，
+        不只是那两个
+
+    白名单本身要与 `rts::ObstacleType` 保持一致，那一侧由
+    `tests/roster_test.cpp` 钉住不与地形枚举重名——**两边各查一半，合起来才完整**：
+    这里查地图文件写了什么，那里查代码里的枚举是什么。
+    """
+    problems = []
+    for i, o in enumerate(doc["obstacles"]):
+        t = o["type"]
+        if t in OBSTACLE_TYPES:
+            continue
+        why = ("——它是**地形**名。地形一律不可破坏（4.1），而 `Forest` 那一条是"
+               "硬性的：能砍森林就能围住外部资源簇，2.1 整节退化为数值劝退（2.1.5）"
+               ) if t in mapfile.TERRAIN_PALETTE else "——不是三种可破坏障碍之一（拼错了？）"
+        problems.append(
+            f"obstacles[{i}].type = {t!r} {why}。"
+            f"合法取值只有 {sorted(OBSTACLE_TYPES)}")
+    return problems
+
+
+def check_obstacle_placement(doc, grid):
+    """第 22 条：`obstacles` 的摆放冲突。
+
+    **这条是加 `obstacles` 字段时顺带查出来的**，性质与第 16、17 条完全相同：
+    新增一类点位实体就新增一片摆放冲突面，而那一片没有任何现存检查覆盖。
+
+    **刻意不并进第 17 条**，尽管两者查的事很像。第 17 条已实现、已有测试，
+    把新的实体类别塞进它等于让一条绿着的检查悄悄扩大职责，而 review 时看不出
+    覆盖面变了——同 §8.1 那段说明。
+
+    四类冲突：
+
+      * 落在 `Rock` / `Water` 上 —— 渲出来是一棵长在水里的树，直到有人去打它
+      * 同格两处障碍 —— 同 第 17 条那条墙的重复：`live_obstacle_count` 会是 2，
+        而玩家看到一个
+      * 与 `keep` / `resources` / `initial_walls` 同格 —— 那一格上既有障碍
+        又有建筑，「清野腾出建造格」这条收益的判定会取决于遍历顺序
+      * 与 `spawns` 同格 —— 攻方在自己的集结点里刷出来就卡在一个障碍上
+    """
+    problems = []
+
+    occupied = {tuple(doc["keep"]): "keep"}
+    for i, r in enumerate(doc["resources"]):
+        occupied.setdefault(tuple(r["pos"]), f"resources[{i}]")
+    for i, w in enumerate(doc["initial_walls"]):
+        occupied.setdefault(tuple(w["pos"]), f"initial_walls[{i}]")
+    for sp in doc["spawns"]:
+        occupied.setdefault(tuple(sp["pos"]), f"spawns id={sp['id']}")
+
+    seen = {}
+    for i, o in enumerate(doc["obstacles"]):
+        pos = tuple(o["pos"])
+        x, y = pos
+        t = grid.terrain_at(x, y)
+        if t in gridmod.NATURAL_BLOCKERS:
+            problems.append(
+                f"obstacles[{i}]（{o['type']}）落在 {t} 上 {list(pos)} —— "
+                f"天然屏障上摆一处可破坏障碍：渲出来是一棵长在水里/岩壁里的树，"
+                f"而寻路那侧「障碍是高代价可通行」与「{t} 不可通行」互相矛盾")
+        if pos in seen:
+            problems.append(
+                f"obstacles[{i}] 与 [{seen[pos]}] 同在 {list(pos)} —— 同一格两处障碍。"
+                f"实体数会是 2 而玩家看到一个，于是「打掉它」之后那一格仍然挡路")
+        else:
+            seen[pos] = i
+        if pos in occupied:
+            problems.append(
+                f"obstacles[{i}]（{o['type']}）与 {occupied[pos]} 同在 {list(pos)} —— "
+                f"一格上既有障碍又有别的点位实体。「清野腾出可建造格」这条收益的"
+                f"判定会取决于遍历顺序，而两侧都看不出错")
+    return problems
+
+
 def check_has_outer_resource(doc, grid):
     """第 21 条：至少要有一个 `outer` 资源点。
 
@@ -497,7 +588,8 @@ CHECKS = [
     Check(7, "外部资源点结构性不可围", check_outer_unenclosable, IMPLEMENTED, ""),
     Check(8, "初始城圈至少一处缺口", check_initial_breach, IMPLEMENTED, ""),
     Check(9, "需人工设防的正面总长落在区间", None, BLOCKED,
-          "**现在是唯一一条阻塞。**两个阻塞各记一次：(a) 「正面」的定义依赖城区，"
+          "**它自己有两个阻塞，各记一次**（不是「唯一一条阻塞」——阻塞共几条以报告头为准）："
+          "(a) 「正面」的定义依赖城区，"
           "而城区无法从现有字段推导（见 #29 第一条）；(b) 阈值本身也待标定。"
           "**不要合并计数** —— 只解开一个它仍然写不出来。"
           "**注意 2.1 定案没有解开它，反而把 (a) 变难了**：城区 mask 本来是"
@@ -523,14 +615,8 @@ CHECKS = [
           "没有解禁波数，而它**不能混进 `tier`**（tier 只区分城内外且不影响仿真，"
           "解禁波数影响仿真）。加它是一次跨模块契约变更，连带 `rts_core` 载入、"
           "`mapfile.py` 读写与本条。见 `地图与场景设计.md` 第 10 节"),
-    Check(19, "Forest 与 Rock 不得出现在可破坏障碍列表里", None, BLOCKED,
-          "**双重阻塞。**(a) 地图格式里没有「可破坏障碍」这种点位实体，"
-          "所以本条现在无处可查；(b) 那种实体来自提案「无尽模式与地形分层」§6 "
-          "的机制那一半，而 **§6 从未被表决**（详见该文 10.1：§6 里 "
-          "`Forest`/`Rock` 不可破坏那一半已随 §4 落地，三种景物变成有血量那一半"
-          "仍待议）。**本条要保护的 2.1.5 已经有一半落在代码里**："
-          "`ObstacleType` 只有 Stump/Sapling/Rubble，由 `tests/roster_test.cpp` "
-          "钉住它不与地形枚举重名 —— 那是本条在没有地图字段时能做的全部"),
+    Check(19, "Forest 与 Rock 不得出现在可破坏障碍列表里",
+          check_obstacle_types, IMPLEMENTED, ""),
     Check(20, "第 7 与第 10 条的联合可满足性", None, BLOCKED,
           "**它不是一张图的检查，所以放在这里本身就有点勉强。** §8.1 明写它的"
           "产出应当是**诊断信息**（丢弃率、哪一条更常否决），而丢弃率只有跑一批"
@@ -539,6 +625,8 @@ CHECKS = [
           "不是 CHECKS 里的一行** —— 真要那样就该从本表移走并在 §8.1 说明"),
     Check(21, "至少有一个 outer 资源点",
           check_has_outer_resource, IMPLEMENTED, ""),
+    Check(22, "obstacles 的摆放冲突",
+          check_obstacle_placement, IMPLEMENTED, ""),
 ]
 
 

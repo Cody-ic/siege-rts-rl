@@ -91,7 +91,16 @@ target_compile_definitions(rts_tests PRIVATE
 #     正好复现真实的那条链路
 set(_utf8_probe "${CMAKE_CURRENT_BINARY_DIR}/中文路径测试")
 file(MAKE_DIRECTORY "${_utf8_probe}")
-file(COPY "${GAME_TESTDATA_DIR}/fixture_min.json" DESTINATION "${_utf8_probe}")
+# **`configure_file(... COPYONLY)` 而不是 `file(COPY)`**，两者复制出的字节一样，
+# 差别在依赖：`configure_file` 把输入登记进重新配置的依赖表，`file(COPY)` 不会。
+#
+# 这不是理论问题，是本次踩到的：往夹具里加 `obstacles` 之后，`cmake --build` 因为
+# 没有任何 CMake 输入变化而**不重新配置**，于是这里的副本还是旧图，`[utf8path]`
+# 读到的是加字段之前的那一份。这次它红了（新字段必填），但**反方向才是危险的**
+# ——改夹具去修一条失败的用例，用例照旧红，因为它读的是旧副本，
+# 而「修复无效」与「探针无效」看起来一模一样。
+configure_file("${GAME_TESTDATA_DIR}/fixture_min.json"
+               "${_utf8_probe}/fixture_min.json" COPYONLY)
 target_compile_definitions(rts_tests PRIVATE
     GAME_TESTDATA_UTF8_DIR="${_utf8_probe}")
 

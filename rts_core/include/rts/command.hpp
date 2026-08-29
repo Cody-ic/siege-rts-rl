@@ -76,11 +76,30 @@ enum class CommandKind : std::uint8_t {
     // ——攻方：宏观（一波一次，bandit 尺度）——
     Composition,  // what = UnitType；param = 该兵种占的编成位数
     PickSpawn,    // slot = 集结点 index；可对多个集结点各下一条 = 分兵佯攻
+
+    // ——守方：清野。**它按分组本该排在 `Cancel` 旁边，放在这里是被迫的**，见下——
+    Clear,        // slot = 格线性下标；清掉该格的可破坏障碍
 };
 
-inline constexpr int kCommandKindCount = 11;
+inline constexpr int kCommandKindCount = 12;
 
-static_assert(static_cast<int>(CommandKind::PickSpawn) == kCommandKindCount - 1);
+static_assert(static_cast<int>(CommandKind::Clear) == kCommandKindCount - 1);
+
+// **枚举值就是回放的线路编码，所以新增一律追加在末尾，不按语义分组插入。**
+//
+// `Clear` 是守方的建造/经济类命令，读起来该跟在 `Cancel` 后面。但插在那里会让
+// `Train`..`PickSpawn` 全部后移一位，于是**旧回放里那些字节会被重新解释成别的命令**
+// ——`Garrison` 变 `Composition` 之类。那种失效不报错，只是回放出一局不同的仗。
+//
+// 追加则只有一个后果：旧回放里不会出现 `Clear`，而它本来也不会出现。
+//
+// 附带受影响的还有 `command_mask()` 的位序（`train/` 那侧读它），追加同样让旧的
+// 11 个位不动。**下一个加命令的人照此办理：往末尾加，并把这段注释留着。**
+//
+// `Clear` 是玩家级命令而不是战术动作（没有 `UnitAction::AtkObst`），
+// 理由见 CLAUDE.md「RL 设计决策」那两条：攻方不需要它（寻路已把障碍当高代价可通行，
+// 撞上去自动破坏），而守方清野是波次间的决策、不是逐 tick 微操。
+// 这与「驻守墙段归玩家级命令」完全同构。
 
 // 「调哪一支部队」这个维度**尚未定**，两个候选见 `守方AI与协同演化.md` 第 3 节：
 // 甲 = 加第三个动作头「编队 index」；乙 = 复用目标头，先选编队再选去处（两步）。
@@ -166,6 +185,7 @@ constexpr Side owner_of(CommandKind k) noexcept {
         case CommandKind::SelectForce:
         case CommandKind::MoveForce:
         case CommandKind::Garrison:
+        case CommandKind::Clear:
             return Side::Defender;
     }
     return Side::Defender;
@@ -190,6 +210,7 @@ constexpr std::string_view ident_of(CommandKind k) noexcept {
         case CommandKind::Garrison:    return "Garrison";
         case CommandKind::Composition: return "Composition";
         case CommandKind::PickSpawn:   return "PickSpawn";
+        case CommandKind::Clear:       return "Clear";
     }
     return {};
 }

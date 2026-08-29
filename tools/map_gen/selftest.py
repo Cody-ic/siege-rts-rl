@@ -69,7 +69,7 @@ class Checks:
 # --------------------------------------------------------------------------
 
 def make_doc(rows, no_build=None, keep=None, spawns=None,
-             resources=None, walls=None, name="测试图"):
+             resources=None, walls=None, obstacles=None, name="测试图"):
     """从 terrain 行构造一份最小的合法 doc。
 
     行的字符就是 palette 下标：0=Plain 1=Rock 2=Forest 3=Water 4=Bridge。
@@ -93,6 +93,10 @@ def make_doc(rows, no_build=None, keep=None, spawns=None,
         ],
         "resources": resources if resources is not None else [],
         "initial_walls": walls if walls is not None else [],
+        # 6.2 的 `obstacles` 是**必填**的（缺失与刻意为空不可区分是个洞），
+        # 所以默认给空数组而不是省掉这个键 —— 省掉会让第 19、22 条抛 KeyError，
+        # 而那表现为「这一组自身抛了异常」，不是一条有用的失败。
+        "obstacles": obstacles if obstacles is not None else [],
     }
 
 
@@ -831,6 +835,88 @@ def check_v17_placement_conflicts(c):
                "pos 重合但 id 不同，格式层应当放行（所以必须由本条兜住）")
 
 
+def check_v19_obstacle_types(c):
+    """第 19 条：可破坏障碍列表里不得出现地形名。
+
+    它保护 2.1.5——能砍森林就能围住外部资源簇，2.1 整节退化为数值劝退。
+
+    **查白名单而不是黑名单**，所以这里连拼写错误一起验：黑名单只挡今天已知的
+    `Forest` / `Rock`，白名单还挡住 `Stmup` 与将来新增的地形名。
+    """
+    doc = make_clean_doc()
+    c.eq(validate.check_obstacle_types(doc, Grid(doc)), [],
+         "干净地图（obstacles 为空）不该报")
+
+    for bad in ("Forest", "Rock", "Water", "Plain", "Bridge"):
+        d = make_clean_doc()
+        d["obstacles"] = [{"type": bad, "pos": [0, 4]}]
+        got = validate.check_obstacle_types(d, Grid(d))
+        c.eq(len(got), 1, f"障碍类型写成地形名 {bad} 必须报")
+        c.true("地形" in got[0], f"{bad} 的报错要点明它是地形名，实际：{got[0]}")
+
+    d = make_clean_doc()
+    d["obstacles"] = [{"type": "Stmup", "pos": [0, 4]}]
+    got = validate.check_obstacle_types(d, Grid(d))
+    c.eq(len(got), 1, "拼错的类型也必须报（白名单的附带收益）")
+    c.true("拼错" in got[0], "拼错的报错不该说它是地形名")
+
+    d = make_clean_doc()
+    d["obstacles"] = [{"type": t, "pos": [i, 4]}
+                      for i, t in enumerate(sorted(validate.OBSTACLE_TYPES))]
+    c.eq(validate.check_obstacle_types(d, Grid(d)), [],
+         "三种合法类型一个都不该报")
+
+
+def check_v22_obstacle_placement(c):
+    """第 22 条：`obstacles` 的摆放冲突。
+
+    四类各验一次。**刻意不与第 17 条共用实现**，理由见 `validate.py` 那段
+    docstring：把新实体塞进一条绿着的检查会让覆盖面在 review 里看不出变化。
+    """
+    doc = make_clean_doc()
+    c.eq(validate.check_obstacle_placement(doc, Grid(doc)), [],
+         "干净地图（obstacles 为空）不该报")
+
+    # (1) 摆在天然屏障上。make_clean_doc 的行是 "0000020"×2 + "0000000"×3，
+    #     一格 Rock / Water 都没有，所以先造一格出来。
+    d = make_clean_doc()
+    d["layers"]["terrain"]["rows"][4] = "0003000"     # (3,4) 变 Water
+    d["obstacles"] = [{"type": "Stump", "pos": [3, 4]}]
+    got = validate.check_obstacle_placement(d, Grid(d))
+    c.eq(len(got), 1, "障碍摆在 Water 上必须报")
+
+    # (2) 同格两处障碍。
+    d = make_clean_doc()
+    d["obstacles"] = [{"type": "Stump", "pos": [0, 4]},
+                      {"type": "Rubble", "pos": [0, 4]}]
+    got = validate.check_obstacle_placement(d, Grid(d))
+    c.eq(len(got), 1, "同一格两处障碍必须报")
+
+    # (3) 与别的点位实体同格。四种各验一次 —— 只验一种的话，
+    #     occupied 那张表少收一类也不会有人知道。
+    d0 = make_clean_doc()
+    for what, pos in (("keep", list(d0["keep"])),
+                      ("资源点", list(d0["resources"][0]["pos"])),
+                      ("集结点", list(d0["spawns"][0]["pos"]))):
+        d = make_clean_doc()
+        d["obstacles"] = [{"type": "Stump", "pos": pos}]
+        got = validate.check_obstacle_placement(d, Grid(d))
+        c.true(len(got) >= 1, f"障碍与{what}同格必须报，实际：{got}")
+
+    d = make_clean_doc()
+    d["initial_walls"] = [{"kind": "Wall", "pos": [0, 4], "hp_frac": 1.0}]
+    d["obstacles"] = [{"type": "Stump", "pos": [0, 4]}]
+    got = validate.check_obstacle_placement(d, Grid(d))
+    c.true(len(got) >= 1, f"障碍与墙段同格必须报，实际：{got}")
+
+    # 合法摆放不该报：空闲的 Plain 格。
+    d = make_clean_doc()
+    d["obstacles"] = [{"type": "Stump", "pos": [0, 4]},
+                      {"type": "Rubble", "pos": [1, 4]}]
+    c.eq(validate.check_obstacle_placement(d, Grid(d)), [],
+         "两处分开摆在空闲 Plain 格上不该报")
+
+
 def check_v21_has_outer(c):
     """第 21 条：至少一个 `outer` 资源点。
 
@@ -876,7 +962,7 @@ def check_validator_on_clean_map(c):
                   if chk.status == validate.BLOCKED)
     n_pend = sum(1 for chk in validate.CHECKS
                  if chk.status == validate.PENDING)
-    c.eq((n_impl, n_block, n_pend), (13, 4, 4),
+    c.eq((n_impl, n_block, n_pend), (15, 3, 4),
          "条目状态计数变了：改动状态时要同步这条断言与 README 的进度表")
 
 
@@ -986,7 +1072,9 @@ GROUPS = [
     ("第 15 条 content_hash", check_v15_hash),
     ("第 16 条 实体落在可建造格", check_v16_entity_cells),
     ("第 17 条 摆放冲突", check_v17_placement_conflicts),
+    ("第 19 条 障碍类型不得是地形名", check_v19_obstacle_types),
     ("第 21 条 至少一个 outer 资源点", check_v21_has_outer),
+    ("第 22 条 障碍摆放冲突", check_v22_obstacle_placement),
     ("干净地图跑完整 run()", check_validator_on_clean_map),
     ("第 14 条的度量：切比雪夫且形状无关", check_chebyshev_is_conservative),
     ("调色板 ≤ 10 项", check_palette_bound),

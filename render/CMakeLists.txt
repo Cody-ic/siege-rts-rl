@@ -147,7 +147,10 @@ if(RTS_BUILD_TESTS)
     # （实测程序根本起不来，退出码 127），而 CMake 写进 ctest 的参数不经 shell。
     set(_u8 "${CMAKE_CURRENT_BINARY_DIR}/中文路径测试")
     file(MAKE_DIRECTORY "${_u8}")
-    file(COPY "${GAME_TESTDATA_DIR}/fixture_min.json" DESTINATION "${_u8}")
+    # `configure_file(... COPYONLY)` 而不是 `file(COPY)`：前者把输入登记进重新配置
+    # 的依赖表。理由与踩过的那一次见 `tests/CMakeLists.txt` 同一处。
+    configure_file("${GAME_TESTDATA_DIR}/fixture_min.json"
+                   "${_u8}/fixture_min.json" COPYONLY)
     # 复制**真的**元数据 + 全部 `idle` 精灵（140 张，约 8 MB），而不是手写一份裁剪版。
     #
     # 手写过一版，两个问题：一是要在 CMake 里抄 canvas / ground_anchor 的数字，
@@ -159,8 +162,8 @@ if(RTS_BUILD_TESTS)
     # `render_verify_assets` 覆盖（那条走真目录，不需要复制）。
     file(GLOB _u8_idle "${CMAKE_SOURCE_DIR}/tools/sprite_gen/out_3d/*_idle_*.png")
     file(COPY ${_u8_idle} DESTINATION "${_u8}")
-    file(COPY "${CMAKE_SOURCE_DIR}/tools/sprite_gen/out_3d/_sprite_meta.json"
-         DESTINATION "${_u8}")
+    configure_file("${CMAKE_SOURCE_DIR}/tools/sprite_gen/out_3d/_sprite_meta.json"
+                   "${_u8}/_sprite_meta.json" COPYONLY)
 
     add_test(NAME render_utf8_path
              COMMAND rts_render

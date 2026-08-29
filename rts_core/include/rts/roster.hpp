@@ -121,14 +121,16 @@ static_assert(static_cast<int>(Resource::Gold) == kResourceCount - 1);
 // ——中立可破坏障碍——
 //
 // 第三类实体，既不是单位也不是建筑（CLAUDE.md 为它单开了一张对照表）。
-// **只有一条属性：血量。** 不吃「三轴定位」——那三轴是为参与克制矩阵的战斗单位设的，
+// **两条属性：血量，与破坏后的产出。** 前者是待标定数值，后者是 `harvest_of()`（见下），
+// 是结构。不吃「三轴定位」——那三轴是为参与克制矩阵的战斗单位设的，
 // 而障碍不移动、不攻击、不进克制矩阵。
 //
 // 视觉规则是一维的：**矮而单薄 = 可破坏；高而厚重 = 不可破坏**（`Rock` / `Forest`
 // 属后者）。曾用过「木质 / 矮 / 稀疏」三个维度，但它们不共变。
 //
-// 这三种随提案「无尽模式与地形分层」§6 待议。留位的理由见 `rts/types.hpp`
-// 里 `ObstacleId` 那一段——是回放字节布局，不是乐观。
+// **提案「无尽模式与地形分层」§6 已于 2026-08-29 通过**（issue #58），
+// 所以这三种是真的有血量的实体，不再是「留位」。留位那段时期的理由见
+// `rts/types.hpp` 里 `ObstacleId` 那一段——是回放字节布局，不是乐观。
 enum class ObstacleType : std::uint8_t {
     Stump = 0,    // 树桩：木质、贴地
     Sapling,      // 幼树：单株细树，明显矮于密林
@@ -292,6 +294,39 @@ constexpr BldType gatherer_of(Resource r) noexcept {
         case Resource::Gold:  return BldType::Mine;
     }
     return BldType::Quarry;
+}
+
+// ——可破坏障碍 → 破坏后产出哪种资源——
+//
+// CLAUDE.md「命名对照表：可破坏障碍」那一列的唯一实现处。
+// **只给种类，不给数量**——数量是待标定数值，与全部数值同归口（JSON 数据文件）。
+//
+// 映射跟着材质走，玩家不需要额外记一张表：视觉规则已经把材质写进设计
+// （「木质、矮 = 可破坏」），于是木质的产木材、石质的产石材。
+//
+// **`Resource::Gold` 不是任何障碍的产出，这是刻意的**，两个独立的理由（任一足够）：
+//   * 金币管人力，而清野不产人力。「每种资源对应一条不同的决策轴」是 CLAUDE.md 的
+//     原则，让清野同时喂两条轴会把它变成通用提款机
+//   * `Keep` 的金币产出是「兵力地板」，CLAUDE.md 明写它是**唯一**的非资源点金币来源，
+//     且「若哪天想删掉它，必须先给金币断供找到另一条护栏」。再开一个金币口子等于
+//     悄悄削弱那条护栏的唯一性
+//
+// 那条「没有一种产金币」由 `tests/roster_test.cpp` 单独占一个用例钉住——
+// 与具体映射分开写，否则 `REQUIRE` 一失败就中止用例，靠后的那条永远跑不到。
+// 完整论证见 `无尽模式与地形分层.md` 6.6.2。
+//
+// **不提供反向映射**（`Resource -> ObstacleType`），与 `gatherer_of` 那对不同：
+// 这个方向不是 1:1（木材对两种障碍），而金币根本没有原像。硬写一个反向函数就得
+// 为这两件事各挑一个说法，而没有任何调用方需要它。
+constexpr Resource harvest_of(ObstacleType t) noexcept {
+    switch (t) {
+        case ObstacleType::Stump:
+        case ObstacleType::Sapling:
+            return Resource::Wood;
+        case ObstacleType::Rubble:
+            return Resource::Stone;
+    }
+    return Resource::Wood;
 }
 
 // ——机械遍历——

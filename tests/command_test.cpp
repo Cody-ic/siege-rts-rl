@@ -7,7 +7,10 @@
 #include "rts/command.hpp"
 #include "rts/hash.hpp"
 
-TEST_CASE("None 是 0，且 11 个 kind 各有唯一名字", "[command]") {
+// 标题刻意不写 kind 的数目：它每加一条命令就会错一次，而下面的循环读的是
+// `kCommandKindCount`、本来就不需要那个数字。同 `tests/CMakeLists.txt` 那条
+// 「刻意不写条目总数」。（原文写的是「11 个」，加 `Clear` 之后就成了错的。）
+TEST_CASE("None 是 0，且每个 kind 各有唯一名字", "[command]") {
     REQUIRE(static_cast<int>(rts::CommandKind::None) == 0);
 
     std::set<std::string_view> seen;

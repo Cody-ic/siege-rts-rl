@@ -121,6 +121,16 @@ World::World(WorldInit init)
     for (const UnitInit& u : init.units) {
         spawn_unit(u.type, u.pos, u.level, u.hp, u.max_hp);
     }
+
+    // 初始障碍。校验同样全部复用 `place_obstacle`（类型越界、界内、血量），
+    // 理由与上面单位那段逐字相同。
+    //
+    // **这是障碍进世界的唯一入口。** `World` 刻意不提供「跑动中生成一个障碍」的
+    // 方法，于是 `无尽模式与地形分层.md` 6.6 那条「不可再生」在结构上成立，
+    // 而不是靠一句文档约定——可再生 + 破坏后产出资源 = 一条无限资源循环。
+    for (const ObstacleInit& o : init.obstacles) {
+        place_obstacle(o.type, o.pos, o.hp, o.max_hp);
+    }
 }
 
 // ——波次——
@@ -165,6 +175,10 @@ void World::validate(Side side, const Command& c) const {
             [[fallthrough]];
         case CommandKind::Repair:
         case CommandKind::Cancel:
+        // `Clear` 与它们同一条校验：都只要一个合法的格下标。
+        // **这里刻意不查「那一格上真的有障碍」**——那要遍历障碍数组，属机制（1c），
+        // 而本层只做字节校验。同 `Build` 不查「买不买得起」。
+        case CommandKind::Clear:
             if (c.slot == kNoSlot || static_cast<std::size_t>(c.slot) >= cells) {
                 throw ContractError("槽位越界（编码是格线性下标 y*w+x）");
             }
@@ -263,13 +277,18 @@ void World::apply_one(Side side, const Command& c) {
             // 可对多个集结点各下一条 = 分兵佯攻，所以是置位而不是赋值。
             spawn_chosen_[static_cast<std::size_t>(c.slot)] = std::uint8_t{1};
             break;
-        // ——以下六种需要造价 / 耗时，本版不解算，但**不静默丢弃**——
+        // ——以下七种需要造价 / 耗时 / 产出，本版不解算，但**不静默丢弃**——
+        //
+        // `Clear` 归这里而不是上面：清野要把障碍打掉（需要破坏速率）并给守方
+        // 产出资源（需要产出数额），两个都是待标定数值。种类是定的
+        // （`harvest_of()`），**数额不是**，所以它整条落在 1c。
         case CommandKind::Build:
         case CommandKind::Repair:
         case CommandKind::Cancel:
         case CommandKind::Train:
         case CommandKind::MoveForce:
         case CommandKind::Garrison:
+        case CommandKind::Clear:
             ++deferred_[static_cast<std::size_t>(c.kind)];
             break;
     }
