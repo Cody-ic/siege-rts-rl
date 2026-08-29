@@ -151,11 +151,19 @@ TEST_CASE("句柄在实体死后失效，槽位复用不会让旧句柄复活", 
 }
 
 TEST_CASE("三组句柄互不相通", "[world]") {
-    rts::World w(tiny_init());
+    // **障碍经 `WorldInit` 进来，不是 `place_obstacle()`** ——后者是私有的，
+    // 因为「不可再生」是结构要求（`无尽模式与地形分层.md` 6.6.2）：
+    // 若这里能在跑动中放一个障碍，那条要求就只是一条约定。
+    // 于是本用例顺带成了那条私有性的使用证明——它一度**不是**私有的。
+    rts::WorldInit init = tiny_init();
+    init.obstacles.push_back(
+        rts::ObstacleInit{rts::ObstacleType::Stump, rts::GridPos{1, 0}, 2, 2});
+    rts::World w(std::move(init));
+
     const rts::UnitId u = w.spawn_unit(rts::UnitType::Ghoul, rts::Vec2{1.5f, 1.5f}, 1, 5, 5);
     const rts::BldId b = w.place_bld(rts::BldType::Wall, rts::GridPos{0, 0}, 3, 3);
-    const rts::ObstacleId o =
-        w.place_obstacle(rts::ObstacleType::Stump, rts::GridPos{1, 0}, 2, 2);
+    // 建局时那一个障碍拿到的是 0 号槽位（`WorldInit::obstacles` 的顺序即槽位顺序）。
+    const rts::ObstacleId o = rts::ObstacleId::make(0, 0);
     // 下标可以撞（三组各是独立的扁平数组），但类型系统不让它们互相传递
     // ——那一条由 `tests/types_test.cpp` 的 static_assert 管。
     REQUIRE(w.alive(u));

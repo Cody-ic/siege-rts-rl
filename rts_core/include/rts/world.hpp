@@ -218,9 +218,15 @@ struct BldInit {
 // 不参与战斗的「墙」（`无尽模式与地形分层.md` 6.1）。所以它不该长得不一样。
 //
 // **障碍只能从这里进世界，不能在跑动中生成。** 这不是懒省事，是 6.6 那条
-// 「不可再生」的结构要求在契约层的形式——`World` 没有任何「造一个障碍」的入口，
-// 于是「可再生」这件事写不出来。同理**建筑摧毁不产生 `Rubble` 实体**：
-// 那条封的是「建墙 → 被拆 → 拆废墟得石材 → 打折重建」这条净赚回路。
+// 「不可再生」的结构要求在契约层的形式：**放障碍的函数是私有的**，
+// 只有构造函数调它，于是「可再生」这件事在 `World` 外面写不出来。
+// 同理**建筑摧毁不产生 `Rubble` 实体**：那条封的是
+// 「建墙 → 被拆 → 拆废墟得石材 → 打折重建」这条净赚回路。
+//
+// **这段话原先是错的，值得留个记号。** 它当初就这么写着，而 `place_obstacle()`
+// 是公开的——于是「结构上写不出来」实际只是一条约定，**而注释读起来像是保证**。
+// 这正是本仓库最防的那种形态（`创新点与答辩讲法.md` 附录记了这次），
+// 所以修的是代码不是注释。
 struct ObstacleInit {
     ObstacleType type = ObstacleType::Stump;
     GridPos pos{};
@@ -403,8 +409,14 @@ public:
                       std::int64_t hp, std::int64_t max_hp);
     BldId place_bld(BldType type, GridPos pos, std::int64_t hp, std::int64_t max_hp,
                     std::int32_t work_left = 0);
-    ObstacleId place_obstacle(ObstacleType type, GridPos pos, std::int64_t hp,
-                              std::int64_t max_hp);
+
+    // **障碍没有对应的 `place_*`，这是刻意的**，见 `ObstacleInit` 那段：
+    // 它们只能经 `WorldInit::obstacles` 在建局时进世界。放障碍的函数是**私有**的，
+    // 于是「障碍可再生」与「建筑摧毁产生 `Rubble` 实体」这两条被禁的写法
+    // 在这个类外面**没有语法形式**——而不是靠一条注释拦着。
+    //
+    // 反过来，**销毁是公开的**：1c 要用它（打穿一个树桩就是销毁一个障碍）。
+    // 不对称是有意的，`spawn_unit` / `place_bld` 与这里的区别正是那条规则本身。
 
     void kill_unit(UnitId id);
     void destroy_bld(BldId id);
@@ -513,6 +525,11 @@ private:
     std::size_t require(UnitId id) const;
     std::size_t require(BldId id) const;
     std::size_t require(ObstacleId id) const;
+
+    // 只有构造函数调它（`WorldInit::obstacles` 那一遍）。**公开它就等于把
+    // 「不可再生」从结构降级为约定**，理由见上面那段与 `ObstacleInit`。
+    ObstacleId place_obstacle(ObstacleType type, GridPos pos, std::int64_t hp,
+                              std::int64_t max_hp);
 
     void apply_one(Side side, const Command& c);
     void validate(Side side, const Command& c) const;
