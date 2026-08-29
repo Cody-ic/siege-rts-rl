@@ -211,7 +211,9 @@ TEST_CASE("describe_cell 说出这一格上真正有的东西", "[names]") {
         REQUIRE(contains(game::describe_cell(map, at(5, 3)), "禁建"));
 
         REQUIRE(contains(game::describe_cell(map, at(1, 3)), "石材(城内)"));
-        REQUIRE(contains(game::describe_cell(map, at(5, 0)), "木材(城外)"));
+        // 城外那个木材点在 (5,2)：它的位置受校验器第 7 条约束（森林带要 4 连通
+        // 通到地图边界），不能随手挪，见夹具的 _note。
+        REQUIRE(contains(game::describe_cell(map, at(5, 2)), "木材(城外)"));
 
         const std::string s0 = game::describe_cell(map, at(0, 0));
         REQUIRE(contains(s0, "集结点 0"));

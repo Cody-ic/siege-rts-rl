@@ -189,12 +189,6 @@ if(Python3_FOUND)
 
     # 校验器的「一张地图都没读到必须红」。与上面那条 determinism 探针同一道钉子：
     # 「目录改名后校验器什么都没校验却全绿」正是要防的那种失败。
-    #
-    # 与之成对的「读到了一些、另一些路径不存在也必须红」**留在 selftest.py 里**
-    # （它 patch sys.argv 直接调 validate.main()）。那一条在这里做不了：
-    # 仓库现在一张地图文件都没有，所以「一张真图 + 一个坏路径」这个场景在 CLI
-    # 层构造不出来，而少了那张真图，先命中的是「0 张即失败」——
-    # **那样它就会因为错误的理由通过**，正是 selftest.py 开头那段要防的形态。
     set(_map_empty_probe "${CMAKE_CURRENT_BINARY_DIR}/map_gen_empty_probe")
     file(MAKE_DIRECTORY "${_map_empty_probe}")
     add_test(NAME map_gen_validate_empty_is_red
@@ -202,6 +196,42 @@ if(Python3_FOUND)
                      "${CMAKE_SOURCE_DIR}/tools/map_gen/validate.py"
                      "${_map_empty_probe}")
     set_tests_properties(map_gen_validate_empty_is_red PROPERTIES WILL_FAIL TRUE)
+
+    # **校验器真的读一张真地图。** 上面那两条（自检 + 0 张即失败）都不走这条路径：
+    # 自检在内存里造 doc，而「0 张」那条在打印任何东西之前就返回了。
+    #
+    # 少了这一条，有两样东西从来没被执行过，而它们都只在真文件上才出现：
+    #   * `mapfile.load()` 那条链路（UTF-8 显式解码、通用换行、格式层校验）
+    #   * **报告的打印路径**，而它有一个真 bug 藏在那里：✓ / ✗ / ⊘ / … 都不在
+    #     cp936 里，而 Windows 中文环境的控制台默认就是 cp936。修法是编码不了就
+    #     退回 ASCII 记号（validate.py 的 `_marks()`），而**这条 ctest 是它唯一的
+    #     回归**。当初写那个修法时的原话是「第一张地图入库当天它就会现形」——
+    #     这条测试就是不让它等到那一天。
+    #
+    # 夹具用的是 game/testdata/fixture_min.json，即 C++ 侧 MapLoader 的那张图。
+    # **刻意不另造一张**：`tools/map_gen/mapfile.py` 被定为全仓唯一的地图 I/O 入口，
+    # 同一张图两侧共用，才能保证两边对「合法地图」的理解不会各自漂移。
+    add_test(NAME map_gen_validate_fixture
+             COMMAND "${Python3_EXECUTABLE}"
+                     "${CMAKE_SOURCE_DIR}/tools/map_gen/validate.py"
+                     "${GAME_TESTDATA_DIR}/fixture_min.json")
+
+    # 与「0 张即失败」成对的另一半：**读到了一些、另一些路径不存在，也必须红。**
+    # 覆盖面悄悄减半而退出码是 0，是同一种「该红却绿」，只是不那么显眼。
+    #
+    # 这一条此前只能留在 selftest.py 里（它 patch sys.argv 直接调 main()），
+    # 原因写的是「仓库一张地图文件都没有，所以『一张真图 + 一个坏路径』在 CLI 层
+    # 构造不出来，而少了那张真图先命中的是『0 张即失败』——那样它就会因为错误的
+    # 理由通过」。**那个前提是错的**：`game/testdata/fixture_min.json` 一直都在，
+    # 只是没人把 Python 校验器指向它。现在两处都有了，各自盯的东西不同：
+    # 这一条走真的 CLI 与真的退出码，selftest 那条走进程内、能断言报错文本。
+    add_test(NAME map_gen_validate_partial_path_is_red
+             COMMAND "${Python3_EXECUTABLE}"
+                     "${CMAKE_SOURCE_DIR}/tools/map_gen/validate.py"
+                     "${GAME_TESTDATA_DIR}/fixture_min.json"
+                     "${CMAKE_CURRENT_BINARY_DIR}/no_such_map_dir")
+    set_tests_properties(map_gen_validate_partial_path_is_red
+                         PROPERTIES WILL_FAIL TRUE)
 else()
     message(WARNING "未找到 Python3：确定性禁令检查不会作为测试运行"
                     "（RTS_REQUIRE_DETERMINISM_GUARD=OFF）。"

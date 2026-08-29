@@ -57,7 +57,8 @@ TEST_CASE("夹具地图能从文件读出来", "[map]") {
 TEST_CASE("坐标约定：pos 是 [x, y]，而 rows[y][x]", "[map]") {
     const game::MapData m = game::MapLoader::from_file(fixture_path());
 
-    // 第 0 行是 "0123300"：x=1 是 Rock，x=2 是 Forest。
+    // 第 0 行是 "0123320"：x=1 是 Rock，x=2 是 Forest。
+    // （x=5 那格 Forest 是为了满足校验器第 7 条，见夹具的 _note，与本条无关。）
     REQUIRE(m.terrain_at(1, 0) == game::Terrain::Rock);
     REQUIRE(m.terrain_at(2, 0) == game::Terrain::Forest);
 
