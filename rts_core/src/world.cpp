@@ -88,6 +88,11 @@ World::World(WorldInit init)
     }
     spawn_chosen_.assign(spawns_.size(), 0);
 
+    // 占位格（派生缓存，不进哈希——见头文件那段）。必须在放建筑与障碍**之前**
+    // 就位，`place_bld` / `place_obstacle` 要往里写。
+    bld_at_.assign(terrain_.cell_count(), 0);
+    obstacle_at_.assign(terrain_.cell_count(), 0);
+
     // 初始建筑。
     int keep_count = 0;
     for (const BldInit& b : init.buildings) {
@@ -299,26 +304,21 @@ void World::apply_one(Side side, const Command& c) {
 void World::advance(int ticks) {
     if (ticks < 0) throw ContractError("advance 的 tick 数不得为负");
     for (int t = 0; t < ticks; ++t) {
-        // 顺序固定：守方先、攻方后，各按提交顺序。**改它等于让所有已录回放失效。**
+        // 阶段顺序的规范在头文件 `advance()` 的注释里，**这里只是照着做**。
+        // 顺序固定是确定性的一部分：守方先、攻方后，各按提交顺序。
         for (int s = 0; s < kSideCount; ++s) {
             std::vector<Command>& q = cmd_queue_[static_cast<std::size_t>(s)];
             for (const Command& c : q) apply_one(static_cast<Side>(s), c);
             q.clear();
         }
 
-        // 两个纯计数器。**它们不需要任何数值就能推进**（初值来自数值表，
-        // 递减不来自任何表），所以本版做完；也正因为有它们，
-        // `advance()` 不是空操作，回放测试才不是永远绿的摆设。
-        for (std::size_t k = 0; k < unit_pool_.slot_count(); ++k) {
-            if (unit_pool_.alive_at(static_cast<std::uint16_t>(k)) && u_windup_[k] > 0) {
-                --u_windup_[k];
-            }
-        }
-        for (std::size_t k = 0; k < bld_pool_.slot_count(); ++k) {
-            if (bld_pool_.alive_at(static_cast<std::uint16_t>(k)) && b_work_[k] > 0) {
-                --b_work_[k];
-            }
-        }
+        // 机制第一批的四个阶段（src/mechanics.cpp）。
+        // 原先这里那两个「纯计数器递减」循环已被吸收：前摇归 tick_unit_combat
+        // （只有已承诺的攻击才有前摇可递减），施工进度归 tick_bld_combat。
+        tick_unit_combat();
+        tick_movement();
+        tick_bld_combat();
+        tick_vision();
 
         ++tick_;
     }
@@ -350,6 +350,10 @@ UnitId World::spawn_unit(UnitType type, Vec2 pos, std::int32_t level, std::int64
         u_action_.resize(n);
         u_garrison_.resize(n);
         u_force_.resize(n);
+        u_cd_.resize(n);
+        u_tgt_kind_.resize(n);
+        u_tgt_raw_.resize(n);
+        u_aim_.resize(n);
     }
     u_type_[k] = type;
     u_level_[k] = level;
@@ -362,6 +366,10 @@ UnitId World::spawn_unit(UnitType type, Vec2 pos, std::int32_t level, std::int64
     u_action_[k] = UnitAction::Stop;
     u_garrison_[k] = kNoSlot;
     u_force_[k] = kNoForce;
+    u_cd_[k] = 0;
+    u_tgt_kind_[k] = TgtKind::None;
+    u_tgt_raw_[k] = 0;
+    u_aim_[k] = Vec2{};
     return unit_pool_.id_at(k);
 }
 
@@ -380,12 +388,20 @@ BldId World::place_bld(BldType type, GridPos pos, std::int64_t hp, std::int64_t 
         b_hp_.resize(n);
         b_max_hp_.resize(n);
         b_work_.resize(n);
+        b_cd_.resize(n);
+        b_windup_.resize(n);
+        b_tgt_raw_.resize(n);
     }
     b_type_[k] = type;
     b_pos_[k] = pos;
     b_hp_[k] = hp;
     b_max_hp_[k] = max_hp;
     b_work_[k] = work_left;
+    b_cd_[k] = 0;
+    b_windup_[k] = 0;
+    b_tgt_raw_[k] = UnitId::kInvalidRaw;
+    bld_at_[static_cast<std::size_t>(pos.j) * static_cast<std::size_t>(width()) +
+            static_cast<std::size_t>(pos.i)] = static_cast<std::uint16_t>(k + 1);
     return bld_pool_.id_at(k);
 }
 
@@ -409,6 +425,8 @@ ObstacleId World::place_obstacle(ObstacleType type, GridPos pos, std::int64_t hp
     o_pos_[k] = pos;
     o_hp_[k] = hp;
     o_max_hp_[k] = max_hp;
+    obstacle_at_[static_cast<std::size_t>(pos.j) * static_cast<std::size_t>(width()) +
+                 static_cast<std::size_t>(pos.i)] = static_cast<std::uint16_t>(k + 1);
     return obstacle_pool_.id_at(k);
 }
 
@@ -428,21 +446,42 @@ void World::kill_unit(UnitId id) {
     u_action_[k] = UnitAction::Stop;
     u_garrison_[k] = kNoSlot;
     u_force_[k] = kNoForce;
+    u_cd_[k] = 0;
+    u_tgt_kind_[k] = TgtKind::None;
+    u_tgt_raw_[k] = 0;
+    u_aim_[k] = Vec2{};
     unit_pool_.release(static_cast<std::uint16_t>(k));
 }
 
 void World::destroy_bld(BldId id) {
     const std::size_t k = require(id);
+    {
+        const std::size_t c =
+            static_cast<std::size_t>(b_pos_[k].j) * static_cast<std::size_t>(width()) +
+            static_cast<std::size_t>(b_pos_[k].i);
+        // 只清自己占的那一格：两座建筑落在同一格时后放的覆盖了前者，
+        // 先拆前者不该把后者的占位抹掉。
+        if (bld_at_[c] == static_cast<std::uint16_t>(k + 1)) bld_at_[c] = 0;
+    }
     b_type_[k] = BldType::Keep;
     b_pos_[k] = GridPos{};
     b_hp_[k] = 0;
     b_max_hp_[k] = 0;
     b_work_[k] = 0;
+    b_cd_[k] = 0;
+    b_windup_[k] = 0;
+    b_tgt_raw_[k] = UnitId::kInvalidRaw;
     bld_pool_.release(static_cast<std::uint16_t>(k));
 }
 
 void World::destroy_obstacle(ObstacleId id) {
     const std::size_t k = require(id);
+    {
+        const std::size_t c =
+            static_cast<std::size_t>(o_pos_[k].j) * static_cast<std::size_t>(width()) +
+            static_cast<std::size_t>(o_pos_[k].i);
+        if (obstacle_at_[c] == static_cast<std::uint16_t>(k + 1)) obstacle_at_[c] = 0;
+    }
     o_type_[k] = ObstacleType::Stump;
     o_pos_[k] = GridPos{};
     o_hp_[k] = 0;
@@ -493,6 +532,9 @@ std::int64_t World::unit_hp(UnitId id) const { return u_hp_[require(id)]; }
 Vec2 World::unit_pos(UnitId id) const { return u_pos_[require(id)]; }
 UnitAction World::unit_action(UnitId id) const { return u_action_[require(id)]; }
 std::int32_t World::unit_windup(UnitId id) const { return u_windup_[require(id)]; }
+std::int32_t World::unit_cooldown(UnitId id) const { return u_cd_[require(id)]; }
+TgtKind World::unit_target_kind(UnitId id) const { return u_tgt_kind_[require(id)]; }
+Vec2 World::unit_aim(UnitId id) const { return u_aim_[require(id)]; }
 
 BldType World::bld_type(BldId id) const { return b_type_[require(id)]; }
 GridPos World::bld_pos(BldId id) const { return b_pos_[require(id)]; }
@@ -515,11 +557,22 @@ std::uint16_t World::action_mask(UnitId id) const {
     const Mobility mob = is_aerial(u_type_[k]) ? Mobility::Aerial : Mobility::Ground;
     const GridPos here = grid_of(u_pos_[k]);
 
-    // 攻击四位与 Stop 默认允许，理由见头文件（错误地禁止比错误地允许坏得多）。
-    std::uint16_t mask = static_cast<std::uint16_t>(
-        bit_of(UnitAction::Stop) | bit_of(UnitAction::AtkNear) |
-        bit_of(UnitAction::AtkWeak) | bit_of(UnitAction::AtkBld) |
-        bit_of(UnitAction::AtkWall));
+    std::uint16_t mask = bit_of(UnitAction::Stop);   // 停住永远合法
+
+    // 攻击 4 位：**精确**——射程内有没有一个合法目标（§1.1.1 乙的另一半）。
+    // 与战斗阶段用同一个 `pick_target`，两处不会各判一套。
+    {
+        const float range = stats_.of(u_type_[k]).range;
+        const float r2 = range * range;
+        constexpr UnitAction kAtk[] = {UnitAction::AtkNear, UnitAction::AtkWeak,
+                                       UnitAction::AtkBld, UnitAction::AtkWall};
+        for (const UnitAction a : kAtk) {
+            const TargetPick t = pick_target(k, a);
+            if (t.found && t.dist2 <= r2) {
+                mask = static_cast<std::uint16_t>(mask | bit_of(a));
+            }
+        }
+    }
 
     for (int d = 0; d < kMoveDirCount; ++d) {
         const UnitAction a = move_of(d);
@@ -612,6 +665,14 @@ std::uint64_t World::state_hash() const noexcept {
     h.feed(u_action_.data(), u_action_.size() * sizeof(UnitAction));
     h.feed(u_garrison_.data(), u_garrison_.size() * sizeof(std::uint16_t));
     h.feed(u_force_.data(), u_force_.size());
+    h.feed(u_cd_.data(), u_cd_.size() * sizeof(std::int32_t));
+    h.feed(u_tgt_kind_.data(), u_tgt_kind_.size() * sizeof(TgtKind));
+    h.feed(u_tgt_raw_.data(), u_tgt_raw_.size() * sizeof(std::uint32_t));
+    // 锁定落点是浮点，与 u_pos_ 同一条纪律：按位喂。
+    for (const Vec2& p : u_aim_) {
+        h.feed_f32(p.x);
+        h.feed_f32(p.y);
+    }
 
     bld_pool_.feed_hash(h);
     h.feed(b_type_.data(), b_type_.size() * sizeof(BldType));
@@ -619,6 +680,9 @@ std::uint64_t World::state_hash() const noexcept {
     h.feed(b_hp_.data(), b_hp_.size() * sizeof(std::int64_t));
     h.feed(b_max_hp_.data(), b_max_hp_.size() * sizeof(std::int64_t));
     h.feed(b_work_.data(), b_work_.size() * sizeof(std::int32_t));
+    h.feed(b_cd_.data(), b_cd_.size() * sizeof(std::int32_t));
+    h.feed(b_windup_.data(), b_windup_.size() * sizeof(std::int32_t));
+    h.feed(b_tgt_raw_.data(), b_tgt_raw_.size() * sizeof(std::uint32_t));
 
     obstacle_pool_.feed_hash(h);
     h.feed(o_type_.data(), o_type_.size() * sizeof(ObstacleType));

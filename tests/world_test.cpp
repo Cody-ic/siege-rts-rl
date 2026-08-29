@@ -1,9 +1,11 @@
 // `World` / `WorldView` / 槽位池 / 掩码 / 状态哈希。
 //
 // 这一批里有相当一部分测的是**「本版刻意没做」这件事本身**：
-// 那几种命令被记账而不是被丢弃、攻击掩码默认允许、`advance()` 不是空操作。
+// 那几种命令被记账而不是被丢弃、`advance()` 不是空操作。
 // 那些不是占位测试——它们锁住的是「没做」与「静默吞掉」的区别，
 // 而 1c 实现它们时正是要把这些断言翻过来。
+// （攻击掩码已随机制第一批从「默认允许」翻成「精确」——第一条被翻过来的。
+// 机制本身的用例在 tests/mechanics_test.cpp，这里只留掩码那几条。）
 
 #include <array>
 #include <set>
@@ -571,31 +573,48 @@ TEST_CASE("迷雾进哈希", "[world]") {
 
 // ——掩码——
 
-TEST_CASE("Stop 位恒为 1，攻击四位默认允许", "[world]") {
-    // 掩码里 0 通常是「兜底一定合法的那一个」。停住永远合法。
-    // 攻击位默认**允许**：错误地允许只是浪费样本，错误地禁止会让 agent
-    // 永远学不到那个动作，而后者不会有任何东西提示。
-    rts::WorldInit init = tiny_init(3, 3);
-    for (rts::Terrain& t : init.terrain) t = rts::Terrain::Rock;
-    init.terrain[1 * 3 + 1] = rts::Terrain::Plain;   // 只有正中间能站
-    init.keep = rts::GridPos{1, 1};
+TEST_CASE("Stop 位恒为 1，攻击四位精确到射程内有没有合法目标", "[world]") {
+    // 这条曾断言「攻击四位默认允许」——那是机制没落地时的刻意状态。
+    // 目标选择落地后按 §1.1.1 乙升级为精确：**射程外时该位必须为 0**。
+    // 这条断言正是当初闭合乙时挂的遗留问题（没有它，「默认允许」会把
+    // 精确判定悄悄盖回去而没有任何东西变红）。
+    rts::WorldInit init = tiny_init(9, 3);
+    init.keep = rts::GridPos{0, 0};
     init.buildings.clear();
     init.buildings.push_back(rts::BldInit{rts::BldType::Keep, init.keep, 10, 10});
     init.spawns.clear();
+    // 弓手射程 2（占位）；敌人分别放在射程内与射程外。
+    init.stats.unit[static_cast<std::size_t>(rts::UnitType::Archer)].range = 2.0f;
+    init.stats.unit[static_cast<std::size_t>(rts::UnitType::Archer)].damage = 3;
 
     rts::World w(std::move(init));
-    const rts::UnitId u = w.spawn_unit(rts::UnitType::Ghoul, rts::Vec2{1.5f, 1.5f}, 1, 5, 5);
-    const std::uint16_t mask = w.action_mask(u);
+    const rts::UnitId u =
+        w.spawn_unit(rts::UnitType::Archer, rts::Vec2{1.5f, 1.5f}, 1, 5, 5);
 
+    // 还没有任何敌人：四个攻击位全 0，Stop 恒为 1。
+    std::uint16_t mask = w.action_mask(u);
     REQUIRE(has_bit(mask, rts::UnitAction::Stop));
+    REQUIRE_FALSE(has_bit(mask, rts::UnitAction::AtkNear));
+    REQUIRE_FALSE(has_bit(mask, rts::UnitAction::AtkWeak));
+    REQUIRE_FALSE(has_bit(mask, rts::UnitAction::AtkBld));   // 敌方没有建筑，恒 0
+    REQUIRE_FALSE(has_bit(mask, rts::UnitAction::AtkWall));
+
+    // 射程外（距离 6 > 2）：有目标，但打不到 ⇒ 位仍为 0。
+    const rts::UnitId far_ghoul =
+        w.spawn_unit(rts::UnitType::Ghoul, rts::Vec2{7.5f, 1.5f}, 1, 5, 5);
+    mask = w.action_mask(u);
+    REQUIRE_FALSE(has_bit(mask, rts::UnitAction::AtkNear));
+    REQUIRE_FALSE(has_bit(mask, rts::UnitAction::AtkWeak));
+
+    // 射程内（距离 1 <= 2）⇒ 位开。血量给得比远处那只低（3 < 5），
+    // 否则 `AtkWeak` 并列取更小槽位 = 远处那只 ⇒ 选中的在射程外 ⇒ 位仍 0
+    // ——那也是正确行为（乙管的是「选中的那一个」打不打得到），
+    // 但这条用例要测的是「打得到时位开」，所以把目标做成无歧义的。
+    w.spawn_unit(rts::UnitType::Ghoul, rts::Vec2{2.5f, 1.5f}, 1, 3, 5);
+    mask = w.action_mask(u);
     REQUIRE(has_bit(mask, rts::UnitAction::AtkNear));
     REQUIRE(has_bit(mask, rts::UnitAction::AtkWeak));
-    REQUIRE(has_bit(mask, rts::UnitAction::AtkBld));
-    REQUIRE(has_bit(mask, rts::UnitAction::AtkWall));
-    // 八面都是岩壁，一个移动方向都不该开。
-    for (int d = 0; d < rts::kMoveDirCount; ++d) {
-        REQUIRE_FALSE(has_bit(mask, rts::move_of(d)));
-    }
+    (void)far_ghoul;
 }
 
 TEST_CASE("空中单位不受地形限制", "[world]") {

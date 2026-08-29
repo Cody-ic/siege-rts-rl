@@ -91,6 +91,16 @@ public:
         return sp(w_->u_garrison_);
     }
     std::span<const std::uint8_t> unit_force() const noexcept { return sp(w_->u_force_); }
+    // 已承诺攻击的目标种类与锁定落点（机制第一批）。渲染层画「出手表现」
+    // 靠它们：windup > 0 且 kind != None ⇒ 这个单位正在挥（或箭在弦上），
+    // 落点是 aim——**它在前摇开始那一刻就定死了**，画预兆圈画它才是诚实的。
+    std::span<const TgtKind> unit_target_kind() const noexcept {
+        return sp(w_->u_tgt_kind_);
+    }
+    std::span<const Vec2> unit_aim() const noexcept { return sp(w_->u_aim_); }
+    std::span<const std::int32_t> unit_cooldown() const noexcept {
+        return sp(w_->u_cd_);
+    }
     std::span<const std::uint8_t> unit_alive() const noexcept {
         return std::span<const std::uint8_t>(w_->unit_pool_.alive_bytes(),
                                              w_->unit_pool_.slot_count());
@@ -102,6 +112,9 @@ public:
     std::span<const std::int64_t> bld_max_hp() const noexcept { return sp(w_->b_max_hp_); }
     std::span<const std::int32_t> bld_work_left() const noexcept {
         return sp(w_->b_work_);
+    }
+    std::span<const std::int32_t> bld_windup() const noexcept {
+        return sp(w_->b_windup_);
     }
     std::span<const std::uint8_t> bld_alive() const noexcept {
         return std::span<const std::uint8_t>(w_->bld_pool_.alive_bytes(),
