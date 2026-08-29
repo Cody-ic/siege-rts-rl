@@ -5,6 +5,11 @@ build/
 # Windows 用 VS 生成器是单目录多配置，因此这个需求在本地开发时不会出现——
 # 这一条是首次 Linux/GCC 构建时才暴露的。
 build-*/
+# 兜底：**任何** build 开头的目录。上面两条是白名单，而白名单只挡住了想得到的
+# 命名。真事：临时开了一个 `build33/` 来验证另一条 PR 的 ctest，`build/` 与
+# `build-*/` 都不匹配，`git add -A` 一次就带进去 902 个文件。
+# 与「ctest 标签清单是白名单，写错抓得到、漏登记抓不到」是同一种失败。
+build*/
 cmake-build-*/
 CMakeCache.txt
 CMakeFiles/
