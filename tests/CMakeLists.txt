@@ -61,6 +61,7 @@ add_executable(rts_tests
     terrain_test.cpp
     fog_test.cpp
     world_test.cpp
+    replay_test.cpp
 )
 
 target_link_libraries(rts_tests PRIVATE rts_core game Catch2::Catch2WithMain)
@@ -106,7 +107,7 @@ target_compile_definitions(rts_tests PRIVATE
 # 挑单条用例跑仍按 CLAUDE.md 写的那样直接用二进制：
 #     ./build/tests/Release/rts_tests "<用例名>"
 foreach(_tag rng hash types map scene iso names utf8path roster action command obs
-        terrain fog world)
+        terrain fog world replay)
     add_test(NAME rts_tests_${_tag} COMMAND rts_tests "[${_tag}]")
 endforeach()
 

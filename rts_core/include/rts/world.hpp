@@ -212,6 +212,31 @@ struct BldInit {
     std::int64_t max_hp = 1;
 };
 
+// 一个初始单位。
+//
+// **这个结构是写回放格式时才发现需要的**，理由值得记下来，因为它是「先定契约、
+// 再定回放」这个顺序的第一个产出：
+//
+// 回放 = 建局参数 + 外生输入流（`rts/replay.hpp`）。于是**初始状态只能由
+// `WorldInit` 表达**——回放文件里没有别的地方能放它。而在加这个字段之前，
+// `WorldInit` 只能描述「一座堡垒 + 若干墙段，零个单位」的世界，
+// 那意味着 `submit_actions`（两条输入通道之一，且是字节量占九成的那一条）
+// **在任何回放里都不可能被走到**：它要求动作数组长度恰好等于活着的单位数，
+// 而那个数恒为 0。
+//
+// 换句话说，缺了它，回放测试会是一个「跑得通、但测不到主要通道」的摆设——
+// 与 `advance()` 若是空操作的那个问题同一族。
+//
+// 与 `BldInit` 同样的纪律：`hp` / `max_hp` / `level` 全部由调用方给，
+// `World` 不查任何表（数值表还不存在）。
+struct UnitInit {
+    UnitType type = UnitType::Ghoul;
+    Vec2 pos{};
+    std::int32_t level = kMinUnitLevel;
+    std::int64_t hp = 1;
+    std::int64_t max_hp = 1;
+};
+
 struct WorldInit {
     int width = 0;
     int height = 0;
@@ -221,6 +246,10 @@ struct WorldInit {
     std::vector<SpawnSite> spawns;
     std::vector<ResourceSite> resources;
     std::vector<BldInit> buildings;        // 必须含一座位于 `keep` 的 `Keep`
+    // 初始单位。**顺序即槽位顺序**，因此它进 `state_hash`，也决定
+    // `enumerate_units()` 的枚举次序——录回放时提交的动作数组按那个次序排，
+    // 所以这里换个顺序等于换一份回放。
+    std::vector<UnitInit> units;
     std::uint64_t seed = 0;
 
     // 回放要绑定到一张具体的地图（`地图与场景设计.md` 6.3）。**在建局时就记下**，
@@ -257,6 +286,25 @@ inline GridPos pos_of_slot(std::uint16_t slot, int width) noexcept {
                    static_cast<std::int16_t>(slot / width)};
 }
 
+// ——状态哈希的口径标签——
+//
+// `state_hash()` 喂入的第一样东西。**改了状态布局就改这个串**，于是旧回放
+// 当场对不上，而不是悄悄给出一个不同的数。
+//
+// 它之所以要**公开**（而不是留在 `src/world.cpp` 里当一个字面量），
+// 是因为回放文件头要存一份（`rts/replay.hpp`）。有了它，
+// 「哈希口径变了」与「仿真真的跑歪了」在诊断上是两件事：
+// 前者报「这份回放是用 World/1 录的，本二进制是 World/2，重录」，
+// 后者报「第 N tick 状态不一致」。少了它，两者都表现为后者，
+// 而后者会让人去找一个不存在的确定性缺陷。
+//
+// **这一条正是在途弹丸那个悬而未决的问题的答案。** 若 1c 把弹丸做成第四组实体，
+// `state_hash` 的喂入清单就变了，所有已录回放随之失效——但只要这个标签一起改成
+// `"World/2"`，失效就会以「口径变了、重录」的形式报出来。所以回放格式
+// **不需要预留一组空的实体位**（那是原先打算的兜底），需要的只是改布局时
+// 顺手改这个串。
+inline constexpr std::string_view kWorldHashTag = "World/1";
+
 class WorldView;
 
 class World {
@@ -281,6 +329,14 @@ public:
     const std::array<unsigned char, 32>& map_content_hash() const noexcept {
         return map_content_hash_;
     }
+
+    // 建局种子。回放文件头存一份（`rts/replay.hpp`）：验证时世界由调用方自己
+    // 建好，所以这一份是**交叉核对**用的——「这份回放当初用的是哪个种子」
+    // 在回放对不上时是第一个要看的东西。
+    //
+    // **刻意不进 `state_hash`**：播种之后的 RNG 状态已经在哈希里了，
+    // 而它是种子的单射函数。存两份等于给同一件事两个真相来源。
+    std::uint64_t seed() const noexcept { return seed_; }
 
     // 波次推进。**两者都是公开的，因为触发条件在 1c**：
     // 「波长到了」与「本波打完了」都要读机制。本版的触发者只有
@@ -442,6 +498,7 @@ private:
     std::vector<ResourceSite> resources_;
     std::string map_id_;
     std::array<unsigned char, 32> map_content_hash_{};
+    std::uint64_t seed_ = 0;
 
     // ——时间与波次——
     Tick tick_ = 0;

@@ -62,6 +62,7 @@ World::World(WorldInit init)
       resources_(std::move(init.resources)),
       map_id_(std::move(init.map_id)),
       map_content_hash_(init.map_content_hash),
+      seed_(init.seed),
       nominal_level_(init.nominal_level),
       rng_(init.seed),
       fog_{FogLayer(init.width, init.height), FogLayer(init.width, init.height)} {
@@ -108,6 +109,17 @@ World::World(WorldInit init)
     if (keep_count != 1) {
         throw ContractError(with_int("必须恰好有一座 Keep（丢失即败的那一座），实际 ",
                                      keep_count));
+    }
+
+    // 初始单位。校验全部复用 `spawn_unit`（类型越界、等级下限、血量），
+    // 不在这里抄一份——抄一份的后果是两处迟早不一致，而不一致的那一侧
+    // 会让某种非法初始状态从回放里悄悄进来。
+    //
+    // **位置刻意不做界内检查**，与 `spawn_unit` 保持一致：单位位置是连续的浮点，
+    // 边界外该怎么处理（夹紧、判死、还是不可能发生）属寻路与移动，是 1c 的事。
+    // 在这里单独加一道检查会造出「建局时管、跑起来不管」的不对称。
+    for (const UnitInit& u : init.units) {
+        spawn_unit(u.type, u.pos, u.level, u.hp, u.max_hp);
     }
 }
 
@@ -526,18 +538,26 @@ std::uint16_t World::command_mask(Side side) const noexcept {
 //
 // **喂入顺序就是下面这个顺序，改它等于让所有已录回放失效。**
 //
-//   1. 格式标签（"World/1"）—— 改了布局就改这个串，于是旧回放当场对不上
-//      而不是悄悄给出一个不同的数
+//   1. 格式标签（`kWorldHashTag`）—— 改了布局就改这个串，于是旧回放当场对不上
+//      而不是悄悄给出一个不同的数。它公开在头文件里，因为回放文件头要存一份，
+//      好让「口径变了」与「跑歪了」在诊断上分开
 //   2. 地图身份：map_id、content_hash、地形三张位图的 layout_hash
 //   3. 时间与波次：tick、wave、phase、nominal_level
 //   4. RNG 状态
 //   5. 三组实体：各自的槽位池（alive + 代数 + 空闲表）+ 全部字段数组
 //   6. 资源、编成位、集结点选择、选中编队
-//   7. 未解算命令的计数器（本版特有，1c 删）
-//   8. 两侧迷雾
+//   7. **两侧的待排空命令队列**
+//   8. 未解算命令的计数器（本版特有，1c 删）
+//   9. 两侧迷雾
+//
+// 第 7 项是写回放格式时补的，理由值得记：队列是**跨 `submit` / `advance` 边界存活**
+// 的状态，所以它是仿真状态。漏掉它，哈希的承诺「同一个哈希 ⇒ 同一个未来」就不成立
+// ——两个队列不同的世界会算出同一个数，然后在下一次 `advance` 分叉。
+// 分叉最终仍会被发现（下一个哈希点），但报出来的 tick 比真正出问题的地方晚，
+// 而回放测试的价值恰好在于**它指的那个 tick 就是第一个错的 tick**。
 std::uint64_t World::state_hash() const noexcept {
     StateHash h;
-    h.feed_text("World/1");
+    h.feed_text(kWorldHashTag);
 
     h.feed_text(map_id_);
     h.feed(map_content_hash_.data(), map_content_hash_.size());
@@ -585,6 +605,14 @@ std::uint64_t World::state_hash() const noexcept {
     h.feed(composition_.data(), composition_.size() * sizeof(std::uint16_t));
     h.feed(spawn_chosen_.data(), spawn_chosen_.size());
     h.feed(selected_force_.data(), selected_force_.size());
+
+    // 待排空的命令队列。**长度必须一起喂**，否则「守方一条、攻方两条」与
+    // 「守方两条、攻方一条」在拼接之后字节相同。
+    for (const std::vector<Command>& q : cmd_queue_) {
+        const std::uint64_t n = q.size();
+        h.feed_pod(n);
+        h.feed(q.data(), q.size() * sizeof(Command));
+    }
 
     h.feed(deferred_.data(), deferred_.size() * sizeof(std::int64_t));
 
