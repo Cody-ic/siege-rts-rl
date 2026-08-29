@@ -1,7 +1,7 @@
 // `World` / `WorldView` / 槽位池 / 掩码 / 状态哈希。
 //
 // 这一批里有相当一部分测的是**「本版刻意没做」这件事本身**：
-// 六种命令被记账而不是被丢弃、攻击掩码默认允许、`advance()` 不是空操作。
+// 那几种命令被记账而不是被丢弃、攻击掩码默认允许、`advance()` 不是空操作。
 // 那些不是占位测试——它们锁住的是「没做」与「静默吞掉」的区别，
 // 而 1c 实现它们时正是要把这些断言翻过来。
 
@@ -353,21 +353,44 @@ TEST_CASE("Summon 提前结束建造阶段", "[world]") {
     REQUIRE_FALSE(has_bit(w.command_mask(rts::Side::Defender), rts::CommandKind::Summon));
 }
 
-TEST_CASE("六种需要数值的命令被记账，而不是静默丢弃", "[world]") {
+TEST_CASE("需要数值的命令被记账，而不是静默丢弃", "[world]") {
     // 「本版没解算」与「悄悄吞掉」的区别就在这个计数器上。
     // 1c 实现它们时把 `deferred_command_count` 一并删掉。
+    //
+    // **标题里刻意不写数目。** 原来写的是「六种」，而加 `CommandKind::Clear` 之后
+    // 它变成七种——**那次这条用例照旧全绿**，因为下面的清单是硬编码的一个
+    // `array<..., 6>`，第七种进不了它的视野。同 `tests/CMakeLists.txt` 里
+    // 「刻意不写条目总数」那条：写死的数字保证它明天又错。
     rts::World w(tiny_init());
-    const std::array<rts::CommandKind, 6> deferred{
+
+    // 记账的那些。
+    const std::array<rts::CommandKind, 7> deferred{
         rts::CommandKind::Build,     rts::CommandKind::Repair,
         rts::CommandKind::Cancel,    rts::CommandKind::Train,
-        rts::CommandKind::MoveForce, rts::CommandKind::Garrison};
+        rts::CommandKind::MoveForce, rts::CommandKind::Garrison,
+        rts::CommandKind::Clear};
+
+    // 本版能完整应用、因此不该被记账的那些。
+    const std::array<rts::CommandKind, 5> applied{
+        rts::CommandKind::None,        rts::CommandKind::Summon,
+        rts::CommandKind::SelectForce, rts::CommandKind::Composition,
+        rts::CommandKind::PickSpawn};
+
+    // **这条断言才是上面那次失效的修法**：两份清单必须正好铺满整个枚举。
+    // 于是加一个命令种类时，它要么进「记账」要么进「已应用」，**没有第三种去处**
+    // ——而漏登记会在这里当场红，不是等到某次回放对不上。
+    STATIC_REQUIRE(deferred.size() + applied.size() ==
+                   static_cast<std::size_t>(rts::kCommandKindCount));
+    std::set<rts::CommandKind> covered;
+    for (const rts::CommandKind k : deferred) covered.insert(k);
+    for (const rts::CommandKind k : applied) covered.insert(k);
+    REQUIRE(covered.size() == static_cast<std::size_t>(rts::kCommandKindCount));
 
     for (const rts::CommandKind k : deferred) {
         rts::Command c = cmd(k, rts::Side::Defender);
         c.slot = 1;
         c.force = 0;
-        c.what = static_cast<std::uint8_t>(
-            k == rts::CommandKind::Train ? rts::UnitType::Archer : rts::UnitType::Archer);
+        c.what = static_cast<std::uint8_t>(rts::UnitType::Archer);
         if (k == rts::CommandKind::Build) {
             c.what = static_cast<std::uint8_t>(rts::BldType::Tower);
         }
@@ -377,10 +400,9 @@ TEST_CASE("六种需要数值的命令被记账，而不是静默丢弃", "[worl
     for (const rts::CommandKind k : deferred) {
         REQUIRE(w.deferred_command_count(k) == 1);
     }
-    // 能完整应用的那几种不该被记进这里。
-    REQUIRE(w.deferred_command_count(rts::CommandKind::None) == 0);
-    REQUIRE(w.deferred_command_count(rts::CommandKind::Summon) == 0);
-    REQUIRE(w.deferred_command_count(rts::CommandKind::PickSpawn) == 0);
+    for (const rts::CommandKind k : applied) {
+        REQUIRE(w.deferred_command_count(k) == 0);
+    }
 }
 
 TEST_CASE("advance 递减前摇与施工进度，到 0 就停", "[world]") {

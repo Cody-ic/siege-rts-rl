@@ -15,8 +15,8 @@
 // 递减两个纯计数器（攻击前摇、施工进度）。这一点很重要：
 // **一个什么都不做的 `advance()` 会让回放测试变成永远绿的摆设。**
 //
-// 剩下六种命令（`Build` / `Repair` / `Cancel` / `Train` / `MoveForce` /
-// `Garrison`）需要造价与耗时，所以本版不解算它们——但**不静默丢弃**，
+// 剩下七种命令（`Build` / `Repair` / `Cancel` / `Train` / `MoveForce` /
+// `Garrison` / `Clear`）需要造价与耗时，所以本版不解算它们——但**不静默丢弃**，
 // 而是累加到 `deferred_command_count()`。于是「本版没做这一类」是一个
 // 可以被读出、可以被断言的事实。1c 实现它们时把计数器一并删掉。
 //
@@ -212,6 +212,22 @@ struct BldInit {
     std::int64_t max_hp = 1;
 };
 
+// 一个初始的中立可破坏障碍。
+//
+// 形状与 `BldInit` 一样刻意，因为它们**确实是一类东西**：一段没有归属、
+// 不参与战斗的「墙」（`无尽模式与地形分层.md` 6.1）。所以它不该长得不一样。
+//
+// **障碍只能从这里进世界，不能在跑动中生成。** 这不是懒省事，是 6.6 那条
+// 「不可再生」的结构要求在契约层的形式——`World` 没有任何「造一个障碍」的入口，
+// 于是「可再生」这件事写不出来。同理**建筑摧毁不产生 `Rubble` 实体**：
+// 那条封的是「建墙 → 被拆 → 拆废墟得石材 → 打折重建」这条净赚回路。
+struct ObstacleInit {
+    ObstacleType type = ObstacleType::Stump;
+    GridPos pos{};
+    std::int64_t hp = 1;
+    std::int64_t max_hp = 1;
+};
+
 // 一个初始单位。
 //
 // **这个结构是写回放格式时才发现需要的**，理由值得记下来，因为它是「先定契约、
@@ -246,6 +262,8 @@ struct WorldInit {
     std::vector<SpawnSite> spawns;
     std::vector<ResourceSite> resources;
     std::vector<BldInit> buildings;        // 必须含一座位于 `keep` 的 `Keep`
+    // 中立可破坏障碍。**顺序即槽位顺序**，同下面的 `units`，所以它进 `state_hash`。
+    std::vector<ObstacleInit> obstacles;
     // 初始单位。**顺序即槽位顺序**，因此它进 `state_hash`，也决定
     // `enumerate_units()` 的枚举次序——录回放时提交的动作数组按那个次序排，
     // 所以这里换个顺序等于换一份回放。
@@ -303,7 +321,15 @@ inline GridPos pos_of_slot(std::uint16_t slot, int width) noexcept {
 // `"World/2"`，失效就会以「口径变了、重录」的形式报出来。所以回放格式
 // **不需要预留一组空的实体位**（那是原先打算的兜底），需要的只是改布局时
 // 顺手改这个串。
-inline constexpr std::string_view kWorldHashTag = "World/1";
+// **它已经用过一次了，而且用法正是上面预演的那种。** `World/1` → `World/2`：
+// §6 表决通过后新增 `CommandKind::Clear`，而 `deferred_` 是
+// `std::array<..., kCommandKindCount>` 且整块进哈希，于是喂入长度从 11 变 12。
+// 这不是「跑歪了」，是口径变了——不改这个串，`World/1` 时期的回放会报成
+// 「第 0 tick 状态不一致」，而看到那句话的人会去查一个不存在的确定性缺陷。
+//
+// **教训值得留着：改哈希口径的不一定是「加了一组实体」这种显眼的改动。**
+// 这次只是往一个枚举末尾加了一个成员，而那个枚举恰好是一个进哈希的数组的长度。
+inline constexpr std::string_view kWorldHashTag = "World/2";
 
 class WorldView;
 
@@ -437,7 +463,7 @@ public:
         return selected_force_[static_cast<std::size_t>(index_of(side))];
     }
 
-    // 本版没解算的命令，按种类计数。**1c 实现那六种时把这个函数一并删掉。**
+    // 本版没解算的命令，按种类计数。**1c 实现那七种时把这个函数一并删掉。**
     std::int64_t deferred_command_count(CommandKind k) const noexcept {
         return deferred_[static_cast<std::size_t>(k)];
     }

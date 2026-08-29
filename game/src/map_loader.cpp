@@ -159,6 +159,17 @@ const std::map<std::string, WallKind> kWallKinds{
     {"Wall", WallKind::Wall},
 };
 
+// 键就是 `rts::ident_of(ObstacleType)` 那三个串，大小写一字不差。
+// **刻意与 `kResourceTypes` 的小写风格不同**，而是跟着 `kWallKinds` 走：
+// 这两张表的键是**实体标识符**（花名册里的 `Stump` / `Wall`），
+// 而资源与走廊那几张的键是**类别名**。6.2 里两种风格并存是既有事实，
+// 新字段跟哪一种，取决于它的值是不是一个花名册标识符——这里是。
+const std::map<std::string, rts::ObstacleType> kObstacleTypes{
+    {"Rubble", rts::ObstacleType::Rubble},
+    {"Sapling", rts::ObstacleType::Sapling},
+    {"Stump", rts::ObstacleType::Stump},
+};
+
 }  // namespace
 
 MapData MapLoader::from_file(const std::string& path) {
@@ -299,6 +310,30 @@ MapData MapLoader::from_string(std::string_view json_text, const std::string& or
                              std::to_string(seg.hp_frac));
         }
         m.walls_.push_back(seg);
+    }
+
+    // 可破坏障碍（6.2 的 `obstacles`，随提案 §6 于 2026-08-29 通过）。
+    //
+    // **必填，空数组也要写出来。** 与 `no_build` 的「留空 = 全 0」不同，
+    // 理由是那条反复出现的原则：**缺失与刻意为空不可区分是个洞。**
+    // 一张没有 `obstacles` 键的图，读者分不清是「这张图刻意没有障碍」
+    // 还是「写图的人不知道有这个字段」——而后者会让第 19 条那类校验空过。
+    // 同 `rts/command.hpp` 里 `None` 不当哨兵那一段。
+    //
+    // **不带血量字段**，见 `game::ObstacleNode` 的注释。
+    const json& obstacles = need(doc, "obstacles", origin, "顶层");
+    if (!obstacles.is_array()) fail(origin, "`obstacles` 必须是数组");
+    for (std::size_t k = 0; k < obstacles.size(); ++k) {
+        const std::string where = "`obstacles[" + std::to_string(k) + "]`";
+        const json& o = obstacles[k];
+        ObstacleNode node;
+        node.type = lookup(kObstacleTypes,
+                           need_string(need(o, "type", origin, where), origin,
+                                       where + ".type"),
+                           origin, where + ".type");
+        node.pos = need_pos(need(o, "pos", origin, where), origin, where + ".pos",
+                            m.width_, m.height_);
+        m.obstacles_.push_back(node);
     }
 
     return m;

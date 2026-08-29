@@ -3,6 +3,8 @@
 #include <set>
 #include <string_view>
 
+#include "rts/action.hpp"
+#include "rts/command.hpp"
 #include "rts/roster.hpp"
 // 「可破坏障碍与地形枚举不重名」那条要同时看两张枚举。刻意显式 include 而不是
 // 靠 roster.hpp 顺带拉进来 —— 头文件自足性那条守卫防的正是这种隐式依赖。
@@ -58,11 +60,17 @@ TEST_CASE("可破坏障碍与地形枚举不重名", "[roster]") {
     // 2.1.5：森林带是 2.1 整节唯一的承载者，玩家若能砍掉一段森林就能围墙，
     // 于是那一节退化成纯数值劝退。**2.1.5 已定案**（随 #23）。
     //
-    // 它在校验器那一侧仍是「阻塞」，因为地图格式里还没有「可破坏障碍」这种点位
-    // 实体（那要等提案「无尽模式与地形分层」§6 的机制那一半，而 §6 从未被表决）。
-    // 但**代码里已经有那份列表了**——`ObstacleType`，三个成员。所以能查的部分现在就查：
-    // 一旦有人往 `ObstacleType` 里加 `Forest` 或 `Rock`（或任何与地形同名的东西），
-    // 这条立刻红。
+    // **校验器那一侧现在也实现了**（§6 于 2026-08-29 通过、6.2 随之新增 `obstacles`
+    // 字段，第 19 条的两个阻塞一起解开）。所以这条约束现在**两侧各查一半**，
+    // 而两半查的不是同一件事，都要留着：
+    //
+    //   * 这里查**代码里的枚举**——`ObstacleType` 的成员不与地形枚举重名
+    //   * `tools/map_gen/validate.py` 的第 19 条查**地图文件写了什么**
+    //     ——`obstacles[].type` 只能取那三个白名单值
+    //
+    // 少了前者，有人往 `ObstacleType` 里加 `Forest` 不会有任何地方红（地图文件里
+    // 没写它，校验器就查不到）；少了后者，一张把 `Forest` 写进 `obstacles` 的图
+    // 会在 C++ 载入时才炸，而那时错误信息指向查表失败、不指向 2.1.5。
     //
     // 查「重名」而不是查两个具体名字，是因为前者不随地形枚举增长而过期：
     // 将来 4.1 若再添一种不可破坏地形，它自动被覆盖，不需要有人记得回来改这里。
@@ -168,4 +176,45 @@ TEST_CASE("等级从 1 起", "[roster]") {
     // 已有 static_assert，这里重复一次是为了让**测试报告**里也有它。
     // 它保护的是观测里「等级和为 0 ⟺ 该格无敌人」，见 rts/obs.hpp。
     REQUIRE(rts::kMinUnitLevel == 1);
+}
+
+TEST_CASE("没有任何可破坏障碍产金币", "[roster]") {
+    // **这条是三条结构约束里最要紧的一条，所以它单占一个 TEST_CASE。**
+    // 原先它和下面那三行具体映射写在同一个用例里，而 `REQUIRE` 一失败就中止整个
+    // 用例——于是「把 Rubble 改成产金币」这个探针**先撞上具体映射那一行**，
+    // 这条循环一次都没跑到。两条断言写在一个用例里，靠后的那条就是这样悄悄失效的。
+    //
+    // 它保护两条独立的设计（任一足够）：金币管人力而清野不产人力（三种资源
+    // 各对应一条决策轴）；以及 `Keep` 的「兵力地板」是**唯一**的非资源点金币来源，
+    // 而 CLAUDE.md 明写想删它得先另找一条护栏——再开一个口子等于悄悄削弱它。
+    //
+    // **机械地查而不是列举那三种**：加第四种障碍时，逐条列举的写法照旧全绿。
+    for (int i = 0; i < rts::kObstacleTypeCount; ++i) {
+        REQUIRE(rts::harvest_of(rts::obstacle_at(i)) != rts::Resource::Gold);
+    }
+}
+
+TEST_CASE("可破坏障碍的产出跟着材质走", "[roster]") {
+    // CLAUDE.md「命名对照表：可破坏障碍」那一列的机械检查。
+    // 木质的产木材、石质的产石材，于是玩家不需要额外记一张表——
+    // 视觉规则（「木质、矮 = 可破坏」）已经把材质写进设计了。
+    // 完整论证见 `无尽模式与地形分层.md` 6.6.2。
+    REQUIRE(rts::harvest_of(rts::ObstacleType::Stump) == rts::Resource::Wood);
+    REQUIRE(rts::harvest_of(rts::ObstacleType::Sapling) == rts::Resource::Wood);
+    REQUIRE(rts::harvest_of(rts::ObstacleType::Rubble) == rts::Resource::Stone);
+}
+
+TEST_CASE("清野是玩家级命令，不是战术动作", "[roster]") {
+    // §6 通过后曾考虑给战术枚举加一个 `AtkObst`，否掉了（理由见
+    // CLAUDE.md「RL 设计决策」）。**这条用例锁的是那个否决**：
+    // 战术动作仍是 13 个，而清野走 `CommandKind::Clear`。
+    //
+    // 放在 [roster] 而不是 [command]，是因为它要同时摸 `UnitAction` 与
+    // `CommandKind` 两个枚举——查的是「这件事落在哪一侧」，不是命令自身的形状。
+    REQUIRE(rts::kUnitActionCount == 13);
+    REQUIRE(rts::owner_of(rts::CommandKind::Clear) == rts::Side::Defender);
+
+    // 攻方拆障碍不需要动作：寻路已把障碍当「高代价可通行」，撞上去自动破坏。
+    // 所以攻方的动作空间里不该出现任何清野/拆障碍的入口。
+    REQUIRE_FALSE(rts::is_legal_for(rts::CommandKind::Clear, rts::Side::Attacker));
 }

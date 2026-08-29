@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <set>
 #include <string>
 
 #include "game/map_data.hpp"
@@ -31,7 +32,8 @@ const char* const kMinimal = R"({
   "keep": [0, 0],
   "spawns": [{ "id": 0, "pos": [2, 1], "corridor": "open" }],
   "resources": [{ "type": "stone", "pos": [1, 0], "tier": "inner" }],
-  "initial_walls": [{ "kind": "Wall", "pos": [0, 1], "hp_frac": 1.0 }]
+  "initial_walls": [{ "kind": "Wall", "pos": [0, 1], "hp_frac": 1.0 }],
+  "obstacles": [{ "type": "Stump", "pos": [2, 0] }]
 })";
 
 }  // namespace
@@ -194,7 +196,8 @@ TEST_CASE("格式不合法要抛，而不是读出一张看起来正常的图", 
           "keep": [0, 0],
           "spawns": [],
           "resources": [],
-          "initial_walls": []
+          "initial_walls": [],
+          "obstacles": []
         })";
         REQUIRE_THROWS_AS(MapLoader::from_string(kNoSpawns), MapFormatError);
     }
@@ -204,4 +207,33 @@ TEST_CASE("格式不合法要抛，而不是读出一张看起来正常的图", 
 // 若它其实不合法，那十条会因为**别的原因**通过，而校验分支一条都没被走到。
 TEST_CASE("上面用来做坏的那份最小地图本身是合法的", "[map]") {
     REQUIRE_NOTHROW(game::MapLoader::from_string(kMinimal));
+}
+
+TEST_CASE("可破坏障碍从地图读进来，三种都认得", "[map]") {
+    // §6 的机制那一半于 2026-08-29 通过，6.2 随之新增 `obstacles` 字段。
+    // 夹具里刻意一种放一个，好让 `kObstacleTypes` 那张查表的三行都被走到——
+    // 只放一种的话，另外两行拼错了也不会有人知道。
+    const game::MapData m = game::MapLoader::from_file(fixture_path());
+    REQUIRE(m.obstacles().size() == 3);
+
+    std::set<rts::ObstacleType> kinds;
+    for (const game::ObstacleNode& o : m.obstacles()) {
+        REQUIRE(m.in_bounds(o.pos.i, o.pos.j));
+        kinds.insert(o.type);
+    }
+    REQUIRE(kinds.size() == static_cast<std::size_t>(rts::kObstacleTypeCount));
+}
+
+TEST_CASE("obstacles 是必填的，缺了要抛", "[map]") {
+    // **必填而不是「缺了当空」**，理由是那条反复出现的原则：缺失与刻意为空
+    // 不可区分是个洞。一张没有这个键的图，读者分不清「这张图没有障碍」
+    // 与「写图的人不知道有这个字段」，而后者会让第 19 / 22 条那类校验空过。
+    //
+    // 这条用例与上面那组「改一处使它变坏」同族，但它验的是**删掉一处**。
+    std::string doc = kMinimal;
+    const std::size_t at = doc.find("\"obstacles\"");
+    REQUIRE(at != std::string::npos);
+    doc.erase(at - 3);              // 连前面那个逗号一起去掉
+    doc += "\n})";
+    REQUIRE_THROWS_AS(game::MapLoader::from_string(doc), game::MapFormatError);
 }

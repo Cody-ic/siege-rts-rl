@@ -91,6 +91,19 @@ struct WallSegment {
     float hp_frac = 1.0f;
 };
 
+// 一处中立可破坏障碍（`地图与场景设计.md` 6.2 的 `obstacles`）。
+//
+// **它不带血量，连残血比例都不带**，与 `WallSegment` 不同。理由是两者的来源不同：
+// 城墙的残血是 2.3 的一条设计要求（初始城圈是残破的），而障碍是地图上的原生景物、
+// 没有任何设计要求说它开局就该带伤。满血就是它的初始状态，不需要一个字段来说。
+//
+// 绝对血量同样不在这里（它在那份还不存在的 JSON 数值表里），
+// 由 `game::InitialHp` 在装配时给——同 `world_builder.hpp` 文件头那条。
+struct ObstacleNode {
+    rts::ObstacleType type = rts::ObstacleType::Stump;
+    rts::GridPos pos{};
+};
+
 // 一张地图。**只能由 `MapLoader` 构造**——它的不变量（terrain 与 no_build 的长度
 // 都等于 w×h、全部坐标在界内、走廊种类不重复）在载入时建立，之后不再变。
 // 把构造权收在一处，是为了让「一个 MapData 存在」就等价于「它是合法的」。
@@ -116,6 +129,7 @@ public:
     const std::vector<SpawnPoint>& spawns() const noexcept { return spawns_; }
     const std::vector<ResourceNode>& resources() const noexcept { return resources_; }
     const std::vector<WallSegment>& walls() const noexcept { return walls_; }
+    const std::vector<ObstacleNode>& obstacles() const noexcept { return obstacles_; }
 
     // 某格上有没有墙段。`SceneModel` 推导墙的**走向**要用它（4.2.1.1）。
     // 线性查找：初始墙段量级在数百，而这条只在装配场景时走一遍，
@@ -137,6 +151,7 @@ private:
     std::vector<SpawnPoint> spawns_;
     std::vector<ResourceNode> resources_;
     std::vector<WallSegment> walls_;
+    std::vector<ObstacleNode> obstacles_;
 };
 
 }  // namespace game

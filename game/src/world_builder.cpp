@@ -83,6 +83,16 @@ rts::WorldInit make_world_init(const MapData& map, const InitialHp& hp,
             rts::BldInit{type, w.pos, scale_hp(w.hp_frac, max_hp), max_hp});
     }
 
+    // 可破坏障碍。**满血进场**——`ObstacleNode` 不带残血比例，理由见它的注释
+    // （城墙的残血来自 2.3 的设计要求，障碍没有对应的要求）。
+    //
+    // 三种共用 `hp.obstacle`，见 `InitialHp` 那一项的注释。
+    init.obstacles.reserve(map.obstacles().size());
+    for (const ObstacleNode& o : map.obstacles()) {
+        init.obstacles.push_back(
+            rts::ObstacleInit{o.type, o.pos, hp.obstacle, hp.obstacle});
+    }
+
     return init;
 }
 
