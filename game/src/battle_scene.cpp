@@ -1,0 +1,133 @@
+#include "game/battle_scene.hpp"
+
+#include <algorithm>
+#include <cstdint>
+
+#include "rts/roster.hpp"
+
+namespace game {
+namespace {
+
+// 世界坐标增量 → 四方位。主导轴定胜负，平手让给 x 轴（等距下左右比上下醒目）。
+Facing facing_from_delta(float dx, float dy) noexcept {
+    const float ax = dx >= 0 ? dx : -dx;
+    const float ay = dy >= 0 ? dy : -dy;
+    if (ax >= ay) return dx >= 0 ? Facing::SE : Facing::NW;
+    return dy >= 0 ? Facing::SW : Facing::NE;
+}
+
+float hp_frac_of(std::int64_t hp, std::int64_t max_hp) noexcept {
+    if (max_hp <= 0) return 0.0f;
+    const float f = static_cast<float>(hp) / static_cast<float>(max_hp);
+    return f < 0.0f ? 0.0f : (f > 1.0f ? 1.0f : f);
+}
+
+}  // namespace
+
+Facing BattleScene::facing_of(rts::UnitAction a, rts::Vec2 pos, rts::Vec2 aim,
+                              bool winding) noexcept {
+    if (winding) return facing_from_delta(aim.x - pos.x, aim.y - pos.y);
+    if (rts::is_move(a)) {
+        const rts::GridDelta d = rts::move_delta(a);
+        return facing_from_delta(static_cast<float>(d.di), static_cast<float>(d.dj));
+    }
+    return Facing::SE;
+}
+
+std::vector<DrawItem> BattleScene::tiles(const MapData& map) {
+    // 地砖那一半与静态装配完全相同，直接复用（同一份规则只实现一次）。
+    return SceneModel::build(map).tiles;
+}
+
+std::vector<DrawItem> BattleScene::sorted(const MapData& map,
+                                          const rts::WorldView& view, rts::Tick now) {
+    std::vector<DrawItem> out;
+
+    // 地形叠加物（岩 / 林 / 桥）。**不含地图里的墙与障碍**——那两类活在仿真里，
+    // 会被拆掉，从 `MapData` 画等于画一份不死的幽灵墙。
+    for (int y = 0; y < map.height(); ++y) {
+        for (int x = 0; x < map.width(); ++x) {
+            const Terrain t = map.terrain_at(x, y);
+            const TerrainSprites ts = SceneModel::expand(t);
+            if (ts.overlay.empty()) continue;
+            DrawItem it;
+            it.pos = rts::GridPos{static_cast<std::int16_t>(x),
+                                  static_cast<std::int16_t>(y)};
+            it.sprite = ts.overlay;
+            if (t == Terrain::Bridge) {
+                it.facing = SceneModel::run_direction(map, it.pos,
+                                                      SceneModel::RunKind::Bridge);
+            }
+            out.push_back(it);
+        }
+    }
+
+    // 建筑（从仿真读，含血条）。墙的走向本该看相邻墙段（4.2.1.1），
+    // 这里先按地图初始墙况推——拆墙不改剩余墙段的走向读法，缺口两侧
+    // 仍读作「同一条墙断了」，这正是想要的画面。
+    const auto b_alive = view.bld_alive();
+    const auto b_type = view.bld_type();
+    const auto b_pos = view.bld_pos();
+    const auto b_hp = view.bld_hp();
+    const auto b_max = view.bld_max_hp();
+    for (std::size_t k = 0; k < b_alive.size(); ++k) {
+        if (b_alive[k] == 0) continue;
+        DrawItem it;
+        it.pos = b_pos[k];
+        it.sprite = rts::ident_of(b_type[k]);
+        if (b_type[k] == rts::BldType::Wall || b_type[k] == rts::BldType::Gate) {
+            it.facing = SceneModel::run_direction(map, it.pos, SceneModel::RunKind::Wall);
+        }
+        it.hp_frac = hp_frac_of(b_hp[k], b_max[k]);
+        out.push_back(it);
+    }
+
+    // 中立障碍。
+    const auto o_alive = view.obstacle_alive();
+    const auto o_type = view.obstacle_type();
+    const auto o_pos = view.obstacle_pos();
+    const auto o_hp = view.obstacle_hp();
+    const auto o_max = view.obstacle_max_hp();
+    for (std::size_t k = 0; k < o_alive.size(); ++k) {
+        if (o_alive[k] == 0) continue;
+        DrawItem it;
+        it.pos = o_pos[k];
+        it.sprite = rts::ident_of(o_type[k]);
+        it.hp_frac = hp_frac_of(o_hp[k], o_max[k]);
+        out.push_back(it);
+    }
+
+    // 单位：连续坐标、按动作挑状态与朝向。
+    const auto u_alive = view.unit_alive();
+    const auto u_type = view.unit_type();
+    const auto u_pos = view.unit_pos();
+    const auto u_hp = view.unit_hp();
+    const auto u_max = view.unit_max_hp();
+    const auto u_action = view.unit_action();
+    const auto u_windup = view.unit_windup();
+    const auto u_tgt = view.unit_target_kind();
+    const auto u_aim = view.unit_aim();
+    for (std::size_t k = 0; k < u_alive.size(); ++k) {
+        if (u_alive[k] == 0) continue;
+        DrawItem it;
+        it.continuous = true;
+        it.world = u_pos[k];
+        it.pos = rts::grid_of(u_pos[k]);
+        it.sprite = rts::ident_of(u_type[k]);
+        const bool winding = u_windup[k] > 0 && u_tgt[k] != rts::TgtKind::None;
+        it.facing = facing_of(u_action[k], u_pos[k], u_aim[k], winding);
+        it.state = winding ? "attack" : (rts::is_move(u_action[k]) ? "move" : "idle");
+        it.anim = static_cast<int>(now / 4);   // 5 帧/秒的相位；帧数由渲染侧取模
+        it.hp_frac = hp_frac_of(u_hp[k], u_max[k]);
+        out.push_back(it);
+    }
+
+    // 稳定排序：深度并列时保持上面的插入顺序（叠加物 → 建筑 → 障碍 → 单位），
+    // 顺序是确定的，画面不会逐帧跳变。
+    std::stable_sort(out.begin(), out.end(), [](const DrawItem& a, const DrawItem& b) {
+        return a.depth_f() < b.depth_f();
+    });
+    return out;
+}
+
+}  // namespace game

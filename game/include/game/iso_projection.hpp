@@ -59,6 +59,16 @@ public:
                          static_cast<float>((i + j) * tile_h_ / 2)};
     }
 
+    // **连续**世界坐标（格单位，`rts::Vec2`，格心在 (i+0.5, j+0.5)）→ 世界像素。
+    // 与上面那条的一致性有一条恒等式钉着（tests/iso_projection_test.cpp）：
+    //     world_to_screen(center_of(p)) == grid_to_screen(p)
+    // 单位在格间移动要用它——只有格心投影的话，单位会一格一格瞬移。
+    rts::Vec2 world_to_screen(rts::Vec2 w) const noexcept {
+        const float tw = static_cast<float>(tile_w_);
+        const float th = static_cast<float>(tile_h_);
+        return rts::Vec2{(w.x - w.y) * tw * 0.5f, (w.x + w.y - 1.0f) * th * 0.5f};
+    }
+
     // 世界像素 → 格坐标。`grid_to_screen` 的逆。
     //
     // 推导（令 tw、th 为格宽格高）：

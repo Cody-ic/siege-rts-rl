@@ -39,9 +39,23 @@ struct DrawItem {
     std::string_view sprite;
     Facing facing = Facing::SE;
 
+    // ——实体扩展（机制第一批之后，`BattleScene` 用；静态场景保持默认值）——
+    std::string_view state = "idle";   // 精灵状态。渲染侧对没有该状态的实体回落 idle
+    int anim = 0;          // 动画相位。渲染侧对帧数取模——帧数是素材侧知识（§7）
+    bool continuous = false;           // true ⇒ 用 world 定位（单位在格间移动）
+    rts::Vec2 world{};                 // 连续世界坐标（格单位）
+    float hp_frac = -1.0f;             // >= 0 ⇒ 渲染侧画血条
+
     // 画家算法的深度键：gi + gj。**叠加物与实体必须在同一个序列里排**，
     // 否则站在岩壁前面的单位不会遮住岩壁。
     int depth() const noexcept { return pos.i + pos.j; }
+
+    // 连续深度键，静态项按**格心**折算（i+j+1 = 格心的 x+y），
+    // 于是单位与建筑/景物可以混在同一个序列里排，量纲一致。
+    float depth_f() const noexcept {
+        return continuous ? world.x + world.y
+                          : static_cast<float>(pos.i + pos.j) + 1.0f;
+    }
 };
 
 // 一格展开成的两张图。**一格要画两张，不是一张**（4.2.1）。
