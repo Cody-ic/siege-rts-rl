@@ -6,6 +6,7 @@
 #include <map>
 #include <sstream>
 #include <string>
+#include <string_view>
 
 #include <nlohmann/json.hpp>
 
@@ -22,10 +23,24 @@ using json = nlohmann::json;
     throw MapFormatError(origin + "：" + what);
 }
 
+// `where` 取 `string_view` 而不是 `const std::string&`，**这是为了 GCC 而非为了省一次拷贝**。
+//
+// GCC 13 的 `-Wdangling-reference` 对「函数返回引用 + 某个参数是临时量」一律报警，
+// 它不做别名分析。本函数返回的引用来自 `obj`，绝不可能指向 `where`，所以那是**误报**——
+// 但 `-Werror` 下误报同样是硬失败，而 MSVC 没有这条警告，于是它只在服务器上炸
+// （#40 合入后 `main` 在 Linux/GCC 下编不过，8 处全在本文件，见 #49）。
+//
+// 取 `string_view` 后调用处的 `"顶层"` 不再构造临时 `std::string`，警告的前提消失。
+// 传表达式（如 `where + "[0]"`）的调用点仍会产生临时 `std::string`，但 `string_view`
+// 是**值类型不是引用**，不在这条警告的范围内；而临时量活到完整表达式结束，
+// 函数内读它是安全的。
+//
+// 只有本函数需要这样处理：`need_int` / `need_string` / `need_pos` 都返回值类型，
+// 不触发。**新增返回引用的辅助函数时要留意同一条。**
 const json& need(const json& obj, const char* key, const std::string& origin,
-                 const std::string& where) {
+                 std::string_view where) {
     if (!obj.is_object() || !obj.contains(key)) {
-        fail(origin, where + " 缺少字段 `" + key + "`");
+        fail(origin, std::string(where) + " 缺少字段 `" + key + "`");
     }
     return obj.at(key);
 }
