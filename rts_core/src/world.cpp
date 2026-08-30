@@ -523,6 +523,7 @@ UnitId World::spawn_unit(UnitType type, Vec2 pos, std::int32_t level, std::int64
         u_action_.resize(n);
         u_garrison_.resize(n);
         u_mount_.resize(n);
+        u_charge_.resize(n);
         u_force_.resize(n);
         u_cd_.resize(n);
         u_tgt_kind_.resize(n);
@@ -540,6 +541,7 @@ UnitId World::spawn_unit(UnitType type, Vec2 pos, std::int32_t level, std::int64
     u_action_[k] = UnitAction::Stop;
     u_garrison_[k] = kNoSlot;
     u_mount_[k] = 0;
+    u_charge_[k] = 0.0f;
     u_force_[k] = kNoForce;
     u_cd_[k] = 0;
     u_tgt_kind_[k] = TgtKind::None;
@@ -566,6 +568,7 @@ BldId World::place_bld(BldType type, GridPos pos, std::int64_t hp, std::int64_t 
         b_cd_.resize(n);
         b_windup_.resize(n);
         b_tgt_raw_.resize(n);
+        b_aim_.resize(n);
         b_built_.resize(n);
         b_train_type_.resize(n);
         b_train_left_.resize(n);
@@ -579,6 +582,7 @@ BldId World::place_bld(BldType type, GridPos pos, std::int64_t hp, std::int64_t 
     b_cd_[k] = 0;
     b_windup_[k] = 0;
     b_tgt_raw_[k] = UnitId::kInvalidRaw;
+    b_aim_[k] = Vec2{};
     // 带工时进场的是工地（`Build` 命令那条路），不带的当场就是完工建筑
     // （初始城圈与测试直摆的都走这里）。
     b_built_[k] = (work_left == 0) ? std::uint8_t{1} : std::uint8_t{0};
@@ -633,6 +637,7 @@ void World::kill_unit(UnitId id) {
     u_action_[k] = UnitAction::Stop;
     u_garrison_[k] = kNoSlot;
     u_mount_[k] = 0;
+    u_charge_[k] = 0.0f;
     u_force_[k] = kNoForce;
     u_cd_[k] = 0;
     u_tgt_kind_[k] = TgtKind::None;
@@ -673,6 +678,7 @@ void World::destroy_bld(BldId id) {
     b_cd_[k] = 0;
     b_windup_[k] = 0;
     b_tgt_raw_[k] = UnitId::kInvalidRaw;
+    b_aim_[k] = Vec2{};
     b_built_[k] = 0;
     b_train_type_[k] = kNoTrain;
     b_train_left_[k] = 0;
@@ -744,6 +750,7 @@ TgtKind World::unit_target_kind(UnitId id) const { return u_tgt_kind_[require(id
 Vec2 World::unit_aim(UnitId id) const { return u_aim_[require(id)]; }
 std::uint16_t World::unit_garrison(UnitId id) const { return u_garrison_[require(id)]; }
 std::int32_t World::unit_mount(UnitId id) const { return u_mount_[require(id)]; }
+float World::unit_charge(UnitId id) const { return u_charge_[require(id)]; }
 
 std::uint8_t World::garrison_order(std::uint16_t slot) const {
     if (static_cast<std::size_t>(slot) >= terrain_.cell_count()) {
@@ -894,6 +901,8 @@ std::uint64_t World::state_hash() const noexcept {
     h.feed(u_action_.data(), u_action_.size() * sizeof(UnitAction));
     h.feed(u_garrison_.data(), u_garrison_.size() * sizeof(std::uint16_t));
     h.feed(u_mount_.data(), u_mount_.size() * sizeof(std::int32_t));
+    // 冲锋动量是浮点，与 u_pos_ 同一条纪律：按位喂。
+    for (const float c : u_charge_) h.feed_f32(c);
     h.feed(u_force_.data(), u_force_.size());
     h.feed(u_cd_.data(), u_cd_.size() * sizeof(std::int32_t));
     h.feed(u_tgt_kind_.data(), u_tgt_kind_.size() * sizeof(TgtKind));
@@ -913,6 +922,10 @@ std::uint64_t World::state_hash() const noexcept {
     h.feed(b_cd_.data(), b_cd_.size() * sizeof(std::int32_t));
     h.feed(b_windup_.data(), b_windup_.size() * sizeof(std::int32_t));
     h.feed(b_tgt_raw_.data(), b_tgt_raw_.size() * sizeof(std::uint32_t));
+    for (const Vec2& p : b_aim_) {
+        h.feed_f32(p.x);
+        h.feed_f32(p.y);
+    }
     h.feed(b_built_.data(), b_built_.size());
     h.feed(b_train_type_.data(), b_train_type_.size());
     h.feed(b_train_left_.data(), b_train_left_.size() * sizeof(std::int32_t));

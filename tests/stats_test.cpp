@@ -129,6 +129,17 @@ TEST_CASE("数值表指纹：值同则同，任一格变则变", "[stats]") {
         c.global.high_ground_range_bonus += 0.5f;
         REQUIRE(c.fingerprint() != a.fingerprint());
     }
+    // 第四批（冲锋与齐射）：建筑的 AOE 半径与冲锋参数各抽一格。
+    {
+        rts::StatsTable c = filled_table();
+        c.bld[3].aoe_radius += 0.5f;
+        REQUIRE(c.fingerprint() != a.fingerprint());
+    }
+    {
+        rts::StatsTable c = filled_table();
+        c.global.anti_charge_permille += 1;
+        REQUIRE(c.fingerprint() != a.fingerprint());
+    }
 }
 
 TEST_CASE("表变了，第 0 tick 的 state_hash 就分歧（早报）", "[stats]") {
@@ -230,24 +241,26 @@ TEST_CASE("载入器：手误不得静默落回默认值", "[stats]") {
 
     // 漏一个兵种：报错点名 `units.Ram`，不是「能跑但 Ram 打不动」。
     REQUIRE_THROWS_AS(game::StatsLoader::from_string(R"({
-        "schema": "stats/3",
+        "schema": "stats/4",
         "units": {}, "buildings": {}, "obstacles": {}, "global": {}
     })"),
                       game::StatsFormatError);
 
-    // schema 不认识——包括旧格 "stats/1" 与 "stats/2"（旧表缺新批字段，静默补
-    // 默认值正是「能跑但打不动」那种坑，所以刻意不做向后兼容）。
+    // schema 不认识——包括全部旧格（旧表缺新批字段，静默补默认值正是
+    // 「能跑但打不动」那种坑，所以刻意不做向后兼容）。
     REQUIRE_THROWS_AS(game::StatsLoader::from_string(R"({"schema": "stats/999"})"),
                       game::StatsFormatError);
     REQUIRE_THROWS_AS(game::StatsLoader::from_string(R"({"schema": "stats/1"})"),
                       game::StatsFormatError);
     REQUIRE_THROWS_AS(game::StatsLoader::from_string(R"({"schema": "stats/2"})"),
                       game::StatsFormatError);
+    REQUIRE_THROWS_AS(game::StatsLoader::from_string(R"({"schema": "stats/3"})"),
+                      game::StatsFormatError);
 
     // 认不出的键（拼错）：`cooldown_tick` 少个 s。静默忽略的话它落回默认值 1。
     REQUIRE_THROWS_AS(
         game::StatsLoader::from_string(R"({
-        "schema": "stats/3",
+        "schema": "stats/4",
         "units": { "Archer": { "max_hp": 1, "damage": 0, "range": 0, "speed": 0,
                                "vision": 0, "windup_ticks": 0, "cooldown_tick": 5,
                                "vs_structure_permille": 0, "aoe_radius": 0,
@@ -260,7 +273,7 @@ TEST_CASE("载入器：手误不得静默落回默认值", "[stats]") {
     // （新字段要写全——否则先撞上的是「缺少字段」，测的就不是下界了。）
     REQUIRE_THROWS_AS(
         game::StatsLoader::from_string(R"({
-        "schema": "stats/3",
+        "schema": "stats/4",
         "units": { "Archer": { "max_hp": 0, "damage": 0, "range": 0, "speed": 0,
                                "vision": 0, "windup_ticks": 0, "cooldown_ticks": 1,
                                "vs_structure_permille": 0, "aoe_radius": 0,

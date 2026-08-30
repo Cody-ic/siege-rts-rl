@@ -154,6 +154,21 @@ public:
     // 那样这条判断会散落到寻路、战斗、观测三处。
     bool charges() const noexcept { return mobility() == MobilityKind::Charge; }
 
+    // 枪阵克骑——**由轴推导，不点名兵种**（CLAUDE.md：克制关系由三条正交轴
+    // 推导，不要退化成平铺的 N×N 表）：近战 × 重甲慢速 = 站得住、架得起长兵的
+    // 阵。这是克制关系的**结构半**：关系是否成立在这里，幅度在数值表
+    // （`GlobalStats::anti_charge_permille`），且只对**有动量**的目标成立
+    // （`rts/combat_math.hpp` 的 anti_charge_permille——巷战里骑兵攒不出动量，
+    // 克制自动消失，「开阔地克、巷战被反克」不需要读地形）。
+    //
+    // 二部图里这条只会绑定 `Spear ──► Knight`：`Ghoul` 的轴组合相同，
+    // 但同阵营不交战，永远遇不到 `Knight`。这不是巧合而是二部图的性质——
+    // 按轴推导时只需检查两阵营之间的组合。
+    bool counters_charge() const noexcept {
+        return engage_range() == EngageRange::Melee &&
+               mobility() == MobilityKind::HeavySlow;
+    }
+
 protected:
     UnitBehavior() = default;
 };

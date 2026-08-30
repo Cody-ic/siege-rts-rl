@@ -215,9 +215,20 @@ void World::land_attack(std::size_t k) {
     u_tgt_kind_[k] = TgtKind::None;
     u_tgt_raw_[k] = 0;
 
-    const std::int64_t vs_unit = apply_permille(s.damage, {lvl});
+    // ——冲锋（第四批）：动量在这一击结算并耗尽（无论命中与否）——
+    //
+    // 「冲完就是冲完了」：miss 或目标已死也照样清零，动量是物理不是意图。
+    // 非 Charge 兵种恒 1000（恒等倍率不改变 apply_permille 的舍入结果，
+    // 分子分母同乘一个 1000）。
+    std::int64_t charge_pm = kPermilleOne;
+    if (beh.charges()) {
+        charge_pm = charge_permille(u_charge_[k], stats_.global.charge_max_cells,
+                                    stats_.global.charge_bonus_permille_per_cell);
+        u_charge_[k] = 0.0f;
+    }
+
     const std::int64_t vs_structure =
-        apply_permille(s.damage, {lvl, s.vs_structure_permille});
+        apply_permille(s.damage, {lvl, s.vs_structure_permille, charge_pm});
 
     // ——高度优势（第三批）：从低处打墙上单位，有 miss 且伤害打折——
     //
@@ -231,10 +242,20 @@ void World::land_attack(std::size_t k) {
         if (atk_high || !on_high_wall(t)) return false;
         return static_cast<std::int64_t>(rng_.below(1000)) < hg_miss;
     };
-    // 伤害倍率与等级在**同一次** apply_permille 里乘（截断只能发生一次，决定 ⑫）。
+    // 全部倍率在**同一次** apply_permille 里乘（截断只能发生一次，决定 ⑫）。
+    // 逐目标的两条：高度减伤（第三批）与反冲锋（第四批——关系由轴推导
+    // `counters_charge`，幅度随**目标的**动量线性放大，见 combat_math.hpp）。
     const auto dmg_vs_unit = [&](std::size_t t) {
-        if (!atk_high && on_high_wall(t)) return apply_permille(s.damage, {lvl, hg_dmg});
-        return vs_unit;
+        std::int64_t mods[4] = {lvl, charge_pm, 0, 0};
+        std::size_t n = 2;
+        if (!atk_high && on_high_wall(t)) mods[n++] = hg_dmg;
+        if (beh.counters_charge() && behavior_of(u_type_[t]).charges() &&
+            u_charge_[t] > 0.0f) {
+            mods[n++] = anti_charge_permille(u_charge_[t],
+                                             stats_.global.charge_max_cells,
+                                             stats_.global.anti_charge_permille);
+        }
+        return apply_permille(s.damage, mods, n);
     };
 
     if (s.aoe_radius > 0.0f) {
@@ -375,14 +396,24 @@ void World::tick_movement() {
     const float h_limit = static_cast<float>(height());
     for (std::size_t k = 0; k < unit_pool_.slot_count(); ++k) {
         if (!unit_pool_.alive_at(static_cast<std::uint16_t>(k))) continue;
-        if (u_windup_[k] > 0) continue;   // 前摇钉住脚（弓手被贴脸即废的一半）
+        // 前摇钉住脚（弓手被贴脸即废的一半）。冲锋动量在此**冻结**——
+        // 承诺出手的那一击正带着它，落地时结算并耗尽（land_attack）。
+        if (u_windup_[k] > 0) continue;
         // 驻守钉住（含在爬的）：「上墙的代价是机动性」。想走？MoveForce 先召回。
         if (u_garrison_[k] != kNoSlot) continue;
-        const UnitAction a = u_action_[k];
-        if (!is_move(a)) continue;
         const UnitType type = u_type_[k];
+        const bool charger = behavior_of(type).charges();
+        const UnitAction a = u_action_[k];
+        if (!is_move(a)) {
+            // 站住（Stop，或 Atk* 的空转）就没有助跑可言。
+            if (charger) u_charge_[k] = 0.0f;
+            continue;
+        }
         const float speed = stats_.of(type).speed;
-        if (speed <= 0.0f) continue;
+        if (speed <= 0.0f) {
+            if (charger) u_charge_[k] = 0.0f;
+            continue;
+        }
         const Mobility mob = is_aerial(type) ? Mobility::Aerial : Mobility::Ground;
 
         const GridDelta d = move_delta(a);
@@ -398,6 +429,8 @@ void World::tick_movement() {
         const GridPos from = grid_of(u_pos_[k]);
         const GridPos to = grid_of(np);
         if (to == from) {
+            // 动量累计**实际位移**（夹紧可能吃掉一部分），不是名义步长。
+            if (charger) u_charge_[k] += std::sqrt(dist2(u_pos_[k], np));
             u_pos_[k] = np;
             continue;
         }
@@ -419,46 +452,56 @@ void World::tick_movement() {
             ok = cell_open(to.i, from.j) && cell_open(from.i, to.j);
         }
         if (ok) {
+            if (charger) u_charge_[k] += std::sqrt(dist2(u_pos_[k], np));
             u_pos_[k] = np;
             continue;
         }
 
-        // 拦住了。若目的格地形本可通行、是实体占着 ⇒ 自动承诺破坏它。
-        // 这是「墙 = 高代价可通行」的机制那一半：代价就是站在这儿把它砸开。
-        if (mob != Mobility::Ground) continue;
-        if (!terrain_.in_bounds(to.i, to.j)) continue;
-        if (!terrain_.passable(to.i, to.j, Mobility::Ground)) continue;
-        if (u_cd_[k] > 0) continue;
-
-        const std::size_t c = static_cast<std::size_t>(to.j) *
-                                  static_cast<std::size_t>(width()) +
-                              static_cast<std::size_t>(to.i);
-        const UnitBehavior& beh = behavior_of(type);
-        TargetPick t;
-        if (bld_at_[c] != 0) {
-            // 建筑全属守方：守方单位被自家建筑拦住只能站着，不打自己人。
-            if (side_of(type) != Side::Attacker) continue;
-            const std::size_t s = static_cast<std::size_t>(bld_at_[c] - 1);
-            const BldType bt = b_type_[s];
-            const bool is_wall = (bt == BldType::Wall || bt == BldType::Gate);
-            if (is_wall ? !beh.can_break_structure() : !beh.combat()) continue;
-            t.found = true;
-            t.kind = TgtKind::Bld;
-            t.raw = bld_pool_.id_at(static_cast<std::uint16_t>(s)).raw();
-        } else if (obstacle_at_[c] != 0) {
-            // 中立障碍双方都可清（守方清野得产出，攻方纯开路）。
-            if (!beh.can_break_structure()) continue;
-            const std::size_t s = static_cast<std::size_t>(obstacle_at_[c] - 1);
-            t.found = true;
-            t.kind = TgtKind::Obstacle;
-            t.raw = obstacle_pool_.id_at(static_cast<std::uint16_t>(s)).raw();
-        } else {
-            continue;
-        }
-        t.pos = center_of(to);
-        t.dist2 = dist2(u_pos_[k], t.pos);
-        commit_attack(k, t);
+        // 拦住了：先试自动破坏——**骑士撞门是真撞**，承诺成了动量就被那一击
+        // 带走（前摇冻结、落地耗尽）；没承诺成才算撞停，动量归零。
+        const bool committed = try_bump_attack(k, to);
+        if (!committed && charger) u_charge_[k] = 0.0f;
     }
+}
+
+// 移动被实体拦住时的自动破坏。若目的格地形本可通行、是实体占着 ⇒ 自动承诺
+// 破坏它——「墙 = 高代价可通行」的机制那一半：代价就是站在这儿把它砸开。
+bool World::try_bump_attack(std::size_t k, GridPos to) {
+    const UnitType type = u_type_[k];
+    if (is_aerial(type)) return false;   // 空军飞过一切，不会被实体拦住
+    if (!terrain_.in_bounds(to.i, to.j)) return false;
+    if (!terrain_.passable(to.i, to.j, Mobility::Ground)) return false;
+    if (u_cd_[k] > 0) return false;
+
+    const std::size_t c = static_cast<std::size_t>(to.j) *
+                              static_cast<std::size_t>(width()) +
+                          static_cast<std::size_t>(to.i);
+    const UnitBehavior& beh = behavior_of(type);
+    TargetPick t;
+    if (bld_at_[c] != 0) {
+        // 建筑全属守方：守方单位被自家建筑拦住只能站着，不打自己人。
+        if (side_of(type) != Side::Attacker) return false;
+        const std::size_t s = static_cast<std::size_t>(bld_at_[c] - 1);
+        const BldType bt = b_type_[s];
+        const bool is_wall = (bt == BldType::Wall || bt == BldType::Gate);
+        if (is_wall ? !beh.can_break_structure() : !beh.combat()) return false;
+        t.found = true;
+        t.kind = TgtKind::Bld;
+        t.raw = bld_pool_.id_at(static_cast<std::uint16_t>(s)).raw();
+    } else if (obstacle_at_[c] != 0) {
+        // 中立障碍双方都可清（守方清野得产出，攻方纯开路）。
+        if (!beh.can_break_structure()) return false;
+        const std::size_t s = static_cast<std::size_t>(obstacle_at_[c] - 1);
+        t.found = true;
+        t.kind = TgtKind::Obstacle;
+        t.raw = obstacle_pool_.id_at(static_cast<std::uint16_t>(s)).raw();
+    } else {
+        return false;
+    }
+    t.pos = center_of(to);
+    t.dist2 = dist2(u_pos_[k], t.pos);
+    commit_attack(k, t);
+    return true;
 }
 
 // ——阶段 4：驻守（第三批）——
@@ -572,14 +615,7 @@ void World::tick_bld_combat() {
         const BldStats& s = stats_.of(b_type_[k]);
         if (b_windup_[k] > 0) {
             --b_windup_[k];
-            if (b_windup_[k] == 0 && b_tgt_raw_[k] != UnitId::kInvalidRaw) {
-                const UnitId id = unit_from_raw(b_tgt_raw_[k]);
-                if (unit_pool_.alive(id)) {
-                    deal_damage(TgtKind::Unit, b_tgt_raw_[k],
-                                apply_permille(s.damage, {}), Side::Defender);
-                }
-                b_tgt_raw_[k] = UnitId::kInvalidRaw;
-            }
+            if (b_windup_[k] == 0) land_bld_attack(k);
             continue;
         }
         if (s.damage <= 0 || b_cd_[k] > 0) continue;
@@ -604,16 +640,41 @@ void World::tick_bld_combat() {
         }
         if (!found || best_d2 > s.range * s.range) continue;
         b_tgt_raw_[k] = best_raw;
+        // 齐射的落点在**承诺那一刻**锁定（与 `Ram` 同一条规则）：
+        // 目标散开，箭雨还是下在原地。
+        b_aim_[k] = u_pos_[static_cast<std::size_t>(best_raw >> 16)];
         b_cd_[k] = s.cooldown_ticks;
         b_windup_[k] = s.windup_ticks;
-        if (s.windup_ticks == 0) {
-            const UnitId id = unit_from_raw(best_raw);
-            if (unit_pool_.alive(id)) {
-                deal_damage(TgtKind::Unit, best_raw, apply_permille(s.damage, {}),
-                            Side::Defender);
-            }
-            b_tgt_raw_[k] = UnitId::kInvalidRaw;
+        if (s.windup_ticks == 0) land_bld_attack(k);
+    }
+}
+
+// 建筑出手落地：齐射（AOE）或单体。
+void World::land_bld_attack(std::size_t k) {
+    const BldStats& s = stats_.of(b_type_[k]);
+    const std::uint32_t raw = b_tgt_raw_[k];
+    b_tgt_raw_[k] = UnitId::kInvalidRaw;
+    // 齐射：AOE 砸锁定落点，圈内不分敌我（「溅射误伤」是机制不是 bug——
+    // 别站在自家箭楼的齐射区里）、空中不挨砸（箭雨对地）。
+    // **只对对地建筑生效**：「AA 只做单体狙击型」是结构，表里给 `Flak`
+    // 配了半径也不齐射——同「表不能把瞭望塔配成印钞机」的先例。
+    if (s.aoe_radius > 0.0f && !bld_targets_air(b_type_[k])) {
+        const float r2 = s.aoe_radius * s.aoe_radius;
+        const Vec2 aim = b_aim_[k];
+        const std::int64_t dmg = apply_permille(s.damage, {});
+        for (std::size_t t = 0; t < unit_pool_.slot_count(); ++t) {
+            if (!unit_pool_.alive_at(static_cast<std::uint16_t>(t))) continue;
+            if (is_aerial(u_type_[t])) continue;
+            if (dist2(u_pos_[t], aim) > r2) continue;
+            deal_damage(TgtKind::Unit,
+                        unit_pool_.id_at(static_cast<std::uint16_t>(t)).raw(), dmg,
+                        Side::Defender);
         }
+        return;
+    }
+    // 单体：目标死了就落空（同单位路径的那条近似，弹丸实体来了一并改）。
+    if (raw != UnitId::kInvalidRaw && unit_pool_.alive(unit_from_raw(raw))) {
+        deal_damage(TgtKind::Unit, raw, apply_permille(s.damage, {}), Side::Defender);
     }
 }
 
