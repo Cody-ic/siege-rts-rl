@@ -95,6 +95,16 @@ public:
     //   globals  : batch × kObsGlobalFloats
     //
     // 长度不符即抛（同 `pack_unit_obs` 的理由：Python 侧 `reshape` 会照样成功）。
+    //
+    // **本版一律不喂方向场，于是 `FlowDi` / `FlowDj` 两条通道恒为 0。**
+    // 如实记在这里，因为它与 `AerialAliveFrac` 那条恒 0 **不是同一种**：那条是
+    // 世界里还没有空军（接线是对的，放一只进去就有值），这条是**接线还不存在**。
+    //
+    // 不顺手接上是因为它不是一行的事：field 按 `(mover, tier)` 缓存与失效
+    // （`rts/flow.hpp` 把这条明确划给调用方），而一批里每局的墙血各自在变，
+    // 所以要么每局一套缓存、要么每步重算 N × 兵种 × 档 张——前者是这个类要
+    // 增加的一整块状态，后者恰好是 `flow.hpp` 让调用方缓存的那件事。
+    // 该由谁决定重算节律，得等 `train/` 那侧的形状定了才知道。
     void observe(std::span<float> cells, std::span<float> self_vec,
                  std::span<float> globals);
 
