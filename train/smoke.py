@@ -51,6 +51,23 @@ def main() -> None:
     print(f"批 {env.batch_size}  各局单位数 {env.unit_counts}")
     print(f"cells 非零 {int((cells != 0).sum())}  自身向量非零 {int((selfv != 0).sum())}")
 
+    # **这里必须停下来看一眼那个 0。** demo 地图开局**没有攻方单位**
+    # （它们是每波生成的），所以刚才那次 observe 一个单位都没打包过——
+    # 于是「跑通了」只证明了调用链通，没证明张量对。
+    #
+    # 初版就停在这儿，吞吐数字因此虚高了一个量级。**空批的吞吐不是吞吐。**
+    if sum(env.unit_counts) == 0:
+        print("⚠ 开局没有攻方单位（每波才生成），下面先推到有兵再测吞吐")
+        acts0 = np.zeros((n, mu), dtype=np.uint8)
+        for _ in range(400):                      # 推到进攻阶段
+            env.step(acts0, done)
+            if sum(env.unit_counts) > 0:
+                break
+        env.observe(cells, selfv, glob)
+        print(f"  推进后各局单位数 {env.unit_counts}")
+        print(f"  cells 非零 {int((cells != 0).sum())}  "
+              f"自身向量非零 {int((selfv != 0).sum())}")
+
     acts = np.full((n, mu), R.action.AtkNear, dtype=np.uint8)
     steps = 50
     t0 = time.perf_counter()
