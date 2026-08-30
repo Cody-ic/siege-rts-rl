@@ -43,6 +43,14 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(RTS_BUILD_TESTS  "构建测试（Catch2 经 FetchContent 拉取）" ON)
 option(RTS_BUILD_RENDER "构建前端 render/" OFF)
+# **默认 OFF，与 RTS_BUILD_RENDER 是同一条理由的镜像**：那一条是「训练构建不该
+# 配置前端」，这一条是「玩游戏与跑 ctest 的人不该被要求装 Python 开发头」。
+# 全组在 Windows 上开发，多数机器里没有 `Python.h`。
+#
+# 开它时**很可能要显式指 Python**：需要的是「带开发头的那一个」，而它未必是
+# `python3`（训练服务器上系统 python3 没有 Python.h，那份 miniforge 的有）。
+# 详见 bindings/CMakeLists.txt 文件头。
+option(RTS_BUILD_BINDINGS "构建 Python 绑定 bindings/（需要 Python 开发头）" OFF)
 option(RTS_WARNINGS_AS_ERRORS "把警告当错误（仅第一方代码）" ON)
 # 默认 ON：找不到 Python3 时让配置失败，而不是把确定性守卫静默摘掉。
 # 「守卫不在」必须是一个需要主动声明的决定，理由见 tests/CMakeLists.txt。
@@ -81,6 +89,18 @@ if(RTS_BUILD_RENDER)
         add_subdirectory(render)
     else()
         message(FATAL_ERROR "RTS_BUILD_RENDER=ON，但 render/ 尚未建立。前端还没开工。")
+    endif()
+endif()
+
+# 不变量 3 的构建侧落地。**注意它与 render/ 那条的不对称**：render/ 默认 OFF 是
+# 为了把它挡在训练构建之外；bindings/ 默认 OFF 只是为了不要求开发头——
+# 它本身**属于**训练回路，热路径（`rts::BatchedEnv`）刻意留在 rts_core/ 里，
+# 所以关掉它不影响任何东西被测（见 rts/batched_env.hpp 文件头）。
+if(RTS_BUILD_BINDINGS)
+    if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/bindings/CMakeLists.txt")
+        add_subdirectory(bindings)
+    else()
+        message(FATAL_ERROR "RTS_BUILD_BINDINGS=ON，但 bindings/ 尚未建立。")
     endif()
 endif()
 
