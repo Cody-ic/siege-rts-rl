@@ -289,6 +289,7 @@ std::vector<Unit*> units;                     // ❌ 每个单位一次堆分配
 | `rts/rng.hpp` | `Rng`（xoshiro128\*\*） | **状态可存取**，因为回放要存档恢复；不要用 `<random>` 的分布适配器 |
 | `rts/hash.hpp` | `StateHash`（FNV-1a 64） | 选它**只因为它顺序敏感**；浮点必须走 `feed_f32` / `feed_f64` |
 | `rts/terrain.hpp` | 五种地形 + `TerrainMasks`（`passable` / `buildable` / `blocks_vision` 三张按格位图） | **`buildable` 已经与 `no_build` 合成过**（`地图与场景设计.md` 4.2 那条规则的唯一实现处），别在调用处再 AND 一遍 |
+| `rts/stats.hpp` | `StatsTable`（按兵种 / 建筑 / 障碍 / 全局四组）、`fingerprint()`、`kStatsShapeTag` | **待标定数值只能从这条路进仿真**（`WorldInit::stats` → `World::stats()`），机制里不许藏数。JSON 在 `game/data/stats_placeholder.json`（占位值），经 `game::StatsLoader` 读入。**改表结构的形状时把 `kStatsShapeTag` 进一格**；指纹进 `state_hash` 与回放头，改一个数字会报 `StatsMismatch`（重录），这是设计的、不是坏了 |
 | `rts/world.hpp` | `World`、`SlotPool<Tag>`、`WorldInit`、`slot_of` / `pos_of_slot` | 机制不在里面（见上）。要遍历一侧的单位一律走 `enumerate_units()`——**那是唯一的规范顺序**，观测打包与 `submit_actions` 必须同序 |
 | `rts/fog.hpp` | `FogLayer`（每侧一份）、`Vis` 三态、`vis_value` | **三态不是两态**，取值走 `vis_value()`；写 `vis != Unseen` 就把它压回两态了 |
 | `rts/replay.hpp` | 回放格式、`ReplayRecorder`、`replay_verify` | 录回放**不要绕过 `ReplayRecorder` 直接调 `World`**——漏记一条输入的症状是回放对不上，一个假阳性。它只存**外生输入**，机制产物一律不存（理由见 `rts_core 接口契约.md` §4.6）。**改 `state_hash` 的喂入清单时把 `kWorldHashTag` 一起改** |

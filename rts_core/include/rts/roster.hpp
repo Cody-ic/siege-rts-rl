@@ -349,7 +349,9 @@ constexpr Resource resource_at(int i) noexcept { return static_cast<Resource>(i)
 //   2. 报错与日志。`state_hash` 对不上时要说出是哪个实体，打枚举的整数值
 //      等于让读者自己去数第几个
 //
-// **不用来做 JSON 数值表的 key**：那份表还没有，届时用同一个串即可，但那是数值层的事。
+//   3. **JSON 数值表的 key**（`game/data/stats_placeholder.json`）——
+//      `game::StatsLoader` 按这个串逐成员取行，缺一行或多一个认不出的键都报错，
+//      于是「表铺满花名册」是机器查的，不是靠对着这里抄。
 constexpr std::string_view ident_of(UnitType t) noexcept {
     switch (t) {
         case UnitType::Archer:  return "Archer";

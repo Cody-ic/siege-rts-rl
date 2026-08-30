@@ -153,6 +153,7 @@ Replay Replay::begin(const World& w, std::uint32_t hash_period) {
     Replay r;
     r.map_id_ = w.map_id();
     r.map_content_hash_ = w.map_content_hash();
+    r.stats_fp_ = w.stats_fingerprint();
     r.seed_ = w.seed();
     r.nominal_level_ = w.nominal_level();
     r.hash_period_ = hash_period;
@@ -211,6 +212,7 @@ std::vector<unsigned char> Replay::to_bytes() const {
     put_str(head, hash_tag_);
     put_str(head, map_id_);
     for (const unsigned char c : map_content_hash_) head.push_back(c);
+    put_u64(head, stats_fp_);
     put_u64(head, seed_);
     put_i32(head, nominal_level_);
     put_u32(head, hash_period_);
@@ -282,6 +284,7 @@ bool Replay::from_bytes(const unsigned char* data, std::size_t size, Replay* out
     r.hash_tag_ = c.str();
     r.map_id_ = c.str();
     for (unsigned char& h : r.map_content_hash_) h = c.u8();
+    r.stats_fp_ = c.u64();
     r.seed_ = c.u64();
     r.nominal_level_ = c.i32();
     r.hash_period_ = c.u32();
@@ -497,6 +500,7 @@ ReplayResult replay_verify(const Replay& r, World& fresh) {
     res.hash_tag_matches = (r.hash_tag() == kWorldHashTag);
     res.map_matches = (r.map_id() == fresh.map_id() &&
                        r.map_content_hash() == fresh.map_content_hash());
+    res.stats_matches = (r.stats_fp() == fresh.stats_fingerprint());
 
     if (fresh.now() != 0) {
         res.verdict = ReplayVerdict::BadInput;
@@ -537,6 +541,14 @@ ReplayResult replay_verify(const Replay& r, World& fresh) {
         res.message = "地图身份不同（回放录在 \"" + r.map_id() +
                       "\"，给的世界是 \"" + fresh.map_id() +
                       "\"）——换对的地图，这不是仿真的问题。";
+        return res;
+    }
+    if (!res.stats_matches) {
+        res.verdict = ReplayVerdict::StatsMismatch;
+        res.message = "数值表不同（回放录制时指纹 " + hex64(r.stats_fp()) +
+                      "，给的世界是 " + hex64(fresh.stats_fingerprint()) +
+                      "）——表在录完之后改过（或形状变了，见 kStatsShapeTag）。"
+                      "两局跑在不同的规则下，比对没有意义，重录。这不是确定性缺陷。";
         return res;
     }
 
@@ -595,7 +607,7 @@ ReplayResult replay_verify(const Replay& r, World& fresh) {
                                        "）——回放在两套工具链之间不可复现"
                                        "（CLAUDE.md），换回录制平台再比。";
                     } else {
-                        res.message += "。地图、哈希口径、平台指纹三项都一致，"
+                        res.message += "。地图、数值表、哈希口径、平台指纹四项都一致，"
                                        "所以这是一个真的确定性缺陷。";
                     }
                     return res;

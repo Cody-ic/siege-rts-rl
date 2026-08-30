@@ -63,6 +63,7 @@ add_executable(rts_tests
     fog_test.cpp
     world_test.cpp
     replay_test.cpp
+    stats_test.cpp
 )
 
 target_link_libraries(rts_tests PRIVATE rts_core game Catch2::Catch2WithMain)
@@ -73,6 +74,11 @@ rts_set_warnings(rts_tests TESTS)
 # 而「找不到夹具」在某些写法下会退化成「跳过那条用例」——又是静默跳过。
 target_compile_definitions(rts_tests PRIVATE
     GAME_TESTDATA_DIR="${GAME_TESTDATA_DIR}")
+
+# 数值表数据目录（`game/data/`），给 [stats] 那几条用。与 GAME_TESTDATA_DIR
+# 分开的理由见 game/CMakeLists.txt：一个是测试夹具、一个是交付物。
+target_compile_definitions(rts_tests PRIVATE
+    GAME_DATA_DIR="${GAME_DATA_DIR}")
 
 # ——中文路径的回归测试——
 #
@@ -117,7 +123,7 @@ target_compile_definitions(rts_tests PRIVATE
 # 挑单条用例跑仍按 CLAUDE.md 写的那样直接用二进制：
 #     ./build/tests/Release/rts_tests "<用例名>"
 foreach(_tag rng hash types map scene iso names utf8path roster action command obs
-        terrain fog world replay behavior)
+        terrain fog world replay behavior stats)
     add_test(NAME rts_tests_${_tag} COMMAND rts_tests "[${_tag}]")
 endforeach()
 

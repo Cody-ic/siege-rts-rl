@@ -43,6 +43,7 @@
 | `rts/world_view.hpp` | 只读视图（编译期保证） | ④ |
 | `rts/replay.hpp` | 回放格式、录制器、比对（含平台指纹与哈希口径标签） | ⑦ |
 | `rts/hash.hpp` | 状态哈希（补了可在编译期用的 `feed_text`） | — |
+| `rts/stats.hpp` | **数值表容器与指纹**（四组分法、`kStatsShapeTag`） | §1.1.2 |
 
 展示名在 `game/display_names.hpp`（中文只出现在展示层）。
 花名册与精灵元数据的 1:1 由 `render::SpriteAtlas::verify_roster_covered()` 钉住。
@@ -202,12 +203,22 @@
 （承诺不得依赖任何待定数值）在这里的又一次应用——若表的形状假定了「血量和伤害都随
 等级涨」，那么 §1.4 定成「只涨一个」时要改的就不止一个数字。
 
+> **已落地（2026-08-30）。** `rts/stats.hpp`（容器 + 指纹 + `kStatsShapeTag`）、
+> `WorldInit::stats`、`state_hash` 喂入（`kWorldHashTag` `World/2` → `World/3`）、
+> 回放头 `stats_fp` 字段（`kReplayFormatVersion` 1 → 2）、新判决 `StatsMismatch`、
+> `game::StatsLoader`（JSON 进入路径，严格校验：漏一个兵种或拼错一个键都报错，
+> 不静默落回默认值）、`game/data/stats_placeholder.json`（**全部占位值**）。
+> 第一批字段是承伤 / 目标选择 / 移动 / 视野四块要消费的；上面那条余地照办了
+> （`GlobalStats` 两个缩放系数都存，§1.4 定案时归零其一即可）。
+> 顺带收编：`game::InitialHp` 删除——表落地后它就是第二个真相来源，
+> `make_world_init` 改为直接吃 `StatsTable`。
+
 ## 2. 待下一版
 
 | 内容 | 落在哪 | 备注 |
 |---|---|---|
 | 宏观 / 决策层观测（槽位摘要，非 K×K） | `rts/obs_macro.hpp` | 依赖地图给出的槽位列表，见 §4.4 |
-| **数值表的进入路径与指纹** | 1c（**前置，排在机制之前**） | §1.1.2。它动 `kWorldHashTag`，所以越晚做越贵 |
+| ~~数值表的进入路径与指纹~~ | ~~1c（前置）~~ | ✅ **已落地**，见 §1.1.2 末尾 |
 | 战斗 / 寻路 / 视野 / 经济 | 1c | 上表那几个 ❌ |
 | 整数战斗解算与千分比倍率 | 同上 | 决定 ⑫，见 §3.4 |
 | `BatchedEnv` | `bindings/` | 决定 ⑬ |

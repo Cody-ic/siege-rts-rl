@@ -40,6 +40,7 @@ add_library(rts_core STATIC
     src/rng.cpp
     src/terrain.cpp
     src/fog.cpp
+    src/stats.cpp
     src/world.cpp
     src/replay.cpp
     src/unit_behavior.cpp
