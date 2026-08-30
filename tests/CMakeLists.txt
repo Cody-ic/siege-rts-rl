@@ -71,6 +71,7 @@ add_executable(rts_tests
     projectile_test.cpp
     flow_test.cpp
     defender_script_test.cpp
+    player_input_test.cpp
     demo_test.cpp
 )
 
@@ -132,7 +133,7 @@ target_compile_definitions(rts_tests PRIVATE
 #     ./build/tests/Release/rts_tests "<用例名>"
 foreach(_tag rng hash types map scene iso names utf8path roster action command obs
         terrain fog world replay behavior stats mech econ garrison charge proj flow
-        script demo)
+        script input demo)
     add_test(NAME rts_tests_${_tag} COMMAND rts_tests "[${_tag}]")
 endforeach()
 

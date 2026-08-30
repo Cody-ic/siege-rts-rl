@@ -42,6 +42,14 @@ public:
     bool defeated() const noexcept { return defeated_; }
     int build_ticks_left() const noexcept { return build_left_; }
 
+    // 玩家命令的入口（交互层从这里进，不直接碰 World——写入面收在一处）。
+    // 校验与解算都归 World：形状不合法当场抛，语义不合法（买不起、点位
+    // 不对）在解算时静默拒绝。`Summon` 也走这里：phase 一变，update 里的
+    // 波次机就会在下一 tick 生波——倒计时与提前召唤殊途同归。
+    void submit_defender(const rts::Command* cmds, std::size_t count) {
+        w_.submit(rts::Side::Defender, cmds, count);
+    }
+
 private:
     void issue_actions();
     void spawn_wave();
@@ -56,6 +64,7 @@ private:
     // 守方执行层（参数取占位默认；种子从对局种子派生，demo 因此仍是确定性的）。
     DefenderScript script_;
     int build_left_ = 0;      // 建造阶段剩余 tick（时长是占位常量，见 .cpp）
+    bool wave_spawned_ = false;   // 本波的编成生了没（生波挂在进攻阶段的第一拍）
     bool defeated_ = false;   // Keep 被拆即败（丢失即败是设计，不是演示便宜）
     int since_decision_ = 0;
     std::vector<rts::UnitId> ids_;

@@ -31,6 +31,7 @@
 #include "game/display_names.hpp"
 #include "game/iso_projection.hpp"
 #include "game/map_loader.hpp"
+#include "game/player_input.hpp"
 #include "game/scene_model.hpp"
 #include "game/stats_loader.hpp"
 #include "render/camera_controller.hpp"
@@ -469,6 +470,20 @@ int run_battle(const Options& opt) {
     bool paused = false;
     double acc = 0.0;
     const double kTickDt = 1.0 / static_cast<double>(rts::kTicksPerSecond);
+
+    // ——交互状态。命令的**语义**在 game/（player_input.hpp、可测），
+    // 这里只做拾取与按键：数字键 1–4 选编队（demo 开局 1=弓手 2=枪卫
+    // 3=游骑 4=工匠），右键按格下令（墙=驻守 / 障碍=清野 / 其余=开拔），
+    // B 进建造模式（TAB 换型、左键放置、右键退出），N 提前召唤下一波。
+    const render::SceneOverlay overlay(*font, proj);
+    int force_sel = 0;
+    int build_sel = -1;   // -1 = 不在建造模式
+    constexpr rts::BldType kBuildable[] = {rts::BldType::Wall, rts::BldType::Gate,
+                                           rts::BldType::Fence, rts::BldType::Tower,
+                                           rts::BldType::Flak};
+    constexpr int kBuildableCount =
+        static_cast<int>(sizeof(kBuildable) / sizeof(kBuildable[0]));
+
     while (!WindowShouldClose()) {
         if (IsWindowResized()) {
             cam.set_viewport(Vector2{static_cast<float>(GetScreenWidth()),
@@ -480,7 +495,45 @@ int run_battle(const Options& opt) {
                             static_cast<float>(GetScreenHeight())});
         }
         if (IsKeyPressed(KEY_SPACE)) paused = !paused;
+        if (IsKeyPressed(KEY_ONE)) force_sel = 0;
+        if (IsKeyPressed(KEY_TWO)) force_sel = 1;
+        if (IsKeyPressed(KEY_THREE)) force_sel = 2;
+        if (IsKeyPressed(KEY_FOUR)) force_sel = 3;
+        if (IsKeyPressed(KEY_B)) build_sel = build_sel < 0 ? 0 : -1;
+        if (build_sel >= 0 && IsKeyPressed(KEY_TAB)) {
+            build_sel = (build_sel + 1) % kBuildableCount;
+        }
+        if (IsKeyPressed(KEY_N)) {
+            rts::Command c;
+            c.kind = rts::CommandKind::Summon;
+            c.side = rts::Side::Defender;
+            battle.submit_defender(&c, 1);
+        }
         cam.update(GetFrameTime());
+
+        // 拾取（与地图查看器同一条链路：screen → world → grid）。
+        const Vector2 mouse = GetMousePosition();
+        const Vector2 wpos = GetScreenToWorld2D(mouse, cam.camera());
+        const rts::GridPos cell = proj.screen_to_grid(rts::Vec2{wpos.x, wpos.y});
+        const bool in_map = map.in_bounds(cell.i, cell.j);
+        if (in_map && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
+            if (build_sel >= 0) {
+                build_sel = -1;   // RTS 惯例：右键退出建造模式
+            } else {
+                const rts::Command c = game::command_for_click(
+                    view, static_cast<std::uint8_t>(force_sel), cell);
+                battle.submit_defender(&c, 1);
+            }
+        }
+        if (in_map && build_sel >= 0 && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            // 深层裁决（资源、点位）在 World 的 Build 解算；虚影颜色只是提示。
+            rts::Command c;
+            c.kind = rts::CommandKind::Build;
+            c.side = rts::Side::Defender;
+            c.what = static_cast<std::uint8_t>(kBuildable[build_sel]);
+            c.slot = rts::slot_of(cell, map.width());
+            battle.submit_defender(&c, 1);
+        }
 
         if (!paused) {
             acc += static_cast<double>(GetFrameTime());
@@ -500,8 +553,33 @@ int run_battle(const Options& opt) {
         ClearBackground(bg);
         BeginMode2D(cam.camera());
         renderer.draw(tiles, sorted);
+        if (in_map) {
+            // 建造模式下描边就是合法性提示（绿可放 / 红不行）；平时是白色悬停框。
+            const Color line =
+                build_sel < 0
+                    ? Color{235, 235, 245, 255}
+                    : (game::can_place_hint(view, cell) ? Color{120, 220, 120, 255}
+                                                        : Color{230, 90, 90, 255});
+            overlay.draw_cell_outline(cell, line, 2.0f / cam.camera().zoom);
+        }
         EndMode2D();
         draw_battle_hud(*font, map, battle, paused);
+        {
+            char ibuf[240];
+            if (build_sel >= 0) {
+                std::snprintf(ibuf, sizeof(ibuf),
+                              "编队 %d   建造模式 %s   TAB 换型   左键放置   右键退出",
+                              force_sel + 1,
+                              std::string(game::display_name(kBuildable[build_sel]))
+                                  .c_str());
+            } else {
+                std::snprintf(ibuf, sizeof(ibuf),
+                              "编队 %d   右键下令   B 建造   N 召唤下一波",
+                              force_sel + 1);
+            }
+            font->draw(ibuf, rts::Vec2{14.0f, 12.0f + kHudLine * 3.0f}, kHudSize,
+                       Color{200, 205, 160, 255});
+        }
         EndDrawing();
     }
     CloseWindow();
