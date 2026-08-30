@@ -66,6 +66,11 @@ add_executable(rts_tests
     stats_test.cpp
     mechanics_test.cpp
     economy_test.cpp
+    garrison_test.cpp
+    charge_test.cpp
+    projectile_test.cpp
+    flow_test.cpp
+    defender_script_test.cpp
     demo_test.cpp
 )
 
@@ -126,7 +131,8 @@ target_compile_definitions(rts_tests PRIVATE
 # 挑单条用例跑仍按 CLAUDE.md 写的那样直接用二进制：
 #     ./build/tests/Release/rts_tests "<用例名>"
 foreach(_tag rng hash types map scene iso names utf8path roster action command obs
-        terrain fog world replay behavior stats mech econ demo)
+        terrain fog world replay behavior stats mech econ garrison charge proj flow
+        script demo)
     add_test(NAME rts_tests_${_tag} COMMAND rts_tests "[${_tag}]")
 endforeach()
 
@@ -284,10 +290,45 @@ if(Python3_FOUND)
     # 夹具用的是 game/testdata/fixture_min.json，即 C++ 侧 MapLoader 的那张图。
     # **刻意不另造一张**：`tools/map_gen/mapfile.py` 被定为全仓唯一的地图 I/O 入口，
     # 同一张图两侧共用，才能保证两边对「合法地图」的理解不会各自漂移。
+    #
+    # **`--profile fixture`**：那张夹具是 7×5 的最小图，而第 1、2、5、14 条查的是
+    # 尺寸与行军类的不变量（地图边长、集结点到可建造格的距离、`Ram` 行军占比）。
+    # 对一张最小夹具套用它们没有意义 —— 它不是一张游戏地图。
+    # 阈值分档的完整理由在 tools/map_gen/thresholds.json 的 `_note_two_profiles`。
     add_test(NAME map_gen_validate_fixture
              COMMAND "${Python3_EXECUTABLE}"
                      "${CMAKE_SOURCE_DIR}/tools/map_gen/validate.py"
+                     --profile fixture
                      "${GAME_TESTDATA_DIR}/fixture_min.json")
+
+    # **上面那个 `--profile fixture` 不能是「把检查关掉」的后门。**
+    #
+    # 这一条是它的对照：同一张夹具在 **strict** 档下**必须红**（红在第 1 条，
+    # 7×5 远小于 size 下界）。少了它，`--profile fixture` 与「把第 1、2、5、14 条
+    # 从表里删掉」在 ctest 层面不可区分 —— 而后者正是本文件通篇在防的
+    # 「该红却绿」。selftest 里另有一份进程内的同源断言（那一份还能比对
+    # 具体是哪几条红），两份盯的东西不同：这一条走真的 CLI 与真的退出码。
+    add_test(NAME map_gen_validate_fixture_strict_is_red
+             COMMAND "${Python3_EXECUTABLE}"
+                     "${CMAKE_SOURCE_DIR}/tools/map_gen/validate.py"
+                     --profile strict
+                     "${GAME_TESTDATA_DIR}/fixture_min.json")
+    set_tests_properties(map_gen_validate_fixture_strict_is_red
+                         PROPERTIES WILL_FAIL TRUE)
+
+    # **生成器真的生成几张图，并且每张都跑完整校验器**（第 9 节）。
+    #
+    # 干跑（不给 -o，不落盘）：这条 ctest 要的是「生成 → 校验 → 通过」这条链路
+    # 走得通，而不是往构建目录里堆 JSON。落盘那条路径由 selftest 覆盖。
+    #
+    # 它同时是**第 20 条**（第 7 与第 10 条的联合可满足性）唯一的常驻监视：
+    # 那两条约束方向相反（森林必须通到地图边界 vs 森林不得通到城墙），
+    # 生成器是唯一会同时撞上它们的东西。真被撞上时这条会红，
+    # 且报告里的逐条否决计数直接指出该松哪一边。
+    add_test(NAME map_gen_generate_smoke
+             COMMAND "${Python3_EXECUTABLE}"
+                     "${CMAKE_SOURCE_DIR}/tools/map_gen/generate.py"
+                     -n 3 --seed 1)
 
     # 与「0 张即失败」成对的另一半：**读到了一些、另一些路径不存在，也必须红。**
     # 覆盖面悄悄减半而退出码是 0，是同一种「该红却绿」，只是不那么显眼。

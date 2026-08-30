@@ -107,6 +107,8 @@ std::vector<DrawItem> BattleScene::sorted(const MapData& map,
     const auto u_windup = view.unit_windup();
     const auto u_tgt = view.unit_target_kind();
     const auto u_aim = view.unit_aim();
+    const auto u_garrison = view.unit_garrison();
+    const auto u_mount = view.unit_mount();
     for (std::size_t k = 0; k < u_alive.size(); ++k) {
         if (u_alive[k] == 0) continue;
         DrawItem it;
@@ -114,6 +116,9 @@ std::vector<DrawItem> BattleScene::sorted(const MapData& map,
         it.world = u_pos[k];
         it.pos = rts::grid_of(u_pos[k]);
         it.sprite = rts::ident_of(u_type[k]);
+        // 驻守登顶：抬到墙顶画（仿真里位置就是墙格中心，画面上要站在墙上；
+        // 在爬的还在地面，不抬）。数值是视觉占位，随墙的精灵高度调。
+        if (u_garrison[k] != rts::kNoSlot && u_mount[k] == 0) it.lift = 0.75f;
         const bool winding = u_windup[k] > 0 && u_tgt[k] != rts::TgtKind::None;
         it.facing = facing_of(u_action[k], u_pos[k], u_aim[k], winding);
         it.state = winding ? "attack" : (rts::is_move(u_action[k]) ? "move" : "idle");
@@ -122,8 +127,27 @@ std::vector<DrawItem> BattleScene::sorted(const MapData& map,
         out.push_back(it);
     }
 
-    // 稳定排序：深度并列时保持上面的插入顺序（叠加物 → 建筑 → 障碍 → 单位），
-    // 顺序是确定的，画面不会逐帧跳变。
+    // 在途弹丸（第四组实体，机制第五批）。单张 FREE 图，方向由渲染侧按
+    // 飞行角旋转；归属按 tools/sprite_gen/README.md §8.2 的表——
+    // `Flak` 射的是弩矢（`Bolt`），其余（Archer / Shade / Tower）都是箭。
+    const auto p_pos = view.proj_pos();
+    const auto p_aim = view.proj_aim();
+    const auto p_src = view.proj_src_bld();
+    for (std::size_t k = 0; k < p_pos.size(); ++k) {
+        DrawItem it;
+        it.continuous = true;
+        it.world = p_pos[k];
+        it.pos = rts::grid_of(p_pos[k]);
+        it.sprite =
+            (p_src[k] == static_cast<std::uint8_t>(rts::BldType::Flak)) ? "Bolt"
+                                                                        : "Arrow";
+        it.aim = p_aim[k];
+        it.lift = 0.4f;   // 飞行高度的视觉占位——箭不贴地滑
+        out.push_back(it);
+    }
+
+    // 稳定排序：深度并列时保持上面的插入顺序（叠加物 → 建筑 → 障碍 → 单位
+    // → 弹丸），顺序是确定的，画面不会逐帧跳变。
     std::stable_sort(out.begin(), out.end(), [](const DrawItem& a, const DrawItem& b) {
         return a.depth_f() < b.depth_f();
     });

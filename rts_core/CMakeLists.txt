@@ -43,6 +43,7 @@ add_library(rts_core STATIC
     src/stats.cpp
     src/world.cpp
     src/mechanics.cpp
+    src/flow.cpp
     src/replay.cpp
     src/unit_behavior.cpp
     ${_rts_self_contained_srcs}

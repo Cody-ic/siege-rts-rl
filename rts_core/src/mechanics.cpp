@@ -1,4 +1,6 @@
 // 机制第一批：承伤与死亡、目标选择与攻击、相邻格移动、建筑攻击、视野。
+// 第二批：经济闭环与命令解算。第三批：驻守与高度优势（tick_garrison 一族）。
+// 第四批：冲锋与齐射。第五批：在途弹丸（tick_projectiles 一族）。
 //
 // 与 `world.cpp` 分开放：那边是数据布局与输入校验（1b 的产物），这边是
 // 逐 tick 的解算（1c）。阶段顺序的规范写在 `World::advance()` 的注释里，
@@ -214,9 +216,103 @@ void World::land_attack(std::size_t k) {
     u_tgt_kind_[k] = TgtKind::None;
     u_tgt_raw_[k] = 0;
 
-    const std::int64_t vs_unit = apply_permille(s.damage, {lvl});
+    // ——冲锋（第四批）：动量在这一击结算并耗尽（无论命中与否）——
+    //
+    // 「冲完就是冲完了」：miss 或目标已死也照样清零，动量是物理不是意图。
+    // 非 Charge 兵种恒 1000（恒等倍率不改变 apply_permille 的舍入结果，
+    // 分子分母同乘一个 1000）。
+    std::int64_t charge_pm = kPermilleOne;
+    if (beh.charges()) {
+        charge_pm = charge_permille(u_charge_[k], stats_.global.charge_max_cells,
+                                    stats_.global.charge_bonus_permille_per_cell);
+        u_charge_[k] = 0.0f;
+    }
+
     const std::int64_t vs_structure =
-        apply_permille(s.damage, {lvl, s.vs_structure_permille});
+        apply_permille(s.damage, {lvl, s.vs_structure_permille, charge_pm});
+
+    // 「居高」是攻击方的属性：空中单位从上方来，驻守且墙高完好的自己也在高处，
+    // 两者都不吃下面的高度惩罚（放箭的还把它定格进弹丸随弹携带）。
+    const bool atk_high = is_aerial(my_type) || on_high_wall(k);
+
+    // ——在途弹丸（第五批）：远程的伤害由弹丸送达——
+    //
+    // 谁放弹丸是**结构**（`launches_projectile()` = Ranged × 非空中，恰好
+    // Archer / Shade；`Ram` 照旧前摇撞击、`Phoenix` 俯冲直击）。发射方的状态
+    // （等级倍率、居高与否）在这一刻定格进弹丸；逐目标的倍率（高度 miss /
+    // 减伤）等**命中那一刻**按目标当时的状态结算。结构目标的伤害与目标状态
+    // 无关，在这里一次乘完（截断只发生一次，决定 ⑫）。
+    // 冲锋与反冲锋都不进弹丸路径：没有兵种既放箭又冲锋 / 又架枪阵——
+    // 轴组合的现状，tests/unit_behavior_test.cpp 锁住；破了先回来补字段。
+    if (beh.launches_projectile()) {
+        ProjSpec p;
+        p.pos = u_pos_[k];
+        p.speed = s.proj_speed;
+        p.lvl_pm = lvl;
+        p.from_high = atk_high ? 1 : 0;
+        p.side = my_side;
+        if (s.aoe_radius > 0.0f) {
+            // 花名册里没有「远程 + 溅射」的兵种，但表配得出来。语义取齐射：
+            // AOE 砸锁定落点、只打地面单位（与建筑齐射同一条命中路径）。
+            p.kind = TgtKind::None;
+            p.aim = aim;
+            p.dmg = s.damage;
+            p.aoe = s.aoe_radius;
+            launch_projectile(p);
+            return;
+        }
+        p.kind = kind;
+        p.raw = raw;
+        // 追踪弹的初始目的地 = 目标此刻的位置（此后逐 tick 刷新）。
+        // 目标在前摇里就死了 ⇒ 没有箭可放（与旧路径「落空」同义，只是提前）。
+        switch (kind) {
+            case TgtKind::Unit:
+                if (!unit_pool_.alive(unit_from_raw(raw))) return;
+                p.aim = u_pos_[static_cast<std::size_t>(raw >> 16)];
+                p.dmg = s.damage;
+                break;
+            case TgtKind::Bld:
+                if (!bld_pool_.alive(bld_from_raw(raw))) return;
+                p.aim = center_of(b_pos_[static_cast<std::size_t>(raw >> 16)]);
+                p.dmg = vs_structure;
+                break;
+            case TgtKind::Obstacle:
+                if (!obstacle_pool_.alive(obstacle_from_raw(raw))) return;
+                p.aim = center_of(o_pos_[static_cast<std::size_t>(raw >> 16)]);
+                p.dmg = vs_structure;
+                break;
+            case TgtKind::None:
+                return;
+        }
+        launch_projectile(p);
+        return;
+    }
+
+    // ——高度优势（第三批）：从低处打墙上单位，有 miss 且伤害打折——
+    //
+    // **只对单位目标生效**——打墙本身没有「墙居高临下」一说。
+    // miss 掷的是本世界的 RNG（状态进哈希，回放里同一发必然同判）。
+    const std::int64_t hg_dmg = stats_.global.high_ground_dmg_permille;
+    const std::int64_t hg_miss = stats_.global.high_ground_miss_permille;
+    const auto misses_high = [&](std::size_t t) {
+        if (atk_high || !on_high_wall(t)) return false;
+        return static_cast<std::int64_t>(rng_.below(1000)) < hg_miss;
+    };
+    // 全部倍率在**同一次** apply_permille 里乘（截断只能发生一次，决定 ⑫）。
+    // 逐目标的两条：高度减伤（第三批）与反冲锋（第四批——关系由轴推导
+    // `counters_charge`，幅度随**目标的**动量线性放大，见 combat_math.hpp）。
+    const auto dmg_vs_unit = [&](std::size_t t) {
+        std::int64_t mods[4] = {lvl, charge_pm, 0, 0};
+        std::size_t n = 2;
+        if (!atk_high && on_high_wall(t)) mods[n++] = hg_dmg;
+        if (beh.counters_charge() && behavior_of(u_type_[t]).charges() &&
+            u_charge_[t] > 0.0f) {
+            mods[n++] = anti_charge_permille(u_charge_[t],
+                                             stats_.global.charge_max_cells,
+                                             stats_.global.anti_charge_permille);
+        }
+        return apply_permille(s.damage, mods, n);
+    };
 
     if (s.aoe_radius > 0.0f) {
         // AOE 砸**锁定的坐标**。圈内的单位不分敌我（「溅射单位被包夹时会误伤」
@@ -227,9 +323,10 @@ void World::land_attack(std::size_t k) {
             if (t == k) continue;
             if (!beh.can_engage(u_type_[t])) continue;
             if (dist2(u_pos_[t], aim) > r2) continue;
+            if (misses_high(t)) continue;
             deal_damage(TgtKind::Unit,
-                        unit_pool_.id_at(static_cast<std::uint16_t>(t)).raw(), vs_unit,
-                        my_side);
+                        unit_pool_.id_at(static_cast<std::uint16_t>(t)).raw(),
+                        dmg_vs_unit(t), my_side);
         }
         for (std::size_t t = 0; t < bld_pool_.slot_count(); ++t) {
             if (!bld_pool_.alive_at(static_cast<std::uint16_t>(t))) continue;
@@ -252,13 +349,16 @@ void World::land_attack(std::size_t k) {
         return;
     }
 
-    // 单体：目标死了就落空（箭还在飞，人已经没了）。**不追加射程检查**——
-    // 承诺时查过一次，之后目标跑出射程照样中，本批没有在途弹丸实体，
-    // 这一条近似记在契约 §1.1.1（弹丸做成第四组实体时一并改）。
+    // 单体直击（近战 / `Ram` / `Phoenix` 俯冲——放箭的在上面已经走弹丸路径）。
+    // 目标死了就落空。**不追加射程检查**——承诺时查过一次，前摇里目标挪出
+    // 半步照样中：那半步是「弓手被贴脸即废」的镜像，挥出去的刀不检查卷尺。
     switch (kind) {
         case TgtKind::Unit:
             if (unit_pool_.alive(unit_from_raw(raw))) {
-                deal_damage(kind, raw, vs_unit, my_side);
+                const std::size_t t = static_cast<std::size_t>(raw >> 16);
+                if (!misses_high(t)) {
+                    deal_damage(kind, raw, dmg_vs_unit(t), my_side);
+                }
             }
             break;
         case TgtKind::Bld:
@@ -328,6 +428,8 @@ void World::tick_unit_combat() {
             }
             continue;   // 前摇中：不承诺新的出手
         }
+        // 在爬墙：上墙延迟期间不承诺出手（那段不设防就是延迟的代价）。
+        if (u_garrison_[k] != kNoSlot && u_mount_[k] > 0) continue;
         const UnitAction a = u_action_[k];
         if (a != UnitAction::AtkNear && a != UnitAction::AtkWeak &&
             a != UnitAction::AtkBld && a != UnitAction::AtkWall) {
@@ -336,7 +438,8 @@ void World::tick_unit_combat() {
         if (u_cd_[k] > 0) continue;
         const TargetPick t = pick_target(k, a);
         if (!t.found) continue;
-        const float range = stats_.of(u_type_[k]).range;
+        // 有效射程 = 基础值 + 远程驻守的高度加成（掩码用同一个函数）。
+        const float range = effective_range(k);
         if (t.dist2 > range * range) continue;   // 打不到就空转（乙）
         commit_attack(k, t);
     }
@@ -349,12 +452,24 @@ void World::tick_movement() {
     const float h_limit = static_cast<float>(height());
     for (std::size_t k = 0; k < unit_pool_.slot_count(); ++k) {
         if (!unit_pool_.alive_at(static_cast<std::uint16_t>(k))) continue;
-        if (u_windup_[k] > 0) continue;   // 前摇钉住脚（弓手被贴脸即废的一半）
-        const UnitAction a = u_action_[k];
-        if (!is_move(a)) continue;
+        // 前摇钉住脚（弓手被贴脸即废的一半）。冲锋动量在此**冻结**——
+        // 承诺出手的那一击正带着它，落地时结算并耗尽（land_attack）。
+        if (u_windup_[k] > 0) continue;
+        // 驻守钉住（含在爬的）：「上墙的代价是机动性」。想走？MoveForce 先召回。
+        if (u_garrison_[k] != kNoSlot) continue;
         const UnitType type = u_type_[k];
+        const bool charger = behavior_of(type).charges();
+        const UnitAction a = u_action_[k];
+        if (!is_move(a)) {
+            // 站住（Stop，或 Atk* 的空转）就没有助跑可言。
+            if (charger) u_charge_[k] = 0.0f;
+            continue;
+        }
         const float speed = stats_.of(type).speed;
-        if (speed <= 0.0f) continue;
+        if (speed <= 0.0f) {
+            if (charger) u_charge_[k] = 0.0f;
+            continue;
+        }
         const Mobility mob = is_aerial(type) ? Mobility::Aerial : Mobility::Ground;
 
         const GridDelta d = move_delta(a);
@@ -370,6 +485,8 @@ void World::tick_movement() {
         const GridPos from = grid_of(u_pos_[k]);
         const GridPos to = grid_of(np);
         if (to == from) {
+            // 动量累计**实际位移**（夹紧可能吃掉一部分），不是名义步长。
+            if (charger) u_charge_[k] += std::sqrt(dist2(u_pos_[k], np));
             u_pos_[k] = np;
             continue;
         }
@@ -377,6 +494,7 @@ void World::tick_movement() {
         // 跨格：地形 + 实体占位。**掩码只判地形**（墙是「高代价可通行」，
         // 契约 §5.1.1 明写它不该出现在掩码里）——实体拦路在这里处理，
         // 代价就是下面那一下「撞上去自动开始破坏」。
+        const Side my_side = side_of(type);
         const auto cell_open = [&](int x, int y) {
             if (!terrain_.in_bounds(x, y)) return false;
             if (!terrain_.passable(x, y, mob)) return false;
@@ -384,56 +502,175 @@ void World::tick_movement() {
             const std::size_t c = static_cast<std::size_t>(y) *
                                       static_cast<std::size_t>(width()) +
                                   static_cast<std::size_t>(x);
-            return bld_at_[c] == 0 && obstacle_at_[c] == 0;
+            if (obstacle_at_[c] != 0) return false;
+            if (bld_at_[c] == 0) return true;
+            // 城门对自己人是通的（机制第六批）：守方地面单位可穿行**完工**的
+            // `Gate`。没有这条，守方被自己的墙圈死——「被迫出城争夺外部资源」
+            // 在结构上不可能发生，而那是 CLAUDE.md 两个不能砍的机制之一。
+            // 攻方照旧要砸开它（try_bump_attack）；工地状态的门不通（还没有
+            // 门洞）。flow field 的通行规则抄的是这一条（rts/flow.cpp），
+            // 两处必须同真值，tests/flow_test.cpp 锁。
+            const std::size_t s = static_cast<std::size_t>(bld_at_[c] - 1);
+            return my_side == Side::Defender && b_type_[s] == BldType::Gate &&
+                   b_built_[s] != 0;
         };
         bool ok = cell_open(to.i, to.j);
         if (ok && kDiagonalNeedsBothOrthogonal && to.i != from.i && to.j != from.j) {
             ok = cell_open(to.i, from.j) && cell_open(from.i, to.j);
         }
         if (ok) {
+            if (charger) u_charge_[k] += std::sqrt(dist2(u_pos_[k], np));
             u_pos_[k] = np;
             continue;
         }
 
-        // 拦住了。若目的格地形本可通行、是实体占着 ⇒ 自动承诺破坏它。
-        // 这是「墙 = 高代价可通行」的机制那一半：代价就是站在这儿把它砸开。
-        if (mob != Mobility::Ground) continue;
-        if (!terrain_.in_bounds(to.i, to.j)) continue;
-        if (!terrain_.passable(to.i, to.j, Mobility::Ground)) continue;
-        if (u_cd_[k] > 0) continue;
-
-        const std::size_t c = static_cast<std::size_t>(to.j) *
-                                  static_cast<std::size_t>(width()) +
-                              static_cast<std::size_t>(to.i);
-        const UnitBehavior& beh = behavior_of(type);
-        TargetPick t;
-        if (bld_at_[c] != 0) {
-            // 建筑全属守方：守方单位被自家建筑拦住只能站着，不打自己人。
-            if (side_of(type) != Side::Attacker) continue;
-            const std::size_t s = static_cast<std::size_t>(bld_at_[c] - 1);
-            const BldType bt = b_type_[s];
-            const bool is_wall = (bt == BldType::Wall || bt == BldType::Gate);
-            if (is_wall ? !beh.can_break_structure() : !beh.combat()) continue;
-            t.found = true;
-            t.kind = TgtKind::Bld;
-            t.raw = bld_pool_.id_at(static_cast<std::uint16_t>(s)).raw();
-        } else if (obstacle_at_[c] != 0) {
-            // 中立障碍双方都可清（守方清野得产出，攻方纯开路）。
-            if (!beh.can_break_structure()) continue;
-            const std::size_t s = static_cast<std::size_t>(obstacle_at_[c] - 1);
-            t.found = true;
-            t.kind = TgtKind::Obstacle;
-            t.raw = obstacle_pool_.id_at(static_cast<std::uint16_t>(s)).raw();
-        } else {
-            continue;
-        }
-        t.pos = center_of(to);
-        t.dist2 = dist2(u_pos_[k], t.pos);
-        commit_attack(k, t);
+        // 拦住了：先试自动破坏——**骑士撞门是真撞**，承诺成了动量就被那一击
+        // 带走（前摇冻结、落地耗尽）；没承诺成才算撞停，动量归零。
+        const bool committed = try_bump_attack(k, to);
+        if (!committed && charger) u_charge_[k] = 0.0f;
     }
 }
 
-// ——阶段 4：建筑战斗——
+// 移动被实体拦住时的自动破坏。若目的格地形本可通行、是实体占着 ⇒ 自动承诺
+// 破坏它——「墙 = 高代价可通行」的机制那一半：代价就是站在这儿把它砸开。
+bool World::try_bump_attack(std::size_t k, GridPos to) {
+    const UnitType type = u_type_[k];
+    if (is_aerial(type)) return false;   // 空军飞过一切，不会被实体拦住
+    if (!terrain_.in_bounds(to.i, to.j)) return false;
+    if (!terrain_.passable(to.i, to.j, Mobility::Ground)) return false;
+    if (u_cd_[k] > 0) return false;
+
+    const std::size_t c = static_cast<std::size_t>(to.j) *
+                              static_cast<std::size_t>(width()) +
+                          static_cast<std::size_t>(to.i);
+    const UnitBehavior& beh = behavior_of(type);
+    TargetPick t;
+    if (bld_at_[c] != 0) {
+        // 建筑全属守方：守方单位被自家建筑拦住只能站着，不打自己人。
+        if (side_of(type) != Side::Attacker) return false;
+        const std::size_t s = static_cast<std::size_t>(bld_at_[c] - 1);
+        const BldType bt = b_type_[s];
+        const bool is_wall = (bt == BldType::Wall || bt == BldType::Gate);
+        if (is_wall ? !beh.can_break_structure() : !beh.combat()) return false;
+        t.found = true;
+        t.kind = TgtKind::Bld;
+        t.raw = bld_pool_.id_at(static_cast<std::uint16_t>(s)).raw();
+    } else if (obstacle_at_[c] != 0) {
+        // 中立障碍双方都可清（守方清野得产出，攻方纯开路）。
+        if (!beh.can_break_structure()) return false;
+        const std::size_t s = static_cast<std::size_t>(obstacle_at_[c] - 1);
+        t.found = true;
+        t.kind = TgtKind::Obstacle;
+        t.raw = obstacle_pool_.id_at(static_cast<std::uint16_t>(s)).raw();
+    } else {
+        return false;
+    }
+    t.pos = center_of(to);
+    t.dist2 = dist2(u_pos_[k], t.pos);
+    commit_attack(k, t);
+    return true;
+}
+
+// ——阶段 4：驻守（第三批）——
+
+// 槽位 `k` 上的单位是否站在有高度的墙上。三条高度优势共用这一个判据；
+// 「墙血 < 一半 ⇒ 高度没了」是局部破损那条 Stronghold 规则的二值实现，
+// 判据是比例（hp*2 >= max_hp），不引入新数值。
+bool World::on_high_wall(std::size_t k) const {
+    if (u_garrison_[k] == kNoSlot || u_mount_[k] > 0) return false;
+    const std::size_t c = static_cast<std::size_t>(u_garrison_[k]);
+    // 防御式：墙被拆时 destroy_bld 会强制下墙，这里理应总能查到建筑。
+    if (bld_at_[c] == 0) return false;
+    const std::size_t b = static_cast<std::size_t>(bld_at_[c] - 1);
+    return b_hp_[b] * 2 >= b_max_hp_[b];
+}
+
+// 有效射程：基础值 + 远程驻守的高度加成。**只有远程吃加成**（CLAUDE.md 原文
+// 「远程单位在墙上获得射程加成」），判据是三轴里的交战距离——给近战加射程
+// 会让枪卫隔空扎人，那不是高度优势，是改机制。
+float World::effective_range(std::size_t k) const {
+    float r = stats_.of(u_type_[k]).range;
+    if (on_high_wall(k) &&
+        behavior_of(u_type_[k]).engage_range() == EngageRange::Ranged) {
+        r += stats_.global.high_ground_range_bonus;
+    }
+    return r;
+}
+
+// 让槽位 `k` 上的单位离开墙。在爬的直接解除（人本来就还在地面原位）；
+// 已登顶的落到第一个空邻格。邻格全被占则**保持驻守**（确定性无操作）——
+// 墙格几乎总有空邻格（地图校验器要求墙有内外两侧），不值得一个重试态。
+void World::dismount_unit(std::size_t k) {
+    if (u_garrison_[k] == kNoSlot) return;
+    if (u_mount_[k] > 0) {
+        u_garrison_[k] = kNoSlot;
+        u_mount_[k] = 0;
+        return;
+    }
+    GridPos out;
+    if (!find_free_ground_cell(pos_of_slot(u_garrison_[k], width()), out)) return;
+    u_pos_[k] = center_of(out);
+    u_garrison_[k] = kNoSlot;
+}
+
+void World::tick_garrison() {
+    // 先推进在爬的，再受理新指令——顺序写死是规范的一部分。
+    // 到 0 的那一刻人**落位墙心**：驻守单位的位置就是墙格中心，射程、视野、
+    // 挨打（含 AOE 波及）全按这个位置算，不需要任何「在墙上」的特殊坐标系。
+    for (std::size_t k = 0; k < unit_pool_.slot_count(); ++k) {
+        if (!unit_pool_.alive_at(static_cast<std::uint16_t>(k))) continue;
+        if (u_garrison_[k] == kNoSlot || u_mount_[k] <= 0) continue;
+        --u_mount_[k];
+        if (u_mount_[k] == 0) {
+            u_pos_[k] = center_of(pos_of_slot(u_garrison_[k], width()));
+        }
+    }
+
+    // 受理指令：格线性序即规范序。指令是**常设**的——驻守者阵亡后同编队的
+    // 相邻单位自动补位，直到 MoveForce 召回或墙被拆（两处都会清指令）。
+    //
+    // 这里不再查「格上有完工的活墙」：apply_one 只对完工的 Wall/Gate 记指令，
+    // destroy_bld 拆墙时清指令，完工位没有回退路径——再查一遍就是第二份会
+    // 漂移的判据。
+    const std::size_t cells = terrain_.cell_count();
+    for (std::size_t c = 0; c < cells; ++c) {
+        const std::uint8_t f = garrison_order_[c];
+        if (f == kNoForce) continue;
+        // 一格一人：有人在上面（或在爬）就不再挑人。
+        bool taken = false;
+        for (std::size_t u = 0; u < unit_pool_.slot_count(); ++u) {
+            if (!unit_pool_.alive_at(static_cast<std::uint16_t>(u))) continue;
+            if (u_garrison_[u] == static_cast<std::uint16_t>(c)) {
+                taken = true;
+                break;
+            }
+        }
+        if (taken) continue;
+        const GridPos wall = pos_of_slot(static_cast<std::uint16_t>(c), width());
+        for (std::size_t u = 0; u < unit_pool_.slot_count(); ++u) {
+            if (!unit_pool_.alive_at(static_cast<std::uint16_t>(u))) continue;
+            if (u_force_[u] != f) continue;
+            // 攻方没有登墙手段（CLAUDE.md，结构）。攻方单位的编队本就恒为
+            // kNoForce、匹配不上，这一条是把结构写明而不是防一个能到达的状态。
+            if (side_of(u_type_[u]) != Side::Defender) continue;
+            if (u_garrison_[u] != kNoSlot) continue;   // 已在别的墙上 / 在爬
+            if (u_windup_[u] > 0) continue;            // 已承诺的出手先走完
+            // 「原地登上」：站在墙的八邻才登得上（切比雪夫距离恰为 1）。
+            // 走到墙边是脚本执行层的事（Garrison 已把 force_target_ 指过去）。
+            const GridPos at = grid_of(u_pos_[u]);
+            const int dx = at.i > wall.i ? at.i - wall.i : wall.i - at.i;
+            const int dy = at.j > wall.j ? at.j - wall.j : wall.j - at.j;
+            if (dx > 1 || dy > 1 || (dx == 0 && dy == 0)) continue;
+            u_garrison_[u] = static_cast<std::uint16_t>(c);
+            const std::int32_t d = stats_.global.garrison_mount_ticks;
+            u_mount_[u] = d;
+            if (d == 0) u_pos_[u] = center_of(wall);   // 零延迟：当场登顶
+            break;   // 本格已有人在登，换下一格
+        }
+    }
+}
+
+// ——阶段 5：建筑战斗——
 
 void World::tick_bld_combat() {
     for (std::size_t k = 0; k < bld_pool_.slot_count(); ++k) {
@@ -445,14 +682,7 @@ void World::tick_bld_combat() {
         const BldStats& s = stats_.of(b_type_[k]);
         if (b_windup_[k] > 0) {
             --b_windup_[k];
-            if (b_windup_[k] == 0 && b_tgt_raw_[k] != UnitId::kInvalidRaw) {
-                const UnitId id = unit_from_raw(b_tgt_raw_[k]);
-                if (unit_pool_.alive(id)) {
-                    deal_damage(TgtKind::Unit, b_tgt_raw_[k],
-                                apply_permille(s.damage, {}), Side::Defender);
-                }
-                b_tgt_raw_[k] = UnitId::kInvalidRaw;
-            }
+            if (b_windup_[k] == 0) land_bld_attack(k);
             continue;
         }
         if (s.damage <= 0 || b_cd_[k] > 0) continue;
@@ -477,20 +707,212 @@ void World::tick_bld_combat() {
         }
         if (!found || best_d2 > s.range * s.range) continue;
         b_tgt_raw_[k] = best_raw;
+        // 齐射的落点在**承诺那一刻**锁定（与 `Ram` 同一条规则）：
+        // 目标散开，箭雨还是下在原地。
+        b_aim_[k] = u_pos_[static_cast<std::size_t>(best_raw >> 16)];
         b_cd_[k] = s.cooldown_ticks;
         b_windup_[k] = s.windup_ticks;
-        if (s.windup_ticks == 0) {
-            const UnitId id = unit_from_raw(best_raw);
-            if (unit_pool_.alive(id)) {
-                deal_damage(TgtKind::Unit, best_raw, apply_permille(s.damage, {}),
-                            Side::Defender);
+        if (s.windup_ticks == 0) land_bld_attack(k);
+    }
+}
+
+// 建筑出手落地 = **放箭**（第五批起）：建筑不会近战，开火即弹丸。
+// `Tower` 的齐射箭雨飞向锁定落点，`Flak` 的狙击弩矢追踪目标。
+void World::land_bld_attack(std::size_t k) {
+    const BldStats& s = stats_.of(b_type_[k]);
+    const std::uint32_t raw = b_tgt_raw_[k];
+    b_tgt_raw_[k] = UnitId::kInvalidRaw;
+
+    ProjSpec p;
+    p.pos = center_of(b_pos_[k]);
+    p.speed = s.proj_speed;
+    p.side = Side::Defender;
+    p.src_bld = static_cast<std::uint8_t>(b_type_[k]);
+    p.from_high = 1;   // 塔上放箭，居高是结构（这一位只管**免掉**高度惩罚）
+    p.dmg = s.damage;  // 倍率恒等（lvl_pm 默认 1000）：建筑没有等级轴（第五批时点）
+
+    // 齐射：AOE 砸锁定落点，圈内不分敌我（「溅射误伤」是机制不是 bug——
+    // 别站在自家箭楼的齐射区里）、空中不挨砸（箭雨对地，展开在命中路径）。
+    // **只对对地建筑生效**：「AA 只做单体狙击型」是结构，表里给 `Flak`
+    // 配了半径也不齐射——同「表不能把瞭望塔配成印钞机」的先例。
+    if (s.aoe_radius > 0.0f && !bld_targets_air(b_type_[k])) {
+        p.kind = TgtKind::None;
+        p.aim = b_aim_[k];
+        p.aoe = s.aoe_radius;
+        launch_projectile(p);
+        return;
+    }
+    // 单体：追踪目标。目标在前摇里就死了 ⇒ 没有箭可放。
+    if (raw == UnitId::kInvalidRaw || !unit_pool_.alive(unit_from_raw(raw))) return;
+    p.kind = TgtKind::Unit;
+    p.raw = raw;
+    p.aim = u_pos_[static_cast<std::size_t>(raw >> 16)];
+    launch_projectile(p);
+}
+
+// ——阶段 6：弹丸（第五批）——
+
+// 字段数组 ↔ ProjSpec 的唯一互换点（与 launch_projectile 成对）。
+// 两处若各写一遍字段清单，加字段时只改一边不会报错——症状是命中结算
+// 读到默认值。
+World::ProjSpec World::proj_at(std::size_t i) const {
+    ProjSpec p;
+    p.pos = p_pos_[i];
+    p.aim = p_aim_[i];
+    p.speed = p_speed_[i];
+    p.kind = p_kind_[i];
+    p.raw = p_raw_[i];
+    p.dmg = p_dmg_[i];
+    p.lvl_pm = p_lvl_pm_[i];
+    p.from_high = p_from_high_[i];
+    p.aoe = p_aoe_[i];
+    p.side = p_side_[i];
+    p.src_bld = p_src_bld_[i];
+    return p;
+}
+
+void World::launch_projectile(const ProjSpec& p) {
+    if (p.speed <= 0.0f) {
+        // 瞬时命中：§1.1.1 那条「落地帧瞬时结算」书面近似的退化形态。
+        // 没配速度的表行为一字不变——第五批之前的每条测试因此不用动。
+        impact_projectile(p);
+        return;
+    }
+    p_pos_.push_back(p.pos);
+    p_aim_.push_back(p.aim);
+    p_speed_.push_back(p.speed);
+    p_kind_.push_back(p.kind);
+    p_raw_.push_back(p.raw);
+    p_dmg_.push_back(p.dmg);
+    p_lvl_pm_.push_back(p.lvl_pm);
+    p_from_high_.push_back(p.from_high);
+    p_aoe_.push_back(p.aoe);
+    p_side_.push_back(p.side);
+    p_src_bld_.push_back(p.src_bld);
+}
+
+// 命中结算。高度 miss / 减伤在**这一刻**掷与乘（箭到的时候人在不在墙上，
+// 与放箭那一刻无关——躲上墙是真的能让飞来的箭打折）；发射方那一侧的免除
+// 用的是随弹携带的 from_high（放箭时定格，发射方此刻可能已经死了）。
+void World::impact_projectile(const ProjSpec& p) {
+    const std::int64_t hg_dmg = stats_.global.high_ground_dmg_permille;
+    const std::int64_t hg_miss = stats_.global.high_ground_miss_permille;
+    const auto misses_high = [&](std::size_t t) {
+        if (p.from_high != 0 || !on_high_wall(t)) return false;
+        return static_cast<std::int64_t>(rng_.below(1000)) < hg_miss;
+    };
+    const auto dmg_vs_unit = [&](std::size_t t) {
+        std::int64_t mods[2] = {p.lvl_pm, 0};
+        std::size_t n = 1;
+        if (p.from_high == 0 && on_high_wall(t)) mods[n++] = hg_dmg;
+        // 反冲锋不在这里：没有兵种既放箭又架枪阵（轴组合，测试锁住）。
+        return apply_permille(p.dmg, mods, n);
+    };
+    switch (p.kind) {
+        case TgtKind::Unit: {
+            // 箭还在飞，人已经没了 ⇒ 落空（飞行阶段也查，这里再查一遍是
+            // 因为瞬时命中不经飞行阶段，且同 tick 前面的命中可能刚杀了它）。
+            if (!unit_pool_.alive(unit_from_raw(p.raw))) return;
+            const std::size_t t = static_cast<std::size_t>(p.raw >> 16);
+            if (misses_high(t)) return;
+            deal_damage(TgtKind::Unit, p.raw, dmg_vs_unit(t), p.side);
+            return;
+        }
+        case TgtKind::Bld:
+            if (bld_pool_.alive(bld_from_raw(p.raw))) {
+                deal_damage(TgtKind::Bld, p.raw, p.dmg, p.side);
             }
-            b_tgt_raw_[k] = UnitId::kInvalidRaw;
+            return;
+        case TgtKind::Obstacle:
+            if (obstacle_pool_.alive(obstacle_from_raw(p.raw))) {
+                deal_damage(TgtKind::Obstacle, p.raw, p.dmg, p.side);
+            }
+            return;
+        case TgtKind::None: {
+            // 齐射：AOE 砸锁定落点，圈内不分敌我、空中不挨砸（箭雨对地）。
+            const float r2 = p.aoe * p.aoe;
+            for (std::size_t t = 0; t < unit_pool_.slot_count(); ++t) {
+                if (!unit_pool_.alive_at(static_cast<std::uint16_t>(t))) continue;
+                if (is_aerial(u_type_[t])) continue;
+                if (dist2(u_pos_[t], p.aim) > r2) continue;
+                if (misses_high(t)) continue;
+                deal_damage(TgtKind::Unit,
+                            unit_pool_.id_at(static_cast<std::uint16_t>(t)).raw(),
+                            dmg_vs_unit(t), p.side);
+            }
+            return;
         }
     }
 }
 
-// ——阶段 5：经济（第二批）——
+void World::tick_projectiles() {
+    if (p_pos_.empty()) return;
+    // 逐枚：刷新目的地 → 推进 → 到达即结算；结束后一次性稳定压实（保序左移）。
+    // **结算顺序 = 数组序 = 放箭序**，与三组实体的槽位序同族——都是规范序。
+    // 同 tick 内前面那枚的命中可能杀死后面那枚的追踪目标：后者轮到自己时
+    // **现查**，目标已死即落空——与「箭还在飞，人已经没了」同一条语义。
+    std::size_t out = 0;
+    for (std::size_t i = 0; i < p_pos_.size(); ++i) {
+        bool gone = false;
+        Vec2 dest = p_aim_[i];
+        switch (p_kind_[i]) {
+            case TgtKind::Unit:
+                if (!unit_pool_.alive(unit_from_raw(p_raw_[i]))) gone = true;
+                else dest = u_pos_[static_cast<std::size_t>(p_raw_[i] >> 16)];
+                break;
+            case TgtKind::Bld:
+                if (!bld_pool_.alive(bld_from_raw(p_raw_[i]))) gone = true;
+                else dest = center_of(b_pos_[static_cast<std::size_t>(p_raw_[i] >> 16)]);
+                break;
+            case TgtKind::Obstacle:
+                if (!obstacle_pool_.alive(obstacle_from_raw(p_raw_[i]))) gone = true;
+                else dest = center_of(o_pos_[static_cast<std::size_t>(p_raw_[i] >> 16)]);
+                break;
+            case TgtKind::None:
+                break;   // 齐射飞向锁定落点，目的地不刷新
+        }
+        if (!gone) {
+            p_aim_[i] = dest;
+            const float d = std::sqrt(dist2(p_pos_[i], dest));
+            if (d <= p_speed_[i]) {
+                impact_projectile(proj_at(i));
+                gone = true;
+            } else {
+                const float t = p_speed_[i] / d;
+                p_pos_[i] = Vec2{p_pos_[i].x + (dest.x - p_pos_[i].x) * t,
+                                 p_pos_[i].y + (dest.y - p_pos_[i].y) * t};
+            }
+        }
+        if (gone) continue;
+        if (out != i) {
+            p_pos_[out] = p_pos_[i];
+            p_aim_[out] = p_aim_[i];
+            p_speed_[out] = p_speed_[i];
+            p_kind_[out] = p_kind_[i];
+            p_raw_[out] = p_raw_[i];
+            p_dmg_[out] = p_dmg_[i];
+            p_lvl_pm_[out] = p_lvl_pm_[i];
+            p_from_high_[out] = p_from_high_[i];
+            p_aoe_[out] = p_aoe_[i];
+            p_side_[out] = p_side_[i];
+            p_src_bld_[out] = p_src_bld_[i];
+        }
+        ++out;
+    }
+    p_pos_.resize(out);
+    p_aim_.resize(out);
+    p_speed_.resize(out);
+    p_kind_.resize(out);
+    p_raw_.resize(out);
+    p_dmg_.resize(out);
+    p_lvl_pm_.resize(out);
+    p_from_high_.resize(out);
+    p_aoe_.resize(out);
+    p_side_.resize(out);
+    p_src_bld_.resize(out);
+}
+
+// ——阶段 7：经济（第二批）——
 
 // 守方 `Mason` 是否在 `pos` 的施工半径内。二值（在场与否）而非人数：
 // 多名工匠不加速是占位机制，标定时再议。半径查全局表。
@@ -507,11 +929,10 @@ bool World::mason_near(GridPos pos) const {
     return false;
 }
 
-// 给槽位 `k` 上的建筑找出兵格：八邻按行主序（dj 外层、di 内层）扫，
-// 取第一个地形可通行、无建筑无障碍、无地面单位的格。**顺序即规范**，
-// 换一种扫法就是换一份回放。
-bool World::try_train_spawn(std::size_t k) {
-    const GridPos at = b_pos_[k];
+// 八邻按行主序（dj 外层、di 内层）扫，取第一个地形可通行、无建筑无障碍、
+// 无地面单位站着的格。**顺序即规范**，换一种扫法就是换一份回放。
+// 征兵出兵与驻守下墙共用它——两处各扫一套就是两个会分叉的规范。
+bool World::find_free_ground_cell(GridPos at, GridPos& out) const {
     for (int dj = -1; dj <= 1; ++dj) {
         for (int di = -1; di <= 1; ++di) {
             if (di == 0 && dj == 0) continue;
@@ -534,26 +955,31 @@ bool World::try_train_spawn(std::size_t k) {
                 }
             }
             if (taken) continue;
-
-            const UnitType ut = static_cast<UnitType>(b_train_type_[k]);
-            const UnitStats& s = stats_.of(ut);
-            // 一律 1 级（apply_one 的 Train 那条注释）。等级缩放照走公式，
-            // 1 级时它就是基础值——这样升级轴落地时这里一行都不用改。
-            const std::int64_t hp = apply_permille(
-                s.max_hp,
-                {level_permille(kMinUnitLevel, stats_.global.hp_permille_per_level)});
-            const UnitId id = spawn_unit(ut, center_of(GridPos{
-                                                 static_cast<std::int16_t>(x),
-                                                 static_cast<std::int16_t>(y)}),
-                                         kMinUnitLevel, hp, hp);
-            u_force_[id.index()] = b_train_force_[k];
-            b_train_type_[k] = kNoTrain;
-            b_train_left_[k] = 0;
-            b_train_force_[k] = kNoForce;
+            out = GridPos{static_cast<std::int16_t>(x), static_cast<std::int16_t>(y)};
             return true;
         }
     }
     return false;
+}
+
+// 给槽位 `k` 上的建筑找出兵格并出兵。找不到返回 false（下 tick 再试）。
+bool World::try_train_spawn(std::size_t k) {
+    GridPos cell;
+    if (!find_free_ground_cell(b_pos_[k], cell)) return false;
+
+    const UnitType ut = static_cast<UnitType>(b_train_type_[k]);
+    const UnitStats& s = stats_.of(ut);
+    // 一律 1 级（apply_one 的 Train 那条注释）。等级缩放照走公式，
+    // 1 级时它就是基础值——这样升级轴落地时这里一行都不用改。
+    const std::int64_t hp = apply_permille(
+        s.max_hp,
+        {level_permille(kMinUnitLevel, stats_.global.hp_permille_per_level)});
+    const UnitId id = spawn_unit(ut, center_of(cell), kMinUnitLevel, hp, hp);
+    u_force_[id.index()] = b_train_force_[k];
+    b_train_type_[k] = kNoTrain;
+    b_train_left_[k] = 0;
+    b_train_force_[k] = kNoForce;
+    return true;
 }
 
 void World::tick_economy() {
@@ -622,7 +1048,7 @@ void World::tick_economy() {
     }
 }
 
-// ——阶段 6：视野——
+// ——阶段 8：视野——
 
 void World::tick_vision() {
     for (int s = 0; s < kSideCount; ++s) {

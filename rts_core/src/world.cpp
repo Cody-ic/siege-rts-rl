@@ -88,6 +88,7 @@ World::World(WorldInit init)
     }
     spawn_chosen_.assign(spawns_.size(), 0);
     force_target_.fill(kNoSlot);
+    garrison_order_.assign(terrain_.cell_count(), kNoForce);
 
     // 占位格（派生缓存，不进哈希——见头文件那段）。必须在放建筑与障碍**之前**
     // 就位，`place_bld` / `place_obstacle` 要往里写。
@@ -127,7 +128,16 @@ World::World(WorldInit init)
     // 边界外该怎么处理（夹紧、判死、还是不可能发生）属寻路与移动，是 1c 的事。
     // 在这里单独加一道检查会造出「建局时管、跑起来不管」的不对称。
     for (const UnitInit& u : init.units) {
-        spawn_unit(u.type, u.pos, u.level, u.hp, u.max_hp);
+        const UnitId id = spawn_unit(u.type, u.pos, u.level, u.hp, u.max_hp);
+        if (u.force != kNoForce) {
+            // 编队是守方概念（`force_target_` 不按侧参数化的同一条理由）。
+            // 这里拦住是结构性的：攻方单位若能带编队，驻守指令就能匹配到它，
+            // 「攻方没有登墙手段」从结构退化成约定。
+            if (side_of(u.type) != Side::Defender) {
+                throw ContractError("编队是守方概念：攻方初始单位不得带编队");
+            }
+            u_force_[id.index()] = u.force;
+        }
     }
 
     // 初始障碍。校验同样全部复用 `place_obstacle`（类型越界、界内、血量），
@@ -414,7 +424,39 @@ void World::apply_one(Side side, const Command& c) {
             // 解算 = 记入编队去处表。**World 不代替单位走路**：守方单兵由
             // 参数化脚本驱动（CLAUDE.md），脚本读这张表、翻译成逐单位动作。
             force_target_[c.force] = c.slot;
+            // **调兵即召回**（第三批）：「想换位置要先下来」——给编队下新去处
+            // 就是那句「先下来」的命令形式，不另设一种「取消驻守」命令。
+            // 清掉该编队的全部驻守指令，已上墙 / 在爬的都下来。
+            for (std::uint8_t& g : garrison_order_) {
+                if (g == c.force) g = kNoForce;
+            }
+            for (std::size_t k = 0; k < unit_pool_.slot_count(); ++k) {
+                if (!unit_pool_.alive_at(static_cast<std::uint16_t>(k))) continue;
+                if (u_force_[k] != c.force) continue;
+                if (u_garrison_[k] == kNoSlot) continue;
+                dismount_unit(k);
+            }
             break;
+        case CommandKind::Garrison: {
+            // 解算 = 记入按格的驻守指令表（同 `MoveForce` / `Clear` 的先例：
+            // 指令进世界状态，登墙本身在 tick_garrison——那是机制，不是命令）。
+            // 世界状态层面的不合法一律无操作（同 Build 家族）：格上不是
+            // 完工的墙就不记。**完工**是条件的一部分——工地还不是墙，
+            // 站上去没有「上」可言。
+            const std::size_t cell = static_cast<std::size_t>(c.slot);
+            if (bld_at_[cell] == 0) break;
+            const std::size_t k = static_cast<std::size_t>(bld_at_[cell] - 1);
+            const BldType bt = b_type_[k];
+            // 「墙段」的既有判据就是 Wall‖Gate（AtkWall 与破坏倍率同一个），
+            // 驻守沿用它，不另立第二种「墙」的定义。门楼上站人也是城防的常态。
+            if (bt != BldType::Wall && bt != BldType::Gate) break;
+            if (!b_built_[k]) break;
+            garrison_order_[cell] = c.force;
+            // 驻守含着「先走到那儿」：把编队去处一并指过去，脚本执行层照旧
+            // 读 force_target_ 行军，到了墙边 tick_garrison 自会接手。
+            force_target_[c.force] = c.slot;
+            break;
+        }
         case CommandKind::Clear: {
             // 同上：记指令，不代打。破坏与产出早已是机制（移动撞上自动开始
             // 破坏 + 最后一击归属产出），这条只是把「玩家要清这一格」放进
@@ -424,16 +466,9 @@ void World::apply_one(Side side, const Command& c) {
             o_clear_ordered_[static_cast<std::size_t>(obstacle_at_[cell] - 1)] = 1;
             break;
         }
-
-        // ——仍然记账的——
-        //
-        // `Garrison` 的执行层（上墙延迟、钉住、高度优势）在 `World` 内，
-        // 与高度优势成对、单独一批；只存指令而不解算比记账更糟——
-        // 「本版没做驻守」就不再是可断言的事实了。
-        case CommandKind::Garrison:
-            ++deferred_[static_cast<std::size_t>(c.kind)];
-            break;
     }
+    // 12 种命令全部解算（第三批收掉 `Garrison`），未解算计数器已按约定删除。
+    // 这个 switch 没有 default，新增命令种类漏写分支会被 -Wswitch / /w14062 逮住。
 }
 
 void World::advance(int ticks) {
@@ -447,13 +482,15 @@ void World::advance(int ticks) {
             q.clear();
         }
 
-        // 机制的五个阶段（src/mechanics.cpp）。
+        // 机制的六个阶段（src/mechanics.cpp）。
         // 原先这里那两个「纯计数器递减」循环已被吸收：前摇归 tick_unit_combat
         // （只有已承诺的攻击才有前摇可递减），施工进度归 tick_economy
         // （第二批起要工匠在场才推进，不再是纯递减）。
         tick_unit_combat();
         tick_movement();
+        tick_garrison();
         tick_bld_combat();
+        tick_projectiles();
         tick_economy();
         tick_vision();
 
@@ -486,6 +523,8 @@ UnitId World::spawn_unit(UnitType type, Vec2 pos, std::int32_t level, std::int64
         u_windup_.resize(n);
         u_action_.resize(n);
         u_garrison_.resize(n);
+        u_mount_.resize(n);
+        u_charge_.resize(n);
         u_force_.resize(n);
         u_cd_.resize(n);
         u_tgt_kind_.resize(n);
@@ -502,6 +541,8 @@ UnitId World::spawn_unit(UnitType type, Vec2 pos, std::int32_t level, std::int64
     // 那是唯一安全的默认值（`rts/action.hpp`）。
     u_action_[k] = UnitAction::Stop;
     u_garrison_[k] = kNoSlot;
+    u_mount_[k] = 0;
+    u_charge_[k] = 0.0f;
     u_force_[k] = kNoForce;
     u_cd_[k] = 0;
     u_tgt_kind_[k] = TgtKind::None;
@@ -528,6 +569,7 @@ BldId World::place_bld(BldType type, GridPos pos, std::int64_t hp, std::int64_t 
         b_cd_.resize(n);
         b_windup_.resize(n);
         b_tgt_raw_.resize(n);
+        b_aim_.resize(n);
         b_built_.resize(n);
         b_train_type_.resize(n);
         b_train_left_.resize(n);
@@ -541,6 +583,7 @@ BldId World::place_bld(BldType type, GridPos pos, std::int64_t hp, std::int64_t 
     b_cd_[k] = 0;
     b_windup_[k] = 0;
     b_tgt_raw_[k] = UnitId::kInvalidRaw;
+    b_aim_[k] = Vec2{};
     // 带工时进场的是工地（`Build` 命令那条路），不带的当场就是完工建筑
     // （初始城圈与测试直摆的都走这里）。
     b_built_[k] = (work_left == 0) ? std::uint8_t{1} : std::uint8_t{0};
@@ -594,6 +637,8 @@ void World::kill_unit(UnitId id) {
     u_windup_[k] = 0;
     u_action_[k] = UnitAction::Stop;
     u_garrison_[k] = kNoSlot;
+    u_mount_[k] = 0;
+    u_charge_[k] = 0.0f;
     u_force_[k] = kNoForce;
     u_cd_[k] = 0;
     u_tgt_kind_[k] = TgtKind::None;
@@ -611,6 +656,20 @@ void World::destroy_bld(BldId id) {
         // 只清自己占的那一格：两座建筑落在同一格时后放的覆盖了前者，
         // 先拆前者不该把后者的占位抹掉。
         if (bld_at_[c] == static_cast<std::uint16_t>(k + 1)) bld_at_[c] = 0;
+        // 墙塌了，上面的人**当场落地站在缺口里**（缺口在修复前可通行，
+        // CLAUDE.md）——不给延迟：那不是「下墙」，是脚下的东西没了。
+        // 在爬的一并解除（人本来就还在地面）。指令随墙作废——「驻守那段墙」
+        // 里的那段墙不存在了，留着指令等于等一座还没许诺的新墙。
+        if (bld_at_[c] == 0) {
+            const std::uint16_t slot = slot_of(b_pos_[k], width());
+            for (std::size_t u = 0; u < unit_pool_.slot_count(); ++u) {
+                if (!unit_pool_.alive_at(static_cast<std::uint16_t>(u))) continue;
+                if (u_garrison_[u] != slot) continue;
+                u_garrison_[u] = kNoSlot;
+                u_mount_[u] = 0;
+            }
+            garrison_order_[c] = kNoForce;
+        }
     }
     b_type_[k] = BldType::Keep;
     b_pos_[k] = GridPos{};
@@ -620,6 +679,7 @@ void World::destroy_bld(BldId id) {
     b_cd_[k] = 0;
     b_windup_[k] = 0;
     b_tgt_raw_[k] = UnitId::kInvalidRaw;
+    b_aim_[k] = Vec2{};
     b_built_[k] = 0;
     b_train_type_[k] = kNoTrain;
     b_train_left_[k] = 0;
@@ -689,6 +749,16 @@ std::int32_t World::unit_windup(UnitId id) const { return u_windup_[require(id)]
 std::int32_t World::unit_cooldown(UnitId id) const { return u_cd_[require(id)]; }
 TgtKind World::unit_target_kind(UnitId id) const { return u_tgt_kind_[require(id)]; }
 Vec2 World::unit_aim(UnitId id) const { return u_aim_[require(id)]; }
+std::uint16_t World::unit_garrison(UnitId id) const { return u_garrison_[require(id)]; }
+std::int32_t World::unit_mount(UnitId id) const { return u_mount_[require(id)]; }
+float World::unit_charge(UnitId id) const { return u_charge_[require(id)]; }
+
+std::uint8_t World::garrison_order(std::uint16_t slot) const {
+    if (static_cast<std::size_t>(slot) >= terrain_.cell_count()) {
+        throw ContractError("garrison_order 的槽位越界");
+    }
+    return garrison_order_[slot];
+}
 
 BldType World::bld_type(BldId id) const { return b_type_[require(id)]; }
 GridPos World::bld_pos(BldId id) const { return b_pos_[require(id)]; }
@@ -717,10 +787,14 @@ std::uint16_t World::action_mask(UnitId id) const {
 
     std::uint16_t mask = bit_of(UnitAction::Stop);   // 停住永远合法
 
+    // 在爬墙：既不能打也不能走（上墙延迟的代价就是这段不设防），只剩停住。
+    if (u_garrison_[k] != kNoSlot && u_mount_[k] > 0) return mask;
+
     // 攻击 4 位：**精确**——射程内有没有一个合法目标（§1.1.1 乙的另一半）。
-    // 与战斗阶段用同一个 `pick_target`，两处不会各判一套。
+    // 与战斗阶段用同一个 `pick_target` 与同一个 `effective_range`
+    // （远程驻守的高度加成在内），两处不会各判一套。
     {
-        const float range = stats_.of(u_type_[k]).range;
+        const float range = effective_range(k);
         const float r2 = range * range;
         constexpr UnitAction kAtk[] = {UnitAction::AtkNear, UnitAction::AtkWeak,
                                        UnitAction::AtkBld, UnitAction::AtkWall};
@@ -731,6 +805,10 @@ std::uint16_t World::action_mask(UnitId id) const {
             }
         }
     }
+
+    // 已登顶：钉在那一段，移动 8 位全非法（「上墙的代价是机动性」——这不是
+    // 「未定默认允许」那类位，钉住是结构，错误地允许会让策略学出幽灵换位）。
+    if (u_garrison_[k] != kNoSlot) return mask;
 
     for (int d = 0; d < kMoveDirCount; ++d) {
         const UnitAction a = move_of(d);
@@ -779,11 +857,14 @@ std::uint16_t World::command_mask(Side side) const noexcept {
 //      （`rts/stats.hpp` 文件头）
 //   3. 时间与波次：tick、wave、phase、nominal_level
 //   4. RNG 状态
-//   5. 三组实体：各自的槽位池（alive + 代数 + 空闲表）+ 全部字段数组
-//   6. 资源、编成位、集结点选择、选中编队、编队去处表
+//   5. 四组实体：前三组各自的槽位池（alive + 代数 + 空闲表）+ 全部字段数组；
+//      弹丸无槽位池（保序压实的 SoA），**先喂数量再喂字段**——变长数组
+//      不喂长度会让不同的 (数量, 内容) 组合拼出相同的字节流
+//   6. 资源、编成位、集结点选择、选中编队、编队去处表、驻守指令表
 //   7. **两侧的待排空命令队列**
-//   8. 未解算命令的计数器（第二批后只剩 `Garrison` 在用，驻守解算落地时删）
-//   9. 两侧迷雾
+//   8. 两侧迷雾
+//
+// （原第 8 项——未解算命令的计数器——随第三批删除：12 种命令全部解算。）
 //
 // 第 7 项是写回放格式时补的，理由值得记：队列是**跨 `submit` / `advance` 边界存活**
 // 的状态，所以它是仿真状态。漏掉它，哈希的承诺「同一个哈希 ⇒ 同一个未来」就不成立
@@ -822,6 +903,9 @@ std::uint64_t World::state_hash() const noexcept {
     h.feed(u_windup_.data(), u_windup_.size() * sizeof(std::int32_t));
     h.feed(u_action_.data(), u_action_.size() * sizeof(UnitAction));
     h.feed(u_garrison_.data(), u_garrison_.size() * sizeof(std::uint16_t));
+    h.feed(u_mount_.data(), u_mount_.size() * sizeof(std::int32_t));
+    // 冲锋动量是浮点，与 u_pos_ 同一条纪律：按位喂。
+    for (const float c : u_charge_) h.feed_f32(c);
     h.feed(u_force_.data(), u_force_.size());
     h.feed(u_cd_.data(), u_cd_.size() * sizeof(std::int32_t));
     h.feed(u_tgt_kind_.data(), u_tgt_kind_.size() * sizeof(TgtKind));
@@ -841,6 +925,10 @@ std::uint64_t World::state_hash() const noexcept {
     h.feed(b_cd_.data(), b_cd_.size() * sizeof(std::int32_t));
     h.feed(b_windup_.data(), b_windup_.size() * sizeof(std::int32_t));
     h.feed(b_tgt_raw_.data(), b_tgt_raw_.size() * sizeof(std::uint32_t));
+    for (const Vec2& p : b_aim_) {
+        h.feed_f32(p.x);
+        h.feed_f32(p.y);
+    }
     h.feed(b_built_.data(), b_built_.size());
     h.feed(b_train_type_.data(), b_train_type_.size());
     h.feed(b_train_left_.data(), b_train_left_.size() * sizeof(std::int32_t));
@@ -853,11 +941,33 @@ std::uint64_t World::state_hash() const noexcept {
     h.feed(o_max_hp_.data(), o_max_hp_.size() * sizeof(std::int64_t));
     h.feed(o_clear_ordered_.data(), o_clear_ordered_.size());
 
+    // 第四组：在途弹丸（第五批）。数量先行（见上面第 5 项的理由）；
+    // 浮点按位喂，同 u_pos_ 那条纪律。
+    h.feed_pod(static_cast<std::uint64_t>(p_pos_.size()));
+    for (const Vec2& p : p_pos_) {
+        h.feed_f32(p.x);
+        h.feed_f32(p.y);
+    }
+    for (const Vec2& p : p_aim_) {
+        h.feed_f32(p.x);
+        h.feed_f32(p.y);
+    }
+    for (const float s : p_speed_) h.feed_f32(s);
+    h.feed(p_kind_.data(), p_kind_.size() * sizeof(TgtKind));
+    h.feed(p_raw_.data(), p_raw_.size() * sizeof(std::uint32_t));
+    h.feed(p_dmg_.data(), p_dmg_.size() * sizeof(std::int64_t));
+    h.feed(p_lvl_pm_.data(), p_lvl_pm_.size() * sizeof(std::int64_t));
+    h.feed(p_from_high_.data(), p_from_high_.size());
+    for (const float a : p_aoe_) h.feed_f32(a);
+    h.feed(p_side_.data(), p_side_.size() * sizeof(Side));
+    h.feed(p_src_bld_.data(), p_src_bld_.size());
+
     h.feed(stock_.data(), stock_.size() * sizeof(std::int64_t));
     h.feed(composition_.data(), composition_.size() * sizeof(std::uint16_t));
     h.feed(spawn_chosen_.data(), spawn_chosen_.size());
     h.feed(selected_force_.data(), selected_force_.size());
     h.feed(force_target_.data(), force_target_.size() * sizeof(std::uint16_t));
+    h.feed(garrison_order_.data(), garrison_order_.size());
 
     // 待排空的命令队列。**长度必须一起喂**，否则「守方一条、攻方两条」与
     // 「守方两条、攻方一条」在拼接之后字节相同。
@@ -866,8 +976,6 @@ std::uint64_t World::state_hash() const noexcept {
         h.feed_pod(n);
         h.feed(q.data(), q.size() * sizeof(Command));
     }
-
-    h.feed(deferred_.data(), deferred_.size() * sizeof(std::int64_t));
 
     // 迷雾是累积状态，不是每 tick 重算出来的——两个实体完全一致的世界可以
     // 记忆不同，此后立刻分叉。见 `rts/fog.hpp` 里 feed_hash 那段。

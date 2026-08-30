@@ -5,7 +5,9 @@
 #include "game/world_builder.hpp"
 #include "rts/action.hpp"
 #include "rts/combat_math.hpp"
+#include "rts/command.hpp"
 #include "rts/roster.hpp"
+#include "rts/world_view.hpp"
 
 namespace game {
 namespace {
@@ -23,50 +25,81 @@ bool has(std::uint16_t mask, rts::UnitAction a) noexcept {
 
 constexpr float kInvSqrt2 = 0.70710678f;
 
-}  // namespace
-
-DemoBattle::DemoBattle(const MapData& map, const rts::StatsTable& stats,
-                       std::uint64_t seed)
-    : w_(make_world_init(map, stats, seed, /*nominal_level=*/1)) {
-    const rts::StatsTable& t = w_.stats();
-    const auto spawn = [&](rts::UnitType u, float x, float y, std::int32_t lv) {
-        const std::int64_t hp = hp_at(t, u, lv);
-        w_.spawn_unit(u, rts::Vec2{x, y}, lv, hp, hp);
+// 开局兵力全部经 `WorldInit` 进场（不再是构造后逐个 spawn）。改成这样有两个
+// 原因：初始局面因此完整地由建局参数表达（回放 = 建局参数 + 输入流，这正是
+// `WorldInit::units` 存在的理由）；而且**只有这条路能给单位编队**——三名弓手
+// 要编入 0 号编队才能受命驻守（机制第三批）。
+rts::WorldInit demo_init(const MapData& map, const rts::StatsTable& stats,
+                         std::uint64_t seed) {
+    rts::WorldInit init = make_world_init(map, stats, seed, /*nominal_level=*/1);
+    const auto add = [&](rts::UnitType u, float x, float y, std::int32_t lv,
+                         std::uint8_t force) {
+        const std::int64_t hp = hp_at(stats, u, lv);
+        init.units.push_back(rts::UnitInit{u, rts::Vec2{x, y}, lv, hp, hp, force});
     };
-    // 守方：三名弓手贴墙内侧、两名枪卫、一名游骑与一名工匠。
-    const rts::Vec2 keep = rts::center_of(w_.keep_pos());
-    spawn(rts::UnitType::Archer, keep.x + 2.0f, keep.y - 1.0f, 2);
-    spawn(rts::UnitType::Archer, keep.x + 2.0f, keep.y, 2);
-    spawn(rts::UnitType::Archer, keep.x + 2.0f, keep.y + 1.0f, 2);
-    spawn(rts::UnitType::Spear, keep.x + 2.0f, keep.y - 2.0f, 1);
-    spawn(rts::UnitType::Spear, keep.x + 2.0f, keep.y + 2.0f, 1);
-    spawn(rts::UnitType::Ranger, keep.x + 1.0f, keep.y, 1);
-    spawn(rts::UnitType::Mason, keep.x + 1.0f, keep.y + 1.0f, 1);
+    // 守方：三名弓手贴墙内侧（0 号编队，开局即受命驻守墙线，见构造函数）、
+    // 两名枪卫、一名游骑与一名工匠。
+    const rts::Vec2 keep = rts::center_of(init.keep);
+    add(rts::UnitType::Archer, keep.x + 2.0f, keep.y - 1.0f, 2, 0);
+    add(rts::UnitType::Archer, keep.x + 2.0f, keep.y, 2, 0);
+    add(rts::UnitType::Archer, keep.x + 2.0f, keep.y + 1.0f, 2, 0);
+    add(rts::UnitType::Spear, keep.x + 2.0f, keep.y - 2.0f, 1, rts::kNoForce);
+    add(rts::UnitType::Spear, keep.x + 2.0f, keep.y + 2.0f, 1, rts::kNoForce);
+    add(rts::UnitType::Ranger, keep.x + 1.0f, keep.y, 1, rts::kNoForce);
+    add(rts::UnitType::Mason, keep.x + 1.0f, keep.y + 1.0f, 1, rts::kNoForce);
     // 箭楼与防空各一座（完工状态）。位置：堡垒斜后方两格，覆盖墙线。
     const auto bld = [&](rts::BldType b, int dx, int dy) {
-        const std::int64_t hp = t.of(b).max_hp;
-        w_.place_bld(b, rts::GridPos{static_cast<std::int16_t>(w_.keep_pos().i + dx),
-                                     static_cast<std::int16_t>(w_.keep_pos().j + dy)},
-                     hp, hp);
+        const std::int64_t hp = stats.of(b).max_hp;
+        init.buildings.push_back(rts::BldInit{
+            b,
+            rts::GridPos{static_cast<std::int16_t>(init.keep.i + dx),
+                         static_cast<std::int16_t>(init.keep.j + dy)},
+            hp, hp});
     };
     bld(rts::BldType::Tower, 1, -2);
     bld(rts::BldType::Flak, 1, 2);
 
     // 攻方：从集结点出发的一波混编（构成是演示定数，不是平衡结论）。
-    if (!w_.spawns().empty()) {
-        const rts::Vec2 s0 = rts::center_of(w_.spawns()[0].pos);
-        spawn(rts::UnitType::Ghoul, s0.x, s0.y - 1.0f, 1);
-        spawn(rts::UnitType::Ghoul, s0.x, s0.y, 1);
-        spawn(rts::UnitType::Ghoul, s0.x - 1.0f, s0.y, 1);
-        spawn(rts::UnitType::Shade, s0.x + 0.5f, s0.y + 1.0f, 1);
-        spawn(rts::UnitType::Phoenix, s0.x, s0.y - 2.0f, 1);
-        const rts::Vec2 s1 = w_.spawns().size() > 1
-                                 ? rts::center_of(w_.spawns()[1].pos)
+    if (!init.spawns.empty()) {
+        const rts::Vec2 s0 = rts::center_of(init.spawns[0].pos);
+        add(rts::UnitType::Ghoul, s0.x, s0.y - 1.0f, 1, rts::kNoForce);
+        add(rts::UnitType::Ghoul, s0.x, s0.y, 1, rts::kNoForce);
+        add(rts::UnitType::Ghoul, s0.x - 1.0f, s0.y, 1, rts::kNoForce);
+        add(rts::UnitType::Shade, s0.x + 0.5f, s0.y + 1.0f, 1, rts::kNoForce);
+        add(rts::UnitType::Phoenix, s0.x, s0.y - 2.0f, 1, rts::kNoForce);
+        const rts::Vec2 s1 = init.spawns.size() > 1
+                                 ? rts::center_of(init.spawns[1].pos)
                                  : s0;
-        spawn(rts::UnitType::Ghoul, s1.x, s1.y, 1);
-        spawn(rts::UnitType::Shade, s1.x + 0.5f, s1.y - 1.0f, 1);
-        spawn(rts::UnitType::Ram, s1.x, s1.y + 1.0f, 1);
+        add(rts::UnitType::Ghoul, s1.x, s1.y, 1, rts::kNoForce);
+        add(rts::UnitType::Shade, s1.x + 0.5f, s1.y - 1.0f, 1, rts::kNoForce);
+        add(rts::UnitType::Ram, s1.x, s1.y + 1.0f, 1, rts::kNoForce);
+        // 骑士走开阔走廊，一路直线 = 满动量冲锋（第四批）——它撞上第一个
+        // 目标的那一击在演示里明显重于后续互殴，这正是要看的。
+        add(rts::UnitType::Knight, s0.x + 1.0f, s0.y, 1, rts::kNoForce);
     }
+    return init;
+}
+
+}  // namespace
+
+DemoBattle::DemoBattle(const MapData& map, const rts::StatsTable& stats,
+                       std::uint64_t seed)
+    : w_(demo_init(map, stats, seed)), script_(ScriptParams{}, seed ^ 0x9e3779b9u) {
+    // 0 号编队受命驻守堡垒正东的三段墙（含门楼——「墙段」的判据是 Wall‖Gate）。
+    // 弓手爬上去之后吃高度优势：射程加成、被低处打有 miss 且减伤（第三批），
+    // Shade 压制墙头 vs 墙头反压制的画面由此涌现，脚本仍然一行战术没写。
+    const rts::GridPos keep = w_.keep_pos();
+    rts::Command cmds[3];
+    for (int k = 0; k < 3; ++k) {
+        cmds[k].kind = rts::CommandKind::Garrison;
+        cmds[k].side = rts::Side::Defender;
+        cmds[k].force = 0;
+        cmds[k].slot = rts::slot_of(
+            rts::GridPos{static_cast<std::int16_t>(keep.i + 3),
+                         static_cast<std::int16_t>(keep.j + k - 1)},
+            w_.width());
+    }
+    w_.submit(rts::Side::Defender, cmds, 3);
     w_.begin_assault();
     issue_actions();
 }
@@ -93,34 +126,52 @@ rts::UnitAction DemoBattle::greedy_move(rts::UnitId id, rts::Vec2 target) const 
     return best;
 }
 
-void DemoBattle::issue_actions() {
-    const rts::Vec2 keep = rts::center_of(w_.keep_pos());
-    for (const rts::Side side : {rts::Side::Defender, rts::Side::Attacker}) {
-        w_.enumerate_units(side, ids_);
-        acts_.clear();
-        acts_.reserve(ids_.size());
-        for (const rts::UnitId id : ids_) {
-            const std::uint16_t mask = w_.action_mask(id);
-            rts::UnitAction a = rts::UnitAction::Stop;
-            if (side == rts::Side::Defender) {
-                // 守方：有敌就打，没有就守在原地。
-                if (has(mask, rts::UnitAction::AtkNear)) a = rts::UnitAction::AtkNear;
-            } else {
-                // 攻方：优先打得着的人，Ram 优先砸墙，否则向堡垒推进。
-                // 撞上墙会自动开始破坏（机制），所以「推进」自己就会变成「啃墙」。
-                if (has(mask, rts::UnitAction::AtkNear)) {
-                    a = rts::UnitAction::AtkNear;
-                } else if (w_.unit_type(id) == rts::UnitType::Ram &&
-                           has(mask, rts::UnitAction::AtkWall)) {
-                    a = rts::UnitAction::AtkWall;
-                } else {
-                    a = greedy_move(id, keep);
-                }
-            }
-            acts_.push_back(a);
-        }
-        w_.submit_actions(side, acts_.data(), acts_.size());
+rts::UnitAction DemoBattle::flow_step(rts::UnitId id) {
+    const rts::UnitType t = w_.unit_type(id);
+    const int tier = rts::flow_tier_of(w_.unit_level(id), tiering_);
+    auto& slot = flow_[static_cast<std::size_t>(t) *
+                           static_cast<std::size_t>(rts::kFlowTierCount) +
+                       static_cast<std::size_t>(tier)];
+    if (!slot) {
+        const rts::GridPos goal[1] = {w_.keep_pos()};
+        slot.emplace(rts::FlowField::compute(w_.view(rts::Side::Attacker), t, tier,
+                                             goal, tiering_));
     }
+    const rts::UnitAction a = slot->step_of(rts::grid_of(w_.unit_pos(id)));
+    return a == rts::UnitAction::Stop
+               ? greedy_move(id, rts::center_of(w_.keep_pos()))
+               : a;
+}
+
+void DemoBattle::issue_actions() {
+    // field 每个决策拍作废重算：破坏代价读的是当前墙血，决策拍之间它在变。
+    for (auto& f : flow_) f.reset();
+
+    // 守方：执行层脚本（拉扯 / 堵口不追 / 避骑士摸攻城锤 / 命令翻译）。
+    w_.enumerate_units(rts::Side::Defender, ids_);
+    script_.decide(w_.view(rts::Side::Defender), ids_, acts_);
+    w_.submit_actions(rts::Side::Defender, acts_.data(), acts_.size());
+
+    // 攻方：占位脚本（正式形态是逐单位 RL）——优先打得着的人，Ram 优先砸墙，
+    // 否则按 flow field 向堡垒推进（「绕远走缺口 vs 就近砸墙」由代价模型
+    // 自己比较，field 指进墙格的那一步会变成自动破坏）。
+    w_.enumerate_units(rts::Side::Attacker, ids_);
+    acts_.clear();
+    acts_.reserve(ids_.size());
+    for (const rts::UnitId id : ids_) {
+        const std::uint16_t mask = w_.action_mask(id);
+        rts::UnitAction a = rts::UnitAction::Stop;
+        if (has(mask, rts::UnitAction::AtkNear)) {
+            a = rts::UnitAction::AtkNear;
+        } else if (w_.unit_type(id) == rts::UnitType::Ram &&
+                   has(mask, rts::UnitAction::AtkWall)) {
+            a = rts::UnitAction::AtkWall;
+        } else {
+            a = flow_step(id);
+        }
+        acts_.push_back(a);
+    }
+    w_.submit_actions(rts::Side::Attacker, acts_.data(), acts_.size());
 }
 
 void DemoBattle::update(int ticks) {

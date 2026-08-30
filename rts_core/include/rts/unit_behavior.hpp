@@ -154,6 +154,39 @@ public:
     // 那样这条判断会散落到寻路、战斗、观测三处。
     bool charges() const noexcept { return mobility() == MobilityKind::Charge; }
 
+    // 出手时放不放**在途弹丸**——同样由轴推导，不点名兵种（机制第五批）。
+    //
+    // CLAUDE.md「结构破坏规则」点了名：「除 `Ram` 外，`Archer` / `Shade` /
+    // `Tower` / `Flak` 的攻击真有在途弹丸」。单位那一半的推导是
+    // **Ranged × 非空中**：有射程就得有东西飞过去，而 `Phoenix`（Ranged × Aerial）
+    // 是俯冲直击——它的「射程」是扑击半径，不是弹道。恰好覆盖 {Archer, Shade}，
+    // 与原文点名的一致（建筑那一半更简单：建筑不会近战，开火即弹丸，
+    // 判定在 src/mechanics.cpp 的建筑路径里，不经这一层）。
+    //
+    // 两条组合约束由 tests/unit_behavior_test.cpp 锁住（都是花名册的现状，
+    // 不是本方法的前置条件）：没有兵种既 launches_projectile 又 charges
+    // （否则弹丸要携带冲锋动量——多一个字段），也没有兵种既 launches_projectile
+    // 又 counters_charge（否则命中结算要在弹着点补反冲锋判定）。
+    // 新兵种若破了任一条，先去 mechanics.cpp 的弹丸命中路径补对应倍率，再放行。
+    bool launches_projectile() const noexcept {
+        return engage_range() == EngageRange::Ranged && !aerial();
+    }
+
+    // 枪阵克骑——**由轴推导，不点名兵种**（CLAUDE.md：克制关系由三条正交轴
+    // 推导，不要退化成平铺的 N×N 表）：近战 × 重甲慢速 = 站得住、架得起长兵的
+    // 阵。这是克制关系的**结构半**：关系是否成立在这里，幅度在数值表
+    // （`GlobalStats::anti_charge_permille`），且只对**有动量**的目标成立
+    // （`rts/combat_math.hpp` 的 anti_charge_permille——巷战里骑兵攒不出动量，
+    // 克制自动消失，「开阔地克、巷战被反克」不需要读地形）。
+    //
+    // 二部图里这条只会绑定 `Spear ──► Knight`：`Ghoul` 的轴组合相同，
+    // 但同阵营不交战，永远遇不到 `Knight`。这不是巧合而是二部图的性质——
+    // 按轴推导时只需检查两阵营之间的组合。
+    bool counters_charge() const noexcept {
+        return engage_range() == EngageRange::Melee &&
+               mobility() == MobilityKind::HeavySlow;
+    }
+
 protected:
     UnitBehavior() = default;
 };

@@ -21,6 +21,12 @@ from mapfile import MapFormatError
 import grid as gridmod
 from grid import Grid
 import validate
+import thresholds
+import generate
+
+# 仓库根。用于找 `game/testdata/fixture_min.json` 与数值表——两者都在
+# `tools/map_gen/` 之外，而自检不能依赖 ctest 的工作目录（同本文件其余部分）。
+_REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 # --------------------------------------------------------------------------
@@ -382,9 +388,18 @@ def check_registry_covers_spec(c):
     （例如 #26 的 A5 若通过要加「§2 必须配 §3」），这里会立刻红。
     """
     nos = [chk.no for chk in validate.CHECKS]
-    c.eq(sorted(nos), list(range(1, validate.SPEC_CHECK_COUNT + 1)),
-         "CHECKS 必须正好覆盖第 8 节的 1..21（含 8.1 那批）")
+    moved = sorted(validate.MOVED_TO_GENERATOR)
+    # **表内 + 已移出 = 规范全部条目。** 第 20 条按 §8.1 自己写的那句移到了
+    # 生成器的批量报告去（丢弃率与逐条否决计数），但它**不是被删掉**——
+    # 直接删会让一条规范条目无声消失，而那与「白名单漏登记」是同一类错误。
+    c.eq(sorted(nos + moved), list(range(1, validate.SPEC_CHECK_COUNT + 1)),
+         "CHECKS + MOVED_TO_GENERATOR 必须正好覆盖第 8 节的全部条目")
     c.eq(len(set(nos)), len(nos), "条目编号不得重复")
+    c.true(not (set(nos) & set(moved)),
+           "一条既在表内又标为已移出，说明移出时忘了删表里那一行")
+    for no in moved:
+        c.true(bool(validate.MOVED_TO_GENERATOR[no]),
+               f"第 {no} 条标为已移出，必须写明去哪了")
 
     for chk in validate.CHECKS:
         if chk.status == validate.IMPLEMENTED:
@@ -951,7 +966,12 @@ def check_validator_on_clean_map(c):
     doc = make_clean_doc()
     mapfile.stamp_content_hash(doc)
 
-    failures = [(chk.no, problems) for chk, problems in validate.run(doc)
+    # **用 fixture 档。** 这张图是 5×7 的最小图，而第 1、5、14 条查的是
+    # 尺寸与行军类的不变量——对一张最小图套用它们没有意义（详见
+    # `thresholds.json` 的 `_note_two_profiles`）。下一组专门证明
+    # 「换成 strict 它会红」，所以这里传 fixture 不是把检查关掉。
+    th = thresholds.load().profile("fixture")
+    failures = [(chk.no, problems) for chk, problems in validate.run(doc, th=th)
                 if problems]
     c.true(not failures, f"干净地图不该有任何失败，实际：{failures}")
 
@@ -962,8 +982,51 @@ def check_validator_on_clean_map(c):
                   if chk.status == validate.BLOCKED)
     n_pend = sum(1 for chk in validate.CHECKS
                  if chk.status == validate.PENDING)
-    c.eq((n_impl, n_block, n_pend), (15, 3, 4),
+    c.eq((n_impl, n_block, n_pend), (19, 2, 0),
          "条目状态计数变了：改动状态时要同步这条断言与 README 的进度表")
+
+
+def check_profile_is_not_a_noop(c):
+    """**profile 不能是「把检查关掉」的后门。**
+
+    `fixture` 那一档把尺寸与行军类阈值放宽到最小夹具也能过。这条自检证明它
+    确实只是放宽阈值、而那些检查真的在跑：**同一张图换成 `strict` 必须红**，
+    且红的是尺寸那一条。
+
+    少了这条，`fixture` 与「把第 1、2、5、14 条删掉」在行为上不可区分，
+    而后者是这个仓库反复防的那种「该红却绿」。
+    """
+    doc = make_clean_doc()
+    mapfile.stamp_content_hash(doc)
+    all_th = thresholds.load()
+
+    strict_bad = {chk.no for chk, ps in
+                  validate.run(doc, th=all_th.profile("strict")) if ps}
+    fixture_bad = {chk.no for chk, ps in
+                   validate.run(doc, th=all_th.profile("fixture")) if ps}
+
+    c.true(1 in strict_bad,
+           "5×7 的最小图在 strict 档下必须被第 1 条（size 区间）否决 —— "
+           "否则说明那一条根本没在查")
+    c.true(not fixture_bad,
+           f"同一张图在 fixture 档下应当全过，实际红了：{sorted(fixture_bad)}")
+    c.true(strict_bad != fixture_bad,
+           "两档给出同一个结果，说明 profile 没起作用")
+
+    # 真夹具（7×5，全仓唯一一张真地图）也走一遍同样的对照：
+    # ctest 的 map_gen_validate_fixture 用的就是 fixture 档，这条钉住它没被放水。
+    fixture_path = os.path.join(_REPO, "game", "testdata", "fixture_min.json")
+    if os.path.exists(fixture_path):
+        real = mapfile.load(fixture_path)
+        r_strict = {chk.no for chk, ps in
+                    validate.run(real, th=all_th.profile("strict")) if ps}
+        r_fixture = {chk.no for chk, ps in
+                     validate.run(real, th=all_th.profile("fixture")) if ps}
+        c.true(1 in r_strict,
+               "game/testdata/fixture_min.json 在 strict 下必须红在第 1 条")
+        c.true(not r_fixture,
+               f"它在 fixture 下必须全过（ctest 就是这么跑的），"
+               f"实际红了：{sorted(r_fixture)}")
 
 
 def check_chebyshev_is_conservative(c):
@@ -1034,16 +1097,412 @@ def check_cli_missing_path_is_red(c):
             finally:
                 sys.argv, sys.stdout = argv, out
 
-        rc, _ = run_cli(good)
+        # `--profile fixture`：这张图是最小图，尺寸类不变量对它不适用
+        # （同 check_validator_on_clean_map，理由在那里）。这一组测的是
+        # **退出码与路径处理**，不是阈值。
+        rc, _ = run_cli("--profile", "fixture", good)
         c.eq(rc, 0, "一张干净地图应当退出 0")
 
+        # 阈值档写错必须以「配置坏了」的名义红，而且**一张地图都不读**。
+        rc, text = run_cli("--profile", "no_such_profile", good)
+        c.eq(rc, 1, "认不出的 profile 必须红")
+        c.true("阈值配置有问题" in text,
+               "报错要说清是配置的问题，而不是变成每张地图上一条看起来"
+               "像地图问题的报错")
+
         # 同一张干净地图 + 一个不存在的路径 ⇒ **必须** 非 0。
-        rc, text = run_cli(good, os.path.join(d, "typo_dir"))
+        rc, text = run_cli("--profile", "fixture", good,
+                           os.path.join(d, "typo_dir"))
         c.eq(rc, 1,
              "读到了一些、另一些路径不存在时必须红 —— "
              "否则目录改名后覆盖面减半而没有任何东西提示")
         c.true("路径不存在" in text or "不存在" in text,
                "报告里要说清是哪条路径不存在，否则收到失败的人无从下手")
+
+
+def check_thresholds_loader(c):
+    """阈值读取层：**手误不得静默落回默认值。**
+
+    与 `game::StatsLoader` 那条纪律逐字相同。这里的失败形态是
+    「`spawn_count_min` 少个 `s` ⇒ 落回 0 ⇒ 第 2 条永远通过」，
+    而那离病因极远。
+    """
+    import json as _json
+
+    good = thresholds.load()
+    c.eq(good.profile("strict").name, "strict", "strict 档必须能取到")
+    c.true(good.generator.size > 0, "生成器配置必须能取到")
+
+    def reject(raw, why):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "th.json")
+            with open(p, "w", encoding="utf-8") as f:
+                _json.dump(raw, f)
+            try:
+                thresholds.load(p)
+            except thresholds.ThresholdError:
+                return
+            c.failures.append(f"[阈值] 本该被拒：{why}")
+            c.count += 1
+
+    base = _json.loads(open(thresholds.DEFAULT_PATH, encoding="utf-8").read())
+
+    # schema 不认识（含上一格）——旧版少的键会被静默补默认值。
+    bad = _json.loads(_json.dumps(base)); bad["schema"] = "map-thresholds/999"
+    reject(bad, "schema 认不出")
+
+    # 缺键。
+    bad = _json.loads(_json.dumps(base))
+    del bad["profiles"]["strict"]["size_min"]
+    reject(bad, "profile 缺 size_min")
+
+    # 拼错键（多一个认不出的）。**与漏掉它的后果相同，所以两者都要报。**
+    bad = _json.loads(_json.dumps(base))
+    bad["profiles"]["strict"]["size_mn"] = 1
+    reject(bad, "profile 有拼错的键")
+
+    # 区间写反：症状是「所有地图都红」，看起来像地图坏了。
+    bad = _json.loads(_json.dumps(base))
+    bad["profiles"]["strict"]["size_min"] = 200
+    reject(bad, "size 区间是空的")
+
+    # **生成器的 size 不在校验器的 size 区间内。**
+    # 不拦的话生成器会产出一批第 1 条必然否决的图，而症状（丢弃率 100%）
+    # 指不出根因是配置自己互相矛盾。
+    bad = _json.loads(_json.dumps(base))
+    bad["generator"]["size"] = base["profiles"]["strict"]["size_max"] + 8
+    reject(bad, "generator.size 越出 strict 的 size 区间")
+
+    # 走廊重复 = 两个集结点等价，§2.2 的信号消失。
+    bad = _json.loads(_json.dumps(base))
+    bad["generator"]["corridors"] = ["open", "open"]
+    reject(bad, "corridors 有重复项")
+
+    # inner 三种缺一（第 6 条要求各 ≥ 1）。
+    bad = _json.loads(_json.dumps(base))
+    bad["generator"]["inner_resources"] = {"stone": 1, "wood": 1, "gold": 0}
+    reject(bad, "inner_resources 缺 gold")
+
+    # 缺 strict 档本身。
+    bad = _json.loads(_json.dumps(base))
+    del bad["profiles"]["strict"]
+    reject(bad, "没有 strict 档")
+
+
+def check_ram_speed_comes_from_stats_table(c):
+    """`Ram` 速度必须从数值表读，**不得在 thresholds.json 里另存一份**。
+
+    CLAUDE.md 写明数值进仿真只有 `game/data/stats_placeholder.json` 这一条路。
+    抄一份的后果是两份数值迟早分叉，那时第 5 条会拿一个仿真里根本不存在的速度
+    算行军时间，而**没有任何东西会红**。
+    """
+    v = thresholds.ram_speed_cells_per_tick()
+    c.true(v > 0, "读到的 Ram 速度必须是正数")
+
+    # **按键判，不按文本判。** 第一版是 `"ram_speed" not in 文件文本`，
+    # 而它撞上了那段解释「为什么 size 取 64」的注释键
+    # （`_FINDING_size_vs_ram_speed`）—— 探针把**讨论**速度也当成了**存**速度。
+    # 要挡的是后者：一个真的能被读走的键。
+    import json as _json
+    raw = _json.loads(open(thresholds.DEFAULT_PATH, encoding="utf-8").read())
+
+    def real_keys(obj, path=""):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                if k.startswith("_"):      # `_note*` 是注释，不会被读走
+                    continue
+                yield f"{path}.{k}" if path else k
+                yield from real_keys(v, f"{path}.{k}" if path else k)
+
+    offenders = [k for k in real_keys(raw)
+                 if "speed" in k.lower() or k.split(".")[-1] == "Ram"]
+    c.true(not offenders,
+           f"thresholds.json 里有存速度的键：{offenders} —— "
+           f"速度只能有一个真相来源，就是数值表。抄一份的后果是两份数值迟早"
+           f"分叉，那时第 5 条会拿一个仿真里根本不存在的速度算行军时间，"
+           f"而没有任何东西会红")
+
+    # 读不到时必须抛，而不是给个猜的默认值。
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, "stats.json")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write('{"units": {}}')
+        try:
+            thresholds.ram_speed_cells_per_tick(p)
+            c.failures.append("[阈值] 数值表里没有 Ram 时本该抛")
+            c.count += 1
+        except thresholds.ThresholdError:
+            c.count += 1
+
+
+def _big_doc(size=64, spawn_at=None, walls_at=None):
+    """一张够大的空白图，用来测尺寸/行军类的四条。
+
+    全 `Plain` + `no_build` 全 0；调用方按需摆集结点与墙。
+    刻意不复用 `make_clean_doc()`（那是 5×7 的最小图，正是这四条不适用的形状）。
+    """
+    rows = ["0" * size for _ in range(size)]
+    nb = ["0" * size for _ in range(size)]
+    doc = {
+        "format": 1, "map_id": "big", "name": "大图",
+        "size": [size, size],
+        "layers": {"terrain": {"palette": list(mapfile.TERRAIN_PALETTE),
+                               "rows": rows},
+                   "no_build": {"rows": nb}},
+        "keep": [size // 2, size // 2],
+        "spawns": [{"id": 0, "pos": list(spawn_at or [size // 2, 2]),
+                    "corridor": "open"}],
+        "resources": [{"type": t, "pos": [size // 2 - 3 + i, size // 2],
+                       "tier": "inner"}
+                      for i, t in enumerate(["stone", "wood", "gold"])],
+        "initial_walls": [{"kind": "Wall", "pos": list(p), "hp_frac": 1.0}
+                          for p in (walls_at or [])],
+        "obstacles": [],
+    }
+    return mapfile.stamp_content_hash(doc)
+
+
+def check_v1_size_range(c):
+    """第 1 条：两条边**分别**查，不查面积。"""
+    th = thresholds.load().profile("strict")
+    doc = _big_doc(th.size_min)
+    c.true(not validate.check_size_range(doc, Grid(doc), th),
+           "边长正好等于下界应当通过（区间是闭的）")
+
+    doc = _big_doc(th.size_min)
+    doc["size"] = [th.size_min, th.size_min - 1]
+    c.true(validate.check_size_range(doc, Grid(doc), th),
+           "有一条边越界就必须报 —— 一张 4×2000 的图面积正常而形状荒谬")
+
+
+def check_v2_spawn_count_and_edge(c):
+    """第 2 条：数量取**区间**，且集结点必须贴边。"""
+    th = thresholds.load().profile("strict")
+    size = th.size_min
+
+    # 数量：区间而不是等于某个数。集结点数量是待定数值，而地图规范曾把它
+    # 写成「定为 4」——那是把平衡旋钮当成结构结论。
+    doc = _big_doc(size)
+    doc["spawns"] = [{"id": i, "pos": [2 + i * 3, 2], "corridor": k}
+                     for i, k in enumerate(sorted(mapfile.CORRIDOR_KINDS))]
+    mapfile.stamp_content_hash(doc)
+    c.true(not validate.check_spawn_count_and_edge(doc, Grid(doc), th),
+           f"{len(doc['spawns'])} 个集结点应当落在 "
+           f"[{th.spawn_count_min}, {th.spawn_count_max}] 内")
+
+    doc = _big_doc(size)
+    doc["spawns"] = [{"id": 0, "pos": [2, 2], "corridor": "open"}]
+    mapfile.stamp_content_hash(doc)
+    if th.spawn_count_min > 1:
+        c.true(validate.check_spawn_count_and_edge(doc, Grid(doc), th),
+               "少于下界必须报")
+
+    # 贴边：集结点跑到地图中央 = 攻方在城边上凭空出现。
+    doc = _big_doc(size, spawn_at=[size // 2, size // 2 - 4])
+    probs = validate.check_spawn_count_and_edge(doc, Grid(doc), th)
+    c.true(any("边界" in p for p in probs),
+           "集结点离边界太远必须报，且报错要点出「边界」")
+
+
+def check_v5_ram_march(c):
+    """第 5 条：行军占比。**没有墙时自动通过**，同第 10 条的先例。"""
+    th = thresholds.load().profile("strict")
+    size = th.size_min
+    validate.reset_ram_speed_cache()
+
+    doc = _big_doc(size, walls_at=[])
+    c.true(not validate.check_ram_march_fraction(doc, Grid(doc), th),
+           "没有 initial_walls 时自动通过 —— 没有墙就谈不上「走到城墙外沿」")
+
+    # 墙紧贴集结点 ⇒ 行军时间几乎为 0 ⇒ 占比远低于下界 ⇒ 必须报。
+    doc = _big_doc(size, spawn_at=[size // 2, 2],
+                   walls_at=[[size // 2, 3]])
+    probs = validate.check_ram_march_fraction(doc, Grid(doc), th)
+    c.true(probs, "墙贴着集结点必须报：玩家来不及反应，侦查没有时间窗口")
+
+    # 判据是「两个区间有交集」，而不是「完全包含」——因为 episode 长度本身
+    # 是一个待定区间。完全包含在当前占位值下只有唯一一个可行步数，
+    # 那等于把一条检查变成一个等式。
+    speed = thresholds.ram_speed_cells_per_tick()
+    steps_ok = int(th.ram_march_fraction_min * speed * th.episode_ticks_min) + 2
+    doc = _big_doc(size, spawn_at=[size // 2, 2],
+                   walls_at=[[size // 2, 2 + steps_ok]])
+    c.true(not validate.check_ram_march_fraction(doc, Grid(doc), th),
+           f"行军 {steps_ok} 格时占比区间应与目标区间有交集")
+
+
+def check_v14_spawn_buildable_distance(c):
+    """第 14 条：它是一条**结构约束**的可校验形式，不是一个数值旋钮。
+
+    「任何静态建筑的视野都不得覆盖集结区」——一座永久建筑若能照亮集结区，
+    「这波要不要花钱侦查」就被一次性买断，`Scout`、`Wraith` 屏蔽、佯攻诱饵
+    会一起失效。所以它不能靠「把视野半径调小一点」解决。
+    """
+    th = thresholds.load().profile("strict")
+    size = th.size_min
+    ring = int(th.static_vision_radius_max)
+
+    # 全图可建造 ⇒ 集结点脚下就能建 ⇒ 必须报。
+    doc = _big_doc(size)
+    c.true(validate.check_spawn_buildable_distance(doc, Grid(doc), th),
+           "集结点脚下可建造时必须报")
+
+    # 在集结点周围铺 no_build 环 ⇒ 通过。**这正是生成器采用的手段**：
+    # 用禁建区表达那条结构约束，而不是靠调小视野半径。
+    spawn = (size // 2, 2)
+    nb = [list("0" * size) for _ in range(size)]
+    for oy in range(-(ring + 1), ring + 2):
+        for ox in range(-(ring + 1), ring + 2):
+            x, y = spawn[0] + ox, spawn[1] + oy
+            if 0 <= x < size and 0 <= y < size:
+                nb[y][x] = "1"
+    doc = _big_doc(size, spawn_at=list(spawn))
+    doc["layers"]["no_build"]["rows"] = ["".join(r) for r in nb]
+    mapfile.stamp_content_hash(doc)
+    c.true(not validate.check_spawn_buildable_distance(doc, Grid(doc), th),
+           f"集结点周围 {ring + 1} 格禁建后应当通过")
+
+
+def check_generator_produces_valid_maps(c):
+    """生成器产出的图必须通过**全部**检查（§9：不通过就丢弃重生成）。"""
+    all_th = thresholds.load()
+    th, cfg = all_th.profile("strict"), all_th.generator
+
+    doc, attempts = generate.generate_valid(1, cfg, th)
+    c.true(attempts >= 1, "尝试次数至少 1")
+    bad = [(chk.no, ps) for chk, ps in validate.run(doc, Grid(doc), th) if ps]
+    c.true(not bad, f"生成的图必须通过全部检查，实际红了：{bad}")
+
+    # 格式层也要过（`mapfile.check_format` 与校验器是两层）。
+    mapfile.check_format(doc)
+    c.true(mapfile.verify_content_hash(doc), "生成的图 content_hash 必须自洽")
+
+    # §9：`map_id` 编码生成种子，使任何一局训练都可复现。
+    c.true("1" in doc["map_id"] and doc["map_id"].startswith("gen_"),
+           f"map_id 必须编码种子，实际是 {doc['map_id']!r}")
+
+    # 走廊性质必须**真的体现在地形上**，否则「选集结点」没有可学的信号。
+    # 这一条盯的是两个真实 bug：林地走廊一株森林都没撒、`defile` 的夹壁
+    # 起点错了一个半径 —— 两者都不会让任何检查变红。
+    names = generate._terrain_names(doc)
+    counts = {}
+    for row in names:
+        for cell in row:
+            counts[cell] = counts.get(cell, 0) + 1
+    c.true(counts.get("Forest", 0) > 0, "生成的图必须有 Forest（森林带 + 林地走廊）")
+    c.true(counts.get("Rock", 0) > 0, "生成的图必须有 Rock（城圈岩壁 + 隘口夹壁）")
+
+    corridors = {s["corridor"] for s in doc["spawns"]}
+    c.eq(sorted(corridors), sorted(cfg.corridors),
+         "生成的集结点必须正好覆盖配置里那几种走廊（§2.2：数量 = 种类数）")
+
+    # 林地走廊附近真的有森林 —— 且**不是连成一条通到墙的**（第 10 条已经查了
+    # 后半句，这里查前半句：它不能一株都没有）。
+    if "forest" in cfg.corridors:
+        fpos = next(tuple(s["pos"]) for s in doc["spawns"]
+                    if s["corridor"] == "forest")
+        keep = tuple(doc["keep"])
+        near = 0
+        for y, row in enumerate(names):
+            for x, cell in enumerate(row):
+                if cell != "Forest":
+                    continue
+                # 落在集结点与 keep 之间那条带上
+                if min(fpos[0], keep[0]) - 4 <= x <= max(fpos[0], keep[0]) + 4 \
+                        and min(fpos[1], keep[1]) <= y <= max(fpos[1], keep[1]):
+                    near += 1
+        c.true(near > 0,
+               "林地走廊沿途一株森林都没有 —— §2.2 那条性质就只是个标签了。"
+               "这不会让任何检查变红，只有看产出才发现")
+
+
+def check_generator_is_deterministic(c):
+    """同种子同结果，不同种子不同图。§9：`map_id` 编码种子使训练可复现。"""
+    all_th = thresholds.load()
+    th, cfg = all_th.profile("strict"), all_th.generator
+
+    a, _ = generate.generate_valid(7, cfg, th)
+    b, _ = generate.generate_valid(7, cfg, th)
+    c.eq(a["content_hash"], b["content_hash"],
+         "同一个种子必须生成逐字节相同的图 —— 否则「map_id 编码种子」是假的，"
+         "训练不可复现")
+    c.eq(mapfile.canonical_dumps(a), mapfile.canonical_dumps(b),
+         "规范序列化也必须逐字节相同")
+
+    d, _ = generate.generate_valid(8, cfg, th)
+    c.true(d["content_hash"] != a["content_hash"],
+           "不同种子必须给出不同的图 —— §9 开头：单张地图训练不够，"
+           "策略会记住地图而非学会战术")
+
+
+def check_generator_discard_reporting_works(c):
+    """**丢弃与否决计数这条路径必须被走过一次。**
+
+    生成器现在的策略很保守，丢弃率是 0%（报告自己会说这不一定是好消息）。
+    于是「丢弃 → 计数 → 报告」这条路径在正常运行里从不执行，
+    而一条从没人见过它红的守卫和不存在没有区别。
+
+    这里把阈值收紧到必然否决，断言：失败**有界**（不挂住）、
+    抛的是 `GenerationFailed`、且 `tally` 指向真正否决它的那一条。
+    """
+    all_th = thresholds.load()
+    cfg = all_th.generator
+
+    # 复制一份 strict 并把行军占比收紧到不可能满足（当前占位下真实占比约 17–33%）。
+    th = all_th.profile("strict")
+
+    class Tightened:
+        pass
+    tight = Tightened()
+    for k in thresholds.PROFILE_KEYS:
+        setattr(tight, k, getattr(th, k))
+    tight.name = "tightened(自检用)"
+    tight.ram_march_fraction_min = 0.001
+    tight.ram_march_fraction_max = 0.002
+
+    from collections import Counter
+    tally = Counter()
+
+    class Few:
+        pass
+    few = Few()
+    for k in thresholds.GENERATOR_KEYS:
+        setattr(few, k, getattr(cfg, k))
+    few.max_attempts = 3          # 有界：自检不该花几十秒
+
+    try:
+        generate.generate_valid(99, few, tight, tally)
+        c.failures.append("[生成器] 阈值收紧到不可能满足时本该抛 GenerationFailed")
+        c.count += 1
+    except generate.GenerationFailed as e:
+        c.count += 1
+        c.eq(sum(e.tally.values()) > 0, True, "否决计数必须非空")
+        c.true(5 in e.tally,
+               f"收紧的是行军占比，否决计数应当指向第 5 条，实际是 "
+               f"{dict(e.tally)} —— 报告指错条目比不报更坏，"
+               f"因为它会让人去松错的那一边")
+
+
+def check_generator_preview_renders(c):
+    """ASCII 预览必须能画出来，且**全是 ASCII**。
+
+    记号用 ✓ 之类会在 Windows 中文控制台（cp936）上抛 UnicodeEncodeError，
+    而报错完全不指向真正的原因 —— 同 `validate._marks()` 那条，
+    只是这里从一开始就不用非 ASCII。
+    """
+    all_th = thresholds.load()
+    doc, _ = generate.generate_valid(3, all_th.generator,
+                                     all_th.profile("strict"))
+    art = generate.preview(doc)
+    c.true(art.count("\n") >= doc["size"][1], "预览的行数至少等于地图高度")
+    c.true("K" in art, "预览里必须能看到 keep")
+    c.true("X" in art, "预览里必须能看到集结点")
+    try:
+        art.encode("cp936")
+        c.count += 1
+    except UnicodeEncodeError as e:
+        c.failures.append(f"[生成器] 预览含 cp936 编码不了的字符：{e}")
+        c.count += 1
 
 
 GROUPS = [
@@ -1076,9 +1535,22 @@ GROUPS = [
     ("第 21 条 至少一个 outer 资源点", check_v21_has_outer),
     ("第 22 条 障碍摆放冲突", check_v22_obstacle_placement),
     ("干净地图跑完整 run()", check_validator_on_clean_map),
+    ("profile 不是无操作（strict 下夹具必须红）", check_profile_is_not_a_noop),
     ("第 14 条的度量：切比雪夫且形状无关", check_chebyshev_is_conservative),
     ("调色板 ≤ 10 项", check_palette_bound),
     ("CLI：路径写错一半必须红", check_cli_missing_path_is_red),
+    # —— 阈值归口与它解锁的四条（第 1、2、5、14 条）——
+    ("阈值读取层：手误不得静默落回默认值", check_thresholds_loader),
+    ("Ram 速度只有一个真相来源", check_ram_speed_comes_from_stats_table),
+    ("第 1 条 size 区间", check_v1_size_range),
+    ("第 2 条 集结点数量与贴边", check_v2_spawn_count_and_edge),
+    ("第 5 条 Ram 行军占比", check_v5_ram_march),
+    ("第 14 条 集结点到可建造格的距离", check_v14_spawn_buildable_distance),
+    # —— 生成器（第 9 节）——
+    ("生成器产出合法地图", check_generator_produces_valid_maps),
+    ("生成器确定：同种子同图、异种子异图", check_generator_is_deterministic),
+    ("生成器的丢弃与否决计数真的工作", check_generator_discard_reporting_works),
+    ("生成器的 ASCII 预览", check_generator_preview_renders),
 ]
 
 

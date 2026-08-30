@@ -15,7 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `地图与场景设计.md` | 地图数据格式与场景结构约束（第二个跨模块契约） |
 | `日志.md` | 上机日志，答辩「人员分工」页的依据 |
 | `CMakeLists.txt` / `cmake/` | 双工具链构建配置（MSVC + GCC），`render/` 默认不参与 |
-| `rts_core/` | 确定性地基 + **接口契约（已全部落地）** + **机制前两批**（1c，进行中）：承伤、目标选择、移动、建筑攻击、视野（第一批）；六种命令解算、经济收入、施工维修由工匠推进（第二批）。**仍未做**：`Garrison` 驻守解算、flow field 寻路、克制倍率矩阵、冲锋助跑、在途弹丸（清单以 `rts/world.hpp` 文件头为准，进度记在 #57） |
+| `rts_core/` | 确定性地基 + **接口契约（已全部落地）** + **机制全部六批（1c 清单已清空）**：承伤、目标选择、移动、建筑攻击、视野（第一批）；六种命令解算、经济收入、施工维修由工匠推进（第二批）；驻守与高度优势（第三批，12 种命令自此全部解算）；冲锋助跑、三轴推导的克制倍率、Tower 齐射（第四批）；在途弹丸（第五批，第四组实体）；flow field 寻路（等级 3 档，#57 组内定夺）与城门对守方可通行（第六批）。状态以 `rts/world.hpp` 文件头为准，进度记在 #57 |
 | `rts_core 接口契约.md` | 接口的**决定与理由**（形状看头文件）。含 PR #23 评论串里辩定的十三条，以及逐版答掉的七条 |
 | `tests/` | Catch2（经 FetchContent）。条目数不写死，要数就 `ctest -N` |
 | `tools/sprite_gen/` | 纯 Python 精灵预渲染流水线，37 实体 × 逐实体朝向 × 逐实体状态 = 482 张成品已入库（`idle` / `move` / `attack` / `work`）。**朝向数不再全局一致**：弹丸只有一个 `FREE`（横躺一张，前端按飞行角 2D 旋转），其余仍是四方位——所以别再假定「× 4」，问 `dirs_of(ident)` |
@@ -43,15 +43,18 @@ issue #58）：`Stump` / `Sapling` / `Rubble` 变成有血量的可破坏障碍�
 | `World` 数据布局、`submit`/`advance`、只读视图、迷雾三态、动作与命令掩码、状态哈希 | **已定**，同上 |
 | 回放格式、录制器、比对骨架 | **已定**，同上（决定与理由见 §4.6 / §4.7） |
 
-**因此下一个最高优先级是机制本身（1c）**，不再是契约。**机制已开工并落了两批**
-（承伤 / 目标选择 / 移动 / 建筑攻击 / 视野；六种命令解算 / 经济收入 / 施工维修），
-`rts_render --battle` 一条命令能看整体形态。**「做没做」以 `rts/world.hpp`
-文件头的清单为准，别信本段之外的转述**——同一件事写在两处必然漂移，本文件
-只记「1c 是关键路径」这一条不变的事实，滚动进度在 #57。
+**机制（1c）已全部落地，共六批**
+（承伤 / 目标选择 / 移动 / 建筑攻击 / 视野；六种命令解算 / 经济收入 / 施工维修；
+驻守 / 高度优势；冲锋 / 克制倍率 / 齐射；在途弹丸；flow field / 出城），
+`rts_render --battle` 一条命令能看整体形态。**状态以 `rts/world.hpp` 文件头为准，
+别信本段之外的转述**——同一件事写在两处必然漂移，滚动进度在 #57。
+关键路径顺移到**可玩层**：守方脚本执行层**已落地首版**（`game::DefenderScript`，
+克制表三条战术 + 玩家命令的执行手，demo 守方已切到它），余下波次循环与
+交互前端——它们在 `World` 之外消费机制，不再是 1c。
 
 `World` 已定的是**形状与状态**；机制分批落进 `src/mechanics.cpp`。
-没解算的命令被**记账**而不是静默丢弃（`World::deferred_command_count()`，
-现在只剩 `Garrison` 在用），所以「本版没做这一类」是可以被断言的事实。
+**12 种命令已全部解算**（第三批收掉最后一种 `Garrison`），原先「没解算的命令
+被记账而不是静默丢弃」的那个计数器已按当初的约定删除。
 
 本文件记录的是团队已确定的设计决策与架构约定，用于保证四名成员（均使用 Claude Code）
 产出的代码能够对齐。实现新模块时请遵循此处的结构，不要另起一套。
@@ -822,7 +825,9 @@ code page 下这条链路会把名字弄乱，结果是 ctest 报「No tests ran
 | | `determinism_bans_self_test` | 防守卫自己退化成永远绿 |
 | | `determinism_bans_empty_is_red` | **`WILL_FAIL`**：扫空目录，期望脚本非零退出 |
 | 地图校验器 | `map_gen_self_test` | `tools/map_gen/` 的自检 |
-| | `map_gen_validate_fixture` | 拿 `game/testdata/fixture_min.json` **真的读一张真图**（全仓唯一一张，两侧共用） |
+| | `map_gen_validate_fixture` | 拿 `game/testdata/fixture_min.json` **真的读一张真图**（全仓唯一一张，两侧共用）。走 `--profile fixture`：那是张 7×5 的最小夹具，尺寸与行军类的阈值对它不适用 |
+| | `map_gen_validate_fixture_strict_is_red` | **`WILL_FAIL`**：同一张夹具在 `--profile strict` 下必须红。**它是上一条那个 `--profile` 的对照**——少了它，「换一档阈值」与「把那几条检查删掉」在 ctest 层面不可区分 |
+| | `map_gen_generate_smoke` | 生成器真的生成几张图，每张跑完整校验器（第 9 节）。它同时是**规范第 20 条**（第 7 与第 10 条的联合可满足性）唯一的常驻监视 |
 | | `map_gen_validate_empty_is_red` / `..._partial_path_is_red` | **`WILL_FAIL`**：一张都没读到 / 读到一些但另一些路径不存在 |
 | 配置陈旧 | `cmake_configure_is_current` | **`ctest` 不会自己发现 `CMakeLists.txt` 变了**，见下 |
 | | `cmake_freshness_missing_stamp_is_red` / `..._empty_root_is_red` | **`WILL_FAIL`**：上一条自己能不能变红 |

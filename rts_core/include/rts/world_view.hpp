@@ -90,6 +90,9 @@ public:
     std::span<const std::uint16_t> unit_garrison() const noexcept {
         return sp(w_->u_garrison_);
     }
+    // 上墙延迟剩余（第三批）。与 `unit_garrison()` 配对读：garrison != kNoSlot
+    // 且 mount > 0 = 在爬（画攀爬动画、既不打也不走），mount == 0 = 已登顶。
+    std::span<const std::int32_t> unit_mount() const noexcept { return sp(w_->u_mount_); }
     std::span<const std::uint8_t> unit_force() const noexcept { return sp(w_->u_force_); }
     // 已承诺攻击的目标种类与锁定落点（机制第一批）。渲染层画「出手表现」
     // 靠它们：windup > 0 且 kind != None ⇒ 这个单位正在挥（或箭在弦上），
@@ -151,12 +154,41 @@ public:
         return sp(w_->o_clear_ordered_);
     }
 
+    // ——第四组：在途弹丸（机制第五批）——
+    //
+    // 与前三组不同，**没有 alive 掩码**：弹丸数组每 tick 稳定压实，长度即数量。
+    // 渲染层要的三样都在：位置、目的地（飞行角 = aim - pos，追踪弹逐 tick
+    // 刷新）、发射建筑（挑精灵：`Flak` 的是弩矢 `Bolt`，其余是箭 `Arrow`，
+    // `kProjFromUnit` = 单位射的）。伤害载荷刻意不暴露——渲染画的是箭，
+    // 不是伤害数字。
+    std::span<const Vec2> proj_pos() const noexcept { return sp(w_->p_pos_); }
+    std::span<const Vec2> proj_aim() const noexcept { return sp(w_->p_aim_); }
+    std::span<const std::uint8_t> proj_src_bld() const noexcept {
+        return sp(w_->p_src_bld_);
+    }
+
     // 编队去处表（`MoveForce` 的解算产物），下标是编队号、值是格线性下标，
     // `kNoSlot` = 没下过。与 `unit_force()` 配对读：脚本按单位的编队查这里。
     std::span<const std::uint16_t> force_target() const noexcept {
         return std::span<const std::uint16_t>(w_->force_target_.data(),
                                               w_->force_target_.size());
     }
+
+    // 按格的驻守指令表（`Garrison` 的解算产物，第三批）。下标是格线性下标、
+    // 值是编队号，`kNoForce` = 没下过。登墙本身由 World 解算（tick_garrison），
+    // 脚本执行层读它只为一件事：把还没到墙边的编队成员往指令格挪。
+    std::span<const std::uint8_t> garrison_order() const noexcept {
+        return sp(w_->garrison_order_);
+    }
+
+    // 数值表（只读）。脚本执行层与 flow field（rts/flow.hpp）按它算代价——
+    // 与机制同一份表、同一对函数（combat_math），不另立公式。
+    const StatsTable& stats() const noexcept { return w_->stats(); }
+
+    // 动作掩码直通（只读）。脚本执行层与观测打包都要它（掩码本来就是观测的
+    // 一部分，契约 §2）——不给这条，脚本就得捧着 `World&`，「脚本一律经
+    // `WorldView`」那条纪律就名存实亡。
+    std::uint16_t action_mask(UnitId id) const { return w_->action_mask(id); }
 
     // 守方三资源的存量。攻方没有经济系统，所以它不按侧参数化——
     // 攻方策略读到它是正常的（那是**免费可见**的一部分吗？不是，

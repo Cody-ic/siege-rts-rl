@@ -53,8 +53,12 @@ namespace rts {
 // 这个管「指纹是怎么从表算出来的」。形状变了而这个串没变，旧回放会报成
 // 「数值表变了」——方向仍然是对的（重录），但成因说错了；进一格则两边都对。
 // 已进格的历史：Stats/1 → Stats/2（机制第二批：造价 / 耗时 / 产出 / 维修，
-// 三个结构各加字段、`GlobalStats` 扩五项）。
-inline constexpr std::string_view kStatsShapeTag = "Stats/2";
+// 三个结构各加字段、`GlobalStats` 扩五项）；Stats/2 → Stats/3（机制第三批：
+// 驻守与高度优势，`GlobalStats` 扩四项）；Stats/3 → Stats/4（机制第四批：
+// 冲锋与齐射，`BldStats` 加 AOE 半径、`GlobalStats` 扩三项）；
+// Stats/4 → Stats/5（机制第五批：在途弹丸，`UnitStats` 与 `BldStats` 各加
+// 弹丸速度）。
+inline constexpr std::string_view kStatsShapeTag = "Stats/5";
 
 // 每兵种一行。**结构性属性不在这里**（能否对空、能否破坏结构、三轴定位归
 // `rts/unit_behavior.hpp` 与 `rts/roster.hpp`）；这里只有会随标定变的数。
@@ -73,6 +77,13 @@ struct UnitStats {
     // AOE 半径（格）。0 = 单体。落点在前摇开始那一刻锁定成坐标
     // （CLAUDE.md「结构破坏规则」那条实现要求），半径只是数值。
     float aoe_radius = 0.0f;
+    // ——机制第五批：在途弹丸——
+    // 弹丸飞行速度（格 / tick）。**<= 0 = 瞬时命中**——「单体伤害在落地帧瞬时
+    // 结算」那条书面近似（契约 §1.1.1）没有被删，而是降级成 0 速度的退化形态，
+    // 于是没配这个数的表行为一字不变（同 windup_ticks == 0 当场落地的先例）。
+    // **谁放弹丸是结构**（`UnitBehavior::launches_projectile()`：Ranged × 非空中），
+    // 给近战兵种配了速度也不放——这里只是弹丸真放出来之后飞多快。
+    float proj_speed = 0.0f;
     // ——机制第二批：征兵——
     // 造价只有金币（三资源各对应一条决策轴：金币管**人力**，CLAUDE.md）。
     // 攻方单位这两项无意义（攻方无经济，编成走 `Composition` 预算），诚实地填 0。
@@ -99,6 +110,16 @@ struct BldStats {
     // 每个结算周期的产出数额。**种类不在这里**：采集建筑走 `resource_of()`（结构），
     // `Keep` 恒产金币（兵力地板，CLAUDE.md 单列一节的护栏）。其余建筑填 0。
     std::int64_t income_amount = 0;
+    // ——机制第四批：齐射——
+    // AOE 半径（格），0 = 单体。`Tower` 的「齐射覆盖（克制步兵一拥而上啃墙）」
+    // 由它承载；落点在前摇开始锁定（与 `Ram` 同一条承诺规则）。
+    // **对空建筑（`Flak`）结构上忽略它**——「AA 只做单体狙击型」是结构不是数值，
+    // 表里配了也不齐射（同「表不能把瞭望塔配成印钞机」的先例，src/mechanics.cpp）。
+    float aoe_radius = 0.0f;
+    // ——机制第五批：在途弹丸——
+    // 同 `UnitStats::proj_speed`（<= 0 = 瞬时命中）。建筑不会近战，
+    // 开火即弹丸——`Tower` 的齐射箭雨与 `Flak` 的狙击弩矢都真的在飞。
+    float proj_speed = 0.0f;
 };
 
 // 每障碍一行。产出**种类**是结构（`harvest_of()`，`rts/roster.hpp`），
@@ -121,6 +142,24 @@ struct GlobalStats {
     std::int64_t repair_hp_per_work_tick = 1;  // 维修每工时恢复的血量
     std::int64_t repair_wood_per_1000hp = 0;   // 维修花费：每 1000 缺口血量的木材
     std::int32_t cancel_refund_permille = 0;   // 撤销工地的退款比例（千分比）
+    // ——机制第三批：驻守与高度优势——
+    // 三个 `high_ground_*` 是一组（前缀承载「墙血 >= 一半才生效」这一共同前提，
+    // 见 `World::on_high_wall`）。哪些效果**存在**是结构（CLAUDE.md 抄的
+    // Stronghold 三条），这里只有幅度。倍率默认 1000 = 恒等——它不守「默认 1/0」
+    // 的字面，但守它的实质：恒等一眼就能看出没标定，而 0 会把伤害路径整个掐断，
+    // 那是把「没标定」写成了一条结构禁令（同 income_period 取 1 的理由）。
+    std::int32_t garrison_mount_ticks = 0;         // 上墙延迟（原地登上那个「短暂」）
+    std::int32_t high_ground_miss_permille = 0;    // 低处打墙上单位：整发落空的概率
+    std::int32_t high_ground_dmg_permille = 1000;  // 低处打墙上单位：命中后的伤害倍率
+    float high_ground_range_bonus = 0.0f;          // 远程驻守的射程加成（格，加法）
+    // ——机制第四批：冲锋——
+    // 「冲锋伤害 ∝ 助跑距离」的两个参数（`rts/combat_math.hpp` 的 charge_permille）
+    // 与枪阵克骑的满动量幅度（anti_charge_permille，关系本身由三轴推导，
+    // 见 `rts/unit_behavior.hpp` 的 counters_charge）。封顶 0 = 冲锋系统关。
+    // anti 的下界 1000 是结构（载入器拦）：低于恒等就把「克」写成了「被克」。
+    std::int32_t charge_bonus_permille_per_cell = 0;  // 每格助跑的伤害加成（千分比）
+    float charge_max_cells = 0.0f;                    // 助跑封顶（格）
+    std::int32_t anti_charge_permille = 1000;         // 枪阵对满动量冲锋的克制幅度
 };
 
 // 四组分法来自 `rts_core 接口契约.md` §1.1.2 的三条形状决定。

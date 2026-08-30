@@ -20,6 +20,7 @@ std::uint64_t StatsTable::fingerprint() const noexcept {
         h.feed_pod(s.cooldown_ticks);
         h.feed_pod(s.vs_structure_permille);
         h.feed_f32(s.aoe_radius);
+        h.feed_f32(s.proj_speed);
         h.feed_pod(s.cost_gold);
         h.feed_pod(s.train_ticks);
     }
@@ -34,6 +35,8 @@ std::uint64_t StatsTable::fingerprint() const noexcept {
         h.feed_pod(s.cost_wood);
         h.feed_pod(s.build_ticks);
         h.feed_pod(s.income_amount);
+        h.feed_f32(s.aoe_radius);
+        h.feed_f32(s.proj_speed);
     }
     for (const ObstacleStats& s : obstacle) {
         h.feed_pod(s.max_hp);
@@ -46,6 +49,13 @@ std::uint64_t StatsTable::fingerprint() const noexcept {
     h.feed_pod(global.repair_hp_per_work_tick);
     h.feed_pod(global.repair_wood_per_1000hp);
     h.feed_pod(global.cancel_refund_permille);
+    h.feed_pod(global.garrison_mount_ticks);
+    h.feed_pod(global.high_ground_miss_permille);
+    h.feed_pod(global.high_ground_dmg_permille);
+    h.feed_f32(global.high_ground_range_bonus);
+    h.feed_pod(global.charge_bonus_permille_per_cell);
+    h.feed_f32(global.charge_max_cells);
+    h.feed_pod(global.anti_charge_permille);
 
     return h.value();
 }

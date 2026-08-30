@@ -12,8 +12,8 @@
 //     `can_break_structure`），不要指望这里算出 0
 //   * **中间量比存储宽**：分子分母都在 64 位里乘。调用方要保证
 //     `base × ∏permille` 不溢出 int64——base 是表里的基础伤害（量级 10²）、
-//     倍率是千分比（量级 10³–10⁴）、倍率个数 ≤ 3（等级 / 克制 / 对结构），
-//     乘积上界约 10¹⁴，余量三个数量级。Debug 下有断言
+//     倍率是千分比（量级 10³–10⁴）、倍率个数 ≤ 4（等级 / 冲锋 / 高度或反冲锋 /
+//     对结构），乘积上界约 10¹⁷，余量一个多数量级。Debug 下有断言
 //
 // 放在独立的头而不是 `world.hpp`：平衡工具（成本产出矩阵）与测试都要单独调它。
 
@@ -63,6 +63,37 @@ inline std::int64_t level_permille(std::int32_t level,
     assert(level >= 1);
     return kPermilleOne +
            static_cast<std::int64_t>(per_level) * (static_cast<std::int64_t>(level) - 1);
+}
+
+// 冲锋动量 → 千分比。`1000 + 每格加成 × min(动量, 封顶)`，1000 = 没有动量。
+// **机制等级无关**（CLAUDE.md：所有机制性克制必须等级无关）——等级只经
+// 伤害基数进来，这里只看跑了多远。封顶 <= 0 表示冲锋系统整个关着（诚实默认）。
+inline std::int64_t charge_permille(float run_cells, float max_cells,
+                                    std::int32_t per_cell_permille) noexcept {
+    if (max_cells <= 0.0f || per_cell_permille <= 0 || run_cells <= 0.0f) {
+        return kPermilleOne;
+    }
+    const float m = run_cells < max_cells ? run_cells : max_cells;
+    return kPermilleOne + static_cast<std::int64_t>(
+                              static_cast<float>(per_cell_permille) * m + 0.5f);
+}
+
+// 反冲锋（枪阵）→ 千分比。克制幅度随**目标的动量**线性放大：满动量给全额
+// `full_permille`，没有动量恒为 1000（不成立）。**同一份动量既给冲锋加成、
+// 也给顶着它的枪阵加成**——「开阔地克、巷战被反克」因此不需要读地形：
+// 巷战里骑兵攒不出动量，枪阵的克制也就自动消失，剩下的是普通近战对拼。
+inline std::int64_t anti_charge_permille(float target_run_cells, float max_cells,
+                                         std::int32_t full_permille) noexcept {
+    if (max_cells <= 0.0f || target_run_cells <= 0.0f ||
+        full_permille <= kPermilleOne) {
+        return kPermilleOne;
+    }
+    const float m =
+        target_run_cells < max_cells ? target_run_cells : max_cells;
+    return kPermilleOne +
+           static_cast<std::int64_t>(
+               static_cast<float>(full_permille - kPermilleOne) * (m / max_cells) +
+               0.5f);
 }
 
 }  // namespace rts
