@@ -35,6 +35,7 @@ int probe_${_stem}() { return 0; }
 endforeach()
 
 add_library(game STATIC
+    src/asset_paths.cpp
     src/map_data.cpp
     src/map_loader.cpp
     src/scene_model.cpp
@@ -45,6 +46,8 @@ add_library(game STATIC
     src/defender_script.cpp
     src/demo_driver.cpp
     src/player_input.cpp
+    src/menu_model.cpp
+    src/game_shell.cpp
     ${_game_self_contained_srcs}
 )
 
