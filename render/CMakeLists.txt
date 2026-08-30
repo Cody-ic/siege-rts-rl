@@ -81,6 +81,7 @@ add_library(render_lib STATIC
     src/camera_controller.cpp
     src/text.cpp
     src/scene_overlay.cpp
+    src/menu_view.cpp
     ${_render_self_contained_srcs}
 )
 
@@ -108,6 +109,57 @@ if(RTS_BUILD_TESTS)
                      --sprites "${CMAKE_SOURCE_DIR}/tools/sprite_gen/out_3d"
                      --screenshot "${CMAKE_CURRENT_BINARY_DIR}/smoke.png"
                      --size 640 360)
+
+    # ——主菜单那一屏，**并且不给任何路径参数**——
+    #
+    # 两件事一次测掉，而它们都是「双击 exe」这条路径独有的：
+    #
+    #   1. **素材自动发现**（`game::discover_assets`）。命令行下每个人都给全了
+    #      三条路径，所以这条代码路径**只有双击的人会走**——也就是最不会有人
+    #      发现它坏了的那一条。
+    #   2. **菜单与说明的文案有没有登记进字体码点集合**。漏登记的表现是画到它的
+    #      那一帧直接抛（render/text.hpp 第 2 个坑），而字体构造期就会检查全部
+    #      覆盖串，所以这条即使只画主菜单，也把「说明屏那十几行」一并验了。
+    #
+    # `WORKING_DIRECTORY` 显式设成仓库根：发现是从工作目录向上找的，而**构建目录
+    # 完全可以在仓库之外**（`cmake -B ../build`）。不设的话这条测试会在那种布局下
+    # 无端变红，而红的原因与它要测的东西无关。
+    add_test(NAME render_menu_defaults
+             COMMAND rts_render --menu
+                     --screenshot "${CMAKE_CURRENT_BINARY_DIR}/menu.png"
+                     --size 900 560)
+    set_tests_properties(render_menu_defaults PROPERTIES
+                         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+    # 操作说明那一屏。**它是版面最容易崩的一屏**（两栏 + 十几行 + 底部还有一个
+    # 菜单项），而玩家进它的路径是「按 Esc 再选一项」——没有这条 ctest，
+    # 它坏了要等有人真的去点才发现。
+    add_test(NAME render_help_shot
+             COMMAND rts_render --screen help
+                     --screenshot "${CMAKE_CURRENT_BINARY_DIR}/help.png"
+                     --size 1100 700)
+    set_tests_properties(render_help_shot PROPERTIES
+                         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+    # 屏名拼错必须红。少了它，`--screen hlep` 会安静地拍一张主菜单——
+    # 而那张图看起来完全正常，正是「该红却绿」。
+    add_test(NAME render_bad_screen_is_red
+             COMMAND rts_render --screen no_such_screen
+                     --screenshot "${CMAKE_CURRENT_BINARY_DIR}/never_screen.png"
+                     --size 64 64)
+    set_tests_properties(render_bad_screen_is_red PROPERTIES
+                         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" WILL_FAIL TRUE)
+
+    # 对局那一屏：推 200 tick（10 秒，够走完建造阶段、生出第一波）再拍。
+    # 覆盖的是 HUD 与实体绘制这条链路——`render_smoke` 走的是地图查看器，
+    # 一个单位都没有。
+    add_test(NAME render_battle_shot
+             COMMAND rts_render --battle --ticks 200
+                     --map "${CMAKE_SOURCE_DIR}/game/data/demo_skirmish.json"
+                     --stats "${CMAKE_SOURCE_DIR}/game/data/stats_placeholder.json"
+                     --sprites "${CMAKE_SOURCE_DIR}/tools/sprite_gen/out_3d"
+                     --screenshot "${CMAKE_CURRENT_BINARY_DIR}/battle.png"
+                     --size 900 560)
 
     # 素材目录写错时必须红。同 determinism_bans_empty_is_red 与
     # map_gen_validate_empty_is_red：**「什么都没画却退出 0」是最坏的那种绿。**

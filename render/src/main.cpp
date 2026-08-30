@@ -1,41 +1,58 @@
 // 前端入口。
 //
-// 现在它是「地图查看器」：读一张地图文件、画出来、能平移缩放、能查看光标所在格。
-// 实体渲染、建造放置等接口定稿后再加（见 render/README.md 的分期）。
+// ## 三种模式
 //
-// 有两种运行方式：
+//   * **游戏**（默认，什么参数都不给就是它）：主菜单 → 对局 → 暂停 / 说明 /
+//     败局。屏与屏之间的规则在 `game::GameShell`（可测、GCC 侧也验），
+//     这里只做按键、拾取与绘制。
+//   * **地图查看器**（给了 `--map` 但没给 `--battle` / `--menu`）：读一张地图、
+//     画出来、平移缩放、看光标所在格。它是 `render/` 最早的形态，留着——
+//     地图生成器的产物要靠它目视验收，而那条路径不需要数值表与仿真。
+//   * **素材校验**（`--verify-assets`）：只把精灵全载一遍，不渲场景。
 //
-//   * **窗口模式**（默认）：正常开窗，方向键/WASD 平移，滚轮缩放，中键拖拽
-//   * **截图模式**（`--screenshot <路径>`）：渲一帧到离屏纹理、导出、退出，
-//     **不显示窗口**。存在的理由不是省事——它让渲染结果**不必靠人盯着看**才能验：
-//     评审可以跑一遍对着 PNG 看，回归也可以（见 render/CMakeLists.txt 的几条 ctest）。
-//     #16 的「双视图」将来也要用同一套离屏渲染。
+// 每种都可加 `--screenshot <路径>`：渲一帧到离屏纹理、导出、退出，**不显示窗口**。
+// 存在的理由不是省事——它让渲染结果**不必靠人盯着看**才能验：评审可以跑一遍
+// 对着 PNG 看，回归也可以（见 render/CMakeLists.txt 的几条 ctest）。
+// #16 的「双视图」将来也要用同一套离屏渲染。
 //
-// 截图模式**刻意把窗口模式里的每一层都走一遍**（字体、信息条、格高亮），
+// 截图模式**刻意把窗口模式里的每一层都走一遍**（字体、信息条、格高亮、菜单面板），
 // 而不是只渲个地形——只渲地形的话 `render_smoke` 就只是一条「地砖没崩」的测试，
 // 而字体那三个坑（见 render/text.hpp）恰好全在它覆盖不到的地方。
+//
+// ## 「什么参数都不给」是一条要维护的正式路径，不是省事
+//
+// 三个必填参数（`--map` / `--stats` / `--sprites`）对开发者是好的，对**双击 exe
+// 的人**是不可用的：资源管理器不传参数。而这个程序的读者里有一半是「想看看它长
+// 什么样」的人（组内其余三人、答辩现场）。所以缺的路径一律由
+// `game::discover_assets()` 补齐（找标记文件、逐级向上），失败时报出**它试过
+// 哪些目录**——而不是打一句「--map 是必需的」了事。
 
 #include <cstdio>
 #include <cstdlib>
 #include <cstdint>
 #include <exception>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "raylib.h"
 
+#include "game/asset_paths.hpp"
 #include "game/battle_scene.hpp"
 #include "game/demo_driver.hpp"
 #include "game/display_names.hpp"
+#include "game/game_shell.hpp"
 #include "game/iso_projection.hpp"
 #include "game/map_loader.hpp"
+#include "game/menu_model.hpp"
 #include "game/player_input.hpp"
 #include "game/scene_model.hpp"
 #include "game/stats_loader.hpp"
 #include "render/camera_controller.hpp"
 #include "render/cli.hpp"
+#include "render/menu_view.hpp"
 #include "render/scene_overlay.hpp"
 #include "render/scene_renderer.hpp"
 #include "render/sprite_atlas.hpp"
@@ -44,20 +61,37 @@
 
 namespace {
 
-// 字体的烘焙字号。界面上用到的最大字号即此，比它小的靠双线性过滤缩下来。
-constexpr int kFontBakeSize = 32;
+// 字体的烘焙字号。**界面上用到的最大字号即此**，比它小的靠双线性过滤缩下来，
+// 比它大会糊（见 render/text.hpp）。菜单标题是 44 px，所以这里从 32 抬到 48
+// ——抬的时候要连带想到它是「最大字号」而不是「常用字号」。
+constexpr int kFontBakeSize = 48;
 constexpr float kHudSize = 20.0f;
 constexpr float kHudLine = 26.0f;
 constexpr float kReadoutSize = 20.0f;
+
+// 最近一次致命错误。**它存在只为双击启动那条路径**：那时控制台是隐藏的，
+// stderr 没人看得见，`cli_entry.cpp` 要把这段文本弹成对话框。见 render/cli.hpp。
+std::string g_fatal;
+
+// 报一次致命错误：stderr 一份（命令行下），全局一份（对话框用）。
+//
+// **两处都要**，不是二选一：命令行下的人要能把报错贴进 issue，
+// 双击的人要能看见它。
+void fatal(const std::string& msg) {
+    g_fatal = msg;
+    std::fprintf(stderr, "失败：%s\n", msg.c_str());
+}
 
 struct Options {
     std::string map_path;
     std::string sprite_dir;
     std::string screenshot;      // 非空 = 截图模式
     std::string font_path;       // 非空 = 只用这个字体，不试候选
-    std::string stats_path;      // --battle 必需：JSON 数值表
+    std::string stats_path;      // 游戏模式必需：JSON 数值表
     bool verify_assets = false;  // 只校验素材，不渲场景
-    bool battle = false;         // 演示对局模式（DemoBattle 驱动仿真）
+    bool battle = false;         // 游戏模式，且**跳过主菜单**直接开局
+    bool menu = false;           // 游戏模式，停在主菜单（截图用；窗口下同默认）
+    std::string screen;          // 开局前先切到哪一屏（main / help / paused），截图用
     int ticks = 0;               // 截图模式下先推进这么多 tick 再拍
     int width = 1600;
     int height = 900;
@@ -65,9 +99,13 @@ struct Options {
 
 void print_usage(const char* argv0) {
     std::printf(
-        "用法: %s --map <地图.json> --sprites <精灵目录> [选项]\n"
+        "用法: %s [选项]        （什么都不给 = 开始玩，路径自动找）\n"
         "\n"
-        "  --map <路径>          地图文件。仓库里有一张临时夹具：game/testdata/fixture_min.json\n"
+        "  --battle              直接开局，跳过主菜单\n"
+        "  --menu                停在主菜单（窗口模式下与默认相同；给截图用）\n"
+        "  --screen <名>         先切到哪一屏再拍：main / help / paused。只给截图用\n"
+        "  --map <路径>          地图文件。只给它（不给 --battle/--menu）= 地图查看器\n"
+        "  --stats <路径>        JSON 数值表，通常是 game/data/stats_placeholder.json\n"
         "  --sprites <目录>      精灵成品目录，通常是 tools/sprite_gen/out_3d\n"
         "  --screenshot <路径>   渲一帧导出成 PNG 后退出，不开窗口\n"
         "  --verify-assets       把元数据声明的每一张精灵都载入一遍，缺的全报出来后退出。\n"
@@ -75,14 +113,15 @@ void print_usage(const char* argv0) {
         "  --font <路径>         中文字体，必须是**纯 TTF**（.ttc 字体集合不行，理由见\n"
         "                        render/text.hpp）。不给则依次试 simhei.ttf、Deng.ttf\n"
         "  --size <宽> <高>      画面尺寸，默认 1600x900\n"
-        "  --battle              演示对局：攻方过桥、啃墙、破口，守方箭塔与防空开火。\n"
-        "                        需要 --stats；推荐地图 game/data/demo_skirmish.json\n"
-        "  --stats <路径>        JSON 数值表，通常是 game/data/stats_placeholder.json\n"
         "  --ticks <N>           与 --screenshot 连用：先推进 N 个 tick 再拍（20 tick = 1 秒）\n"
         "\n"
-        "窗口模式下：方向键 / WASD 平移，滚轮缩放（以鼠标为锚），中键拖拽，F 重新入画。\n"
-        "            光标所在格会高亮，旁边显示这一格上有什么。\n",
-        argv0);
+        "上面三条路径不给时，会从「工作目录」与「exe 所在目录」逐级向上找仓库根，\n"
+        "用 %s 与 %s。\n"
+        "\n"
+        "游戏里的按键以 `game::help_entries()` 为准（游戏内「操作说明」那一屏就是它），\n"
+        "**这里刻意不抄一份**——两处各写一份必然漂移。\n",
+        argv0, std::string(game::kDefaultMapRel).c_str(),
+        std::string(game::kDefaultSpritesRel).c_str());
 }
 
 // 手写参数解析而不引第三方库：五个选项不值得一个依赖，
@@ -130,6 +169,20 @@ bool parse(const std::vector<std::string>& args, Options& out) {
             }
         } else if (a == "--battle") {
             out.battle = true;
+        } else if (a == "--menu") {
+            out.menu = true;
+        } else if (a == "--screen") {
+            const std::string* v = next("--screen");
+            if (!v) return false;
+            // 名字**在这里就校验**，不留到 run_game 里去悄悄忽略：拼错一个屏名
+            // 而截图照样出来（拍的是主菜单），正是那种「该红却绿」。
+            if (*v != "main" && *v != "help" && *v != "paused") {
+                std::fprintf(stderr, "--screen 只能是 main / help / paused，收到: %s\n",
+                             v->c_str());
+                return false;
+            }
+            out.screen = *v;
+            out.menu = true;   // 它蕴含游戏模式
         } else if (a == "--stats") {
             const std::string* v = next("--stats");
             if (!v) return false;
@@ -151,22 +204,49 @@ bool parse(const std::vector<std::string>& args, Options& out) {
             return false;
         }
     }
-    if (out.sprite_dir.empty()) {
-        std::fprintf(stderr, "--sprites 是必需的\n");
+    // **这里不再判「哪个参数是必需的」。** 缺的路径由 `resolve_paths()` 用素材
+    // 自动发现补齐，补不上才报错——而那条报错要说出「试过哪些目录」，
+    // 比「--map 是必需的」有用得多（双击启动的人根本没有命令行可给）。
+    return true;
+}
+
+// 缺的路径用素材自动发现补齐。返回 false 时 `err` 是给人看的完整说明。
+//
+// 三条路径**各自独立**地补：只给了 `--map` 想换张图、其余用默认，是完全正常的
+// 用法，不该因为「要么全给要么全不给」而失败。
+bool resolve_paths(Options& opt, const std::string& argv0, bool need_map,
+                   bool need_stats, std::string& err) {
+    const bool need_sprites = true;   // 三种模式都要精灵（校验模式尤其）
+    const bool missing = (need_map && opt.map_path.empty()) ||
+                         (need_stats && opt.stats_path.empty()) ||
+                         (need_sprites && opt.sprite_dir.empty());
+    if (!missing) return true;
+
+    // 起点两条：工作目录（从仓库根跑 CLI 时命中）与 exe 所在目录
+    //（双击时 Explorer 把工作目录设成 exe 目录，但从别处调起来时不是，
+    // 所以两条都要）。顺序即优先级，见 `game::discover_assets()`。
+    std::vector<std::string> starts;
+    starts.push_back(game::current_dir());
+    starts.push_back(game::parent_dir_of(argv0));
+    const std::optional<game::AssetPaths> found = game::discover_assets(starts);
+    if (!found) {
+        err = "找不到游戏用的地图 / 数值表 / 精灵。\n"
+              "  自动发现的做法是从下面这些目录逐级向上找仓库根（最多 8 级）：\n";
+        for (const std::string& s : starts) {
+            err += "    - " + (s.empty() ? std::string("（取不到）") : s) + "\n";
+        }
+        err += "  判据是这三样同时存在：\n";
+        err += "    " + std::string(game::kDefaultMapRel) + "\n";
+        err += "    " + std::string(game::kDefaultStatsRel) + "\n";
+        err += "    " + std::string(game::kDefaultSpritesRel) + "/" +
+               std::string(game::kSpriteMetaName) + "\n";
+        err += "  所以：从仓库目录里启动，或者用 --map / --stats / --sprites 显式指定。";
         return false;
     }
-    // `--verify-assets` 不看地图，所以不强求 `--map`。
-    // 分开判而不是合成一句，是为了让报错说出**缺的是哪一个**。
-    if (!out.verify_assets && out.map_path.empty()) {
-        std::fprintf(stderr, "--map 是必需的（除 --verify-assets 外）\n");
-        return false;
-    }
-    if (out.battle && out.stats_path.empty()) {
-        std::fprintf(stderr,
-                     "--battle 需要 --stats <数值表>（占位表在 "
-                     "game/data/stats_placeholder.json）\n");
-        return false;
-    }
+    if (opt.map_path.empty()) opt.map_path = found->map;
+    if (opt.stats_path.empty()) opt.stats_path = found->stats;
+    if (opt.sprite_dir.empty()) opt.sprite_dir = found->sprites;
+    std::printf("素材根目录 %s（自动发现）\n", found->root.c_str());
     return true;
 }
 
@@ -180,7 +260,7 @@ int run_verify(const Options& opt) {
     SetTraceLogLevel(LOG_WARNING);
     InitWindow(64, 64, "verify-assets");
     if (!IsWindowReady()) {
-        std::fprintf(stderr, "开不了窗口（没有可用的 OpenGL 上下文？）\n");
+        fatal("开不了窗口（没有可用的 OpenGL 上下文？）");
         return 2;
     }
     int rc = 0;
@@ -197,7 +277,7 @@ int run_verify(const Options& opt) {
         std::printf("素材校验通过：花名册 %zu 个实体全部有图，共 %zu 张，px_per_tile = %d\n",
                     entities, n, atlas.px_per_tile());
     } catch (const std::exception& e) {
-        std::fprintf(stderr, "失败：%s\n", e.what());
+        fatal(e.what());
         rc = 4;
     }
     CloseWindow();
@@ -215,6 +295,11 @@ std::vector<std::string_view> font_coverage(const game::MapData& map) {
     std::vector<std::string_view> cover = game::all_display_strings();
     const std::vector<std::string_view>& ui = render::ui_strings();
     cover.insert(cover.end(), ui.begin(), ui.end());
+    // 菜单条目与操作说明。**这一份是机械推导出来的**（`game::all_menu_strings()`
+    // 遍历每个 builder），所以加一项菜单不必回头改这里——而漏改这里的症状是
+    // 「打开那一屏就抛」。
+    const std::vector<std::string_view>& menu = game::all_menu_strings();
+    cover.insert(cover.end(), menu.begin(), menu.end());
     cover.push_back(map.name());
     cover.push_back(map.map_id());
     return cover;
@@ -254,7 +339,7 @@ int run(const Options& opt) {
     SetTraceLogLevel(LOG_WARNING);
     InitWindow(opt.width, opt.height, "siege-rts-rl — 地图查看器");
     if (!IsWindowReady()) {
-        std::fprintf(stderr, "开不了窗口（没有可用的 OpenGL 上下文？）\n");
+        fatal("开不了窗口（没有可用的 OpenGL 上下文？）");
         return 2;
     }
     // 纹理与字体都要 GL 上下文，所以两者都在 InitWindow 之后才建。
@@ -319,7 +404,7 @@ int run(const Options& opt) {
         UnloadRenderTexture(rt);
         CloseWindow();
         if (!ok) {
-            std::fprintf(stderr, "写不出 %s\n", opt.screenshot.c_str());
+            fatal("写不出 " + opt.screenshot);
             return 3;
         }
         std::printf("已导出 %s\n", opt.screenshot.c_str());
@@ -367,6 +452,17 @@ int run(const Options& opt) {
 }
 
 
+// ——游戏模式：主菜单 / 对局 / 暂停 / 说明 / 败局——
+//
+// 屏与屏之间的规则在 `game::GameShell`（纯逻辑、进默认构建、GCC 侧也验），
+// 这一层只做三件事：按键与拾取、把当前状态画出来、按 20 Hz 补 tick。
+// **本函数没有任何一行改仿真的代码**——写入只经 `DemoBattle::submit_defender`
+// 与 `DemoBattle::update`，两者都属于 `game/`（不变量 2）。
+
+// 对局种子。**不是平衡数值**（那些一律待定），只是一个定值，好让「同一次启动的
+// 第 n 局」可复现；每局怎么从它派生见 `game::GameShell`。
+constexpr std::uint64_t kBattleSeed = 20260830u;
+
 // 演示对局的 HUD：波次 / 阶段 / tick / 双方存活 / 三种资源存量。全是真数据。
 void draw_battle_hud(const render::FontSet& font, const game::MapData& map,
                      const game::DemoBattle& battle, bool paused) {
@@ -394,88 +490,126 @@ void draw_battle_hud(const render::FontSet& font, const game::MapData& map,
     font.draw(buf, rts::Vec2{14.0f, 12.0f + kHudLine}, kHudSize,
               Color{170, 175, 190, 255});
 
-    font.draw("空格暂停   方向键平移   滚轮缩放   F 重新入画",
+    // **`Esc 菜单` 摆在最前面。** 这一行是玩家唯一会读的操作提示，而「怎么退出」
+    // 是他第一个要找的东西——找不到就只能点窗口的叉，那看起来像卡住了。
+    font.draw("Esc 菜单   空格暂停   方向键平移   滚轮缩放   F 重新入画",
               rts::Vec2{14.0f, 12.0f + kHudLine * 2.0f}, kHudSize,
               Color{140, 145, 160, 255});
 }
 
-// 演示对局模式。机制在 `rts_core`、脚本在 `game::DemoBattle`，
-// 这里只负责：以 20 Hz 推仿真、每帧从 `WorldView` 重新装配场景、画出来。
-// **本函数没有任何一行改仿真的代码**——写入只发生在 `DemoBattle::update` 里，
-// 而它属于 `game/`（玩家输入层），不属于渲染。
-int run_battle(const Options& opt) {
+// 各屏的标题与脚注（静态串）。副标题另取——它要读对局状态、要拼。
+struct ScreenText {
+    std::string_view title;
+    std::string_view footer;
+};
+
+ScreenText screen_text(game::Screen s) {
+    // 别在这个 switch 上加 `default:`：完备性靠「没有 default」+ /w14062 与
+    // -Wswitch 保证，加了之后漏一屏就变成静默画一个没有标题的面板。
+    // 同 game/display_names.cpp 里那一串。
+    switch (s) {
+        case game::Screen::Main:
+            // 标题用仓库名（纯 ASCII，永远不会缺字），中文放副标题。
+            return {"siege-rts-rl", "方向键选择   回车确认"};
+        case game::Screen::Paused:
+            return {"已暂停", "方向键选择   回车确认   Esc 继续对局"};
+        case game::Screen::Help:
+            return {"操作说明", "Esc 返回"};
+        case game::Screen::Defeat:
+            return {"堡垒陷落", "方向键选择   回车确认"};
+        case game::Screen::Battle:
+            return {};
+    }
+    return {};
+}
+
+// 副标题：主菜单是一句定语，暂停与败局屏是这一局的实况。
+std::string screen_subtitle(const game::GameShell& shell) {
+    const game::DemoBattle* b = shell.battle();
+    char buf[160];
+    switch (shell.screen()) {
+        case game::Screen::Main:
+            return "不对称波次生存 · 人类王国 vs 亡灵大军";
+        case game::Screen::Paused:
+            if (b == nullptr) return {};
+            std::snprintf(buf, sizeof(buf), "波 %d   守方 %d   攻方 %d",
+                          b->world().wave(),
+                          b->world().live_unit_count(rts::Side::Defender),
+                          b->world().live_unit_count(rts::Side::Attacker));
+            return buf;
+        case game::Screen::Defeat:
+            if (b == nullptr) return {};
+            // 无尽模式看的是**撑过几波**，不是胜负（CLAUDE.md「评估指标」：
+            // 胜率在一个必败的模式里没有定义）。所以败局屏上最该显示的是它。
+            std::snprintf(buf, sizeof(buf), "存活 %d 波", b->world().wave());
+            return buf;
+        case game::Screen::Help:
+        case game::Screen::Battle:
+            return {};
+    }
+    return {};
+}
+
+int run_game(const Options& opt) {
+    // 地图与数值表**完全不碰图形**，所以在开窗之前读——数据坏了不该先弹一个窗。
     const game::MapData map = game::MapLoader::from_file(opt.map_path);
     const rts::StatsTable stats = game::StatsLoader::from_file(opt.stats_path);
-    game::DemoBattle battle(map, stats, /*seed=*/20260830u);
-    const std::vector<game::DrawItem> tiles = game::BattleScene::tiles(map);
+    game::GameShell shell(map, stats, kBattleSeed);
+    // `--battle` = 跳过主菜单直接开局。旧命令行的行为，截图模式也靠它。
+    if (opt.battle) shell.apply(game::MenuAction::StartNew);
+    // `--screen` 只是**把状态机走到那一屏**，走的是与玩家一样的那几条边
+    //（不是直接给 `screen_` 赋值）。所以它不会造出一个玩家到不了的状态，
+    // 拍出来的也就一定是玩家看得到的画面。
+    if (opt.screen == "help") {
+        shell.apply(game::MenuAction::Help);
+    } else if (opt.screen == "paused") {
+        shell.apply(game::MenuAction::StartNew);
+        shell.on_escape();
+    }
 
-    if (!opt.screenshot.empty()) SetConfigFlags(FLAG_WINDOW_HIDDEN);
+    if (!opt.screenshot.empty()) {
+        SetConfigFlags(FLAG_WINDOW_HIDDEN);
+    } else {
+        // 可调整大小。菜单面板与 HUD 都按当前视口现算版面，所以拉窗口不会错位
+        //（`MenuView` 的版面函数每帧从视口重算，见那个头）。
+        SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    }
     SetTraceLogLevel(LOG_WARNING);
-    InitWindow(opt.width, opt.height, "siege-rts-rl — 演示对局");
+    InitWindow(opt.width, opt.height, "siege-rts-rl — 不对称波次生存");
     if (!IsWindowReady()) {
-        std::fprintf(stderr, "开不了窗口（没有可用的 OpenGL 上下文？）\n");
+        fatal("开不了窗口（没有可用的 OpenGL 上下文？）");
         return 2;
     }
+    // **Esc 归暂停菜单。** raylib 默认把 Esc 当「关闭窗口」，不改这一行的话
+    // 玩家想打开菜单却把程序关了——而那在他看来就是崩溃。
+    SetExitKey(KEY_NULL);
+    if (opt.screenshot.empty()) SetWindowMinSize(960, 540);
+
     render::SpriteAtlas atlas(opt.sprite_dir);
     const game::IsoProjection proj(atlas.px_per_tile());
     render::SceneRenderer renderer(atlas, proj);
-
-    const rts::WorldView view = battle.world().view(rts::Side::Defender);
-    renderer.preload(tiles, game::BattleScene::sorted(map, view, 0));
+    const std::vector<game::DrawItem> tiles = game::BattleScene::tiles(map);
+    // 主菜单的背景画的是**地图的静态场景**（地砖 + 城墙 + 林地 + 岩壁），
+    // 与地图查看器同一份装配。只画 `tiles` 的话背景是一块空荡荡的草地——
+    // 墙、树、石头全是叠加物，不在地砖那一层里。
+    const game::DrawLists static_scene = game::SceneModel::build(map);
 
     const std::vector<std::string_view> cover = font_coverage(map);
     const std::unique_ptr<render::FontSet> font =
         render::FontSet::open(opt.font_path, kFontBakeSize, cover);
+    std::printf("字体 %s，码点 %zu 个\n", font->path().c_str(), font->codepoint_count());
 
-    const Vector2 viewport{static_cast<float>(opt.width), static_cast<float>(opt.height)};
+    const render::SceneOverlay overlay(*font, proj);
+    const render::MenuView menu_view(*font);
+
     render::CameraController cam;
-    cam.fit(proj, map.width(), map.height(), viewport);
+    cam.fit(proj, map.width(), map.height(),
+            Vector2{static_cast<float>(opt.width), static_cast<float>(opt.height)});
     const Color bg{30, 30, 38, 255};
 
-    if (!opt.screenshot.empty()) {
-        battle.update(opt.ticks);
-        const std::vector<game::DrawItem> sorted =
-            game::BattleScene::sorted(map, view, battle.world().now());
-        RenderTexture2D rt = LoadRenderTexture(opt.width, opt.height);
-        BeginTextureMode(rt);
-        ClearBackground(bg);
-        BeginMode2D(cam.camera());
-        renderer.draw(tiles, sorted);
-        EndMode2D();
-        draw_battle_hud(*font, map, battle, false);
-        EndTextureMode();
-        Image img = LoadImageFromTexture(rt.texture);
-        ImageFlipVertical(&img);
-        int png_size = 0;
-        unsigned char* png = ExportImageToMemory(img, ".png", &png_size);
-        bool ok = false;
-        if (png != nullptr && png_size > 0) {
-            ok = rts::write_file_bytes(opt.screenshot, png,
-                                       static_cast<std::size_t>(png_size));
-        }
-        if (png != nullptr) MemFree(png);
-        UnloadImage(img);
-        UnloadRenderTexture(rt);
-        CloseWindow();
-        if (!ok) {
-            std::fprintf(stderr, "写不出 %s\n", opt.screenshot.c_str());
-            return 3;
-        }
-        std::printf("已导出 %s（tick %d）\n", opt.screenshot.c_str(),
-                    static_cast<int>(battle.world().now()));
-        return 0;
-    }
-
-    SetTargetFPS(60);
-    bool paused = false;
-    double acc = 0.0;
-    const double kTickDt = 1.0 / static_cast<double>(rts::kTicksPerSecond);
-
-    // ——交互状态。命令的**语义**在 game/（player_input.hpp、可测），
-    // 这里只做拾取与按键：数字键 1–4 选编队（demo 开局 1=弓手 2=枪卫
-    // 3=游骑 4=工匠），右键按格下令（墙=驻守 / 障碍=清野 / 其余=开拔），
-    // B 进建造模式（TAB 换型、左键放置、右键退出），N 提前召唤下一波。
-    const render::SceneOverlay overlay(*font, proj);
+    // ——交互状态——
+    // 按键绑定的**唯一说明**是 `game::help_entries()`（游戏内那一屏就是它），
+    // 这里不再抄一份注释——两处各写一份必然漂移。
     int force_sel = 0;
     int build_sel = -1;   // -1 = 不在建造模式
     constexpr rts::BldType kBuildable[] = {rts::BldType::Wall, rts::BldType::Gate,
@@ -483,88 +617,54 @@ int run_battle(const Options& opt) {
                                            rts::BldType::Flak};
     constexpr int kBuildableCount =
         static_cast<int>(sizeof(kBuildable) / sizeof(kBuildable[0]));
+    bool paused = false;
+    int preloaded_attempt = 0;
 
-    while (!WindowShouldClose()) {
-        if (IsWindowResized()) {
-            cam.set_viewport(Vector2{static_cast<float>(GetScreenWidth()),
-                                     static_cast<float>(GetScreenHeight())});
+    // 新的一局开始时把它的实体图全预载一遍：缺素材要在**看见之前**报出来，
+    // 而不是等某个单位第一次走进画面（见 SpriteAtlas::preload_idle 的理由）。
+    const auto preload_for_battle = [&]() {
+        const game::DemoBattle* b = shell.battle();
+        if (b == nullptr) {
+            renderer.preload(static_scene);
+            return;
         }
-        if (IsKeyPressed(KEY_F)) {
-            cam.fit(proj, map.width(), map.height(),
-                    Vector2{static_cast<float>(GetScreenWidth()),
-                            static_cast<float>(GetScreenHeight())});
-        }
-        if (IsKeyPressed(KEY_SPACE)) paused = !paused;
-        if (IsKeyPressed(KEY_ONE)) force_sel = 0;
-        if (IsKeyPressed(KEY_TWO)) force_sel = 1;
-        if (IsKeyPressed(KEY_THREE)) force_sel = 2;
-        if (IsKeyPressed(KEY_FOUR)) force_sel = 3;
-        if (IsKeyPressed(KEY_B)) build_sel = build_sel < 0 ? 0 : -1;
-        if (build_sel >= 0 && IsKeyPressed(KEY_TAB)) {
-            build_sel = (build_sel + 1) % kBuildableCount;
-        }
-        if (IsKeyPressed(KEY_N)) {
-            rts::Command c;
-            c.kind = rts::CommandKind::Summon;
-            c.side = rts::Side::Defender;
-            battle.submit_defender(&c, 1);
-        }
-        cam.update(GetFrameTime());
+        renderer.preload(tiles,
+                         game::BattleScene::sorted(
+                             map, b->world().view(rts::Side::Defender), b->world().now()));
+        preloaded_attempt = shell.attempt();
+    };
+    preload_for_battle();
 
-        // 拾取（与地图查看器同一条链路：screen → world → grid）。
-        const Vector2 mouse = GetMousePosition();
-        const Vector2 wpos = GetScreenToWorld2D(mouse, cam.camera());
-        const rts::GridPos cell = proj.screen_to_grid(rts::Vec2{wpos.x, wpos.y});
-        const bool in_map = map.in_bounds(cell.i, cell.j);
-        if (in_map && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
-            if (build_sel >= 0) {
-                build_sel = -1;   // RTS 惯例：右键退出建造模式
-            } else {
-                const rts::Command c = game::command_for_click(
-                    view, static_cast<std::uint8_t>(force_sel), cell);
-                battle.submit_defender(&c, 1);
-            }
-        }
-        if (in_map && build_sel >= 0 && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-            // 深层裁决（资源、点位）在 World 的 Build 解算；虚影颜色只是提示。
-            rts::Command c;
-            c.kind = rts::CommandKind::Build;
-            c.side = rts::Side::Defender;
-            c.what = static_cast<std::uint8_t>(kBuildable[build_sel]);
-            c.slot = rts::slot_of(cell, map.width());
-            battle.submit_defender(&c, 1);
-        }
-
-        if (!paused) {
-            acc += static_cast<double>(GetFrameTime());
-            int steps = 0;
-            // 单帧最多补 5 个 tick：掉帧时宁可仿真慢下来，也不追出一大步。
-            while (acc >= kTickDt && steps < 5) {
-                battle.update(1);
-                acc -= kTickDt;
-                ++steps;
-            }
-        }
-
-        const std::vector<game::DrawItem> sorted =
-            game::BattleScene::sorted(map, view, battle.world().now());
-
-        BeginDrawing();
+    // 一帧的绘制。**截图模式与窗口模式共用它**——两份各画一遍的话，
+    // 截图回归测试保住的就不是玩家真正看到的那个画面。
+    const auto draw_frame = [&](Vector2 vp, bool has_cursor, rts::GridPos cell) {
+        const game::DemoBattle* b = shell.battle();
         ClearBackground(bg);
         BeginMode2D(cam.camera());
-        renderer.draw(tiles, sorted);
-        if (in_map) {
+        if (b != nullptr) {
+            renderer.draw(tiles, game::BattleScene::sorted(
+                                     map, b->world().view(rts::Side::Defender),
+                                     b->world().now()));
+        } else {
+            // 主菜单也画地图：那张图本身就是最好的背景，而且它让「素材载入
+            // 成功了没有」在第一屏就看得见。
+            renderer.draw(static_scene);
+        }
+        if (shell.screen() == game::Screen::Battle && b != nullptr && has_cursor &&
+            map.in_bounds(cell.i, cell.j)) {
             // 建造模式下描边就是合法性提示（绿可放 / 红不行）；平时是白色悬停框。
             const Color line =
                 build_sel < 0
                     ? Color{235, 235, 245, 255}
-                    : (game::can_place_hint(view, cell) ? Color{120, 220, 120, 255}
-                                                        : Color{230, 90, 90, 255});
+                    : (game::can_place_hint(b->world().view(rts::Side::Defender), cell)
+                           ? Color{120, 220, 120, 255}
+                           : Color{230, 90, 90, 255});
             overlay.draw_cell_outline(cell, line, 2.0f / cam.camera().zoom);
         }
         EndMode2D();
-        draw_battle_hud(*font, map, battle, paused);
-        {
+
+        if (shell.screen() == game::Screen::Battle && b != nullptr) {
+            draw_battle_hud(*font, map, *b, paused);
             char ibuf[240];
             if (build_sel >= 0) {
                 std::snprintf(ibuf, sizeof(ibuf),
@@ -579,7 +679,166 @@ int run_battle(const Options& opt) {
             }
             font->draw(ibuf, rts::Vec2{14.0f, 12.0f + kHudLine * 3.0f}, kHudSize,
                        Color{200, 205, 160, 255});
+            return;
         }
+
+        // 菜单几屏：先压暗，再画面板。主菜单压得重一些（后面没有正在发生的事，
+        // 压暗让面板成为唯一焦点）；暂停与败局压得轻，好让人还能看清战场。
+        menu_view.dim(vp, shell.screen() == game::Screen::Main ? 185 : 140);
+        const ScreenText st = screen_text(shell.screen());
+        const std::string sub = screen_subtitle(shell);
+        const render::MenuView::Chrome chrome{st.title, sub, st.footer};
+        if (shell.screen() == game::Screen::Help) {
+            menu_view.draw_help(shell.menu(), chrome, vp);
+        } else {
+            menu_view.draw(shell.menu(), chrome, vp);
+        }
+    };
+
+    if (!opt.screenshot.empty()) {
+        // 截图模式：先把仿真推到要看的那一刻，再渲一帧导出。
+        if (game::DemoBattle* b = shell.battle()) b->update(opt.ticks);
+        shell.poll();
+        if (shell.attempt() != preloaded_attempt) preload_for_battle();
+        const Vector2 vp{static_cast<float>(opt.width), static_cast<float>(opt.height)};
+        RenderTexture2D rt = LoadRenderTexture(opt.width, opt.height);
+        BeginTextureMode(rt);
+        draw_frame(vp, /*has_cursor=*/false, rts::GridPos{});
+        EndTextureMode();
+
+        Image img = LoadImageFromTexture(rt.texture);
+        ImageFlipVertical(&img);   // 离屏纹理的 y 是反的
+        // 不用 `ExportImage(img, path)`：raylib 的文件写入走窄 `fopen`，
+        // 路径含非 ASCII 字符时会失败（见 rts/utf8_path.hpp）。
+        int png_size = 0;
+        unsigned char* png = ExportImageToMemory(img, ".png", &png_size);
+        bool ok = false;
+        if (png != nullptr && png_size > 0) {
+            ok = rts::write_file_bytes(opt.screenshot, png,
+                                       static_cast<std::size_t>(png_size));
+        }
+        if (png != nullptr) MemFree(png);
+        UnloadImage(img);
+        UnloadRenderTexture(rt);
+        CloseWindow();
+        if (!ok) {
+            fatal("写不出 " + opt.screenshot);
+            return 3;
+        }
+        const game::DemoBattle* b = shell.battle();
+        std::printf("已导出 %s（tick %d）\n", opt.screenshot.c_str(),
+                    b == nullptr ? 0 : static_cast<int>(b->world().now()));
+        return 0;
+    }
+
+    SetTargetFPS(60);
+    double acc = 0.0;
+    const double kTickDt = 1.0 / static_cast<double>(rts::kTicksPerSecond);
+
+    while (!WindowShouldClose() && !shell.quitting()) {
+        const Vector2 vp{static_cast<float>(GetScreenWidth()),
+                         static_cast<float>(GetScreenHeight())};
+        if (IsWindowResized()) cam.set_viewport(vp);
+        shell.poll();   // 对局败了就转败局屏（每帧问一次，见 GameShell::poll）
+
+        if (shell.attempt() != preloaded_attempt && shell.battle() != nullptr) {
+            preload_for_battle();
+            // 新的一局：镜头重新入画，交互状态归零。不归零的话上一局留下的
+            // 建造模式会跟到新局里，而玩家并不知道自己还在建造模式。
+            cam.fit(proj, map.width(), map.height(), vp);
+            paused = false;
+            build_sel = -1;
+            force_sel = 0;
+        }
+
+        const Vector2 mouse = GetMousePosition();
+        const bool in_menu = shell.screen() != game::Screen::Battle;
+        rts::GridPos cell{};
+
+        if (in_menu) {
+            // **拾取与绘制必须用同一份 chrome**（见 MenuView::Chrome 的注释）。
+            const ScreenText st = screen_text(shell.screen());
+            const std::string sub = screen_subtitle(shell);
+            const render::MenuView::Chrome chrome{st.title, sub, st.footer};
+            const int hovered =
+                shell.screen() == game::Screen::Help
+                    ? menu_view.hit_test_help(shell.menu(), chrome, mouse, vp)
+                    : menu_view.hit_test(shell.menu(), chrome, mouse, vp);
+            if (hovered >= 0) shell.menu().point_at(hovered);
+            if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W)) shell.menu().move(-1);
+            if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S)) shell.menu().move(1);
+            // 三条确认路径（点击 / 回车 / Esc）全部汇到 `GameShell::apply`，
+            // 可用性只在那里判一次。
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && hovered >= 0) {
+                shell.apply(shell.menu().action_at(hovered));
+            } else if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER) ||
+                       IsKeyPressed(KEY_SPACE)) {
+                shell.apply(shell.menu().confirm());
+            } else if (IsKeyPressed(KEY_ESCAPE)) {
+                shell.on_escape();
+            }
+        } else if (game::DemoBattle* b = shell.battle()) {
+            if (IsKeyPressed(KEY_ESCAPE)) shell.on_escape();   // → 暂停菜单
+            if (IsKeyPressed(KEY_F)) cam.fit(proj, map.width(), map.height(), vp);
+            if (IsKeyPressed(KEY_SPACE)) paused = !paused;
+            if (IsKeyPressed(KEY_ONE)) force_sel = 0;
+            if (IsKeyPressed(KEY_TWO)) force_sel = 1;
+            if (IsKeyPressed(KEY_THREE)) force_sel = 2;
+            if (IsKeyPressed(KEY_FOUR)) force_sel = 3;
+            if (IsKeyPressed(KEY_B)) build_sel = build_sel < 0 ? 0 : -1;
+            if (build_sel >= 0 && IsKeyPressed(KEY_TAB)) {
+                build_sel = (build_sel + 1) % kBuildableCount;
+            }
+            if (IsKeyPressed(KEY_N)) {
+                rts::Command c;
+                c.kind = rts::CommandKind::Summon;
+                c.side = rts::Side::Defender;
+                b->submit_defender(&c, 1);
+            }
+            cam.update(GetFrameTime());
+
+            // 拾取（与地图查看器同一条链路：screen → world → grid）。
+            const Vector2 wpos = GetScreenToWorld2D(mouse, cam.camera());
+            cell = proj.screen_to_grid(rts::Vec2{wpos.x, wpos.y});
+            const bool in_map = map.in_bounds(cell.i, cell.j);
+            const rts::WorldView view = b->world().view(rts::Side::Defender);
+            if (in_map && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
+                if (build_sel >= 0) {
+                    build_sel = -1;   // RTS 惯例：右键退出建造模式
+                } else {
+                    const rts::Command c = game::command_for_click(
+                        view, static_cast<std::uint8_t>(force_sel), cell);
+                    b->submit_defender(&c, 1);
+                }
+            }
+            if (in_map && build_sel >= 0 && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                // 深层裁决（资源、点位）在 World 的 Build 解算；虚影颜色只是提示。
+                rts::Command c;
+                c.kind = rts::CommandKind::Build;
+                c.side = rts::Side::Defender;
+                c.what = static_cast<std::uint8_t>(kBuildable[build_sel]);
+                c.slot = rts::slot_of(cell, map.width());
+                b->submit_defender(&c, 1);
+            }
+        }
+
+        if (shell.should_advance() && !paused) {
+            acc += static_cast<double>(GetFrameTime());
+            int steps = 0;
+            // 单帧最多补 5 个 tick：掉帧时宁可仿真慢下来，也不追出一大步。
+            while (acc >= kTickDt && steps < 5) {
+                shell.battle()->update(1);
+                acc -= kTickDt;
+                ++steps;
+            }
+        } else {
+            // **暂停或在菜单里时把余量清掉。** 不清的话回到对局的那一帧会
+            // 一次补满 5 个 tick，画面上是「一松手世界猛地跳一下」。
+            acc = 0.0;
+        }
+
+        BeginDrawing();
+        draw_frame(vp, !in_menu, cell);
         EndDrawing();
     }
     CloseWindow();
@@ -593,14 +852,25 @@ int cli_main_impl(const std::vector<std::string>& args) {
         print_usage(args.empty() ? "rts_render" : args[0].c_str());
         return 1;
     }
+    // 模式判定。**「什么都不给」= 游戏**，这是双击启动那条路径的落点；
+    // 只给 `--map` 仍是地图查看器（生成器的产物要靠它目视验收）。
+    const bool game_mode = opt.battle || opt.menu ||
+                           (!opt.verify_assets && opt.map_path.empty());
+    const std::string argv0 = args.empty() ? std::string() : args[0];
+    std::string err;
+    if (!resolve_paths(opt, argv0, /*need_map=*/!opt.verify_assets,
+                       /*need_stats=*/game_mode, err)) {
+        fatal(err);
+        return 1;
+    }
     try {
         if (opt.verify_assets) return run_verify(opt);
-        return opt.battle ? run_battle(opt) : run(opt);
+        return game_mode ? run_game(opt) : run(opt);
     } catch (const std::exception& e) {
         // 地图格式错、素材缺失、字体缺字都走这里。**打完整信息再退非零**——
         // 这几类失败的报错里带着「哪个文件、哪个字段、哪个字符、哪些可选值」，
         // 那正是查起来最省时间的部分，吞掉它等于白写。
-        std::fprintf(stderr, "失败：%s\n", e.what());
+        fatal(e.what());
         return 4;
     }
 }
@@ -610,5 +880,7 @@ int cli_main_impl(const std::vector<std::string>& args) {
 namespace render {
 
 int cli_main(const std::vector<std::string>& args) { return cli_main_impl(args); }
+
+const std::string& last_fatal_message() { return g_fatal; }
 
 }  // namespace render
