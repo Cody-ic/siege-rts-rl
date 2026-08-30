@@ -333,7 +333,7 @@
     },
     "Ghoul": {
       "cn": "亡灵步兵",
-      "_note": "持剑 = 近战。与同为骷髅的亡灵弓手靠武器区分：玩家的应对相反（塔齐射 vs 游骑冲脸）",
+      "_note": "持剑 = 近战。与同为骷髅的亡灵法师靠武器区分（剑 vs 魔杖）：玩家的应对相反（塔齐射 vs 游骑冲脸）",
       "yaw": 0,
       "height": 0.9,
       "max_width": 0.8,
@@ -402,40 +402,78 @@
       }
     },
     "Shade": {
-      "cn": "亡灵弓手",
-      "_note": "亡灵弓手。弓必须**读得出是弓**——它是「持续压制墙头」的那个单位，玩家要能一眼数清编成里有几个远程。原先 0.72 + 侧对镜头 + 与骨同色，三者叠加成一条看不出是什么的细线。。**没有射箭动作**：骷髅只有 `Skeleton_Attack`（近战挥砍），而它拿着弓；试过用那个动作，f19 骷髅弯折成一团、是坏帧。改成两件都不靠动作：攻击态把**弓从横持贴身转成竖立身前**（同骑兵武器转角那条思路），并让弦上那支箭在**命中帧之后消失**——箭射出去了，弦上就该空。骷髅本体保持待机动作，所以它不是定格的。弓与箭同在 `Ranger_Bow.blend` 里，所以这支箭本来就有、不需要新挂件",
+      "cn": "亡灵法师",
+      "_note": "亡灵法师**用的是人类法师模型 `Wizard.blend` + 亡灵染色**，头部换成**兜帽 + 帽内空洞**（兜帽取自 `Rogue.blend` 的 `Face`，绑在法师自己的 `Head` 骨骼上）。共十轮，曲折记在 README §6。要点：(1) **施法姿态用模型自带的 `Spell1`**（杖水平前指、杖头在最前端）——骷髅只有单手挥砍。(2) **`move` 时武器稳定**，人形骨架的 `Run_Weapon` 不甩杖。(3) **兜帽必须绑骨骼**：头在 `Spell1` f14 位移 0.61 单位（超过半个头高），静态摆放一定脱开。(4) **「脸」分不出来**：法师那块 `Face` 只是「头发 + 眉毛/颧骨/下颌」几片装饰，中间那块亮椭圆是袍身网格自带的脸皮——所以压暗 `Face` 反而把脸衬得更亮，**空洞只能靠几何遮挡**：一顶纯黑的兜帽（`rot [0,0,180]` 翻过来、开口朝后）当内衬，外面再罩一顶身体色的兜帽。翻转要补 Y：帽子的 Y 中心是 -0.102，不补就从背面顶出去。(5) **兜帽亮度 0.35 是量出来的**（渲一版量兜帽与袍身的平均亮度，160 : 93.8 ⇒ ×0.586），不是试出来的；`MIX` 是为了压平盗贼贴图那层迷宫花纹。(6) 内衬与兜帽**都不给 action**：它们是刚性的，给了盗贼骨架自己的 `Idle` 会让帽子独立晃动。**未做：衣服的破损感**——素材库里没有任何可用的破布几何（`Bat`/`Dragon` 的翼膜与本体同属一个网格，取不出来），倒扣兜帽当下摆试过，渲出来是臃肿的袍子不是破洞，2026-08-30 经评审决定不做。**魔法弹精灵仍未做**：`Arrow` 不能给法师用（发射器与投射物必须匹配），而魔法弹是球状、没有朝向问题。",
       "yaw": 0,
       "height": 0.9,
       "max_width": 0.9,
       "parts": [
         {
-          "model": "models/q_monsters/Blend/Skeleton.blend",
-          "action": "Skeleton_Idle",
-          "tint": [
-            60,
-            160,
-            240,
-            0.75
+          "model": "models/q_rpg/Blends/Wizard.blend",
+          "action": "Idle_Weapon",
+          "only_meshes": [
+            "Wizard.001",
+            "Wizard_Staff",
+            "Pouch",
+            "ShoulderPad.L",
+            "ShoulderPad.R"
           ],
-          "brightness": 0.86
+          "tint": [
+            90,
+            190,
+            250,
+            0.72
+          ],
+          "brightness": 1.25
         },
         {
-          "_note": "弓模型以握把为中心，绑到左前臂骨尾即落在手上，上下各伸出一半，正是长弓的持法",
-          "model": "models/q_rpg/Blends/Only Weapons/Ranger_Bow.blend",
-          "scale": 0.95,
-          "attach": "L.DownLeg.001",
+          "model": "models/q_rpg/Blends/Rogue.blend",
+          "only_meshes": [
+            "Face"
+          ],
+          "attach": "Head",
+          "attach_rest": true,
           "rot": [
-            -90,
             0,
-            90
+            0,
+            180
+          ],
+          "scale": 0.96,
+          "offset": [
+            0,
+            -0.196,
+            0.096
           ],
           "tint": [
-            120,
-            72,
-            38,
-            0.85
+            0,
+            0,
+            0,
+            1.0
           ],
-          "tint_mode": "MIX"
+          "tint_mode": "MIX",
+          "brightness": 0.04
+        },
+        {
+          "model": "models/q_rpg/Blends/Rogue.blend",
+          "only_meshes": [
+            "Face"
+          ],
+          "attach": "Head",
+          "attach_rest": true,
+          "scale": 1.12,
+          "offset": [
+            0,
+            0,
+            -0.269
+          ],
+          "tint": [
+            90,
+            190,
+            250,
+            0.9
+          ],
+          "tint_mode": "MIX",
+          "brightness": 0.35
         }
       ],
       "states": {
@@ -445,51 +483,34 @@
           ],
           "parts": {
             "0": {
-              "action": "Skeleton_Idle"
+              "action": "Idle_Weapon"
             }
           }
         },
         "move": {
           "frames": [
             1,
-            8,
-            15,
-            22
+            6,
+            11,
+            16
           ],
           "parts": {
             "0": {
-              "action": "Skeleton_Running"
+              "action": "Run_Weapon"
             }
           }
         },
         "attack": {
           "frames": [
             1,
-            20,
-            40,
-            60
+            8,
+            14,
+            20
           ],
-          "impact_frame": 20,
+          "impact_frame": 14,
           "parts": {
             "0": {
-              "action": "Skeleton_Idle"
-            },
-            "1": {
-              "rot": [
-                -45,
-                -40,
-                90
-              ]
-            }
-          },
-          "mesh_anim": {
-            "Ranger_Arrow": {
-              "visible": [
-                true,
-                true,
-                false,
-                false
-              ]
+              "action": "Spell1"
             }
           }
         }
@@ -867,10 +888,57 @@
         },
         {
           "model": "models/kenney_castle/glb/tower-square-top-roof-high.glb"
+        },
+        {
+          "_note": "垛口上待发的箭。**塔身没有可动部件，所以攻击表现由挂件承担**——同 README 第 2 条自查的第 3 项（Shade 的弓）。用的正是弓手弦上、以及飞出去那支的同一个 mesh。",
+          "model": "models/q_rpg/Blends/Only Weapons/Ranger_Bow.blend",
+          "only_meshes": [
+            "Ranger_Arrow"
+          ],
+          "scale": 0.7,
+          "rot": [
+            0,
+            50,
+            0
+          ],
+          "offset": [
+            0.3,
+            0.3,
+            2.62
+          ]
         }
       ],
       "_note": "封闭尖顶 = 对地齐射，与开放垛口的蔽空弩楼对照",
-      "modules": 1
+      "modules": 1,
+      "states": {
+        "idle": {
+          "frames": [
+            1
+          ],
+          "mesh_anim": {
+            "Ranger_Arrow": {
+              "visible": [
+                false
+              ]
+            }
+          }
+        },
+        "attack": {
+          "frames": [
+            1,
+            2
+          ],
+          "impact_frame": 2,
+          "mesh_anim": {
+            "Ranger_Arrow": {
+              "visible": [
+                true,
+                false
+              ]
+            }
+          }
+        }
+      }
     },
     "Flak": {
       "cn": "蔽空弩楼",
@@ -1186,15 +1254,15 @@
     },
     "Barrack": {
       "cn": "兵营",
-      "_note": "部队产出点。离前线越近补员越快、也越容易被点掉，位置即决策",
+      "_note": "**不属砌体战斗塔族**——那族的定义是「石材造、有火力」，而 `Barrack` 零战力（部队产出点）。与 `Tower` 的差异铺在三个维度上，其中两个是**类别性**的：**拱门 vs 射孔窗**（出入 vs 开火）、**阁楼窗坡顶 vs 纯尖锥顶 + 垛口层**（住人 vs 打人），再加高度只有一半。**不共用任何主体构件**（`tower-square-mid-door` 与 `tower-square-top-roof-high-windows` 都是独占），所以不需要 ALLOW_SHARED 豁免。踩过两版：`base`+`roof` 两件时读作「矮一点的战斗塔」（高矮是族内维度）；换 `tower-slant-roof` 时与 `Mine` 撞了——**那个文件不是屋顶构件而是一整座小屋**，正是 8-28 日志记的「先渲构件对照表，不要照文件名猜」。",
       "yaw": 0,
       "modules": 1,
       "parts": [
         {
-          "model": "models/kenney_castle/glb/tower-square-base.glb"
+          "model": "models/kenney_castle/glb/tower-square-mid-door.glb"
         },
         {
-          "model": "models/kenney_castle/glb/tower-square-roof.glb"
+          "model": "models/kenney_castle/glb/tower-square-top-roof-high-windows.glb"
         }
       ]
     }

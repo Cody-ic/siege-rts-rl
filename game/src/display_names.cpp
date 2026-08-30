@@ -98,7 +98,7 @@ std::string_view display_name(rts::UnitType t) noexcept {
         case rts::UnitType::Scout:   return "游猎斥候";
         case rts::UnitType::Mason:   return "工匠";
         case rts::UnitType::Ghoul:   return "亡灵步兵";
-        case rts::UnitType::Shade:   return "亡灵弓手";
+        case rts::UnitType::Shade:   return "亡灵法师";
         case rts::UnitType::Knight:  return "鬼域骑士团";
         case rts::UnitType::Phoenix: return "不死鸟";
         case rts::UnitType::Wraith:  return "幽影窥使";

@@ -97,7 +97,7 @@ public:
     MobilityKind mobility() const noexcept override { return MobilityKind::HeavySlow; }
 };
 
-// 亡灵弓手：中程单体，**持续压制墙头守军**。
+// 亡灵法师：中程单体，**持续压制墙头守军**。
 // 与 `Archer` 三轴完全相同——这是对的：它们是二部图里对称的一对，
 // 差别在阵营与数值，不在结构。`side()` 已经由 `roster.hpp` 区分。
 class ShadeBehavior final : public UnitBehavior {
