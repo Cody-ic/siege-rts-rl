@@ -59,13 +59,18 @@ rts::WorldInit one(int seed, int attackers) {
     init.buildings.push_back(rts::BldInit{rts::BldType::Keep, init.keep, 200, 200});
     init.buildings.push_back(
         rts::BldInit{rts::BldType::Wall, rts::GridPos{10, 10}, 50, 50});
+    // **`force` 必须留 `kNoForce`（0xFF），不能写 0。** 0 是一个**合法的编队号**，
+    // 而「编队是守方概念，攻方初始单位不得带编队」是 `World` 构造时的契约检查
+    // ——初版把最后那个字段写成 `0`，于是四条用例全在构造那一行抛。
+    // 被契约挡住是好事：那条检查存在的理由正是「攻方没有编队」这个设计事实。
     for (int k = 0; k < attackers; ++k) {
         init.units.push_back(rts::UnitInit{
             rts::UnitType::Ghoul,
-            rts::Vec2{12.5f + static_cast<float>(k), 12.5f}, 1, 20, 20, 0});
+            rts::Vec2{12.5f + static_cast<float>(k), 12.5f}, 1, 20, 20,
+            rts::kNoForce});
     }
     init.units.push_back(rts::UnitInit{
-        rts::UnitType::Archer, rts::Vec2{9.5f, 10.5f}, 1, 20, 20, 0});
+        rts::UnitType::Archer, rts::Vec2{9.5f, 10.5f}, 1, 20, 20, rts::kNoForce});
     init.seed = static_cast<std::uint64_t>(1000 + seed);
     init.map_id = "batchenv";
     init.nominal_level = 1;
