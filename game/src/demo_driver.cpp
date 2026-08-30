@@ -84,7 +84,7 @@ rts::WorldInit demo_init(const MapData& map, const rts::StatsTable& stats,
 
 DemoBattle::DemoBattle(const MapData& map, const rts::StatsTable& stats,
                        std::uint64_t seed)
-    : w_(demo_init(map, stats, seed)) {
+    : w_(demo_init(map, stats, seed)), script_(ScriptParams{}, seed ^ 0x9e3779b9u) {
     // 0 号编队受命驻守堡垒正东的三段墙（含门楼——「墙段」的判据是 Wall‖Gate）。
     // 弓手爬上去之后吃高度优势：射程加成、被低处打有 miss 且减伤（第三批），
     // Shade 压制墙头 vs 墙头反压制的画面由此涌现，脚本仍然一行战术没写。
@@ -146,33 +146,32 @@ rts::UnitAction DemoBattle::flow_step(rts::UnitId id) {
 void DemoBattle::issue_actions() {
     // field 每个决策拍作废重算：破坏代价读的是当前墙血，决策拍之间它在变。
     for (auto& f : flow_) f.reset();
-    for (const rts::Side side : {rts::Side::Defender, rts::Side::Attacker}) {
-        w_.enumerate_units(side, ids_);
-        acts_.clear();
-        acts_.reserve(ids_.size());
-        for (const rts::UnitId id : ids_) {
-            const std::uint16_t mask = w_.action_mask(id);
-            rts::UnitAction a = rts::UnitAction::Stop;
-            if (side == rts::Side::Defender) {
-                // 守方：有敌就打，没有就守在原地（驻守的在墙上照打）。
-                if (has(mask, rts::UnitAction::AtkNear)) a = rts::UnitAction::AtkNear;
-            } else {
-                // 攻方：优先打得着的人，Ram 优先砸墙，否则按 flow field 向
-                // 堡垒推进（第六批）——「绕远走缺口 vs 就近砸墙」由代价模型
-                // 自己比较，field 指进墙格的那一步会变成自动破坏（机制）。
-                if (has(mask, rts::UnitAction::AtkNear)) {
-                    a = rts::UnitAction::AtkNear;
-                } else if (w_.unit_type(id) == rts::UnitType::Ram &&
-                           has(mask, rts::UnitAction::AtkWall)) {
-                    a = rts::UnitAction::AtkWall;
-                } else {
-                    a = flow_step(id);
-                }
-            }
-            acts_.push_back(a);
+
+    // 守方：执行层脚本（拉扯 / 堵口不追 / 避骑士摸攻城锤 / 命令翻译）。
+    w_.enumerate_units(rts::Side::Defender, ids_);
+    script_.decide(w_.view(rts::Side::Defender), ids_, acts_);
+    w_.submit_actions(rts::Side::Defender, acts_.data(), acts_.size());
+
+    // 攻方：占位脚本（正式形态是逐单位 RL）——优先打得着的人，Ram 优先砸墙，
+    // 否则按 flow field 向堡垒推进（「绕远走缺口 vs 就近砸墙」由代价模型
+    // 自己比较，field 指进墙格的那一步会变成自动破坏）。
+    w_.enumerate_units(rts::Side::Attacker, ids_);
+    acts_.clear();
+    acts_.reserve(ids_.size());
+    for (const rts::UnitId id : ids_) {
+        const std::uint16_t mask = w_.action_mask(id);
+        rts::UnitAction a = rts::UnitAction::Stop;
+        if (has(mask, rts::UnitAction::AtkNear)) {
+            a = rts::UnitAction::AtkNear;
+        } else if (w_.unit_type(id) == rts::UnitType::Ram &&
+                   has(mask, rts::UnitAction::AtkWall)) {
+            a = rts::UnitAction::AtkWall;
+        } else {
+            a = flow_step(id);
         }
-        w_.submit_actions(side, acts_.data(), acts_.size());
+        acts_.push_back(a);
     }
+    w_.submit_actions(rts::Side::Attacker, acts_.data(), acts_.size());
 }
 
 void DemoBattle::update(int ticks) {

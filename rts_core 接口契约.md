@@ -131,6 +131,10 @@
 > cell_open 的唯一实体例外）是行为变更而非布局变更，`kWorldHashTag`
 > 照样进格——不进的话旧录像报 `Diverged`（读作「确定性坏了」），
 > 进了报 `HashTagMismatch`（读作「口径变了，重录」），诊断成本差一个下午。
+> **随后守方脚本执行层（`game::DefenderScript`）落地时，`WorldView` 补了两个
+> 只读直通**：`stats()`（脚本与 flow field 按它算代价，与机制同一份表）与
+> `action_mask(id)`（掩码本来就是观测的一部分；不给这条，脚本就得捧着
+> `World&`，「脚本一律经 `WorldView`」那条纪律就名存实亡）。
 
 两条要点：
 

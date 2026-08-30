@@ -1,12 +1,11 @@
 // Demo 对局驱动：一张地图 + 数值表 → 一场脚本化攻防。
 //
-// 它是**演示与联调工具，不是守方脚本执行层**（README 未认领工作第 6 项是后者，
-// 判据在 `守方AI与协同演化.md` 2.5——参数化、可随机化、承载克制表里写死的战术）。
-// 本类只做四件事：建世界、摆两边的开局兵力、每个决策周期给双方发一遍
-// 最傻的动作（守方有敌就打、攻方向堡垒推进）、推进 tick。
-// 它的价值是让「机制第一批」有一个**能看**的整体形态——攻方过桥、
-// 啃墙、破口、进城，守方箭塔与防空开火，全部由机制自己涌现，
-// 脚本一行战术都没写。
+// 它是**演示与联调工具**。守方一侧现在走真的执行层脚本
+// （`game::DefenderScript`，README 第 6 项的最终形态）——弓手拉扯、枪卫
+// 堵口不追、游骑避骑士摸攻城锤都由脚本给出；攻方一侧仍是占位脚本
+// （打得着就打、否则按 flow field 向堡垒推进），它的正式形态是逐单位 RL。
+// 本类只做四件事：建世界、摆两边的开局兵力、每个决策周期发一遍动作、
+// 推进 tick。
 //
 // 放在 `game/`（不在 `render/`）：它不含像素，且要在默认构建里被测——
 // 「demo 跑 N tick 后墙被打破」是一条真断言，GCC 侧也验。
@@ -19,6 +18,7 @@
 #include <optional>
 #include <vector>
 
+#include "game/defender_script.hpp"
 #include "game/map_data.hpp"
 #include "rts/flow.hpp"
 #include "rts/stats.hpp"
@@ -46,6 +46,8 @@ private:
     rts::UnitAction flow_step(rts::UnitId id);
 
     rts::World w_;
+    // 守方执行层（参数取占位默认；种子从对局种子派生，demo 因此仍是确定性的）。
+    DefenderScript script_;
     int since_decision_ = 0;
     std::vector<rts::UnitId> ids_;
     std::vector<rts::UnitAction> acts_;
