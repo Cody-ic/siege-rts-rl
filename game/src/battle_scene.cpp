@@ -107,6 +107,8 @@ std::vector<DrawItem> BattleScene::sorted(const MapData& map,
     const auto u_windup = view.unit_windup();
     const auto u_tgt = view.unit_target_kind();
     const auto u_aim = view.unit_aim();
+    const auto u_garrison = view.unit_garrison();
+    const auto u_mount = view.unit_mount();
     for (std::size_t k = 0; k < u_alive.size(); ++k) {
         if (u_alive[k] == 0) continue;
         DrawItem it;
@@ -114,6 +116,9 @@ std::vector<DrawItem> BattleScene::sorted(const MapData& map,
         it.world = u_pos[k];
         it.pos = rts::grid_of(u_pos[k]);
         it.sprite = rts::ident_of(u_type[k]);
+        // 驻守登顶：抬到墙顶画（仿真里位置就是墙格中心，画面上要站在墙上；
+        // 在爬的还在地面，不抬）。数值是视觉占位，随墙的精灵高度调。
+        if (u_garrison[k] != rts::kNoSlot && u_mount[k] == 0) it.lift = 0.75f;
         const bool winding = u_windup[k] > 0 && u_tgt[k] != rts::TgtKind::None;
         it.facing = facing_of(u_action[k], u_pos[k], u_aim[k], winding);
         it.state = winding ? "attack" : (rts::is_move(u_action[k]) ? "move" : "idle");

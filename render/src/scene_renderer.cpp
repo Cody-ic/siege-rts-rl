@@ -22,8 +22,11 @@ void SceneRenderer::place(const game::DrawItem& item) {
 
     const Sprite& s = atlas_->get(item.sprite, state, game::to_string(item.facing), frame);
     // 单位在格间连续移动，用连续投影；静态项照旧按格心。
-    const rts::Vec2 c = item.continuous ? proj_.world_to_screen(item.world)
-                                        : proj_.grid_to_screen(item.pos);
+    rts::Vec2 c = item.continuous ? proj_.world_to_screen(item.world)
+                                  : proj_.grid_to_screen(item.pos);
+    // 竖直提升（驻守单位站上墙顶）。`lift` 的单位是格高，像素换算在这一侧
+    // （§7：像素几何只有一个来源）。血条跟着 c 一起抬，不用另算。
+    c.y -= item.lift * static_cast<float>(proj_.tile_h());
     // 截断而不是四舍五入，与 `preview_map.py` 的 `int(x - ax)` 一致。
     // 锚点里确实有 .5（例如 Archer 的 227.5），两种取法差一个像素——
     // 差一个像素本身无所谓，但**两边不一致**会让「照抄那份 Python 校验渲染结果」

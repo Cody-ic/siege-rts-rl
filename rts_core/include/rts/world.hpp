@@ -32,10 +32,21 @@
 //   * **经济收入**：每结算周期，完工的采集建筑在对应资源点上产出
 //     （`resource_of()`），`Keep` 恒产极少量金币（兵力地板）
 //
-// **仍未做**（继续被 `deferred_command_count()` 记账，不静默丢弃）：`Garrison`
-// ——它的执行层（驻守解算：上墙延迟、钉在墙上、高度优势）在 `World` 内，
-// 与高度优势成对，单独一批；只存指令而不解算比记账更糟。此外：flow field 寻路、
-// 克制倍率矩阵、冲锋助跑、在途弹丸实体。实现时把计数器删掉的那条约定不变。
+// **第三批**（驻守与高度优势，src/mechanics.cpp 的 tick_garrison 一族）：
+//
+//   * **`Garrison` 解算**：命令记成**按格的驻守指令**（`garrison_order_`，
+//     与 `MoveForce` / `Clear` 同一先例），指令格上有完工的 `Wall` / `Gate` 时，
+//     同编队的相邻守方单位**自动登墙**（延迟查表），一格一人、登顶后钉住；
+//     `MoveForce` 即召回（清指令 + 下墙）。**12 种命令自此全部解算**，
+//     `deferred_command_count()` 按约定已删
+//   * **高度优势**（Stronghold 三条，CLAUDE.md「防御建筑与城墙是消耗品」）：
+//     低处打墙上单位有 miss 且伤害打折、远程驻守吃射程加成（幅度全查表）；
+//     **墙血 < 一半三者一起消失**（「局部破损」的二值实现，见 `on_high_wall`）；
+//     墙被拆 ⇒ 强制下墙站缺口
+//
+// **仍未做**：flow field 寻路、克制倍率矩阵、冲锋助跑、在途弹丸实体。
+// 它们都不是命令（没有可记账的输入），「本版没做」的可断言形式是
+// 各自的观测效应缺席（如单体伤害仍在落地帧瞬时结算）。
 //
 // 每个 tick 内的阶段顺序固定，见 `advance()` 的注释——**改顺序等于让所有
 // 已录回放失效**（要动就把 `kWorldHashTag` 一起进格）。
@@ -306,6 +317,10 @@ struct UnitInit {
     std::int32_t level = kMinUnitLevel;
     std::int64_t hp = 1;
     std::int64_t max_hp = 1;
+    // 编队（第三批补）。缺它时「开局就有编制的守军」这种初始局面无从表达——
+    // 而驻守指令按编队匹配，回放里的初始状态只能由 WorldInit 表达（见上）。
+    // **编队是守方概念**（force_target_ 那段），攻方单位带编队会在构造时被拒。
+    std::uint8_t force = kNoForce;
 };
 
 struct WorldInit {
@@ -401,7 +416,11 @@ inline GridPos pos_of_slot(std::uint16_t slot, int width) noexcept {
 //
 // `World/4` → `World/5`：机制第二批给建筑加了四个字段（完工位 / 在训兵种 /
 // 在训剩余 / 在训编队）、给障碍加了清野指令位、另加守方的编队去处表，全部进哈希。
-inline constexpr std::string_view kWorldHashTag = "World/5";
+//
+// `World/5` → `World/6`：机制第三批加了单位的上墙延迟字段与按格的驻守指令表
+// （进哈希），并**删掉**了未解算命令计数器（12 种命令全部解算，它的喂入项
+// 随之消失——删字段与加字段一样是改口径）。
+inline constexpr std::string_view kWorldHashTag = "World/6";
 
 class WorldView;
 
@@ -473,14 +492,17 @@ public:
     //
     //   1. 排空命令队列（守方先、攻方后，各按提交顺序）
     //   2. 单位战斗：冷却递减；已承诺的前摇递减、到 0 落地结算；
-    //      空闲且动作为 `Atk*` 的按目标选择承诺出手（打不到就空转，乙）
+    //      空闲且动作为 `Atk*` 的按目标选择承诺出手（打不到就空转，乙；
+    //      **在爬墙的不出手**——上墙延迟就是这段不设防）
     //   3. 单位移动：动作为 `Move*` 且不在前摇中的连续推进；
-    //      撞上可破坏阻挡物自动承诺破坏
-    //   4. 建筑战斗（`Tower` 对地 / `Flak` 对空；**未完工不开火**）
-    //   5. 经济：施工 / 维修推进（守方 `Mason` 在半径内才走工时）、
+    //      撞上可破坏阻挡物自动承诺破坏；**驻守与在爬的被钉住**
+    //   4. 驻守：在爬的推进上墙延迟、到 0 落位墙心；有指令的墙格
+    //      从同编队相邻单位里按槽位序挑一名开始登墙
+    //   5. 建筑战斗（`Tower` 对地 / `Flak` 对空；**未完工不开火**）
+    //   6. 经济：施工 / 维修推进（守方 `Mason` 在半径内才走工时）、
     //      征兵倒计时与出兵、按结算周期入账（采集建筑 + `Keep` 的金币地板）
-    //   6. 视野重算，两侧迷雾更新 + 记忆图写入（**未完工无视野**）
-    //   7. tick + 1
+    //   7. 视野重算，两侧迷雾更新 + 记忆图写入（**未完工无视野**）
+    //   8. tick + 1
     //
     // 各阶段内一律按**槽位下标升序**遍历——与 `enumerate_units` 同一个规范顺序。
     void advance(int ticks);
@@ -538,6 +560,10 @@ public:
     // 已承诺攻击的锁定落点。**在前摇开始那一刻定死**，此后目标走了它也不追
     // ——「散开克溅射」的全部实现就在这一条（CLAUDE.md「结构破坏规则」）。
     Vec2 unit_aim(UnitId id) const;
+    // 驻守状态（第三批）。`garrison == kNoSlot` = 在地面；否则该值是墙格的
+    // 线性下标，`mount > 0` = 还在爬（既不能打也不能走），`mount == 0` = 已登顶。
+    std::uint16_t unit_garrison(UnitId id) const;
+    std::int32_t unit_mount(UnitId id) const;
 
     BldType bld_type(BldId id) const;
     GridPos bld_pos(BldId id) const;
@@ -579,11 +605,14 @@ public:
     }
     bool obstacle_clear_ordered(ObstacleId id) const;
 
-    // 本版没解算的命令，按种类计数。第二批解算掉六种，**只剩 `Garrison`**
-    // （它的执行层与高度优势成对，单独一批）。做完驻守解算就把这个函数删掉。
-    std::int64_t deferred_command_count(CommandKind k) const noexcept {
-        return deferred_[static_cast<std::size_t>(k)];
-    }
+    // 某个格上的驻守指令（`Garrison` 的解算产物，第三批）。值是编队号，
+    // `kNoForce` = 没下过。它是**常设指令**：驻守者阵亡后同编队的相邻单位会
+    // 自动补位，直到 `MoveForce` 召回或那段墙被拆。
+    std::uint8_t garrison_order(std::uint16_t slot) const;
+
+    // `deferred_command_count()` 曾在这里：未解算的命令按种类记账，
+    // 好让「本版没做这一类」是可断言的事实。第三批解算掉最后一种（`Garrison`），
+    // 计数器按当初的约定一并删除——12 种命令自此全部解算。
 
     // ——迷雾（决定 ⑥）——
     //
@@ -669,9 +698,29 @@ private:
     // 守方 `Mason` 是否在 `pos` 的施工半径内（半径查表 `mason_work_radius`）。
     // 第二批取「在场与否」的二值——多名工匠不加速，是占位机制，标定时再议。
     bool mason_near(GridPos pos) const;
-    // 给槽位 `k` 上的建筑找一个出兵格：八邻按行主序扫，取第一个
-    // 地形可通行、无建筑无障碍、无地面单位的格。找不到返回 false（下 tick 再试）。
+    // 给槽位 `k` 上的建筑找一个出兵格。找不到返回 false（下 tick 再试）。
     bool try_train_spawn(std::size_t k);
+    // 八邻按行主序（dj 外层、di 内层）扫，取第一个地形可通行、无建筑无障碍、
+    // 无地面单位站着的格。**顺序即规范**——征兵出兵与驻守下墙共用这一个，
+    // 两处各扫一套就是两个会分叉的规范。
+    bool find_free_ground_cell(GridPos at, GridPos& out) const;
+
+    // ——机制第三批的内部阶段与助手（同在 src/mechanics.cpp）——
+
+    // 驻守解算：在爬的推进延迟、到 0 落位墙心；有指令的墙格挑人开始登墙。
+    void tick_garrison();
+    // 槽位 `k` 上的单位是否**站在有高度的墙上**：已登顶，且脚下的墙活着、
+    // 血量 >= 一半。三条高度优势（miss / 减伤 / 远程射程加成）共用这一个判据
+    // ——「局部破损：墙段掉血不影响墙上单位，直到高度降至原高度一半」的
+    // 二值实现（CLAUDE.md 抄的 Stronghold 规则，不引入新数值）。
+    bool on_high_wall(std::size_t k) const;
+    // 槽位 `k` 上单位的有效射程：基础值 + 远程驻守的高度加成。
+    // 掩码与战斗阶段都走它，两处不会各判一套（同 pick_target 那条纪律）。
+    float effective_range(std::size_t k) const;
+    // 让槽位 `k` 上的单位离开墙（含还在爬的）。已登顶的落到第一个空邻格；
+    // 邻格全被占则**保持驻守**（确定性无操作，下一条 MoveForce 可再试）——
+    // 墙格几乎总有空邻格（校验器要求墙有内外两侧），这条边界不值得一个重试态。
+    void dismount_unit(std::size_t k);
 
     // 承诺一次攻击：锁定落点、起前摇、进冷却。`windup_ticks == 0` 时当场落地。
     void commit_attack(std::size_t k, const TargetPick& t);
@@ -716,6 +765,7 @@ private:
     std::vector<std::int32_t> u_windup_;      // 攻击前摇剩余 tick，0 = 可出手
     std::vector<UnitAction> u_action_;        // 上个决策边界选的动作，保持 4–8 tick
     std::vector<std::uint16_t> u_garrison_;   // 驻守的墙段槽位，kNoSlot = 没上墙
+    std::vector<std::int32_t> u_mount_;       // 上墙延迟剩余；>0 = 在爬（人还在地面）
     std::vector<std::uint8_t> u_force_;       // 编队，kNoForce = 未编队
     std::vector<std::int32_t> u_cd_;          // 出手冷却剩余 tick，0 = 可承诺
     std::vector<TgtKind> u_tgt_kind_;         // 已承诺攻击的目标种类，None = 空闲
@@ -758,10 +808,14 @@ private:
     // 定长而不是 map：256 × 2 字节，整块进哈希，零判断。编队是守方概念，
     // 攻方宏观层不用它，所以不按侧参数化。
     std::array<std::uint16_t, 256> force_target_;
+    // 按格的驻守指令（`Garrison` 的解算产物，第三批）。下标是格线性下标，
+    // 值是编队号，kNoForce = 没下过。按格而不按编队存，因为一个编队要能同时
+    // 驻守多个墙格（一格一人）——按编队存一个槽位，第二条指令就会覆盖第一条。
+    // 这与 Build / Repair / Clear 同构：它们全是按格的命令。
+    std::vector<std::uint8_t> garrison_order_;
 
     // ——输入队列——
     std::array<std::vector<Command>, kSideCount> cmd_queue_;
-    std::array<std::int64_t, kCommandKindCount> deferred_{};
 
     // ——迷雾，每侧一份——
     std::array<FogLayer, kSideCount> fog_;

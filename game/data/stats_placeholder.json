@@ -1,5 +1,5 @@
 {
-  "schema": "stats/2",
+  "schema": "stats/3",
   "_note": "全部数值为占位值，一个都没有标定过（CLAUDE.md「关于数值」：等机制框架跑通后用成本产出矩阵统一倒推）。占位的量级只求 demo 里看得出胜负与节奏，不构成任何平衡承诺。",
   "_note_2": "结构性的零不在这里承载：Scout/Mason/Wraith 打不了任何东西是 is_combat()（结构），Phoenix 对墙为 0 是 can_break_structure()（结构）。这里的 damage: 0 只是与结构一致的诚实默认。",
   "_note_3": "时间单位是 tick（20/秒），距离与速度单位是格。speed 0.10 = 每秒 2 格。",
@@ -40,12 +40,17 @@
   "global": {
     "_note": "§1.4（等级提升哪几个数值）未定，两个系数都存；定成「只涨一个」时把另一个归零，形状不动。",
     "_note_2": "income_period_ticks 100 = 每 5 秒结算一次。repair_wood_per_1000hp 15 ⇒ 修满一段 800 血的墙约 12 木，显著低于重建的 30 石 + 10 木（「维修成本显著低于重建」的占位实现）。cancel_refund_permille 上界 1000 是结构（超过就是撤单印钞），当前 700 是占位。",
+    "_note_3": "高度优势三项（miss / 伤害倍率 / 远程射程加成）与上墙延迟全是占位。哪些效果存在是结构（Stronghold 那三条，见 CLAUDE.md「防御建筑与城墙是消耗品」）；墙血 < 一半三项一起失效（局部破损）不是数值，是 on_high_wall 的判据。miss 与伤害倍率的上界 1000 也是结构（载入器会拦）：超过就把高度优势写成劣势。",
     "hp_permille_per_level": 150,
     "dmg_permille_per_level": 150,
     "income_period_ticks": 100,
     "mason_work_radius": 1.6,
     "repair_hp_per_work_tick": 4,
     "repair_wood_per_1000hp": 15,
-    "cancel_refund_permille": 700
+    "cancel_refund_permille": 700,
+    "garrison_mount_ticks": 30,
+    "high_ground_miss_permille": 300,
+    "high_ground_dmg_permille": 700,
+    "high_ground_range_bonus": 1.5
   }
 }
