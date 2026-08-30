@@ -26,10 +26,13 @@
 
 #include "raylib.h"
 
+#include "game/battle_scene.hpp"
+#include "game/demo_driver.hpp"
 #include "game/display_names.hpp"
 #include "game/iso_projection.hpp"
 #include "game/map_loader.hpp"
 #include "game/scene_model.hpp"
+#include "game/stats_loader.hpp"
 #include "render/camera_controller.hpp"
 #include "render/cli.hpp"
 #include "render/scene_overlay.hpp"
@@ -51,7 +54,10 @@ struct Options {
     std::string sprite_dir;
     std::string screenshot;      // 非空 = 截图模式
     std::string font_path;       // 非空 = 只用这个字体，不试候选
+    std::string stats_path;      // --battle 必需：JSON 数值表
     bool verify_assets = false;  // 只校验素材，不渲场景
+    bool battle = false;         // 演示对局模式（DemoBattle 驱动仿真）
+    int ticks = 0;               // 截图模式下先推进这么多 tick 再拍
     int width = 1600;
     int height = 900;
 };
@@ -68,6 +74,10 @@ void print_usage(const char* argv0) {
         "  --font <路径>         中文字体，必须是**纯 TTF**（.ttc 字体集合不行，理由见\n"
         "                        render/text.hpp）。不给则依次试 simhei.ttf、Deng.ttf\n"
         "  --size <宽> <高>      画面尺寸，默认 1600x900\n"
+        "  --battle              演示对局：攻方过桥、啃墙、破口，守方箭塔与防空开火。\n"
+        "                        需要 --stats；推荐地图 game/data/demo_skirmish.json\n"
+        "  --stats <路径>        JSON 数值表，通常是 game/data/stats_placeholder.json\n"
+        "  --ticks <N>           与 --screenshot 连用：先推进 N 个 tick 再拍（20 tick = 1 秒）\n"
         "\n"
         "窗口模式下：方向键 / WASD 平移，滚轮缩放（以鼠标为锚），中键拖拽，F 重新入画。\n"
         "            光标所在格会高亮，旁边显示这一格上有什么。\n",
@@ -117,6 +127,20 @@ bool parse(const std::vector<std::string>& args, Options& out) {
                 std::fprintf(stderr, "--size 必须为正\n");
                 return false;
             }
+        } else if (a == "--battle") {
+            out.battle = true;
+        } else if (a == "--stats") {
+            const std::string* v = next("--stats");
+            if (!v) return false;
+            out.stats_path = *v;
+        } else if (a == "--ticks") {
+            const std::string* v = next("--ticks");
+            if (!v) return false;
+            out.ticks = std::atoi(v->c_str());
+            if (out.ticks < 0) {
+                std::fprintf(stderr, "--ticks 不得为负\n");
+                return false;
+            }
         } else if (a == "--verify-assets") {
             out.verify_assets = true;
         } else if (a == "-h" || a == "--help") {
@@ -134,6 +158,12 @@ bool parse(const std::vector<std::string>& args, Options& out) {
     // 分开判而不是合成一句，是为了让报错说出**缺的是哪一个**。
     if (!out.verify_assets && out.map_path.empty()) {
         std::fprintf(stderr, "--map 是必需的（除 --verify-assets 外）\n");
+        return false;
+    }
+    if (out.battle && out.stats_path.empty()) {
+        std::fprintf(stderr,
+                     "--battle 需要 --stats <数值表>（占位表在 "
+                     "game/data/stats_placeholder.json）\n");
         return false;
     }
     return true;
@@ -336,6 +366,139 @@ int run(const Options& opt) {
 }
 
 
+// 演示对局的 HUD：波次 / tick / 双方存活 / 三种资源存量。全是真数据。
+void draw_battle_hud(const render::FontSet& font, const game::MapData& map,
+                     const rts::World& w, bool paused) {
+    char buf[320];
+    std::snprintf(buf, sizeof(buf), "地图 %s (%s)   波 %d   tick %d%s",
+                  map.name().c_str(), map.map_id().c_str(), w.wave(),
+                  static_cast<int>(w.now()), paused ? "   已暂停" : "");
+    font.draw(buf, rts::Vec2{14.0f, 12.0f}, kHudSize, Color{225, 225, 235, 255});
+
+    std::snprintf(buf, sizeof(buf), "守方 %d   攻方 %d   石 %d   木 %d   金 %d",
+                  w.live_unit_count(rts::Side::Defender),
+                  w.live_unit_count(rts::Side::Attacker),
+                  static_cast<int>(w.stock(rts::Resource::Stone)),
+                  static_cast<int>(w.stock(rts::Resource::Wood)),
+                  static_cast<int>(w.stock(rts::Resource::Gold)));
+    font.draw(buf, rts::Vec2{14.0f, 12.0f + kHudLine}, kHudSize,
+              Color{170, 175, 190, 255});
+
+    font.draw("空格暂停   方向键平移   滚轮缩放   F 重新入画",
+              rts::Vec2{14.0f, 12.0f + kHudLine * 2.0f}, kHudSize,
+              Color{140, 145, 160, 255});
+}
+
+// 演示对局模式。机制在 `rts_core`、脚本在 `game::DemoBattle`，
+// 这里只负责：以 20 Hz 推仿真、每帧从 `WorldView` 重新装配场景、画出来。
+// **本函数没有任何一行改仿真的代码**——写入只发生在 `DemoBattle::update` 里，
+// 而它属于 `game/`（玩家输入层），不属于渲染。
+int run_battle(const Options& opt) {
+    const game::MapData map = game::MapLoader::from_file(opt.map_path);
+    const rts::StatsTable stats = game::StatsLoader::from_file(opt.stats_path);
+    game::DemoBattle battle(map, stats, /*seed=*/20260830u);
+    const std::vector<game::DrawItem> tiles = game::BattleScene::tiles(map);
+
+    if (!opt.screenshot.empty()) SetConfigFlags(FLAG_WINDOW_HIDDEN);
+    SetTraceLogLevel(LOG_WARNING);
+    InitWindow(opt.width, opt.height, "siege-rts-rl — 演示对局");
+    if (!IsWindowReady()) {
+        std::fprintf(stderr, "开不了窗口（没有可用的 OpenGL 上下文？）\n");
+        return 2;
+    }
+    render::SpriteAtlas atlas(opt.sprite_dir);
+    const game::IsoProjection proj(atlas.px_per_tile());
+    render::SceneRenderer renderer(atlas, proj);
+
+    const rts::WorldView view = battle.world().view(rts::Side::Defender);
+    renderer.preload(tiles, game::BattleScene::sorted(map, view, 0));
+
+    const std::vector<std::string_view> cover = font_coverage(map);
+    const std::unique_ptr<render::FontSet> font =
+        render::FontSet::open(opt.font_path, kFontBakeSize, cover);
+
+    const Vector2 viewport{static_cast<float>(opt.width), static_cast<float>(opt.height)};
+    render::CameraController cam;
+    cam.fit(proj, map.width(), map.height(), viewport);
+    const Color bg{30, 30, 38, 255};
+
+    if (!opt.screenshot.empty()) {
+        battle.update(opt.ticks);
+        const std::vector<game::DrawItem> sorted =
+            game::BattleScene::sorted(map, view, battle.world().now());
+        RenderTexture2D rt = LoadRenderTexture(opt.width, opt.height);
+        BeginTextureMode(rt);
+        ClearBackground(bg);
+        BeginMode2D(cam.camera());
+        renderer.draw(tiles, sorted);
+        EndMode2D();
+        draw_battle_hud(*font, map, battle.world(), false);
+        EndTextureMode();
+        Image img = LoadImageFromTexture(rt.texture);
+        ImageFlipVertical(&img);
+        int png_size = 0;
+        unsigned char* png = ExportImageToMemory(img, ".png", &png_size);
+        bool ok = false;
+        if (png != nullptr && png_size > 0) {
+            ok = rts::write_file_bytes(opt.screenshot, png,
+                                       static_cast<std::size_t>(png_size));
+        }
+        if (png != nullptr) MemFree(png);
+        UnloadImage(img);
+        UnloadRenderTexture(rt);
+        CloseWindow();
+        if (!ok) {
+            std::fprintf(stderr, "写不出 %s\n", opt.screenshot.c_str());
+            return 3;
+        }
+        std::printf("已导出 %s（tick %d）\n", opt.screenshot.c_str(),
+                    static_cast<int>(battle.world().now()));
+        return 0;
+    }
+
+    SetTargetFPS(60);
+    bool paused = false;
+    double acc = 0.0;
+    const double kTickDt = 1.0 / static_cast<double>(rts::kTicksPerSecond);
+    while (!WindowShouldClose()) {
+        if (IsWindowResized()) {
+            cam.set_viewport(Vector2{static_cast<float>(GetScreenWidth()),
+                                     static_cast<float>(GetScreenHeight())});
+        }
+        if (IsKeyPressed(KEY_F)) {
+            cam.fit(proj, map.width(), map.height(),
+                    Vector2{static_cast<float>(GetScreenWidth()),
+                            static_cast<float>(GetScreenHeight())});
+        }
+        if (IsKeyPressed(KEY_SPACE)) paused = !paused;
+        cam.update(GetFrameTime());
+
+        if (!paused) {
+            acc += static_cast<double>(GetFrameTime());
+            int steps = 0;
+            // 单帧最多补 5 个 tick：掉帧时宁可仿真慢下来，也不追出一大步。
+            while (acc >= kTickDt && steps < 5) {
+                battle.update(1);
+                acc -= kTickDt;
+                ++steps;
+            }
+        }
+
+        const std::vector<game::DrawItem> sorted =
+            game::BattleScene::sorted(map, view, battle.world().now());
+
+        BeginDrawing();
+        ClearBackground(bg);
+        BeginMode2D(cam.camera());
+        renderer.draw(tiles, sorted);
+        EndMode2D();
+        draw_battle_hud(*font, map, battle.world(), paused);
+        EndDrawing();
+    }
+    CloseWindow();
+    return 0;
+}
+
 // 真正的入口。**约定：进来的每一条参数都是 UTF-8**，由 `cli_entry.cpp` 保证。
 int cli_main_impl(const std::vector<std::string>& args) {
     Options opt;
@@ -344,7 +507,8 @@ int cli_main_impl(const std::vector<std::string>& args) {
         return 1;
     }
     try {
-        return opt.verify_assets ? run_verify(opt) : run(opt);
+        if (opt.verify_assets) return run_verify(opt);
+        return opt.battle ? run_battle(opt) : run(opt);
     } catch (const std::exception& e) {
         // 地图格式错、素材缺失、字体缺字都走这里。**打完整信息再退非零**——
         // 这几类失败的报错里带着「哪个文件、哪个字段、哪个字符、哪些可选值」，

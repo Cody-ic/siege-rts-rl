@@ -22,10 +22,15 @@ public:
     // 必须在 `BeginMode2D` 与 `EndMode2D` 之间调用——平移与缩放由相机负责，
     // 本类只管「哪张图贴在哪个世界坐标」。
     void draw(const game::DrawLists& lists);
+    // 动态场景版本（`game::BattleScene` 的产物：静态地砖 + 每帧重排的深度序列）。
+    void draw(const std::vector<game::DrawItem>& tiles,
+              const std::vector<game::DrawItem>& sorted);
 
     // 把绘制列表里出现的全部标识符预载一遍，缺素材立刻抛。
     // 理由见 SpriteAtlas::preload_idle：渲到一半才报错比一开始就报错难查得多。
     void preload(const game::DrawLists& lists);
+    void preload(const std::vector<game::DrawItem>& tiles,
+                 const std::vector<game::DrawItem>& sorted);
 
 private:
     // 关键一步：把**锚点**对齐到格心，而不是把图片左上角对齐到格心。
