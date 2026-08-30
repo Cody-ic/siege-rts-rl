@@ -277,3 +277,89 @@ TEST_CASE("维修提示：只有完工、掉了血、且没在修的建筑可以
     REQUIRE(w.stock(rts::Resource::Wood) < 1000);
     REQUIRE_FALSE(game::can_repair_hint(w.view(rts::Side::Defender), rts::GridPos{4, 3}));
 }
+
+// 一次试玩报出来的 bug：招兵 / 建筑 / 维修的弹窗只查了位置合法性
+// （`can_place_hint` / `can_train_hint` / `can_repair_hint`），没查资源够
+// 不够——资源不足时弹窗仍然亮绿框，点了却被 `World` **静默**拒绝
+// （买不起时解算是 `break`，什么都不说），玩家只看到「点了没反应」。
+//
+// 这条把新的 `can_afford_*` 与「真提交一条命令」对照检查：hint 说不能，
+// 提交后资源纹丝不动（真被拒了，不是碰巧）；hint 说能，提交后资源确实
+// 按公式扣掉（真的生效了，不是碰巧变绿）。三种资源各占一条决策轴
+// （石/木 → 建造，金 → 征兵，木 → 维修），所以三个都要查，不能只查一个
+// 就当全查过了。
+TEST_CASE("造价提示：资源不够时红框，够了才绿（试玩报的 bug）", "[input]") {
+    rts::WorldInit init = iarena();
+    init.stats.bld[static_cast<std::size_t>(rts::BldType::Wall)].cost_stone = 50;
+    init.stats.bld[static_cast<std::size_t>(rts::BldType::Wall)].cost_wood = 20;
+    init.stats.unit[static_cast<std::size_t>(rts::UnitType::Archer)].cost_gold = 60;
+    init.stats.global.repair_wood_per_1000hp = 100;
+    rts::World w(init);
+    w.place_bld(rts::BldType::Barrack, rts::GridPos{2, 1}, 50, 50);
+    w.place_bld(rts::BldType::Wall, rts::GridPos{4, 3}, 10, 40);   // 残血，缺口 30
+
+    // ——建造：位置合法，但石木都不够——
+    {
+        const rts::WorldView v = w.view(rts::Side::Defender);
+        REQUIRE(game::can_place_hint(v, rts::BldType::Wall, rts::GridPos{8, 1}));
+        REQUIRE_FALSE(game::can_afford_build(v, rts::BldType::Wall));   // 0 < 50
+        const rts::Command c = game::build_command(rts::BldType::Wall, rts::GridPos{8, 1}, 10);
+        w.submit(rts::Side::Defender, &c, 1);
+        w.advance(1);
+        REQUIRE(w.stock(rts::Resource::Stone) == 0);   // 真被拒了：一分没扣
+    }
+    w.set_stock(rts::Resource::Stone, 100);
+    w.set_stock(rts::Resource::Wood, 100);
+    {
+        const rts::WorldView v = w.view(rts::Side::Defender);
+        REQUIRE(game::can_afford_build(v, rts::BldType::Wall));
+        const rts::Command c = game::build_command(rts::BldType::Wall, rts::GridPos{8, 1}, 10);
+        w.submit(rts::Side::Defender, &c, 1);
+        w.advance(1);
+        REQUIRE(w.stock(rts::Resource::Stone) == 50);   // 真生效了：扣了造价
+    }
+
+    // ——征兵：兵营完工可点，但金不够——
+    w.set_stock(rts::Resource::Gold, 10);
+    {
+        const rts::WorldView v = w.view(rts::Side::Defender);
+        REQUIRE(game::can_train_hint(v, rts::GridPos{2, 1}));
+        REQUIRE_FALSE(game::can_afford_train(v, rts::UnitType::Archer));   // 10 < 60
+        const rts::Command c =
+            game::train_command(rts::UnitType::Archer, 0, rts::GridPos{2, 1}, 10);
+        w.submit(rts::Side::Defender, &c, 1);
+        w.advance(1);
+        REQUIRE(w.stock(rts::Resource::Gold) == 10);   // 真被拒了
+    }
+    w.set_stock(rts::Resource::Gold, 100);
+    {
+        const rts::WorldView v = w.view(rts::Side::Defender);
+        REQUIRE(game::can_afford_train(v, rts::UnitType::Archer));
+        const rts::Command c =
+            game::train_command(rts::UnitType::Archer, 0, rts::GridPos{2, 1}, 10);
+        w.submit(rts::Side::Defender, &c, 1);
+        w.advance(1);
+        REQUIRE(w.stock(rts::Resource::Gold) == 40);   // 真生效了
+    }
+
+    // ——维修：缺口 30，价 = ceil(30×100÷1000) = 3，先给不够的——
+    w.set_stock(rts::Resource::Wood, 2);
+    {
+        const rts::WorldView v = w.view(rts::Side::Defender);
+        REQUIRE(game::can_repair_hint(v, rts::GridPos{4, 3}));
+        REQUIRE_FALSE(game::can_afford_repair(v, rts::GridPos{4, 3}));   // 2 < 3
+        const rts::Command c = game::repair_command(rts::GridPos{4, 3}, 10);
+        w.submit(rts::Side::Defender, &c, 1);
+        w.advance(1);
+        REQUIRE(w.stock(rts::Resource::Wood) == 2);   // 真被拒了
+    }
+    w.set_stock(rts::Resource::Wood, 10);
+    {
+        const rts::WorldView v = w.view(rts::Side::Defender);
+        REQUIRE(game::can_afford_repair(v, rts::GridPos{4, 3}));
+        const rts::Command c = game::repair_command(rts::GridPos{4, 3}, 10);
+        w.submit(rts::Side::Defender, &c, 1);
+        w.advance(1);
+        REQUIRE(w.stock(rts::Resource::Wood) == 7);   // 真生效了：扣了 3
+    }
+}
