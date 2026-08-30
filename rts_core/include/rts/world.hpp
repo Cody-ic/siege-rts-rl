@@ -1,25 +1,33 @@
-// 世界状态：三组扁平数组 + 输入队列 + 迷雾 + 状态哈希。
+// 世界状态：三组扁平数组 + 输入队列 + 迷雾 + 状态哈希 + **机制第一批**。
 //
 // 这是 `rts_core 接口契约.md` §2 表里的第一行，落地的是决定 ①（两段式
 // `submit` / `advance`）、⑤（三组句柄）、⑥（每侧一份迷雾）。
 //
-// ## 本版**没有任何机制**，这是刻意的分片，不是半成品
+// ## 机制的进度：第一批已在，剩下的照旧记账
 //
-// 战斗解算、寻路、视野、经济归 1c（**tracker 是 #57**；#28 是 @ArLiangz 的认领
-// 记录，不是可跟踪的条目）。本文件给的是
-// **它们要写进去的那个形状**：数据在哪、句柄怎么失效、输入怎么进来、
-// 状态怎么压成一个可比对的标量。
+// 1c（tracker 是 #57）分批落地。**第一批**（数值全部经 `WorldInit::stats` 进来，
+// 见 `rts/stats.hpp`）：
 //
-// 「没有机制」的边界画在一条清晰的线上：**凡是需要一个待标定数值才能推进的，
-// 本版不做；凡是不需要的，本版做完**。于是 `advance()` 不是空操作——
-// 它推进 tick、排空命令队列、把能在无数值前提下完全应用的命令当场应用、
-// 递减两个纯计数器（攻击前摇、施工进度）。这一点很重要：
-// **一个什么都不做的 `advance()` 会让回放测试变成永远绿的摆设。**
+//   * **承伤与死亡**：伤害走整数与千分比（决定 ⑫，`rts/combat_math.hpp`），
+//     血量归零即销毁；障碍被守方打掉产出资源（数额查表，种类是 `harvest_of()`）
+//   * **目标选择与攻击**：四个 `Atk*` 按 §1.1.1 的乙定案——打不到就空转，
+//     掩码的攻击 4 位随之升级为**精确**（射程内有没有合法目标）。
+//     出手是「承诺（前摇开始，**落点当场锁定**）→ 落地（前摇走完）」两拍，
+//     `Ram` 的 AOE 砸的是锁定的坐标，散开真的能躲（CLAUDE.md「结构破坏规则」）
+//   * **相邻格移动**：按 `move_delta` 连续推进，地形 + 穿角 + 占位建筑/障碍拦路；
+//     **撞上可破坏的阻挡物自动开始破坏**（寻路把障碍当「高代价可通行」的
+//     第一半——绕不绕远由策略选方向，撞上去就砸是机制）
+//   * **建筑攻击**：`Tower` 对地、`Flak` 仅对空（结构性，不是数值）
+//   * **视野**：逐 tick 重算两侧迷雾（半径查表 + `blocks_vision` 视线遮挡，
+//     空中单位不受遮挡），可见格上的建筑写进记忆图
 //
-// 剩下七种命令（`Build` / `Repair` / `Cancel` / `Train` / `MoveForce` /
-// `Garrison` / `Clear`）需要造价与耗时，所以本版不解算它们——但**不静默丢弃**，
-// 而是累加到 `deferred_command_count()`。于是「本版没做这一类」是一个
-// 可以被读出、可以被断言的事实。1c 实现它们时把计数器一并删掉。
+// **仍未做**（继续被 `deferred_command_count()` 记账，不静默丢弃）：七种命令
+// （`Build` / `Repair` / `Cancel` / `Train` / `MoveForce` / `Garrison` / `Clear`）、
+// flow field 寻路、克制倍率矩阵、冲锋助跑、高度优势、驻守解算、经济采集、
+// 在途弹丸实体。实现时把计数器删掉的那条约定不变。
+//
+// 每个 tick 内的阶段顺序固定，见 `advance()` 的注释——**改顺序等于让所有
+// 已录回放失效**（要动就把 `kWorldHashTag` 一起进格）。
 //
 // ## 谁能写、谁只能读
 //
@@ -85,6 +93,27 @@ constexpr std::string_view ident_of(WavePhase p) noexcept {
     switch (p) {
         case WavePhase::Build:   return "Build";
         case WavePhase::Assault: return "Assault";
+    }
+    return {};
+}
+
+// 一次已承诺攻击的目标是三组实体之一（或没有）。**这不是 `Side::Neutral` 的
+// 变体**——它不进观测通道，只是「前摇落地时去找谁」的判别标签。
+enum class TgtKind : std::uint8_t {
+    None = 0,
+    Unit = 1,
+    Bld = 2,
+    Obstacle = 3,
+};
+
+inline constexpr int kTgtKindCount = 4;
+
+constexpr std::string_view ident_of(TgtKind k) noexcept {
+    switch (k) {
+        case TgtKind::None:     return "None";
+        case TgtKind::Unit:     return "Unit";
+        case TgtKind::Bld:      return "Bld";
+        case TgtKind::Obstacle: return "Obstacle";
     }
     return {};
 }
@@ -350,7 +379,10 @@ inline GridPos pos_of_slot(std::uint16_t slot, int width) noexcept {
 // `World/2` → `World/3`：数值表指纹进了喂入清单（`rts_core 接口契约.md` §1.1.2，
 // 数值表的进入路径与指纹）。这次是**主动挑的时机**——当时已录的回放只有 `tests/`
 // 里现生成的那几份，而往后每实现一条机制都会多一批夹具回放，越晚改越贵。
-inline constexpr std::string_view kWorldHashTag = "World/3";
+//
+// `World/3` → `World/4`：机制第一批给单位加了四个字段（冷却 / 目标种类 /
+// 目标句柄 / 锁定落点）、给建筑加了三个（冷却 / 前摇 / 目标），全部进哈希。
+inline constexpr std::string_view kWorldHashTag = "World/4";
 
 class WorldView;
 
@@ -417,9 +449,19 @@ public:
 
     // 推进 `ticks` 个 tick。`ticks == 0` 是合法的空操作。
     //
-    // 每个 tick 内的顺序固定：**排空命令队列（守方先、攻方后，各按提交顺序）
-    // → 递减前摇与施工进度 → tick + 1**。顺序固定是确定性的一部分，
-    // 改它等于让所有已录回放失效。
+    // 每个 tick 内的阶段顺序**固定**（确定性的一部分，改它等于让所有已录回放
+    // 失效——要动就把 `kWorldHashTag` 一起进格）：
+    //
+    //   1. 排空命令队列（守方先、攻方后，各按提交顺序）
+    //   2. 单位战斗：冷却递减；已承诺的前摇递减、到 0 落地结算；
+    //      空闲且动作为 `Atk*` 的按目标选择承诺出手（打不到就空转，乙）
+    //   3. 单位移动：动作为 `Move*` 且不在前摇中的连续推进；
+    //      撞上可破坏阻挡物自动承诺破坏
+    //   4. 建筑战斗（`Tower` 对地 / `Flak` 对空），施工进度递减
+    //   5. 视野重算，两侧迷雾更新 + 记忆图写入
+    //   6. tick + 1
+    //
+    // 各阶段内一律按**槽位下标升序**遍历——与 `enumerate_units` 同一个规范顺序。
     void advance(int ticks);
 
     // ——实体——
@@ -470,6 +512,11 @@ public:
     Vec2 unit_pos(UnitId id) const;
     UnitAction unit_action(UnitId id) const;
     std::int32_t unit_windup(UnitId id) const;
+    std::int32_t unit_cooldown(UnitId id) const;
+    TgtKind unit_target_kind(UnitId id) const;
+    // 已承诺攻击的锁定落点。**在前摇开始那一刻定死**，此后目标走了它也不追
+    // ——「散开克溅射」的全部实现就在这一条（CLAUDE.md「结构破坏规则」）。
+    Vec2 unit_aim(UnitId id) const;
 
     BldType bld_type(BldId id) const;
     GridPos bld_pos(BldId id) const;
@@ -517,11 +564,10 @@ public:
     // 13 位，第 k 位 = `action_at(k)` 是否合法。掩码的作用是别让 agent 把样本
     // 浪费在学习规则本身（CLAUDE.md）。
     //
-    // **本版只算「不需要数值就能判」的那部分**：8 个移动方向按地形与边界判，
-    // 斜向额外吃 `kDiagonalNeedsBothOrthogonal`。攻击类四位与 `Stop` 一律置 1。
-    //
-    // 攻击位默认**允许**而不是默认禁止，方向是刻意选的：错误地允许只是浪费样本，
-    // 错误地禁止会让 agent **永远学不到**那个动作，而后者不会有任何东西提示。
+    // 移动 8 位按地形与边界判（斜向额外吃 `kDiagonalNeedsBothOrthogonal`），
+    // **攻击 4 位随目标选择落地已升级为精确**：射程内有没有一个合法目标
+    // （§1.1.1 乙的另一半）。这不是推翻「掩码里未定的位默认允许」——
+    // 那条管的是还判不出来的位，这四位现在判得出来了。`Stop` 恒为 1。
     std::uint16_t action_mask(UnitId id) const;
 
     // 11 位，第 k 位 = `command_kind_at(k)` 是否合法。
@@ -553,6 +599,36 @@ private:
 
     void apply_one(Side side, const Command& c);
     void validate(Side side, const Command& c) const;
+
+    // ——机制第一批的内部阶段（实现在 src/mechanics.cpp）——
+
+    // 一次目标选择的结果。`found == false` 时其余字段无意义。
+    struct TargetPick {
+        bool found = false;
+        TgtKind kind = TgtKind::None;
+        std::uint32_t raw = 0;
+        Vec2 pos{};        // 目标当前位置（承诺时会被锁定成 aim）
+        float dist2 = 0;   // 与攻击者的平方距离
+    };
+
+    // 为槽位 `k` 上的单位按动作选目标。**只选，不检查射程**——
+    // 射程判定分属两处：掩码问「射程内有没有」（加 dist2 条件），
+    // 战斗阶段问「选中的在不在射程内」（不在就空转，乙）。
+    TargetPick pick_target(std::size_t k, UnitAction a) const;
+
+    void tick_unit_combat();
+    void tick_movement();
+    void tick_bld_combat();
+    void tick_vision();
+
+    // 承诺一次攻击：锁定落点、起前摇、进冷却。`windup_ticks == 0` 时当场落地。
+    void commit_attack(std::size_t k, const TargetPick& t);
+    // 前摇走完，按锁定的落点 / 目标结算伤害（含 AOE 与死亡处理）。
+    void land_attack(std::size_t k);
+    // 对一个实体结算 `amount` 点伤害，归零即销毁；
+    // 障碍被守方打掉时产出资源（`dealer_side` 用于产出归属）。
+    void deal_damage(TgtKind kind, std::uint32_t raw, std::int64_t amount,
+                     Side dealer_side);
 
     // ——静态（建局时定，之后不变）——
     TerrainMasks terrain_;
@@ -589,6 +665,10 @@ private:
     std::vector<UnitAction> u_action_;        // 上个决策边界选的动作，保持 4–8 tick
     std::vector<std::uint16_t> u_garrison_;   // 驻守的墙段槽位，kNoSlot = 没上墙
     std::vector<std::uint8_t> u_force_;       // 编队，kNoForce = 未编队
+    std::vector<std::int32_t> u_cd_;          // 出手冷却剩余 tick，0 = 可承诺
+    std::vector<TgtKind> u_tgt_kind_;         // 已承诺攻击的目标种类，None = 空闲
+    std::vector<std::uint32_t> u_tgt_raw_;    // 目标句柄的 raw()，种类由上一条判别
+    std::vector<Vec2> u_aim_;                 // 锁定落点（承诺那一刻定死）
 
     // ——建筑（全部属守方，见 `rts/roster.hpp`：不存 side）——
     SlotPool<BldTag> bld_pool_;
@@ -597,6 +677,9 @@ private:
     std::vector<std::int64_t> b_hp_;
     std::vector<std::int64_t> b_max_hp_;
     std::vector<std::int32_t> b_work_;       // 施工 / 维修剩余 tick，0 = 完工
+    std::vector<std::int32_t> b_cd_;         // 出手冷却（只有 Tower / Flak 会非零）
+    std::vector<std::int32_t> b_windup_;     // 已承诺攻击的前摇剩余
+    std::vector<std::uint32_t> b_tgt_raw_;   // 目标单位句柄的 raw()（建筑只打单位）
 
     // ——中立可破坏障碍（第三组，决定 ⑤）——
     SlotPool<ObstacleTag> obstacle_pool_;
@@ -617,6 +700,18 @@ private:
 
     // ——迷雾，每侧一份——
     std::array<FogLayer, kSideCount> fog_;
+
+    // ——派生缓存：格 → 占位实体。**不进 `state_hash`**——
+    //
+    // 它们随 `place_* / destroy_*` 同步维护、可完全由实体数组重建，
+    // 喂进哈希就是把同一份事实喂两遍（不一致时反而把分叉的报告点搞乱）。
+    // 编码：0 = 空，否则 = 槽位 + 1。移动的拦路判定与记忆图写入都查它，
+    // 免得每个移动单位对全部建筑做一次线性扫描。
+    //
+    // **往这两张表以外的地方给实体记「在哪一格」的第二份账之前，先读这段**：
+    // 派生缓存的代价是每个写点都要记得维护，第三张表就是第三个写点清单。
+    std::vector<std::uint16_t> bld_at_;
+    std::vector<std::uint16_t> obstacle_at_;
 };
 
 }  // namespace rts
