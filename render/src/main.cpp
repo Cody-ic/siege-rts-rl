@@ -688,7 +688,10 @@ int run_game(const Options& opt) {
                                  std::string(game::display_name(bt)).c_str(),
                                  static_cast<int>(s.cost_stone),
                                  static_cast<int>(s.cost_wood));
-                    push(buf, game::can_place_hint(v, bt, p.cell));
+                    // 位置合法 AND 买得起——只查前者时，钱不够也会亮绿框
+                    // （一次试玩报出来的 bug：两条各查一半，缺了买不买得起）。
+                    push(buf, game::can_place_hint(v, bt, p.cell) &&
+                                 game::can_afford_build(v, bt));
                 }
                 break;
             case PopupKind::Train:
@@ -697,11 +700,13 @@ int run_game(const Options& opt) {
                     std::snprintf(buf, sizeof(buf), "%s (金%d)",
                                  std::string(game::display_name(ut)).c_str(),
                                  static_cast<int>(s.cost_gold));
-                    push(buf, game::can_train_hint(v, p.cell));
+                    push(buf, game::can_train_hint(v, p.cell) &&
+                                 game::can_afford_train(v, ut));
                 }
                 break;
             case PopupKind::Repair:
-                push("维修", game::can_repair_hint(v, p.cell));
+                push("维修", game::can_repair_hint(v, p.cell) &&
+                                game::can_afford_repair(v, p.cell));
                 break;
             case PopupKind::None:
                 break;

@@ -20,11 +20,21 @@
 // 建造 / 征兵 / 维修都是「先选模式，再点一格」。三者各有一个 `*_hint()`
 // （虚影该绿还是红）与一个 `*_command()`（点下去发什么命令）。
 //
-// **hint 是提示，不是裁决。** 真正的裁决在 `World` 的解算里（买不买得起、
-// 点位规则、兵营是不是正在练兵）。两层刻意不共用代码：hint 错了顶多虚影
-// 颜色骗一下，命令该拒还是拒。但 hint 也**不能只查一半**——玩家点了没反应
-// 而虚影是绿的，比红框更难懂，所以凡是前端查得动的结构性规则都查
-// （资源点归属就是这类：它是「结构封死」的规则，不是数值）。
+// **hint 是提示，不是裁决。** 真正的裁决在 `World` 的解算里——它拒绝时是
+// **静默**丢弃（`break`，什么都不说），所以 hint 骗一次，玩家看到的就是
+// 「点了没反应」而查不出原因。两层刻意不共用代码（hint 错了顶多虚影颜色骗
+// 一下，命令该拒还是拒），但 hint 也**不能只查一半**——凡是前端查得动的
+// 规则都要查，资源点归属（结构规则）与**造价够不够**（数值规则）是**同一条
+// 要求的两个来源**，不能只补结构那一半。
+//
+// 造价查询与结构查询**分成两个函数**（`can_place_hint`/`can_afford_build`
+// 这一对，`can_train_hint`/`can_afford_train`，`can_repair_hint`/
+// `can_afford_repair`），理由是弹窗一次列出**好几个选项**、每项造价不同
+// （建几种建筑、征哪个兵种），而「这一格能不能弹出菜单」在还不知道玩家会
+// 选哪一项时就要判断——两者粒度不同，压成一个函数会把其中一层判断丢掉。
+// 调用方（`render/` 的弹窗）对每一项把两者取 **AND** 才是完整的绿框判据；
+// 只查结构不查造价，绿框在钱不够时仍然亮着，就是这一层曾经的 bug（一次
+// 试玩报出来的：招兵/建筑/维修弹窗只查了位置合法性，没查资源够不够）。
 
 #ifndef GAME_PLAYER_INPUT_HPP
 #define GAME_PLAYER_INPUT_HPP
@@ -82,6 +92,12 @@ const std::vector<rts::BldType>& buildable_types();
 // 而命令被静默拒绝。资源点在画面上没有专门的标记，所以这个绿框是唯一的线索。
 bool can_place_hint(const rts::WorldView& view, rts::BldType bt, rts::GridPos cell);
 
+// 造价够不够（石 + 木）。**与 `can_place_hint` 分开查**：结构合法性与买不买得起
+// 是两件独立的事——弹窗里同时列着好几种建筑，每种造价不同，两者混在一起会把
+// 「这一格能不能盖东西」与「这一种买不买得起」这两条不同粒度的判断压成一条。
+// 调用方（弹窗）把它与 `can_place_hint` 取 AND 才是完整的绿框判据。
+bool can_afford_build(const rts::WorldView& view, rts::BldType bt);
+
 rts::Command build_command(rts::BldType bt, rts::GridPos cell, int map_width);
 
 // ——征兵——
@@ -91,8 +107,13 @@ const std::vector<rts::UnitType>& trainable_types();
 
 // 这一格能不能出兵：**完工**的 `Barrack` 或 `Keep`，且没有正在练的。
 // 「`Keep` 也行」不是宽松，是 CLAUDE.md 花名册里那条兜底（兵营可退化为
-// 从堡垒出兵），机制侧同一条。
+// 从堡垒出兵），机制侧同一条。**不查造价**——这一格能不能弹出征兵菜单，
+// 与「菜单里哪个兵种买得起」是两个不同粒度的问题，后者见 `can_afford_train`。
 bool can_train_hint(const rts::WorldView& view, rts::GridPos cell);
+
+// 造价够不够（金）。同 `can_afford_build` 的理由：弹窗里每个兵种一行，
+// 造价各不相同，只有知道具体兵种才能判断买不买得起。
+bool can_afford_train(const rts::WorldView& view, rts::UnitType ut);
 
 // 征兵命令。`force` 决定新兵进哪支编队——**这是玩家唯一能编队的入口**
 // （命令枚举里没有「把单位编入编队」，#57 组内已定维持 12 种不变），
@@ -104,7 +125,13 @@ rts::Command train_command(rts::UnitType u, std::uint8_t force, rts::GridPos cel
 //
 // 这一格能不能修：己方**完工**的建筑、掉了血、且没有正在进行的工时
 // （施工或上一次维修）。工地不「修」——工地是往前盖，那是 `Cancel` 的事。
+// **不查造价**，理由同上——见 `can_afford_repair`。
 bool can_repair_hint(const rts::WorldView& view, rts::GridPos cell);
+
+// 造价够不够（木，按缺口血量折算——公式与 `World` 的 `Repair` 解算逐字相同：
+// `ceil(缺口 × repair_wood_per_1000hp ÷ 1000)`，两处算法分叉是「绿框骗人」这
+// 类 bug 的另一个来源，所以照抄，不重新推一遍）。
+bool can_afford_repair(const rts::WorldView& view, rts::GridPos cell);
 
 rts::Command repair_command(rts::GridPos cell, int map_width);
 

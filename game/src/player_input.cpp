@@ -152,6 +152,13 @@ rts::Command build_command(rts::BldType bt, rts::GridPos cell, int map_width) {
     return c;
 }
 
+bool can_afford_build(const rts::WorldView& view, rts::BldType bt) {
+    const rts::BldStats& s = view.stats().of(bt);
+    const auto stock = view.stock();
+    return stock[static_cast<std::size_t>(rts::Resource::Stone)] >= s.cost_stone &&
+          stock[static_cast<std::size_t>(rts::Resource::Wood)] >= s.cost_wood;
+}
+
 const std::vector<rts::UnitType>& trainable_types() {
     // 守方五种，顺序同「操作说明」里编队那一行的口径（弓手 / 枪卫 / 游骑
     // 在前，斥候与工匠在后）——两处说的是同一批兵，顺序不同会读得很别扭。
@@ -174,6 +181,11 @@ bool can_train_hint(const rts::WorldView& view, rts::GridPos cell) {
     return view.bld_train_type()[idx] == rts::kNoTrain;
 }
 
+bool can_afford_train(const rts::WorldView& view, rts::UnitType ut) {
+    const rts::UnitStats& s = view.stats().of(ut);
+    return view.stock()[static_cast<std::size_t>(rts::Resource::Gold)] >= s.cost_gold;
+}
+
 rts::Command train_command(rts::UnitType u, std::uint8_t force, rts::GridPos cell,
                            int map_width) {
     rts::Command c = make(rts::CommandKind::Train, cell, map_width);
@@ -190,6 +202,19 @@ bool can_repair_hint(const rts::WorldView& view, rts::GridPos cell) {
     if (view.bld_built()[idx] == 0) return false;   // 工地不修
     if (view.bld_work_left()[idx] > 0) return false;   // 已经在修了
     return view.bld_hp()[idx] < view.bld_max_hp()[idx];
+}
+
+bool can_afford_repair(const rts::WorldView& view, rts::GridPos cell) {
+    const int k = bld_slot_at(view, cell);
+    if (k < 0) return false;
+    const auto idx = static_cast<std::size_t>(k);
+    const std::int64_t missing = view.bld_max_hp()[idx] - view.bld_hp()[idx];
+    if (missing <= 0) return true;   // 没有缺口，谈不上花不花钱
+    // 与 `World` 的 `Repair` 解算逐字相同的公式（`rts_core/src/world.cpp`），
+    // 抄一份而不是各自推导——两处算法分叉正是「绿框骗人」这类 bug 的成因。
+    const std::int64_t wood =
+        (missing * view.stats().global.repair_wood_per_1000hp + 999) / 1000;
+    return view.stock()[static_cast<std::size_t>(rts::Resource::Wood)] >= wood;
 }
 
 rts::Command repair_command(rts::GridPos cell, int map_width) {
