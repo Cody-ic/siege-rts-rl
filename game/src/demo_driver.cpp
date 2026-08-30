@@ -59,25 +59,19 @@ rts::WorldInit demo_init(const MapData& map, const rts::StatsTable& stats,
     bld(rts::BldType::Tower, 1, -2);
     bld(rts::BldType::Flak, 1, 2);
 
-    // 攻方：从集结点出发的一波混编（构成是演示定数，不是平衡结论）。
-    if (!init.spawns.empty()) {
-        const rts::Vec2 s0 = rts::center_of(init.spawns[0].pos);
-        add(rts::UnitType::Ghoul, s0.x, s0.y - 1.0f, 1, rts::kNoForce);
-        add(rts::UnitType::Ghoul, s0.x, s0.y, 1, rts::kNoForce);
-        add(rts::UnitType::Ghoul, s0.x - 1.0f, s0.y, 1, rts::kNoForce);
-        add(rts::UnitType::Shade, s0.x + 0.5f, s0.y + 1.0f, 1, rts::kNoForce);
-        add(rts::UnitType::Phoenix, s0.x, s0.y - 2.0f, 1, rts::kNoForce);
-        const rts::Vec2 s1 = init.spawns.size() > 1
-                                 ? rts::center_of(init.spawns[1].pos)
-                                 : s0;
-        add(rts::UnitType::Ghoul, s1.x, s1.y, 1, rts::kNoForce);
-        add(rts::UnitType::Shade, s1.x + 0.5f, s1.y - 1.0f, 1, rts::kNoForce);
-        add(rts::UnitType::Ram, s1.x, s1.y + 1.0f, 1, rts::kNoForce);
-        // 骑士走开阔走廊，一路直线 = 满动量冲锋（第四批）——它撞上第一个
-        // 目标的那一击在演示里明显重于后续互殴，这正是要看的。
-        add(rts::UnitType::Knight, s0.x + 1.0f, s0.y, 1, rts::kNoForce);
-    }
+    // 攻方不在这里：波次循环生效后每波在建造阶段结束时生成（spawn_wave）。
     return init;
+}
+
+// ——波次循环的占位常量（演示定数，无平衡含义）——
+//
+// 建造阶段时长与编成曲线都是**占位**：正式形态里前者是待标定数值、
+// 后者由攻方宏观层按双预算决定（编成位线性封顶 / 兵力超线性）。
+// 这里只求循环的形状对：波数涨、编成随之变厚、等级随波缓涨。
+constexpr int kBuildTicksPlaceholder = 160;   // 8 秒 @ 20 Hz
+
+std::int32_t wave_level(int wave) {
+    return 1 + (wave - 1) / 3;   // 占位：每三波涨一级
 }
 
 }  // namespace
@@ -100,8 +94,48 @@ DemoBattle::DemoBattle(const MapData& map, const rts::StatsTable& stats,
             w_.width());
     }
     w_.submit(rts::Side::Defender, cmds, 3);
-    w_.begin_assault();
+    // 从建造阶段开始（World 的初始 phase 就是 Build）：倒计时走完才生波。
+    build_left_ = kBuildTicksPlaceholder;
     issue_actions();
+}
+
+// 本波编成（占位曲线）：随波数缓涨的混编，轮流摆在各集结点周围。
+// 骑士走开阔走廊一路直线 = 满动量冲锋（第四批）——首击明显重于互殴，正是要看的。
+void DemoBattle::spawn_wave() {
+    const auto& spawns = w_.spawns();
+    if (spawns.empty()) return;
+    const int wave = w_.wave();
+    const std::int32_t lv = w_.nominal_level();
+    const rts::StatsTable& stats = w_.stats();
+
+    std::vector<rts::UnitType> roster;
+    const int ghouls = wave + 2 > 8 ? 8 : wave + 2;
+    for (int k = 0; k < ghouls; ++k) roster.push_back(rts::UnitType::Ghoul);
+    const int shades = 1 + wave / 2 > 4 ? 4 : 1 + wave / 2;
+    for (int k = 0; k < shades; ++k) roster.push_back(rts::UnitType::Shade);
+    for (int k = 0; k < 1 + wave / 3; ++k) roster.push_back(rts::UnitType::Ram);
+    if (wave >= 2) roster.push_back(rts::UnitType::Knight);
+    if (wave >= 3) roster.push_back(rts::UnitType::Phoenix);
+
+    // 固定的落位偏移环（不掷点：demo 的确定性不该依赖「生成时的随机散布」）。
+    constexpr float kOff[][2] = {{0.0f, 0.0f},  {1.0f, 0.0f},  {-1.0f, 0.0f},
+                                 {0.0f, 1.0f},  {0.0f, -1.0f}, {1.0f, 1.0f},
+                                 {-1.0f, -1.0f}, {1.0f, -1.0f}, {-1.0f, 1.0f}};
+    constexpr std::size_t kOffCount = sizeof(kOff) / sizeof(kOff[0]);
+    for (std::size_t n = 0; n < roster.size(); ++n) {
+        const rts::Vec2 c = rts::center_of(spawns[n % spawns.size()].pos);
+        const float* off = kOff[(n / spawns.size()) % kOffCount];
+        const std::int64_t hp = hp_at(stats, roster[n], lv);
+        w_.spawn_unit(roster[n], rts::Vec2{c.x + off[0], c.y + off[1]}, lv, hp, hp);
+    }
+}
+
+bool DemoBattle::keep_alive() const {
+    const rts::WorldView v = w_.view(rts::Side::Defender);
+    for (std::size_t k = 0; k < v.bld_type().size(); ++k) {
+        if (v.bld_alive()[k] && v.bld_type()[k] == rts::BldType::Keep) return true;
+    }
+    return false;
 }
 
 rts::UnitAction DemoBattle::greedy_move(rts::UnitId id, rts::Vec2 target) const {
@@ -176,12 +210,28 @@ void DemoBattle::issue_actions() {
 
 void DemoBattle::update(int ticks) {
     for (int k = 0; k < ticks; ++k) {
+        if (defeated_) return;   // 败局定格：世界停在最后一帧
+        if (w_.phase() == rts::WavePhase::Build) {
+            if (build_left_ > 0) {
+                --build_left_;
+            } else {
+                spawn_wave();
+                w_.begin_assault();
+                issue_actions();   // 新生成的单位当拍拿到动作，不呆等一个决策周期
+                since_decision_ = 0;
+            }
+        } else if (w_.live_unit_count(rts::Side::Attacker) == 0) {
+            // 本波打完（消耗殆尽也算，突破与否不改变循环）：进下一波建造。
+            w_.begin_next_wave(wave_level(w_.wave() + 1));
+            build_left_ = kBuildTicksPlaceholder;
+        }
         if (since_decision_ >= rts::kDecisionPeriodMax) {
             issue_actions();
             since_decision_ = 0;
         }
         w_.advance(1);
         ++since_decision_;
+        if (!keep_alive()) defeated_ = true;   // 丢堡即败（设计，不是演示便宜）
     }
 }
 
