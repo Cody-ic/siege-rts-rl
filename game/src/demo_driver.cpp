@@ -7,6 +7,7 @@
 #include "rts/combat_math.hpp"
 #include "rts/command.hpp"
 #include "rts/roster.hpp"
+#include "rts/world_view.hpp"
 
 namespace game {
 namespace {
@@ -125,8 +126,26 @@ rts::UnitAction DemoBattle::greedy_move(rts::UnitId id, rts::Vec2 target) const 
     return best;
 }
 
+rts::UnitAction DemoBattle::flow_step(rts::UnitId id) {
+    const rts::UnitType t = w_.unit_type(id);
+    const int tier = rts::flow_tier_of(w_.unit_level(id), tiering_);
+    auto& slot = flow_[static_cast<std::size_t>(t) *
+                           static_cast<std::size_t>(rts::kFlowTierCount) +
+                       static_cast<std::size_t>(tier)];
+    if (!slot) {
+        const rts::GridPos goal[1] = {w_.keep_pos()};
+        slot.emplace(rts::FlowField::compute(w_.view(rts::Side::Attacker), t, tier,
+                                             goal, tiering_));
+    }
+    const rts::UnitAction a = slot->step_of(rts::grid_of(w_.unit_pos(id)));
+    return a == rts::UnitAction::Stop
+               ? greedy_move(id, rts::center_of(w_.keep_pos()))
+               : a;
+}
+
 void DemoBattle::issue_actions() {
-    const rts::Vec2 keep = rts::center_of(w_.keep_pos());
+    // field 每个决策拍作废重算：破坏代价读的是当前墙血，决策拍之间它在变。
+    for (auto& f : flow_) f.reset();
     for (const rts::Side side : {rts::Side::Defender, rts::Side::Attacker}) {
         w_.enumerate_units(side, ids_);
         acts_.clear();
@@ -138,15 +157,16 @@ void DemoBattle::issue_actions() {
                 // 守方：有敌就打，没有就守在原地（驻守的在墙上照打）。
                 if (has(mask, rts::UnitAction::AtkNear)) a = rts::UnitAction::AtkNear;
             } else {
-                // 攻方：优先打得着的人，Ram 优先砸墙，否则向堡垒推进。
-                // 撞上墙会自动开始破坏（机制），所以「推进」自己就会变成「啃墙」。
+                // 攻方：优先打得着的人，Ram 优先砸墙，否则按 flow field 向
+                // 堡垒推进（第六批）——「绕远走缺口 vs 就近砸墙」由代价模型
+                // 自己比较，field 指进墙格的那一步会变成自动破坏（机制）。
                 if (has(mask, rts::UnitAction::AtkNear)) {
                     a = rts::UnitAction::AtkNear;
                 } else if (w_.unit_type(id) == rts::UnitType::Ram &&
                            has(mask, rts::UnitAction::AtkWall)) {
                     a = rts::UnitAction::AtkWall;
                 } else {
-                    a = greedy_move(id, keep);
+                    a = flow_step(id);
                 }
             }
             acts_.push_back(a);

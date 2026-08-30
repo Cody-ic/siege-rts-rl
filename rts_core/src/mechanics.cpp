@@ -494,6 +494,7 @@ void World::tick_movement() {
         // 跨格：地形 + 实体占位。**掩码只判地形**（墙是「高代价可通行」，
         // 契约 §5.1.1 明写它不该出现在掩码里）——实体拦路在这里处理，
         // 代价就是下面那一下「撞上去自动开始破坏」。
+        const Side my_side = side_of(type);
         const auto cell_open = [&](int x, int y) {
             if (!terrain_.in_bounds(x, y)) return false;
             if (!terrain_.passable(x, y, mob)) return false;
@@ -501,7 +502,17 @@ void World::tick_movement() {
             const std::size_t c = static_cast<std::size_t>(y) *
                                       static_cast<std::size_t>(width()) +
                                   static_cast<std::size_t>(x);
-            return bld_at_[c] == 0 && obstacle_at_[c] == 0;
+            if (obstacle_at_[c] != 0) return false;
+            if (bld_at_[c] == 0) return true;
+            // 城门对自己人是通的（机制第六批）：守方地面单位可穿行**完工**的
+            // `Gate`。没有这条，守方被自己的墙圈死——「被迫出城争夺外部资源」
+            // 在结构上不可能发生，而那是 CLAUDE.md 两个不能砍的机制之一。
+            // 攻方照旧要砸开它（try_bump_attack）；工地状态的门不通（还没有
+            // 门洞）。flow field 的通行规则抄的是这一条（rts/flow.cpp），
+            // 两处必须同真值，tests/flow_test.cpp 锁。
+            const std::size_t s = static_cast<std::size_t>(bld_at_[c] - 1);
+            return my_side == Side::Defender && b_type_[s] == BldType::Gate &&
+                   b_built_[s] != 0;
         };
         bool ok = cell_open(to.i, to.j);
         if (ok && kDiagonalNeedsBothOrthogonal && to.i != from.i && to.j != from.j) {

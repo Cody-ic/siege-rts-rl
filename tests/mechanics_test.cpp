@@ -390,3 +390,45 @@ TEST_CASE("一场小型攻防的回放逐 tick 一致", "[mech]") {
     REQUIRE(res.verdict == rts::ReplayVerdict::Match);
     REQUIRE(res.checked_hashes > 10);
 }
+
+// ——机制第六批：城门对自己人是通的——
+
+TEST_CASE("完工城门：守方地面单位穿门而过，攻方在门前被拦下砸门", "[mech]") {
+    // CLAUDE.md 两个不能砍的机制之一是「部分资源点在墙外」——它的前提是
+    // 守方**出得了城**。cell_open 的唯一实体例外就是这条；flow field 的
+    // 通行规则抄的是它（tests/flow_test.cpp 锁两处同真值）。
+    SECTION("守方穿过：位置越过门格，门血一点不掉") {
+        rts::World w(arena());
+        const rts::BldId gate =
+            w.place_bld(rts::BldType::Gate, rts::GridPos{5, 2}, 24, 24);
+        const rts::UnitId r =
+            w.spawn_unit(rts::UnitType::Ranger, rts::Vec2{4.5f, 2.5f}, 1, 18, 18);
+        act(w, rts::Side::Defender, {rts::UnitAction::MoveSE});
+        w.advance(10);   // 0.30/tick × 10 = 3.0 格：4.5 → 7.5，穿过 (5,2)
+        REQUIRE(w.unit_pos(r).x > 6.0f);
+        REQUIRE(w.bld_hp(gate) == 24);   // 是走过去的，不是砸开的
+    }
+    SECTION("攻方被拦：位置停在门外，门在掉血") {
+        rts::World w(arena());
+        const rts::BldId gate =
+            w.place_bld(rts::BldType::Gate, rts::GridPos{5, 2}, 24, 24);
+        const rts::UnitId g =
+            w.spawn_unit(rts::UnitType::Ghoul, rts::Vec2{4.5f, 2.5f}, 1, 30, 30);
+        act(w, rts::Side::Attacker, {rts::UnitAction::MoveSE});
+        w.advance(8);   // 撞门自动破坏：一发 apply_permille(4,{1000,2000}) = 8
+        REQUIRE(w.unit_pos(g).x < 5.0f);
+        REQUIRE(w.alive(gate));
+        REQUIRE(w.bld_hp(gate) < 24);
+    }
+    SECTION("工地状态的门对守方也不通，且守方不打自己的工地") {
+        rts::World w(arena());
+        const rts::BldId site = w.place_bld(rts::BldType::Gate, rts::GridPos{5, 2},
+                                            24, 24, /*work_left=*/10);
+        const rts::UnitId r =
+            w.spawn_unit(rts::UnitType::Ranger, rts::Vec2{4.5f, 2.5f}, 1, 18, 18);
+        act(w, rts::Side::Defender, {rts::UnitAction::MoveSE});
+        w.advance(10);
+        REQUIRE(w.unit_pos(r).x < 5.0f);
+        REQUIRE(w.bld_hp(site) == 24);
+    }
+}
