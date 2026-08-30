@@ -4,8 +4,13 @@
 //
 // 在这之前，开一局的唯一办法是三个必填参数：
 //
-//     rts_render --battle --map game/data/demo_skirmish.json \
+//     rts_render --battle --map game/data/demo_skirmish.json
 //                --stats game/data/stats_placeholder.json --sprites tools/sprite_gen/out_3d
+//
+// （上面两行原本用行尾反斜杠续行写成一条命令。**在 `//` 注释里不能那么写**：
+//  行尾的 `\` 是续行符，于是 GCC 把下一行也吞进注释并报 `-Werror=comment`
+//  ——`main` 因此在 Linux 上编不过，而 MSVC 一声不响。要贴可复制的多行命令，
+//  用 ``` 代码块或 `/* */`，不要在 `//` 里用反斜杠。）
 //
 // 那对**开发者**是好的（显式、可换图、可换表），对**双击 exe 的人**是不可用的：
 // 资源管理器不传参数，而 `rts_render.exe` 躺在 `build/render/Release/` 里。
