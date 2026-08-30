@@ -196,11 +196,29 @@ def filter_meshes(objs, keep, ident):
     """
     if not keep:
         return objs
-    miss = set(keep) - {o.name for o in objs}
+    have = {o.name for o in objs}
+    # **名字受加载顺序影响，所以按「精确优先、否则唯一后缀」解析。**
+    # Blender 在重名时给后载入的对象加 `.001`：`Rogue.blend` 与 `Wizard.blend`
+    # 都有一个叫 `Face` 的对象，谁先载入谁保住原名。于是清单里该写 `Face` 还是
+    # `Face.001`，**取决于同一条目里前一个 part 有没有把它那块 `Face` 筛掉**——
+    # 一个纯属实现细节的东西泄漏进了数据文件，而且改动 part 顺序就会静默失配。
+    #
+    # 规则刻意不是「一律去掉后缀再比」：`Wizard.001` 是 `Wizard.blend` 里的**原名**
+    # （与空对象 `Wizard` 并存），去后缀会让两者撞在一起。**精确匹配优先**正好避开它。
+    resolved, miss = set(), []
+    for want in keep:
+        if want in have:
+            resolved.add(want)
+            continue
+        cand = [n for n in have if n.rsplit(".", 1)[0] == want and n != want]
+        if len(cand) == 1:
+            resolved.add(cand[0])
+        else:
+            miss.append(want)
     if miss:
         print(f"    [警告] {ident}: only_meshes 找不到 {sorted(miss)}，"
               f"该文件里有 {sorted(o.name for o in objs if o.type == 'MESH')}")
-    drop = [o for o in objs if o.type == "MESH" and o.name not in keep]
+    drop = [o for o in objs if o.type == "MESH" and o.name not in resolved]
     for o in drop:
         bpy.data.objects.remove(o, do_unlink=True)
     return [o for o in objs if o not in drop]
@@ -477,6 +495,47 @@ def set_pose(objs, pose, freeze_frame):
                 b.location = s["loc"]
 
 
+def apply_mesh_tint(objs, mesh_tint, ident):
+    """逐**网格**染色，覆盖该部件/整体的染色。名字匹配同 `mesh_anim`（末尾 `*` 通配）。
+
+    存在的理由是**一个模型里有两块该分开着色、却分不开的东西**。
+    `Wizard.blend` 就是：`Face`（头发 + 面部）是独立对象，而头颅本身长在
+    `Wizard.001`（整个袍身）里。想把「面部压暗成兜帽下的空洞」而袍身保持亮色，
+    没有这条就只剩两条路，两条都不通：
+
+    * **`only_meshes` 拆成两个 part** —— 同一个 `.blend` 加载两次，Blender 会给
+      第二份全部对象加 `.001` 后缀，于是 `only_meshes: ["Face"]` 匹配不上
+      （实测：报「找不到 Face，该文件里有 Face.001…」）。而**按去后缀匹配是错的**，
+      因为 `Wizard.001` 本来就是这个文件里的原名，去掉后缀会与 `Wizard` 撞名
+    * **整体压暗** —— 那是把袍子一起压暗，等于换了个配色，不是「面部看不清」
+
+    与 `part.tint` 的关系是**覆盖**而非叠加：`apply_tint` 改的是材质节点，
+    同一材质被染两次结果不可预测，所以这里在整体染色**之后**跑，
+    对命中的网格重来一遍。
+
+    **因此染之前必须先把材质变成独占副本。** 这一条不是防御性的余量——
+    本函数的首个使用场景就撞上了：`Wizard.blend` 里 `Face` 与 `Wizard.001`（袍身）
+    **共用同一个 `Wizard_Texture` 数据块**，不复制的话「把面部压黑」会连整件袍子
+    一起压黑，渲出来是一个纯黑的人形。（这段注释的初版恰好断言了「本项目当前没有
+    这种情形」，第一次运行就被推翻——**素材共用材质是常态而非例外**，
+    同一个素材包里的角色几乎总共用一张纹理图集。）
+    """
+    for pattern, spec in mesh_tint.items():
+        pref = pattern[:-1] if pattern.endswith("*") else None
+        hit = [o for o in objs if o.type == "MESH"
+               and (o.name.startswith(pref) if pref else o.name == pattern)]
+        if not hit:
+            print(f"    [警告] {ident}: mesh_tint 找不到对象 {pattern!r}，"
+                  f"可用: {sorted(o.name for o in objs if o.type == 'MESH')}")
+            continue
+        for o in hit:
+            for slot in o.material_slots:
+                if slot.material and slot.material.users > 1:
+                    slot.material = slot.material.copy()
+        apply_tint(hit, spec["tint"], spec.get("tint_mode", "COLOR"),
+                   spec.get("brightness"))
+
+
 def collect_mesh_anim(objs, mesh_anim):
     """把 `mesh_anim` 的对象名解析成实际对象，并记下它们的静止变换。
 
@@ -630,11 +689,36 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
                     # 子对象会继承骨架与骨骼的缩放，而清单里的 scale 应当是
                     # 世界尺度（与非绑定部件同义），故在此除掉继承的那一份。
                     bsc = (arm.matrix_world @ arm.pose.bones[bone].matrix).to_scale()
+                    # `attach_rest`：**保持部件原位，再跟随骨骼**，而不是把它的原点
+                    # 搬到骨尾。两种绑定对应两类素材，选错了偏差大到一眼可见：
+                    #
+                    # * 默认（原点对骨尾）适合**武器**——它们的原点就在握把处，
+                    #   所以 offset 通常是 0
+                    # * `attach_rest` 适合**同骨架角色之间移植的身体部件**：兜帽的原点
+                    #   在角色脚下（0,0,0），照默认那条会被抬到骨尾去，高出去两个多单位
+                    #
+                    # 实现就是 `matrix_parent_inverse` 的本义（Blender「保持变换」父子化
+                    # 做的同一件事），基准取**静止姿态**而非当前帧：取当前帧的话，
+                    # 每个状态的首帧姿势不同，同一个部件在 idle / move / attack 里
+                    # 会各自落在不同的地方——而那种错**只在跨状态并排看时才显形**。
+                    rest_inv = Matrix.Identity(4)
+                    if part.get("attach_rest"):
+                        b = arm.data.bones[bone]
+                        rest_inv = (arm.matrix_world @ b.matrix_local
+                                    @ Matrix.Translation((0.0, b.length, 0.0))).inverted()
                     for o in roots:
+                        keep = o.matrix_world.copy()
                         o.parent = arm
                         o.parent_type = "BONE"
                         o.parent_bone = bone
-                        o.matrix_parent_inverse = Matrix.Identity(4)
+                        o.matrix_parent_inverse = rest_inv
+                        if part.get("attach_rest"):
+                            # 局部矩阵原样保留（`rot` / `scale` 仍然生效），
+                            # 位置由 matrix_parent_inverse 承担；`offset` 在这条路上
+                            # 是**静止姿态下的世界微调**（把兜帽往下压半格之类），
+                            # 与默认那条「骨骼局部坐标」不同义——两者本来就在不同的空间里
+                            o.matrix_basis = (Matrix.Translation(off) @ keep) if off else keep
+                            continue
                         o.scale = tuple(o.scale[i] / max(abs(bsc[i]), 1e-6) for i in range(3))
                         # 骨骼父子关系以**骨尾**为原点、局部 Y 沿骨长，
                         # 因此手部武器的 offset 通常就是 0
@@ -657,6 +741,9 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
                 apply_tint(po, part["tint"], part.get("tint_mode", "COLOR"),
                            part.get("brightness"))
                 tinted.extend(po)
+            # 顺序不可颠倒：逐网格染色是**覆盖**整体染色，见 apply_mesh_tint
+            if part.get("mesh_tint"):
+                apply_mesh_tint(po, part["mesh_tint"], ident)
             objs.extend(po)
         path = os.path.join(base_dir, spec["parts"][0]["model"])
     else:
@@ -692,6 +779,8 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
     if spec.get("tint"):        # 已单独指定染色的部件不再被整体染色覆盖
         apply_tint([o for o in objs if o not in tinted], spec["tint"],
                    spec.get("tint_mode", "COLOR"), spec.get("brightness"))
+    if spec.get("mesh_tint"):   # 顶层逐网格染色，同样是覆盖（见 apply_mesh_tint）
+        apply_mesh_tint(objs, spec["mesh_tint"], ident)
     # 归一化必须在设定姿势之后：包围盒取自求值网格，姿势会改变它
     bpy.context.scene.frame_set(frames[0])
     pivot = normalize(objs, spec.get("height", 0.9), spec.get("lift", 0.0),
