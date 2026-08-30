@@ -366,12 +366,21 @@ int run(const Options& opt) {
 }
 
 
-// 演示对局的 HUD：波次 / tick / 双方存活 / 三种资源存量。全是真数据。
+// 演示对局的 HUD：波次 / 阶段 / tick / 双方存活 / 三种资源存量。全是真数据。
 void draw_battle_hud(const render::FontSet& font, const game::MapData& map,
-                     const rts::World& w, bool paused) {
+                     const game::DemoBattle& battle, bool paused) {
+    const rts::World& w = battle.world();
     char buf[320];
-    std::snprintf(buf, sizeof(buf), "地图 %s (%s)   波 %d   tick %d%s",
-                  map.name().c_str(), map.map_id().c_str(), w.wave(),
+    char phase[48];
+    if (battle.defeated()) {
+        std::snprintf(phase, sizeof(phase), "堡垒陷落·败");
+    } else if (w.phase() == rts::WavePhase::Build) {
+        std::snprintf(phase, sizeof(phase), "建造 %d", battle.build_ticks_left());
+    } else {
+        std::snprintf(phase, sizeof(phase), "进攻中");
+    }
+    std::snprintf(buf, sizeof(buf), "地图 %s (%s)   波 %d   %s   tick %d%s",
+                  map.name().c_str(), map.map_id().c_str(), w.wave(), phase,
                   static_cast<int>(w.now()), paused ? "   已暂停" : "");
     font.draw(buf, rts::Vec2{14.0f, 12.0f}, kHudSize, Color{225, 225, 235, 255});
 
@@ -432,7 +441,7 @@ int run_battle(const Options& opt) {
         BeginMode2D(cam.camera());
         renderer.draw(tiles, sorted);
         EndMode2D();
-        draw_battle_hud(*font, map, battle.world(), false);
+        draw_battle_hud(*font, map, battle, false);
         EndTextureMode();
         Image img = LoadImageFromTexture(rt.texture);
         ImageFlipVertical(&img);
@@ -492,7 +501,7 @@ int run_battle(const Options& opt) {
         BeginMode2D(cam.camera());
         renderer.draw(tiles, sorted);
         EndMode2D();
-        draw_battle_hud(*font, map, battle.world(), paused);
+        draw_battle_hud(*font, map, battle, paused);
         EndDrawing();
     }
     CloseWindow();
