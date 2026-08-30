@@ -190,12 +190,21 @@ PYBIND11_MODULE(rts_native, m) {
             [](rts::BatchedEnv& e, py::array_t<float, py::array::c_style> cells,
                py::array_t<float, py::array::c_style> self_vec,
                py::array_t<float, py::array::c_style> globals) {
-                // **释放 GIL**：`observe` 里面自己开线程，持着 GIL 会让那些线程
-                // 一进 Python 什么也不做地互等——虽然它们并不调 Python，
-                // 但持锁跨越一段长耗时的纯 C++ 计算会挡住 Python 主线程上的
-                // 别的工作（数据搬运、日志）。
+                // **顺序不可颠倒：先取指针，再放 GIL。**
+                //
+                // `as_span()` 里的 `a.request()` 走的是 Python 缓冲协议——
+                // 那是在**碰 Python 对象**。放了 GIL 再调它是未定义行为，
+                // 实测就是 SIGSEGV（退出码 139），而且**崩在 `observe` 上**，
+                // 看起来像 `BatchedEnv` 有问题，与真因隔着一层。
+                //
+                // 取到裸指针之后就与 Python 无关了，那时才能放 GIL。
+                const auto cs = as_span(cells);
+                const auto ss = as_span(self_vec);
+                const auto gs = as_span(globals);
+                // 放 GIL 的理由：`observe` 里面自己开线程跑一段长耗时的纯 C++，
+                // 持着锁会挡住 Python 主线程上的别的工作（数据搬运、日志）。
                 py::gil_scoped_release nogil;
-                e.observe(as_span(cells), as_span(self_vec), as_span(globals));
+                e.observe(cs, ss, gs);
             },
             py::arg("cells"), py::arg("self_vec"), py::arg("globals"),
             "往调用方给的三块 numpy 缓冲区里写观测（零拷贝）。形状必须恰好，"
@@ -211,8 +220,10 @@ PYBIND11_MODULE(rts_native, m) {
                 const std::span<const std::uint8_t> raw = as_cspan(actions);
                 const std::span<const rts::UnitAction> acts(
                     reinterpret_cast<const rts::UnitAction*>(raw.data()), raw.size());
+                // 同 `observe`：`as_span(done)` 也必须在放 GIL **之前**取。
+                const auto ds = as_span(done);
                 py::gil_scoped_release nogil;
-                e.step(acts, as_span(done));
+                e.step(acts, ds);
             },
             py::arg("actions"), py::arg("done"),
             "推进一批。actions 是 uint8 的 batch × MAX_UNITS_PER_ENV，"
