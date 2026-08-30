@@ -65,6 +65,7 @@ add_executable(rts_tests
     replay_test.cpp
     stats_test.cpp
     mechanics_test.cpp
+    economy_test.cpp
     demo_test.cpp
 )
 
@@ -125,7 +126,7 @@ target_compile_definitions(rts_tests PRIVATE
 # 挑单条用例跑仍按 CLAUDE.md 写的那样直接用二进制：
 #     ./build/tests/Release/rts_tests "<用例名>"
 foreach(_tag rng hash types map scene iso names utf8path roster action command obs
-        terrain fog world replay behavior stats mech demo)
+        terrain fog world replay behavior stats mech econ demo)
     add_test(NAME rts_tests_${_tag} COMMAND rts_tests "[${_tag}]")
 endforeach()
 

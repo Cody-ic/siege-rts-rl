@@ -365,26 +365,28 @@ TEST_CASE("Summon 提前结束建造阶段", "[world]") {
 
 TEST_CASE("需要数值的命令被记账，而不是静默丢弃", "[world]") {
     // 「本版没解算」与「悄悄吞掉」的区别就在这个计数器上。
-    // 1c 实现它们时把 `deferred_command_count` 一并删掉。
+    // 驻守解算落地时把 `deferred_command_count` 一并删掉。
     //
     // **标题里刻意不写数目。** 原来写的是「六种」，而加 `CommandKind::Clear` 之后
     // 它变成七种——**那次这条用例照旧全绿**，因为下面的清单是硬编码的一个
     // `array<..., 6>`，第七种进不了它的视野。同 `tests/CMakeLists.txt` 里
     // 「刻意不写条目总数」那条：写死的数字保证它明天又错。
+    //
+    // 机制第二批解算掉六种（用例在 tests/economy_test.cpp），记账的只剩
+    // `Garrison`——它的执行层与高度优势成对，单独一批（`rts/world.hpp`）。
     rts::World w(tiny_init());
 
     // 记账的那些。
-    const std::array<rts::CommandKind, 7> deferred{
-        rts::CommandKind::Build,     rts::CommandKind::Repair,
-        rts::CommandKind::Cancel,    rts::CommandKind::Train,
-        rts::CommandKind::MoveForce, rts::CommandKind::Garrison,
-        rts::CommandKind::Clear};
+    const std::array<rts::CommandKind, 1> deferred{rts::CommandKind::Garrison};
 
-    // 本版能完整应用、因此不该被记账的那些。
-    const std::array<rts::CommandKind, 5> applied{
+    // 已解算、因此不该被记账的那些。
+    const std::array<rts::CommandKind, 11> applied{
         rts::CommandKind::None,        rts::CommandKind::Summon,
         rts::CommandKind::SelectForce, rts::CommandKind::Composition,
-        rts::CommandKind::PickSpawn};
+        rts::CommandKind::PickSpawn,   rts::CommandKind::Build,
+        rts::CommandKind::Repair,      rts::CommandKind::Cancel,
+        rts::CommandKind::Train,       rts::CommandKind::MoveForce,
+        rts::CommandKind::Clear};
 
     // **这条断言才是上面那次失效的修法**：两份清单必须正好铺满整个枚举。
     // 于是加一个命令种类时，它要么进「记账」要么进「已应用」，**没有第三种去处**
@@ -415,20 +417,29 @@ TEST_CASE("需要数值的命令被记账，而不是静默丢弃", "[world]") {
     }
 }
 
-TEST_CASE("advance 递减前摇与施工进度，到 0 就停", "[world]") {
-    // 这两个计数器不需要任何数值就能推进（初值来自数值表，递减不来自任何表），
-    // 所以本版做完。也正因为有它们，`advance()` 不是空操作。
-    rts::World w(tiny_init());
+TEST_CASE("施工由工匠在场推进：无人则停，工时走完完工且血量盖满", "[world]") {
+    // 第二批把施工从「纯递减」改成「守方 `Mason` 在半径内才走工时」——
+    // 「点杀施工中的工匠」因此真的能打断工期（CLAUDE.md 给 AI 的可学目标）。
+    rts::WorldInit init = tiny_init();
+    init.stats.global.mason_work_radius = 1.6f;
+    rts::World w(std::move(init));
     const rts::BldId site = w.place_bld(rts::BldType::Tower, rts::GridPos{0, 0}, 1, 8, 3);
     REQUIRE_FALSE(w.bld_complete(site));
 
+    // 没有工匠：工时一格都不走。
+    w.advance(5);
+    REQUIRE_FALSE(w.bld_complete(site));
+
+    // 工匠到场（隔一格，半径 1.6 内）：3 工时走完，完工且血量恰好盖到满。
+    w.spawn_unit(rts::UnitType::Mason, rts::center_of(rts::GridPos{1, 0}), 1, 5, 5);
     w.advance(2);
     REQUIRE_FALSE(w.bld_complete(site));
     w.advance(1);
     REQUIRE(w.bld_complete(site));
+    REQUIRE(w.bld_hp(site) == 8);
     w.advance(5);
-    REQUIRE(w.bld_complete(site));   // 不会减成负数
-    REQUIRE(w.now() == 8);
+    REQUIRE(w.bld_complete(site));   // 完工位不会翻回去
+    REQUIRE(w.now() == 13);
 }
 
 TEST_CASE("advance(0) 是合法空操作，负数要抛", "[world]") {

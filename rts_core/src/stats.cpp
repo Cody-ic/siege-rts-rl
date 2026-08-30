@@ -20,6 +20,8 @@ std::uint64_t StatsTable::fingerprint() const noexcept {
         h.feed_pod(s.cooldown_ticks);
         h.feed_pod(s.vs_structure_permille);
         h.feed_f32(s.aoe_radius);
+        h.feed_pod(s.cost_gold);
+        h.feed_pod(s.train_ticks);
     }
     for (const BldStats& s : bld) {
         h.feed_pod(s.max_hp);
@@ -28,6 +30,10 @@ std::uint64_t StatsTable::fingerprint() const noexcept {
         h.feed_f32(s.vision);
         h.feed_pod(s.windup_ticks);
         h.feed_pod(s.cooldown_ticks);
+        h.feed_pod(s.cost_stone);
+        h.feed_pod(s.cost_wood);
+        h.feed_pod(s.build_ticks);
+        h.feed_pod(s.income_amount);
     }
     for (const ObstacleStats& s : obstacle) {
         h.feed_pod(s.max_hp);
@@ -35,6 +41,11 @@ std::uint64_t StatsTable::fingerprint() const noexcept {
     }
     h.feed_pod(global.hp_permille_per_level);
     h.feed_pod(global.dmg_permille_per_level);
+    h.feed_pod(global.income_period_ticks);
+    h.feed_f32(global.mason_work_radius);
+    h.feed_pod(global.repair_hp_per_work_tick);
+    h.feed_pod(global.repair_wood_per_1000hp);
+    h.feed_pod(global.cancel_refund_permille);
 
     return h.value();
 }

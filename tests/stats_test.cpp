@@ -100,6 +100,23 @@ TEST_CASE("数值表指纹：值同则同，任一格变则变", "[stats]") {
         c.global.dmg_permille_per_level += 1;
         REQUIRE(c.fingerprint() != a.fingerprint());
     }
+    // 第二批新增的字段也要被指纹看到——每个结构抽一格。改造价而指纹不动，
+    // 意味着「涨价后的表」能对上「涨价前录的回放」，正是本文件要防的洞。
+    {
+        rts::StatsTable c = filled_table();
+        c.unit[1].cost_gold += 1;
+        REQUIRE(c.fingerprint() != a.fingerprint());
+    }
+    {
+        rts::StatsTable c = filled_table();
+        c.bld[2].cost_stone += 1;
+        REQUIRE(c.fingerprint() != a.fingerprint());
+    }
+    {
+        rts::StatsTable c = filled_table();
+        c.global.income_period_ticks += 1;
+        REQUIRE(c.fingerprint() != a.fingerprint());
+    }
 }
 
 TEST_CASE("表变了，第 0 tick 的 state_hash 就分歧（早报）", "[stats]") {
@@ -184,6 +201,13 @@ TEST_CASE("占位数值表能载入，且铺满花名册", "[stats]") {
     REQUIRE(t.of(rts::UnitType::Wraith).damage == 0);
     // 门比墙薄（既定薄弱点的占位实现）。
     REQUIRE(t.of(rts::BldType::Gate).max_hp < t.of(rts::BldType::Wall).max_hp);
+    // `Keep` 的金币地板存在（数额待定，**存在**是结构——它兜的是「金矿被点掉
+    // 后连补兵都做不到」那种死亡螺旋，CLAUDE.md 单列一节）。
+    REQUIRE(t.of(rts::BldType::Keep).income_amount >= 1);
+    // 三座采集建筑都有产出（收入的唯一来源）。
+    REQUIRE(t.of(rts::BldType::Quarry).income_amount >= 1);
+    REQUIRE(t.of(rts::BldType::Lumber).income_amount >= 1);
+    REQUIRE(t.of(rts::BldType::Mine).income_amount >= 1);
 }
 
 TEST_CASE("载入器：手误不得静默落回默认值", "[stats]") {
@@ -194,33 +218,39 @@ TEST_CASE("载入器：手误不得静默落回默认值", "[stats]") {
 
     // 漏一个兵种：报错点名 `units.Ram`，不是「能跑但 Ram 打不动」。
     REQUIRE_THROWS_AS(game::StatsLoader::from_string(R"({
-        "schema": "stats/1",
+        "schema": "stats/2",
         "units": {}, "buildings": {}, "obstacles": {}, "global": {}
     })"),
                       game::StatsFormatError);
 
-    // schema 不认识。
+    // schema 不认识——包括上一格的 "stats/1"（旧表缺第二批字段，静默补默认值
+    // 正是「能跑但打不动」那种坑，所以刻意不做向后兼容）。
     REQUIRE_THROWS_AS(game::StatsLoader::from_string(R"({"schema": "stats/999"})"),
+                      game::StatsFormatError);
+    REQUIRE_THROWS_AS(game::StatsLoader::from_string(R"({"schema": "stats/1"})"),
                       game::StatsFormatError);
 
     // 认不出的键（拼错）：`cooldown_tick` 少个 s。静默忽略的话它落回默认值 1。
     REQUIRE_THROWS_AS(
         game::StatsLoader::from_string(R"({
-        "schema": "stats/1",
+        "schema": "stats/2",
         "units": { "Archer": { "max_hp": 1, "damage": 0, "range": 0, "speed": 0,
                                "vision": 0, "windup_ticks": 0, "cooldown_tick": 5,
-                               "vs_structure_permille": 0, "aoe_radius": 0 } },
+                               "vs_structure_permille": 0, "aoe_radius": 0,
+                               "cost_gold": 0, "train_ticks": 0 } },
         "buildings": {}, "obstacles": {}, "global": {}
     })"),
         game::StatsFormatError);
 
     // 下界：max_hp 0 会让 spawn 恒抛，在载入这一层就拦。
+    // （新字段要写全——否则先撞上的是「缺少字段」，测的就不是下界了。）
     REQUIRE_THROWS_AS(
         game::StatsLoader::from_string(R"({
-        "schema": "stats/1",
+        "schema": "stats/2",
         "units": { "Archer": { "max_hp": 0, "damage": 0, "range": 0, "speed": 0,
                                "vision": 0, "windup_ticks": 0, "cooldown_ticks": 1,
-                               "vs_structure_permille": 0, "aoe_radius": 0 } },
+                               "vs_structure_permille": 0, "aoe_radius": 0,
+                               "cost_gold": 0, "train_ticks": 0 } },
         "buildings": {}, "obstacles": {}, "global": {}
     })"),
         game::StatsFormatError);
