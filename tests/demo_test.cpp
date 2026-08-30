@@ -80,6 +80,25 @@ TEST_CASE("波次循环：建造 → 生波 → 清波 → 下一波建造", "[d
     REQUIRE(a.defeated());
 }
 
+TEST_CASE("提前召唤：建造阶段一条 Summon，倒计时直接作废开打", "[demo]") {
+    // CLAUDE.md：「必须提供『提前召唤下一波』」。生波挂在「进攻阶段的第一拍」
+    // 而不是「倒计时走完」上，Summon 与倒计时两条路在那里汇合——这条测的
+    // 就是汇合真的成立（只走倒计时路径的话，Summon 会召出一个空波）。
+    const game::MapData map = demo_map();
+    const rts::StatsTable stats = demo_stats();
+    game::DemoBattle a(map, stats, 7);
+    REQUIRE(a.world().phase() == rts::WavePhase::Build);
+
+    rts::Command c;
+    c.kind = rts::CommandKind::Summon;
+    c.side = rts::Side::Defender;
+    a.submit_defender(&c, 1);
+    a.update(2);   // 第 1 tick 排空命令转阶段，第 2 tick 生波
+
+    REQUIRE(a.world().phase() == rts::WavePhase::Assault);
+    REQUIRE(a.world().live_unit_count(rts::Side::Attacker) > 0);
+}
+
 TEST_CASE("败局定格：Keep 被拆后 update 不再推进", "[demo]") {
     const game::MapData map = demo_map();
     rts::StatsTable stats = demo_stats();

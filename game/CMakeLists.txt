@@ -44,6 +44,7 @@ add_library(game STATIC
     src/battle_scene.cpp
     src/defender_script.cpp
     src/demo_driver.cpp
+    src/player_input.cpp
     ${_game_self_contained_srcs}
 )
 

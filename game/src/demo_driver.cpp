@@ -38,15 +38,17 @@ rts::WorldInit demo_init(const MapData& map, const rts::StatsTable& stats,
         init.units.push_back(rts::UnitInit{u, rts::Vec2{x, y}, lv, hp, hp, force});
     };
     // 守方：三名弓手贴墙内侧（0 号编队，开局即受命驻守墙线，见构造函数）、
-    // 两名枪卫、一名游骑与一名工匠。
+    // 两名枪卫、一名游骑与一名工匠。**全员有编队**（1 = 枪卫、2 = 游骑、
+    // 3 = 工匠）：玩家的逐格命令按编队下达（MoveForce / Garrison 的形状），
+    // 没编队的单位在交互层就是指挥不动的。
     const rts::Vec2 keep = rts::center_of(init.keep);
     add(rts::UnitType::Archer, keep.x + 2.0f, keep.y - 1.0f, 2, 0);
     add(rts::UnitType::Archer, keep.x + 2.0f, keep.y, 2, 0);
     add(rts::UnitType::Archer, keep.x + 2.0f, keep.y + 1.0f, 2, 0);
-    add(rts::UnitType::Spear, keep.x + 2.0f, keep.y - 2.0f, 1, rts::kNoForce);
-    add(rts::UnitType::Spear, keep.x + 2.0f, keep.y + 2.0f, 1, rts::kNoForce);
-    add(rts::UnitType::Ranger, keep.x + 1.0f, keep.y, 1, rts::kNoForce);
-    add(rts::UnitType::Mason, keep.x + 1.0f, keep.y + 1.0f, 1, rts::kNoForce);
+    add(rts::UnitType::Spear, keep.x + 2.0f, keep.y - 2.0f, 1, 1);
+    add(rts::UnitType::Spear, keep.x + 2.0f, keep.y + 2.0f, 1, 1);
+    add(rts::UnitType::Ranger, keep.x + 1.0f, keep.y, 1, 2);
+    add(rts::UnitType::Mason, keep.x + 1.0f, keep.y + 1.0f, 1, 3);
     // 箭楼与防空各一座（完工状态）。位置：堡垒斜后方两格，覆盖墙线。
     const auto bld = [&](rts::BldType b, int dx, int dy) {
         const std::int64_t hp = stats.of(b).max_hp;
@@ -94,6 +96,10 @@ DemoBattle::DemoBattle(const MapData& map, const rts::StatsTable& stats,
             w_.width());
     }
     w_.submit(rts::Side::Defender, cmds, 3);
+    // 开局资源（**占位数额**，无平衡含义）：交互层要能试建造，
+    // 石木全零的话 Build 永远被解算拒绝，「建造放置」就没法演示。
+    w_.set_stock(rts::Resource::Stone, 120);
+    w_.set_stock(rts::Resource::Wood, 120);
     // 从建造阶段开始（World 的初始 phase 就是 Build）：倒计时走完才生波。
     build_left_ = kBuildTicksPlaceholder;
     issue_actions();
@@ -211,19 +217,26 @@ void DemoBattle::issue_actions() {
 void DemoBattle::update(int ticks) {
     for (int k = 0; k < ticks; ++k) {
         if (defeated_) return;   // 败局定格：世界停在最后一帧
-        if (w_.phase() == rts::WavePhase::Build) {
-            if (build_left_ > 0) {
-                --build_left_;
-            } else {
+        if (w_.phase() == rts::WavePhase::Build && build_left_ > 0) {
+            --build_left_;
+        } else if (w_.phase() == rts::WavePhase::Build) {
+            w_.begin_assault();
+        }
+        // 生波挂在「进攻阶段且本波还没生」上，而不是「倒计时走完」上——
+        // 玩家的 `Summon`（提前召唤）也会把 phase 掰到 Assault，两条路
+        // 在这里汇合，不需要各生各的波。
+        if (w_.phase() == rts::WavePhase::Assault) {
+            if (!wave_spawned_) {
                 spawn_wave();
-                w_.begin_assault();
+                wave_spawned_ = true;
                 issue_actions();   // 新生成的单位当拍拿到动作，不呆等一个决策周期
                 since_decision_ = 0;
+            } else if (w_.live_unit_count(rts::Side::Attacker) == 0) {
+                // 本波打完（消耗殆尽也算，突破与否不改变循环）：进下一波建造。
+                w_.begin_next_wave(wave_level(w_.wave() + 1));
+                build_left_ = kBuildTicksPlaceholder;
+                wave_spawned_ = false;
             }
-        } else if (w_.live_unit_count(rts::Side::Attacker) == 0) {
-            // 本波打完（消耗殆尽也算，突破与否不改变循环）：进下一波建造。
-            w_.begin_next_wave(wave_level(w_.wave() + 1));
-            build_left_ = kBuildTicksPlaceholder;
         }
         if (since_decision_ >= rts::kDecisionPeriodMax) {
             issue_actions();
