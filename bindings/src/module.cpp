@@ -178,8 +178,7 @@ PYBIND11_MODULE(rts_native, m) {
         py::arg("attackers") = std::vector<std::tuple<int, float, float, int>>{},
         "从地图 JSON + 数值表 JSON 装配建局参数。走的是游戏自己那条路"
         "（game::MapLoader / StatsLoader / make_world_init），"
-        "所以 Python 造的局面与双击 exe 玩的局面是同一个来源。
-"
+        "所以 Python 造的局面与双击 exe 玩的局面是同一个来源。"
         "attackers 是 [(unit_type, x, y, level), ...]：**本波编成由调用方给**，"
         "因为它是宏观层的产物，而 World 自己不生波。");
 
