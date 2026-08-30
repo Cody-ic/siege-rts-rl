@@ -6,25 +6,51 @@
 
 ## 三种状态，以及为什么「未实现」也要显式报出来
 
-22 条里现在有 15 条真正在跑。剩下的分两类，**都不静默跳过**：
+**条目状态由报告末尾那行计数给出，此处刻意不写数字**——它每落一条就变，
+而写死的数字对读者没有任何用处（同 `tests/CMakeLists.txt` 那条纪律）。
+仍未跑的分两类，**都不静默跳过**：
 
-- **阻塞**（第 9、18、20 条）—— 判据本身还写不出来，原因见 `README.md`
-- **待阈值**（第 1、2、5、14 条）—— 判据清楚，但要等 `thresholds.json`（PR 3）
+- **阻塞** —— 判据本身还写不出来，逐条原因在 `CHECKS` 表的 `note` 里
+- **待阈值** —— 判据清楚，缺的只是一个待标定的数
 
 「跳过」若不出现在报告里，校验器就会随着条目增加而慢慢变成一个只查几条的东西，
 而每次跑都是绿的 —— 这正是 #24 那一整轮「该红却绿」的形态。所以报告里三种状态
 都逐条列出，末尾给出计数。
 
+## 阈值从哪来：`thresholds.json`，且分 profile
+
+第 1、2、5、14 条要的阈值全部待标定。**待定的是值，不是归口**——
+`地图与场景设计.md` §10 明写「一切阈值……应集中在一份配置里，不要硬编码」，
+那份配置就是 `thresholds.json`，读取层是 `thresholds.py`。有了归口，
+这四条就能实现，占位值随时改而代码不动。
+
+阈值分 `strict` 与 `fixture` 两档，**profile 只改数值、不改「哪些条目跑」**。
+`fixture` 存在的唯一理由是 `game/testdata/fixture_min.json` 是一张 7×5 的
+最小夹具、不是一张游戏地图：对它套用「边长 ≥ 64」或「行军占 episode 的 10–20%」
+没有意义，而格式与拓扑检查对它完全适用。**防止 profile 退化成后门的手段是
+一条自检**：strict 下那张夹具必须红（`selftest.py`「profile 不是无操作」一组）。
+
+## 第 20 条不在 `CHECKS` 里，它移到生成器去了
+
+§8.1 早就写了它「更可能是生成器的一份报告，不是 `CHECKS` 里的一行 ——
+真要那样就该从本表移走并在 §8.1 说明」。生成器落地后照此办了，
+落点是 `generate.py` 的批量报告（丢弃率 + 每条检查的否决计数）。
+
+**它是移走，不是删掉**：`MOVED_TO_GENERATOR` 显式记着它，
+而 `selftest.py` 断言「CHECKS 的编号 + 移走的编号 = 规范的 1..22」。
+直接删会让这一条从此无声消失，而那正是白名单漏登记那类错误的样子。
+
 ## 一条防漂移的断言
 
-`CHECKS` 表必须正好覆盖 1..22、不重不漏，由 `selftest.py` 钉住。
-第 8 节将来若加条目（例如 #26 的 A5 若通过，要加一条「§2 必须配 §3」的检查），
-这条断言会立刻变红提醒同步 —— 白名单漏登记抓不到，是 `tests/CMakeLists.txt`
-里已经踩过的坑。
+`CHECKS` 表加上 `MOVED_TO_GENERATOR` 必须正好覆盖 1..22、不重不漏，
+由 `selftest.py` 钉住。第 8 节将来若加条目（例如 #26 的 A5 若通过，要加一条
+「§2 必须配 §3」的检查），这条断言会立刻变红提醒同步 —— 白名单漏登记抓不到，
+是 `tests/CMakeLists.txt` 里已经踩过的坑。
 
 用法:
     py validate.py <地图文件或目录> [更多...]
-    py validate.py --list          # 只列 22 条的状态，不读地图
+    py validate.py --profile fixture <最小夹具>
+    py validate.py --list          # 只列条目状态，不读地图
 """
 import argparse
 import sys
@@ -33,6 +59,7 @@ from pathlib import Path
 
 import mapfile
 import grid as gridmod
+import thresholds as thmod
 from grid import Grid
 
 # 状态。IMPLEMENTED 之外的两种都不算失败，但一定会出现在报告里。
@@ -40,15 +67,27 @@ IMPLEMENTED = "已实现"
 BLOCKED = "阻塞"
 PENDING = "待阈值"
 
-Check = namedtuple("Check", "no title fn status note")
+# `needs_th` 为真的检查签名是 (doc, grid, th)，否则 (doc, grid)。
+# **不把 th 一律加进所有签名**：那要改 15 个已经写好并有自检盯着的函数，
+# 而它们一个都不需要阈值。多一个字段比多 15 处改动安全。
+Check = namedtuple("Check", "no title fn status note needs_th")
+Check.__new__.__defaults__ = (False,)
 
 # 第 8 节要求的总条目数。写成常量而不是 len(CHECKS)，这样「漏写一条」会被
 # selftest 抓到 —— 用 len() 去校验 CHECKS 自己，等于用它证明它自己。
 SPEC_CHECK_COUNT = 22
 
+# 从 CHECKS 移走的条目：编号 -> 去哪了。见模块 docstring。
+MOVED_TO_GENERATOR = {
+    20: "第 7 与第 10 条的联合可满足性 —— §8.1 明写它的产出是**诊断信息**"
+        "（丢弃率、哪一条更常否决），而那只有跑一批生成才有。逐图看它没有新东西"
+        "可查：两条各自已在第 7、10 条里跑了。落点是 `generate.py` 的批量报告",
+}
+
 
 # --------------------------------------------------------------------------
-# 各条检查。签名统一为 (doc, grid) -> 问题列表（空列表 = 通过）
+# 各条检查。签名 (doc, grid) -> 问题列表（空列表 = 通过）；
+# 需要阈值的那几条是 (doc, grid, th)，并在 CHECKS 里标 needs_th=True。
 #
 # 返回列表而不是布尔，是为了让报告能指出**具体是哪个集结点 / 哪一格**出的问题。
 # 「第 4 条不通过」对着一张 96×96 的图没有任何指导意义。
@@ -575,15 +614,191 @@ def check_has_outer_resource(doc, grid):
 # 注册表
 # --------------------------------------------------------------------------
 
+# --------------------------------------------------------------------------
+# 需要阈值的四条（第 1、2、5、14 条）。签名多一个 `th`（一档 Profile）。
+#
+# 它们此前标着「待阈值」，而**缺的从来不是判据，是阈值的归口**。
+# `地图与场景设计.md` §10 早就写了「应集中在一份配置里，不要硬编码」，
+# 落地就是 `thresholds.json`。占位值随时改，这四条的代码不动。
+# --------------------------------------------------------------------------
+
+# `Ram` 速度读一次就缓存：四条里只有第 5 条用它，而它会被每张地图调一次。
+# 可用 `reset_ram_speed_cache()` 清掉——selftest 要在同一个进程里换数值表。
+_ram_speed_cache = None
+
+
+def reset_ram_speed_cache():
+    global _ram_speed_cache
+    _ram_speed_cache = None
+
+
+def _ram_speed():
+    global _ram_speed_cache
+    if _ram_speed_cache is None:
+        _ram_speed_cache = thmod.ram_speed_cells_per_tick()
+    return _ram_speed_cache
+
+
+def check_size_range(doc, grid, th):
+    """第 1 条：`size` 的两条边都落在给定区间。
+
+    **两条边分别查，不查面积**：一张 4×2000 的图面积正常而形状荒谬，
+    而走廊、城区半径、行军距离全部按边长推。
+    """
+    problems = []
+    for name, v in (("宽", doc["size"][0]), ("高", doc["size"][1])):
+        if not (th.size_min <= v <= th.size_max):
+            problems.append(
+                f"{name} = {v}，不在 [{th.size_min}, {th.size_max}] 内"
+                f"（profile {th.name}）—— §3 的边长由「城区半径 + 集结点到城墙的"
+                f"距离」推出，而后者受行军占比不变量约束（第 5 条）")
+    return problems
+
+
+def check_spawn_count_and_edge(doc, grid, th):
+    """第 2 条：集结点数量落在区间内，且每个都贴近地图边缘。
+
+    **数量取区间而不是等于某个数**：集结点数量是待定数值（CLAUDE.md
+    「关于数值」），而地图规范曾把它写成「定为 4」——那是把平衡旋钮当成结构
+    结论，是那条规则记下的唯一一次违反。区间表达「还没定」。
+
+    结构约束「集结点数 = 走廊种类数」不在这里，它由第 3 条查（那一条不需要阈值，
+    所以也不该等阈值）。
+
+    「贴近边缘」查的是到四条边的最小距离：§2.2 的集结区在地图边缘，
+    集结点跑到地图中间意味着攻方在城边上凭空出现。
+    """
+    problems = []
+    n = len(doc["spawns"])
+    if not (th.spawn_count_min <= n <= th.spawn_count_max):
+        problems.append(
+            f"集结点 {n} 个，不在 [{th.spawn_count_min}, {th.spawn_count_max}] 内"
+            f"（profile {th.name}）—— 它直接决定玩家每波要防几个方向")
+    for s in doc["spawns"]:
+        x, y = s["pos"]
+        d = min(x, y, grid.width - 1 - x, grid.height - 1 - y)
+        if d > th.spawn_edge_distance_max:
+            problems.append(
+                f"集结点 {[x, y]}（{s['corridor']}）距最近的地图边界 {d} 格，"
+                f"超过 {th.spawn_edge_distance_max} —— §2.2 的集结区在地图边缘，"
+                f"否则攻方等于在城边上凭空出现，侦查与行军时间窗口一起失效")
+    return problems
+
+
+def check_ram_march_fraction(doc, grid, th):
+    """第 5 条：`Ram` 从集结点走到城墙外沿的时间占 episode 的比例落在区间。
+
+    §3 唯一锁死的不变量。它把「地图尺寸 ↔ 单位速度 ↔ episode 长度」三者的耦合
+    变成一条可执行的检查——而那三个量分散在三处（地图文件、数值表、
+    `thresholds.json`），此前没有任何东西保证它们自洽。
+
+    ## 三个近似，都写明
+
+    **1. 「城墙外沿」取最近的墙格。** 严格的「外沿」需要城区（内外之分），
+    而城区推导不出来（见第 9 条）。取最近墙格对本条足够：`Ram` 要拆的就是
+    离它最近那段墙。
+
+    **2. 距离取 8 邻接 BFS 的步数，对角步按 1 格算。** 与 CLAUDE.md 的
+    「8 方向移动」一致，但真实的对角位移是 √2 格，所以这是**低估**行军时间。
+    本条是双边区间、没有单调保守的方向，所以这个近似必须写出来而不能靠「保守」
+    打发。真实值取决于 1c 的移动实现（每 tick 沿方向走 speed，还是归一化），
+    等它定了这里要复核。
+
+    **3. episode 长度是一个区间，所以占比也是一个区间。** 判据取
+    **「存在一个合法的 episode 长度使占比落在目标区间内」**，即两个区间有交集
+    就通过。理由与第 7 条取 4 连通、第 14 条取切比雪夫同一个手法：
+    **挑一个对未决数值单调保守的取法，而不是留一个等着被拨错的旋钮。**
+    episode 长度定下来之后这里会自动变严，不需要改代码。
+
+    地图没有 `initial_walls` 时自动通过——没有墙就谈不上「走到城墙外沿」，
+    同第 10 条的先例；初始城圈的存在性由第 8 条管。
+    """
+    if not grid.walls:
+        return []
+    try:
+        speed = _ram_speed()
+    except thmod.ThresholdError as e:
+        # **把它报成一条问题而不是让它崩**，但要说清是谁的问题：
+        # 这是数值表/配置读不到，不是这张地图画错了。
+        return [f"读不到 `Ram` 速度，本条无从计算 —— **这是数值表或配置的问题，"
+                f"不是这张地图的问题**：{e}"]
+
+    problems = []
+    walls = sorted(grid.walls)
+    for pos, s in sorted(grid.spawns.items()):
+        dist = grid.bfs_steps([pos], grid.ground_passable)
+        reach = [dist[w] for w in walls if w in dist]
+        if not reach:
+            problems.append(
+                f"集结点 {list(pos)}（{s['corridor']}）走不到任何墙段 —— "
+                f"第 4 条查的是到 `keep` 的通路，而「到墙」是另一件事："
+                f"墙是高代价可通行，所以第 4 条可能靠**穿墙**通过")
+            continue
+        steps = min(reach)
+        march_ticks = steps / speed
+        lo = march_ticks / th.episode_ticks_max
+        hi = march_ticks / th.episode_ticks_min
+        if hi < th.ram_march_fraction_min or lo > th.ram_march_fraction_max:
+            problems.append(
+                f"集结点 {list(pos)}（{s['corridor']}）到最近墙段 {steps} 格，"
+                f"`Ram` 速度 {speed} 格/tick ⇒ 行军 {march_ticks:.0f} tick，"
+                f"占 episode（{th.episode_ticks_min}–{th.episode_ticks_max} tick）"
+                f"的 {lo:.1%}–{hi:.1%}，与目标区间 "
+                f"{th.ram_march_fraction_min:.0%}–{th.ram_march_fraction_max:.0%} "
+                f"没有交集。§3：低于下界玩家来不及反应，侦查与「攻其必救」都没有"
+                f"时间窗口；高于上界 episode 大半花在行军上，RL 的有效决策步数"
+                f"被浪费")
+    return problems
+
+
+def check_spawn_buildable_distance(doc, grid, th):
+    """第 14 条：集结点到最近**可建造格**的切比雪夫距离必须 > 静态建筑视野半径上限。
+
+    这是「任何静态建筑的视野都不得覆盖集结区」那条**结构约束**的可校验形式
+    （CLAUDE.md「集结区」把它单列并明写「这是结构约束，不是数值」）。
+
+    要防的不是强度问题而是性质变化：一座永久建筑若能照亮集结区，
+    「这波要不要花钱侦查」就被**一次性买断**——`Scout`、`Wraith` 屏蔽、
+    佯攻诱饵会一起失效。**所以它不能靠「把视野半径调小一点」解决。**
+
+    ## 度量取切比雪夫，且这个选择不依赖「视野是圆还是方」
+
+    方形球包含同半径的圆形球，所以切比雪夫对两种视野形状都保守。
+    见 `grid.chebyshev` 与 #29 第三条——同第 7 条那个手法：
+    挑一个对未决问题单调保守的取法。
+
+    查的是**可建造格**而不是「已有建筑」：地图上现在没建筑不代表玩家不能在那儿
+    建，而这条约束要挡住的正是「玩家造一座瞭望塔就永久照亮集结区」。
+    """
+    problems = []
+    buildable = [c for c in grid.all_cells() if grid.is_buildable(*c)]
+    if not buildable:
+        return []      # 一格都不能建的图有别的问题，不在本条管
+    for pos, s in sorted(grid.spawns.items()):
+        best, where = None, None
+        for c in buildable:
+            d = gridmod.chebyshev(pos, c)
+            if best is None or d < best:
+                best, where = d, c
+        if best <= th.static_vision_radius_max:
+            problems.append(
+                f"集结点 {list(pos)}（{s['corridor']}）到最近可建造格 "
+                f"{list(where)} 的切比雪夫距离只有 {best}，"
+                f"不大于静态建筑视野半径上限 {th.static_vision_radius_max}"
+                f"（profile {th.name}）—— 一座永久建筑就能照亮集结区，"
+                f"「这波要不要花钱侦查」被一次性买断，整条侦查博弈失效")
+    return problems
+
+
 CHECKS = [
-    Check(1, "size 落在给定区间", None, PENDING,
-          "阈值待标定，等 thresholds.json（PR 3）"),
-    Check(2, "集结点数量与距边界格数", None, PENDING,
-          "两个阈值都待标定（集结点数量属数值，见 CLAUDE.md「关于数值」）"),
+    Check(1, "size 落在给定区间", check_size_range, IMPLEMENTED, "",
+          True),
+    Check(2, "集结点数量与距边界格数", check_spawn_count_and_edge,
+          IMPLEMENTED, "", True),
     Check(3, "每种 corridor 恰好出现一次", check_corridor_kinds, IMPLEMENTED, ""),
     Check(4, "每个集结点到 keep 有通路", check_spawn_reachable, IMPLEMENTED, ""),
-    Check(5, "Ram 行军时间占 episode 的比例", None, PENDING,
-          "需要 Ram 速度与 episode 长度，两者皆待标定"),
+    Check(5, "Ram 行军时间占 episode 的比例", check_ram_march_fraction,
+          IMPLEMENTED, "", True),
     Check(6, "inner 资源点三种各 ≥ 1", check_inner_resources, IMPLEMENTED, ""),
     Check(7, "外部资源点结构性不可围", check_outer_unenclosable, IMPLEMENTED, ""),
     Check(8, "初始城圈至少一处缺口", check_initial_breach, IMPLEMENTED, ""),
@@ -600,10 +815,8 @@ CHECKS = [
     Check(11, "无不可达的 Plain 孤岛", check_plain_islands, IMPLEMENTED, ""),
     Check(12, "Water 不得无桥切断走廊", check_water_cuts_corridor, IMPLEMENTED, ""),
     Check(13, "Bridge 四邻至少一格 Water", check_bridge_on_water, IMPLEMENTED, ""),
-    Check(14, "集结点到最近可建造格的距离", None, PENDING,
-          "只剩阈值（静态建筑视野半径上限）待标定。**距离度量已定：切比雪夫**"
-          "（`grid.chebyshev`），且这个选择不依赖「视野是圆还是方」——"
-          "方形球包含同半径的圆形球，所以它对两种形状都保守。见 #29 第三条"),
+    Check(14, "集结点到最近可建造格的距离", check_spawn_buildable_distance,
+          IMPLEMENTED, "", True),
     Check(15, "content_hash 与内容一致", check_content_hash, IMPLEMENTED, ""),
     # —— 8.1 起的条目。编号在那里排定，落地时按那个顺序，不要重排 ——
     Check(16, "resources 与 keep 落在可通行且可建造的格上",
@@ -617,12 +830,9 @@ CHECKS = [
           "`mapfile.py` 读写与本条。见 `地图与场景设计.md` 第 10 节"),
     Check(19, "Forest 与 Rock 不得出现在可破坏障碍列表里",
           check_obstacle_types, IMPLEMENTED, ""),
-    Check(20, "第 7 与第 10 条的联合可满足性", None, BLOCKED,
-          "**它不是一张图的检查，所以放在这里本身就有点勉强。** §8.1 明写它的"
-          "产出应当是**诊断信息**（丢弃率、哪一条更常否决），而丢弃率只有跑一批"
-          "生成才有，**而生成器（第 9 节）未开工**。逐图看没有新东西可查："
-          "两条各自已在第 7、10 条里跑了。**落地时它更可能是生成器的一份报告，"
-          "不是 CHECKS 里的一行** —— 真要那样就该从本表移走并在 §8.1 说明"),
+    # 第 20 条**不在这张表里**：它已按 §8.1 自己写的那句移到生成器的批量报告去了
+    # （`MOVED_TO_GENERATOR`，理由见模块 docstring）。这里刻意留一条注释，
+    # 因为「表里没有第 20 条」与「有人漏登记了第 20 条」在读表时长得一模一样。
     Check(21, "至少有一个 outer 资源点",
           check_has_outer_resource, IMPLEMENTED, ""),
     Check(22, "obstacles 的摆放冲突",
@@ -630,14 +840,23 @@ CHECKS = [
 ]
 
 
-def run(doc, grid=None):
-    """跑全部检查，返回 [(Check, 问题列表)]。未实现的条目问题列表为 None。"""
+def run(doc, grid=None, th=None):
+    """跑全部检查，返回 [(Check, 问题列表)]。未实现的条目问题列表为 None。
+
+    `th` 是一档 `thresholds.Profile`。**默认加载 strict 而不是跳过需要阈值的
+    条目**——「不给阈值就静默少查四条」正是本文件通篇在防的形态。
+    最小夹具那类图请显式传 `fixture` 档。
+    """
     if grid is None:
         grid = Grid(doc)
+    if th is None:
+        th = thmod.load().profile("strict")
     out = []
     for chk in CHECKS:
         if chk.fn is None:
             out.append((chk, None))
+        elif chk.needs_th:
+            out.append((chk, chk.fn(doc, grid, th)))
         else:
             out.append((chk, chk.fn(doc, grid)))
     return out
@@ -730,19 +949,43 @@ def cmd_list():
             note = f"  —— {chk.note}" if chk.note else ""
             print(f"  [{chk.no:2}] {chk.title}{note}")
         print()
+    # **移走的条目也要列出来。** 不列的话，`--list` 报的条目数会比规范少一条，
+    # 而读者无从知道少的那条去哪了——那正是「白名单漏登记」的样子。
+    if MOVED_TO_GENERATOR:
+        print(f"已移出本表（{len(MOVED_TO_GENERATOR)} 条）:")
+        for no, why in sorted(MOVED_TO_GENERATOR.items()):
+            print(f"  [{no:2}] {why}")
+        print()
+    print(f"规范（第 8 节）共 {SPEC_CHECK_COUNT} 条 = 表内 {len(CHECKS)} "
+          f"+ 已移出 {len(MOVED_TO_GENERATOR)}")
     return 0
 
 
 def main():
     ap = argparse.ArgumentParser(description="地图校验器（第 8 节）")
     ap.add_argument("targets", nargs="*", help="地图文件或目录")
-    ap.add_argument("--list", action="store_true", help="只列 15 条的状态")
+    ap.add_argument("--list", action="store_true",
+                    help="只列条目状态，不读地图")
+    ap.add_argument("--profile", default="strict",
+                    help="阈值档，默认 strict；最小夹具用 fixture")
+    ap.add_argument("--thresholds", default=None,
+                    help="阈值文件路径，默认 tools/map_gen/thresholds.json")
     a = ap.parse_args()
 
     if a.list:
         return cmd_list()
     if not a.targets:
         ap.error("需要至少一个地图文件或目录，或用 --list")
+
+    # **阈值在读任何地图之前就加载。** 配置写坏了要以「配置坏了」的名义失败，
+    # 而不是变成每张地图上一条看起来像地图问题的报错——同 `StatsMismatch`
+    # 与「跑歪了」必须分开那条（`rts_core 接口契约.md` §4.7）。
+    try:
+        th = thmod.load(a.thresholds).profile(a.profile)
+    except thmod.ThresholdError as e:
+        print("阈值配置有问题，一张地图都没读：")
+        print(f"    {e}")
+        return 1
 
     missing = []
     maps = list(_iter_maps(a.targets, missing))
@@ -769,16 +1012,18 @@ def main():
             doc = mapfile.load(path)
         except mapfile.MapFormatError as e:
             print(f"=== {path} ===")
-            print(f"  格式层就没过，后面 15 条无从谈起：{e}")
+            print(f"  格式层就没过，后面各条无从谈起：{e}")
             total_failed += 1
             continue
-        total_failed += _print_results(run(doc), str(path))
+        total_failed += _print_results(run(doc, th=th), str(path))
 
     n_impl = sum(1 for c in CHECKS if c.status == IMPLEMENTED)
     n_block = sum(1 for c in CHECKS if c.status == BLOCKED)
     n_pend = sum(1 for c in CHECKS if c.status == PENDING)
-    print(f"\n{len(maps)} 张地图；条目状态：{n_impl} 已实现 / "
-          f"{n_block} 阻塞 / {n_pend} 待阈值（共 {len(CHECKS)}）")
+    print(f"\n{len(maps)} 张地图（阈值档 {th.name}）；条目状态："
+          f"{n_impl} 已实现 / {n_block} 阻塞 / {n_pend} 待阈值"
+          f"（表内 {len(CHECKS)} + 已移出 {len(MOVED_TO_GENERATOR)} "
+          f"= 规范 {SPEC_CHECK_COUNT}）")
     if total_failed:
         print(f"失败：{total_failed} 条检查不通过")
         return 1

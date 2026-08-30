@@ -822,7 +822,9 @@ code page 下这条链路会把名字弄乱，结果是 ctest 报「No tests ran
 | | `determinism_bans_self_test` | 防守卫自己退化成永远绿 |
 | | `determinism_bans_empty_is_red` | **`WILL_FAIL`**：扫空目录，期望脚本非零退出 |
 | 地图校验器 | `map_gen_self_test` | `tools/map_gen/` 的自检 |
-| | `map_gen_validate_fixture` | 拿 `game/testdata/fixture_min.json` **真的读一张真图**（全仓唯一一张，两侧共用） |
+| | `map_gen_validate_fixture` | 拿 `game/testdata/fixture_min.json` **真的读一张真图**（全仓唯一一张，两侧共用）。走 `--profile fixture`：那是张 7×5 的最小夹具，尺寸与行军类的阈值对它不适用 |
+| | `map_gen_validate_fixture_strict_is_red` | **`WILL_FAIL`**：同一张夹具在 `--profile strict` 下必须红。**它是上一条那个 `--profile` 的对照**——少了它，「换一档阈值」与「把那几条检查删掉」在 ctest 层面不可区分 |
+| | `map_gen_generate_smoke` | 生成器真的生成几张图，每张跑完整校验器（第 9 节）。它同时是**规范第 20 条**（第 7 与第 10 条的联合可满足性）唯一的常驻监视 |
 | | `map_gen_validate_empty_is_red` / `..._partial_path_is_red` | **`WILL_FAIL`**：一张都没读到 / 读到一些但另一些路径不存在 |
 | 配置陈旧 | `cmake_configure_is_current` | **`ctest` 不会自己发现 `CMakeLists.txt` 变了**，见下 |
 | | `cmake_freshness_missing_stamp_is_red` / `..._empty_root_is_red` | **`WILL_FAIL`**：上一条自己能不能变红 |
