@@ -618,16 +618,27 @@ int run_game(const Options& opt) {
     // 按键绑定的**唯一说明**是 `game::help_entries()`（游戏内那一屏就是它），
     // 这里不再抄一份注释——两处各写一份必然漂移。
     //
-    // 三个「点一格生效」的模式（建造 / 征兵 / 维修）**互斥**，所以是一个枚举而不是
-    // 三个 bool：三个 bool 允许「同时在建造又在维修」这种状态存在，而那时左键
-    // 该干什么只能靠代码里的先后顺序决定——一个读不出来的规则。
-    enum class ActMode : int { None = 0, Build, Train, Repair };
-    ActMode mode = ActMode::None;
-    int force_sel = 0;
-    int build_sel = 0;   // 索引进 game::buildable_types()
-    int train_sel = 0;   // 索引进 game::trainable_types()
+    // #57 重开后的形状：框选取代「先按数字键选编队、再右键」；建造 / 征兵 /
+    // 维修从「先进模式再点」改成「先点目标，弹出菜单」。`PopupKind` 三者
+    // 互斥，理由与旧的 `ActMode` 相同——枚举而不是三个 bool，避免「同时在
+    // 建造又在维修」这种读不出规则的状态存在。
+    enum class PopupKind : int { None = 0, Build, Train, Repair };
+    struct Popup {
+        PopupKind kind = PopupKind::None;
+        rts::GridPos cell{};       // 建造的落点 / 兵营或堡垒 / 受损建筑
+        Vector2 anchor{};          // 菜单画在哪（点开那一刻的屏幕坐标）
+    };
+    Popup popup;
     const std::vector<rts::BldType>& buildable = game::buildable_types();
     const std::vector<rts::UnitType>& trainable = game::trainable_types();
+    // 训练仍是编队唯一入口（CLAUDE.md 未动这一条），但选编队不再是下令的
+    // 前提——它只在征兵这一件事上出现，所以退化成一个不常按的持久值。
+    int train_force_sel = 0;
+    std::vector<rts::UnitId> selected;   // 框选 / 点选出的己方单位
+    bool dragging = false;
+    Vector2 drag_screen_start{};   // 屏幕坐标：用位移量判断「点」还是「拖」
+    Vector2 drag_world_start{};    // 世界像素坐标：拖动结束时拼框选矩形
+    constexpr float kDragThreshold = 6.0f;   // 像素；小于它算「点」不算「拖」
     bool paused = false;
     int preloaded_attempt = 0;
 
@@ -645,6 +656,58 @@ int run_game(const Options& opt) {
         preloaded_attempt = shell.attempt();
     };
     preload_for_battle();
+
+    // 弹出菜单的一个选项：屏幕坐标的一个矩形 + 显示文字 + 是否合法（决定
+    // 描边颜色，接管了旧版按格描红/描绿那条提示的职责）。
+    struct PopupOption {
+        Rectangle box;
+        std::string label;
+        bool legal = true;
+    };
+    // 按当前弹窗种类摆出选项列表，纵向排开、每项一行。**造价与合法性都在
+    // 这里算好**——`draw_frame` 只管画，点击命中检测也只读这份表，两处
+    // 用同一份数据，不会出现「画的是绿的、点了却被拒」那种错位。
+    const auto popup_options = [&](const Popup& p, const rts::WorldView& v) {
+        std::vector<PopupOption> out;
+        // **不用 constexpr**：MSVC 对「只在内层 lambda 里用到的 constexpr
+        // 局部变量」会误报 C4189（已内联成立即数，外层变量看起来没被引用），
+        // 实测过——换成 const 就没有这个假警告。
+        const float kW = 240.0f, kH = 30.0f, kGap = 4.0f;
+        const auto& stats = shell.battle()->world().stats();
+        const auto push = [&](std::string label, bool legal) {
+            const float y = p.anchor.y + static_cast<float>(out.size()) * (kH + kGap);
+            out.push_back(
+                PopupOption{Rectangle{p.anchor.x, y, kW, kH}, std::move(label), legal});
+        };
+        char buf[96];
+        switch (p.kind) {
+            case PopupKind::Build:
+                for (const rts::BldType bt : buildable) {
+                    const rts::BldStats& s = stats.of(bt);
+                    std::snprintf(buf, sizeof(buf), "%s (石%d 木%d)",
+                                 std::string(game::display_name(bt)).c_str(),
+                                 static_cast<int>(s.cost_stone),
+                                 static_cast<int>(s.cost_wood));
+                    push(buf, game::can_place_hint(v, bt, p.cell));
+                }
+                break;
+            case PopupKind::Train:
+                for (const rts::UnitType ut : trainable) {
+                    const rts::UnitStats& s = stats.of(ut);
+                    std::snprintf(buf, sizeof(buf), "%s (金%d)",
+                                 std::string(game::display_name(ut)).c_str(),
+                                 static_cast<int>(s.cost_gold));
+                    push(buf, game::can_train_hint(v, p.cell));
+                }
+                break;
+            case PopupKind::Repair:
+                push("维修", game::can_repair_hint(v, p.cell));
+                break;
+            case PopupKind::None:
+                break;
+        }
+        return out;
+    };
 
     // 一帧的绘制。**截图模式与窗口模式共用它**——两份各画一遍的话，
     // 截图回归测试保住的就不是玩家真正看到的那个画面。
@@ -664,68 +727,67 @@ int run_game(const Options& opt) {
             renderer.draw(static_scene);
         }
         if (shell.screen() == game::Screen::Battle && b != nullptr && has_cursor &&
-            map.in_bounds(cell.i, cell.j)) {
-            // 三个模式下描边就是合法性提示（绿=点了会生效 / 红=不会）；
-            // 不在模式里时是白色悬停框。三个模式各问自己那条 hint——
-            // 「绿框点了没反应」比红框更难懂，所以 hint 要与解算的结构性规则一致。
+            map.in_bounds(cell.i, cell.j) && popup.kind == PopupKind::None) {
+            // 没有菜单开着时，描边只是白色悬停框——合法性提示挪进了弹窗里
+            // 逐项显示（见下面 popup_options），不再需要按格上色。
+            overlay.draw_cell_outline(cell, Color{235, 235, 245, 255},
+                                      2.0f / cam.camera().zoom);
+        }
+        if (shell.screen() == game::Screen::Battle && b != nullptr) {
             const rts::WorldView v = b->world().view(rts::Side::Defender);
-            bool ok = false;
-            switch (mode) {
-                case ActMode::Build:
-                    ok = game::can_place_hint(
-                        v, buildable[static_cast<std::size_t>(build_sel)], cell);
-                    break;
-                case ActMode::Train: ok = game::can_train_hint(v, cell); break;
-                case ActMode::Repair: ok = game::can_repair_hint(v, cell); break;
-                case ActMode::None: break;
+            // 选中集：每个单位脚下画一个小圈，框选/点选的即时反馈。
+            const auto upos = v.unit_pos();
+            const auto ualive = v.unit_alive();
+            for (const rts::UnitId id : selected) {
+                const std::size_t s = id.index();
+                if (s >= ualive.size() || !ualive[s]) continue;
+                const rts::Vec2 sp = proj.world_to_screen(upos[s]);
+                DrawCircleLines(static_cast<int>(sp.x), static_cast<int>(sp.y), 14.0f,
+                                Color{255, 214, 120, 235});
             }
-            const Color line = mode == ActMode::None
-                                   ? Color{235, 235, 245, 255}
-                                   : (ok ? Color{120, 220, 120, 255}
-                                         : Color{230, 90, 90, 255});
-            overlay.draw_cell_outline(cell, line, 2.0f / cam.camera().zoom);
+            // 框选矩形：拖拽中才画，世界像素坐标（camera 会自动套变换）。
+            if (dragging) {
+                const Vector2 cur = GetScreenToWorld2D(GetMousePosition(), cam.camera());
+                const float x0 = drag_world_start.x < cur.x ? drag_world_start.x : cur.x;
+                const float y0 = drag_world_start.y < cur.y ? drag_world_start.y : cur.y;
+                const float x1 = drag_world_start.x > cur.x ? drag_world_start.x : cur.x;
+                const float y1 = drag_world_start.y > cur.y ? drag_world_start.y : cur.y;
+                DrawRectangleLines(static_cast<int>(x0), static_cast<int>(y0),
+                                   static_cast<int>(x1 - x0), static_cast<int>(y1 - y0),
+                                   Color{120, 220, 255, 220});
+            }
         }
         EndMode2D();
 
         if (shell.screen() == game::Screen::Battle && b != nullptr) {
             draw_battle_hud(*font, map, *b, paused);
-            // 模式提示行。**造价写在这里**：三种模式各花不同的资源，而「点了
-            // 没反应」最常见的真因就是买不起——把价钱摆在眼前比事后猜便宜。
             char ibuf[320];
-            switch (mode) {
-                case ActMode::Build: {
-                    const rts::BldType bt = buildable[static_cast<std::size_t>(build_sel)];
-                    const rts::BldStats& s = b->world().stats().of(bt);
-                    std::snprintf(ibuf, sizeof(ibuf),
-                                  "建造 %s   石 %d 木 %d   TAB 换型   左键放置   右键退出",
-                                  std::string(game::display_name(bt)).c_str(),
-                                  static_cast<int>(s.cost_stone),
-                                  static_cast<int>(s.cost_wood));
-                    break;
-                }
-                case ActMode::Train: {
-                    const rts::UnitType ut = trainable[static_cast<std::size_t>(train_sel)];
-                    const rts::UnitStats& s = b->world().stats().of(ut);
-                    std::snprintf(ibuf, sizeof(ibuf),
-                                  "征兵 %s   金 %d   进编队 %d   TAB 换兵种   "
-                                  "左键点兵营或堡垒   右键退出",
-                                  std::string(game::display_name(ut)).c_str(),
-                                  static_cast<int>(s.cost_gold), force_sel + 1);
-                    break;
-                }
-                case ActMode::Repair:
-                    std::snprintf(ibuf, sizeof(ibuf),
-                                  "维修   左键点掉了血的建筑   花木材   右键退出");
-                    break;
-                case ActMode::None:
-                    std::snprintf(ibuf, sizeof(ibuf),
-                                  "编队 %d   右键下令   B 建造   T 征兵   R 维修   "
-                                  "N 召唤下一波",
-                                  force_sel + 1);
-                    break;
-            }
+            std::snprintf(ibuf, sizeof(ibuf),
+                          "选中 %zu   右键下令   N 召唤下一波   1-4 征兵进哪支编队(当前 %d)",
+                          selected.size(), train_force_sel + 1);
             font->draw(ibuf, rts::Vec2{14.0f, 12.0f + kHudLine * 3.0f}, kHudSize,
                        Color{200, 205, 160, 255});
+
+            // 弹出菜单：屏幕坐标，画在点开那一刻的位置。**造价写在选项里**——
+            // 「点了没反应」最常见的真因是买不起，把价钱摆在眼前比事后猜便宜。
+            if (popup.kind != PopupKind::None) {
+                const std::vector<PopupOption> opts =
+                    popup_options(popup, b->world().view(rts::Side::Defender));
+                for (const PopupOption& o : opts) {
+                    const bool ok = o.legal;
+                    DrawRectangleRec(o.box, ok ? Color{40, 70, 40, 235}
+                                              : Color{70, 40, 40, 200});
+                    DrawRectangleLinesEx(o.box, 1.5f,
+                                        ok ? Color{120, 220, 120, 255}
+                                          : Color{160, 90, 90, 255});
+                    font->draw(o.label,
+                              rts::Vec2{o.box.x + 8.0f, o.box.y + 6.0f}, kHudSize * 0.8f,
+                              Color{230, 230, 235, 255});
+                }
+                font->draw("右键 / Esc 关闭菜单",
+                          rts::Vec2{popup.anchor.x, popup.anchor.y - kHudLine},
+                          kHudSize * 0.8f, Color{170, 175, 190, 255});
+            }
             return;
         }
 
@@ -795,10 +857,10 @@ int run_game(const Options& opt) {
             // 建造模式会跟到新局里，而玩家并不知道自己还在建造模式。
             cam.fit(proj, map.width(), map.height(), vp);
             paused = false;
-            mode = ActMode::None;
-            build_sel = 0;
-            train_sel = 0;
-            force_sel = 0;
+            popup = Popup{};
+            selected.clear();
+            dragging = false;
+            train_force_sel = 0;
         }
 
         const Vector2 mouse = GetMousePosition();
@@ -832,23 +894,12 @@ int run_game(const Options& opt) {
             if (IsKeyPressed(KEY_ESCAPE)) shell.on_escape();   // → 暂停菜单
             if (IsKeyPressed(KEY_F)) cam.fit(proj, map.width(), map.height(), vp);
             if (IsKeyPressed(KEY_SPACE)) paused = !paused;
-            if (IsKeyPressed(KEY_ONE)) force_sel = 0;
-            if (IsKeyPressed(KEY_TWO)) force_sel = 1;
-            if (IsKeyPressed(KEY_THREE)) force_sel = 2;
-            if (IsKeyPressed(KEY_FOUR)) force_sel = 3;
-            // 三个模式键都是「切到它 / 从它退出」。按 B 再按 T 直接换模式，
-            // 不必先退出——否则玩家要按两下，而第一下看起来什么都没发生。
-            const auto toggle = [&mode](ActMode m) { mode = mode == m ? ActMode::None : m; };
-            if (IsKeyPressed(KEY_B)) toggle(ActMode::Build);
-            if (IsKeyPressed(KEY_T)) toggle(ActMode::Train);
-            if (IsKeyPressed(KEY_R)) toggle(ActMode::Repair);
-            if (IsKeyPressed(KEY_TAB)) {
-                if (mode == ActMode::Build) {
-                    build_sel = (build_sel + 1) % static_cast<int>(buildable.size());
-                } else if (mode == ActMode::Train) {
-                    train_sel = (train_sel + 1) % static_cast<int>(trainable.size());
-                }
-            }
+            // 1-4 只管「新兵进哪支编队」——训练仍是编队唯一入口（未动），
+            // 但选编队不再是下令的前提，框选取代了那条路（#57 重开）。
+            if (IsKeyPressed(KEY_ONE)) train_force_sel = 0;
+            if (IsKeyPressed(KEY_TWO)) train_force_sel = 1;
+            if (IsKeyPressed(KEY_THREE)) train_force_sel = 2;
+            if (IsKeyPressed(KEY_FOUR)) train_force_sel = 3;
             if (IsKeyPressed(KEY_N)) {
                 rts::Command c;
                 c.kind = rts::CommandKind::Summon;
@@ -862,38 +913,142 @@ int run_game(const Options& opt) {
             cell = proj.screen_to_grid(rts::Vec2{wpos.x, wpos.y});
             const bool in_map = map.in_bounds(cell.i, cell.j);
             const rts::WorldView view = b->world().view(rts::Side::Defender);
-            if (in_map && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
-                if (mode != ActMode::None) {
-                    mode = ActMode::None;   // RTS 惯例：右键退出当前模式
-                } else {
-                    const rts::Command c = game::command_for_click(
-                        view, static_cast<std::uint8_t>(force_sel), cell);
-                    b->submit_defender(&c, 1);
+
+            if (popup.kind != PopupKind::None) {
+                // 菜单开着时，鼠标只做两件事：点选项生效 / 右键关闭。
+                // 不碰框选与下令——两套输入不该在同一帧里叠着解释。
+                if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
+                    popup = Popup{};
+                } else if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                    const std::vector<PopupOption> opts = popup_options(popup, view);
+                    for (std::size_t i = 0; i < opts.size(); ++i) {
+                        if (!opts[i].legal || !CheckCollisionPointRec(mouse, opts[i].box)) {
+                            continue;
+                        }
+                        // 深层裁决（资源够不够、点位规则）在 World 的解算里；
+                        // 这里只把命令发出去，`legal` 只是同一份判据算出来的
+                        // 展示层提示，不是第二套规则。
+                        rts::Command c;
+                        bool have = true;
+                        switch (popup.kind) {
+                            case PopupKind::Build:
+                                c = game::build_command(buildable[i], popup.cell,
+                                                        map.width());
+                                break;
+                            case PopupKind::Train:
+                                c = game::train_command(
+                                    trainable[i],
+                                    static_cast<std::uint8_t>(train_force_sel),
+                                    popup.cell, map.width());
+                                break;
+                            case PopupKind::Repair:
+                                c = game::repair_command(popup.cell, map.width());
+                                break;
+                            case PopupKind::None:
+                                have = false;
+                                break;
+                        }
+                        if (have) b->submit_defender(&c, 1);
+                        break;
+                    }
+                    popup = Popup{};   // 点中选项或点在菜单外：都关掉
                 }
-            }
-            if (in_map && mode != ActMode::None &&
-                IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-                // 深层裁决（资源够不够、点位规则、兵营在不在练兵）在 World 的
-                // 解算里；这里只把命令发出去，虚影颜色是提示不是裁决。
-                bool have = true;
-                rts::Command c;
-                switch (mode) {
-                    case ActMode::Build:
-                        c = game::build_command(
-                            buildable[static_cast<std::size_t>(build_sel)], cell,
-                            map.width());
-                        break;
-                    case ActMode::Train:
-                        c = game::train_command(
-                            trainable[static_cast<std::size_t>(train_sel)],
-                            static_cast<std::uint8_t>(force_sel), cell, map.width());
-                        break;
-                    case ActMode::Repair:
-                        c = game::repair_command(cell, map.width());
-                        break;
-                    case ActMode::None: have = false; break;
+            } else if (in_map && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                // 按下先不动作：拖没拖开、拖到哪，要等松开才知道。
+                dragging = true;
+                drag_screen_start = mouse;
+                drag_world_start = wpos;
+            } else if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT) && dragging) {
+                dragging = false;
+                const float ddx = mouse.x - drag_screen_start.x;
+                const float ddy = mouse.y - drag_screen_start.y;
+                if (ddx * ddx + ddy * ddy > kDragThreshold * kDragThreshold) {
+                    // 拖：框选。矩形用世界像素坐标拼，与 `units_in_rect` 同一套。
+                    const float x0 = drag_world_start.x < wpos.x ? drag_world_start.x
+                                                                 : wpos.x;
+                    const float y0 = drag_world_start.y < wpos.y ? drag_world_start.y
+                                                                 : wpos.y;
+                    const float x1 = drag_world_start.x > wpos.x ? drag_world_start.x
+                                                                 : wpos.x;
+                    const float y1 = drag_world_start.y > wpos.y ? drag_world_start.y
+                                                                 : wpos.y;
+                    std::vector<rts::UnitId> ids;
+                    b->world().enumerate_units(rts::Side::Defender, ids);
+                    selected = game::units_in_rect(
+                        view, ids, proj, game::Rect{x0, y0, x1 - x0, y1 - y0});
+                } else if (in_map) {
+                    // 点（没拖开）：这一格能不能弹出菜单，按「维修 > 征兵 > 建造」
+                    // 的优先级判——一座又受损又能出兵的建筑很少见，受损更急。
+                    const auto tile_is_open_for_building =
+                        [](const rts::WorldView& v, rts::GridPos c) {
+                            if (!v.terrain().buildable(c.i, c.j)) return false;
+                            const auto bp = v.bld_pos();
+                            const auto ba = v.bld_alive();
+                            for (std::size_t k = 0; k < bp.size(); ++k) {
+                                if (ba[k] && bp[k] == c) return false;
+                            }
+                            const auto op = v.obstacle_pos();
+                            const auto oa = v.obstacle_alive();
+                            for (std::size_t k = 0; k < op.size(); ++k) {
+                                if (oa[k] && op[k] == c) return false;
+                            }
+                            return true;
+                        };
+                    if (game::can_repair_hint(view, cell)) {
+                        popup = Popup{PopupKind::Repair, cell, mouse};
+                    } else if (game::can_train_hint(view, cell)) {
+                        popup = Popup{PopupKind::Train, cell, mouse};
+                    } else if (tile_is_open_for_building(view, cell)) {
+                        popup = Popup{PopupKind::Build, cell, mouse};
+                    } else {
+                        selected.clear();   // 点在别处：取消选中（标准 RTS 习惯）
+                    }
                 }
-                if (have) b->submit_defender(&c, 1);
+            } else if (in_map && !selected.empty() &&
+                       IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
+                // 右键对选中集下令。语义判断复用 `command_for_click` 那张表
+                // （force 参数是占位——那个函数不靠它判语义，只把它填进
+                // 结果，见 player_input.hpp 的说明）。
+                const rts::Command probe = game::command_for_click(view, 0, cell);
+                switch (probe.kind) {
+                    case rts::CommandKind::Garrison: {
+                        // 驻守的登墙机制天生按编队记账（tick_garrison 按
+                        // u_force_ 挑人），框选选出的是单位不是编队，
+                        // 要先映射回选中集里出现过的那几支编队。
+                        const std::vector<std::uint8_t> forces =
+                            game::distinct_forces(view, selected);
+                        std::vector<rts::Command> cmds;
+                        cmds.reserve(forces.size());
+                        for (const std::uint8_t f : forces) {
+                            rts::Command c;
+                            c.kind = rts::CommandKind::Garrison;
+                            c.side = rts::Side::Defender;
+                            c.force = f;
+                            c.slot = probe.slot;
+                            cmds.push_back(c);
+                        }
+                        if (!cmds.empty()) {
+                            b->submit_defender(cmds.data(), cmds.size());
+                        }
+                        break;
+                    }
+                    case rts::CommandKind::Clear: {
+                        // 清野的标记是全局的（`o_clear_ordered_` 不按编队），
+                        // 任何能破坏结构的空闲单位都会响应，不需要按选中集
+                        // 拆分——一条命令即可，同旧行为。
+                        rts::Command c;
+                        c.kind = rts::CommandKind::Clear;
+                        c.side = rts::Side::Defender;
+                        c.slot = probe.slot;
+                        b->submit_defender(&c, 1);
+                        break;
+                    }
+                    default:
+                        // 开拔：只影响框选出的这批单位，不进编队记账
+                        // （见 `DefenderScript::issue_move_order` 的理由）。
+                        b->issue_move_order(selected, cell);
+                        break;
+                }
             }
         }
 

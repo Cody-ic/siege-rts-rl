@@ -30,8 +30,10 @@
 #define GAME_PLAYER_INPUT_HPP
 
 #include <cstdint>
+#include <span>
 #include <vector>
 
+#include "game/iso_projection.hpp"
 #include "rts/command.hpp"
 #include "rts/roster.hpp"
 #include "rts/types.hpp"
@@ -40,8 +42,28 @@
 namespace game {
 
 // 右键点击 → 命令。`cell` 必须在界内（越界归拾取层挡，这里 assert）。
+//
+// **`force` 只用来填 `Command::force`，不参与「这一格该翻成哪种命令」的
+// 判断**——判断只看格上的东西（墙/门 → Garrison，活障碍 → Clear，其余 →
+// MoveForce）。框选流程因此可以拿它当纯粹的「判语义」工具：传一个占位
+// force（比如 0），只读返回值的 `.kind`/`.slot`，`.force` 由调用方按框选
+// 到的编队重新决定（见 `distinct_forces`）——不必另写一份判断表。
 rts::Command command_for_click(const rts::WorldView& view, std::uint8_t force,
                                rts::GridPos cell);
+
+// 框选：给一个世界像素矩形（`IsoProjection::world_to_screen` 那套坐标系，
+// 与鼠标拖拽经 `GetScreenToWorld2D` 得到的坐标同一套），返回落在其中的
+// 己方单位。`ids` 必须是 `enumerate_units(Side::Defender, …)` 的产物——
+// 这里只做几何判断，不重新枚举（枚举的时机与顺序归调用方）。
+std::vector<rts::UnitId> units_in_rect(const rts::WorldView& view,
+                                       std::span<const rts::UnitId> ids,
+                                       const IsoProjection& proj, Rect rect);
+
+// `ids` 里出现过的、互不相同的编队号（跳过 `kNoForce`）。**驻守要按编队
+// 提交**——`rts_core` 的登墙机制（`World::tick_garrison`）天生按编队记账，
+// 框选选出的是单位而不是编队，提交前要先把这批单位映射回它们各自的编队。
+std::vector<std::uint8_t> distinct_forces(const rts::WorldView& view,
+                                          std::span<const rts::UnitId> ids);
 
 // ——建造——
 //

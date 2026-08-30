@@ -44,6 +44,41 @@ rts::Command command_for_click(const rts::WorldView& view, std::uint8_t force,
     return c;
 }
 
+std::vector<rts::UnitId> units_in_rect(const rts::WorldView& view,
+                                       std::span<const rts::UnitId> ids,
+                                       const IsoProjection& proj, Rect rect) {
+    // 矩形的两个角谁大谁小不作要求——鼠标可能往任何方向拖。
+    const float x0 = rect.width >= 0.0f ? rect.x : rect.x + rect.width;
+    const float x1 = rect.width >= 0.0f ? rect.x + rect.width : rect.x;
+    const float y0 = rect.height >= 0.0f ? rect.y : rect.y + rect.height;
+    const float y1 = rect.height >= 0.0f ? rect.y + rect.height : rect.y;
+    const auto pos = view.unit_pos();
+    std::vector<rts::UnitId> out;
+    for (const rts::UnitId id : ids) {
+        const rts::Vec2 screen = proj.world_to_screen(pos[id.index()]);
+        if (screen.x >= x0 && screen.x <= x1 && screen.y >= y0 && screen.y <= y1) {
+            out.push_back(id);
+        }
+    }
+    return out;
+}
+
+std::vector<std::uint8_t> distinct_forces(const rts::WorldView& view,
+                                          std::span<const rts::UnitId> ids) {
+    const auto force = view.unit_force();
+    std::vector<std::uint8_t> out;
+    for (const rts::UnitId id : ids) {
+        const std::uint8_t f = force[id.index()];
+        if (f == rts::kNoForce) continue;
+        bool seen = false;
+        for (const std::uint8_t x : out) {
+            if (x == f) { seen = true; break; }
+        }
+        if (!seen) out.push_back(f);
+    }
+    return out;
+}
+
 namespace {
 
 bool in_map(const rts::WorldView& view, rts::GridPos cell) noexcept {

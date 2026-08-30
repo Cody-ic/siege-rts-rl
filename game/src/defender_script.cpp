@@ -90,11 +90,26 @@ void DefenderScript::decide(const rts::WorldView& view,
     if (threat_streak_.size() < view.unit_type().size()) {
         threat_streak_.resize(view.unit_type().size(), 0);
     }
+    if (manual_order_.size() < view.unit_type().size()) {
+        manual_order_.resize(view.unit_type().size());
+    }
+    if (no_order_streak_.size() < view.unit_type().size()) {
+        no_order_streak_.resize(view.unit_type().size(), 0);
+    }
 
     out.clear();
     out.reserve(ids.size());
     for (const rts::UnitId id : ids) {
         out.push_back(decide_unit(view, id));
+    }
+}
+
+void DefenderScript::issue_move_order(std::span<const rts::UnitId> ids,
+                                      rts::GridPos target) {
+    for (const rts::UnitId id : ids) {
+        const std::size_t slot = id.index();
+        if (manual_order_.size() <= slot) manual_order_.resize(slot + 1);
+        manual_order_[slot] = ManualOrder{true, target, id.generation()};
     }
 }
 
@@ -127,13 +142,15 @@ rts::UnitAction DefenderScript::decide_unit(const rts::WorldView& view,
                 }
             }
             if (has(mask, rts::UnitAction::AtkNear)) return rts::UnitAction::AtkNear;
-            return follow_orders(view, slot, mask);
+            if (const auto order = follow_orders(view, id, mask)) return *order;
+            return muster_fallback(view, slot, mask);
         }
         case rts::UnitType::Spear: {
             // 堵缺口不追击：打得着就打，打不着绝不朝敌人挪一步——
             // 被风筝出阵位正是 Shade 克枪卫的机制，脚本不能亲手送。
             if (has(mask, rts::UnitAction::AtkNear)) return rts::UnitAction::AtkNear;
-            return follow_orders(view, slot, mask);
+            if (const auto order = follow_orders(view, id, mask)) return *order;
+            return muster_fallback(view, slot, mask);
         }
         case rts::UnitType::Ranger: {
             // 不与骑士对冲：保持距离（克制表「Ranger ──► Knight」的另一半）。
@@ -147,24 +164,41 @@ rts::UnitAction DefenderScript::decide_unit(const rts::WorldView& view,
                                  mask);
             }
             if (has(mask, rts::UnitAction::AtkNear)) return rts::UnitAction::AtkNear;
-            const rts::UnitAction order = follow_orders(view, slot, mask);
-            if (order != rts::UnitAction::Stop) return order;
-            // 没有别的命令：主动摸向敌方攻城锤（「出城的执行手段」）。
-            const int ram = nearest_enemy(
-                view, me, [](rts::UnitType u) { return u == rts::UnitType::Ram; });
-            if (ram >= 0) {
-                return move_towards(
-                    view, slot,
-                    rts::grid_of(view.unit_pos()[static_cast<std::size_t>(ram)]),
-                    mask);
+            {
+                // **不能只看「有没有指令」，还要看指令现在结不结算成 `Stop`**：
+                // 到了编队指令的终点也是 `Stop`，而这一档本该继续往下试
+                // 「摸攻城锤」——旧代码用 `!= Stop` 判断，就是把「没指令」与
+                // 「到终点了」两种 `Stop` 一并放行到这一步，这条要保住。
+                // 只有 `muster_fallback` 才需要把两者分开（它专管「没指令」
+                // 那一种），所以下面单独判 `!order`。
+                const std::optional<rts::UnitAction> order =
+                    follow_orders(view, id, mask);
+                if (order && *order != rts::UnitAction::Stop) return *order;
+                // 没有别的命令，或编队指令已经到终点：主动摸向敌方攻城锤
+                // （「出城的执行手段」）。
+                const int ram = nearest_enemy(
+                    view, me, [](rts::UnitType u) { return u == rts::UnitType::Ram; });
+                if (ram >= 0) {
+                    return move_towards(
+                        view, slot,
+                        rts::grid_of(view.unit_pos()[static_cast<std::size_t>(ram)]),
+                        mask);
+                }
+                // 摸锤也没找到：真的没指令才去集结点；到终点了就老实站着，
+                // 不该被拉去集结点（那会撤销一条已经在生效的编队指令）。
+                if (!order) return muster_fallback(view, slot, mask);
+                return rts::UnitAction::Stop;
             }
-            return rts::UnitAction::Stop;
         }
         case rts::UnitType::Mason: {
-            const rts::UnitAction order = follow_orders(view, slot, mask);
-            if (order != rts::UnitAction::Stop) return order;
-            // 没有命令就自动找活：最近的有工时的建筑（工地或维修点）。
-            // 半径内工时才会走（机制第二批），所以「到了」的判据就是那个半径。
+            const std::optional<rts::UnitAction> order = follow_orders(view, id, mask);
+            if (order && *order != rts::UnitAction::Stop) return *order;
+            // 没有命令，或编队指令已经到终点：都试试自动找活——最近的有
+            // 工时的建筑（工地或维修点）。半径内工时才会走（机制第二批），
+            // 「到了」的判据就是那个半径。**这条是这里的初版就有的行为**
+            // （旧代码同样用 `!= Stop` 放行两种 `Stop`），端到端测试
+            // 「经济与补员的闭环」钉着它：工匠靠 `MoveForce` 走到工地附近、
+            // 到终点后正是靠这一步才会开始盖。
             const auto bp = view.bld_pos();
             const auto bw = view.bld_work_left();
             const auto ba = view.bld_alive();
@@ -184,23 +218,51 @@ rts::UnitAction DefenderScript::decide_unit(const rts::WorldView& view,
                     return move_towards(view, slot,
                                         bp[static_cast<std::size_t>(best)], mask);
                 }
+                return rts::UnitAction::Stop;   // 已在半径内干活
             }
+            // 找活也没找到：真的没指令才去集结点，到终点了就老实站着。
+            if (!order) return muster_fallback(view, slot, mask);
             return rts::UnitAction::Stop;
         }
         default:
             // Scout 与任何后加的兵种：打得着就打（Scout 无战力，掩码永远
             // 不给它攻击位），否则只听命令。
             if (has(mask, rts::UnitAction::AtkNear)) return rts::UnitAction::AtkNear;
-            return follow_orders(view, slot, mask);
+            if (const auto order = follow_orders(view, id, mask)) return *order;
+            return muster_fallback(view, slot, mask);
     }
 }
 
-rts::UnitAction DefenderScript::follow_orders(const rts::WorldView& view,
-                                              std::size_t slot,
-                                              std::uint16_t mask) {
+std::optional<rts::UnitAction> DefenderScript::follow_orders(
+    const rts::WorldView& view, rts::UnitId id, std::uint16_t mask) {
+    const std::size_t slot = id.index();
     const std::uint8_t force = view.unit_force()[slot];
     const rts::Vec2 me = view.unit_pos()[slot];
     const rts::GridPos here = rts::grid_of(me);
+
+    // 找到了任何一种指令：把「连续无指令」的计数清零，再把动作递出去。
+    // **这条不是装饰**——见 `ScriptParams::muster_delay_decisions` 的理由：
+    // 少了它，`muster_fallback` 分不清「这个单位一直没人管」与「命令刚提交、
+    // 还卡在 `World` 的入队与生效之间那一拍」，后者会被误判成前者。
+    const auto succeed = [&](rts::UnitAction a) -> std::optional<rts::UnitAction> {
+        if (slot < no_order_streak_.size()) no_order_streak_[slot] = 0;
+        return a;
+    };
+
+    // 框选下达的临时指令：优先级高于编队的持久指令（更新、更具体——
+    // 「这次点的就是这几个单位」）。世代不匹配说明槎位被复用了，旧指令
+    // 是上一个死掉的单位留下的痕迹，直接清掉，不当真。
+    if (slot < manual_order_.size() && manual_order_[slot].active) {
+        if (manual_order_[slot].generation != id.generation()) {
+            manual_order_[slot] = ManualOrder{};
+        } else {
+            const rts::GridPos goal = manual_order_[slot].target;
+            if (dist2(me, rts::center_of(goal)) > p_.arrive_cells * p_.arrive_cells) {
+                return succeed(move_towards(view, slot, goal, mask));
+            }
+            manual_order_[slot] = ManualOrder{};   // 到了：清空，往下走编队级判断
+        }
+    }
 
     if (force != rts::kNoForce) {
         // 驻守指令：走向同编队最近的指令格，到墙边就停——登墙本身归 World
@@ -222,17 +284,17 @@ rts::UnitAction DefenderScript::follow_orders(const rts::WorldView& view,
             const int ci = goal.i - here.i;
             const int cj = goal.j - here.j;
             const bool adjacent = ci >= -1 && ci <= 1 && cj >= -1 && cj <= 1;
-            if (adjacent) return rts::UnitAction::Stop;   // 等 World 拉上墙
-            return move_towards(view, slot, goal, mask);
+            if (adjacent) return succeed(rts::UnitAction::Stop);   // 等 World 拉上墙
+            return succeed(move_towards(view, slot, goal, mask));
         }
         // 编队去处（MoveForce）：到了就站住。
         const std::uint16_t ft = view.force_target()[force];
         if (ft != rts::kNoSlot) {
             const rts::GridPos goal = rts::pos_of_slot(ft, view.width());
             if (dist2(me, rts::center_of(goal)) > p_.arrive_cells * p_.arrive_cells) {
-                return move_towards(view, slot, goal, mask);
+                return succeed(move_towards(view, slot, goal, mask));
             }
-            return rts::UnitAction::Stop;
+            return succeed(rts::UnitAction::Stop);
         }
     }
 
@@ -253,11 +315,49 @@ rts::UnitAction DefenderScript::follow_orders(const rts::WorldView& view,
             }
         }
         if (best >= 0) {
-            return move_towards(view, slot, op[static_cast<std::size_t>(best)],
-                                mask);
+            return succeed(move_towards(view, slot, op[static_cast<std::size_t>(best)],
+                                        mask));
         }
     }
-    return rts::UnitAction::Stop;
+    return std::nullopt;   // 真的什么指令都没有——调用方决定要不要用自己的兜底
+}
+
+rts::GridPos DefenderScript::muster_point_for(std::uint8_t force,
+                                              rts::GridPos keep) noexcept {
+    // 四个方向错开（北/东/南/西），避免所有编队挤在堡垒同一格上。
+    // **只有四档**：编队号当前上限就是 1-4 号，够用；哪天编队能有更多，
+    // 再扩这张表。偏移量是占位（CLAUDE.md「关于数值」），只求「分得开」。
+    constexpr int kOff[4][2] = {{0, -3}, {3, 0}, {0, 3}, {-3, 0}};
+    const int idx = force < 4 ? force : force % 4;
+    return rts::GridPos{static_cast<std::int16_t>(keep.i + kOff[idx][0]),
+                        static_cast<std::int16_t>(keep.j + kOff[idx][1])};
+}
+
+rts::UnitAction DefenderScript::muster_fallback(const rts::WorldView& view,
+                                                std::size_t slot,
+                                                std::uint16_t mask) {
+    // 攻方没有编队（结构，见 CLAUDE.md），这一分支本不该被攻方走到——
+    // 写这条防御性检查是因为「没有编队」与「编队是 0 号」不可靠地区分，
+    // 直接放行会让 muster_point_for(kNoForce, ...) 算出一个没有意义的点。
+    const std::uint8_t force = view.unit_force()[slot];
+    if (force == rts::kNoForce) return rts::UnitAction::Stop;
+
+    // **容忍最近几拍的假阴性再动手**（`ScriptParams::muster_delay_decisions`
+    // 的理由）：命令刚提交、还卡在 `World` 入队与生效之间那一拍，
+    // `follow_orders` 也会报「没有指令」，若立刻挪向集结点，这一步可能
+    // 真的改变后续「该走哪条路/该奔哪段墙」的判断——已被破坏性验证抓到过。
+    if (slot >= no_order_streak_.size()) no_order_streak_.resize(slot + 1, 0);
+    ++no_order_streak_[slot];
+    if (no_order_streak_[slot] <= p_.muster_delay_decisions) {
+        return rts::UnitAction::Stop;
+    }
+
+    const rts::Vec2 me = view.unit_pos()[slot];
+    const rts::GridPos goal = muster_point_for(force, view.keep_pos());
+    if (dist2(me, rts::center_of(goal)) <= p_.arrive_cells * p_.arrive_cells) {
+        return rts::UnitAction::Stop;
+    }
+    return move_towards(view, slot, goal, mask);
 }
 
 rts::UnitAction DefenderScript::move_towards(const rts::WorldView& view,
