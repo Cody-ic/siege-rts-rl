@@ -17,15 +17,19 @@
 // | 敌方单位那道门放宽成 `!= Vis::Unseen`（认记忆） | 「记忆记建筑、不记单位」 |
 // | 己方单位也过迷雾 | 「己方不受迷雾影响」 |
 // | `vis_value(v)` 换成 `v != Unseen ? 1 : 0` | 「visible 是三档」 |
+// | 方向场那两条通道写反（`FlowDi` 取 `d.dj`、`FlowDj` 取 `d.di`） | 「方向场两条通道」 |
+// | 斜向的两个分量单位化成 ±0.707 | 同上 |
 //
 // 数值全部是测试自带的占位表，与 `mechanics_test.cpp` 同一套路数。
 
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
 
 #include "rts/action.hpp"
+#include "rts/flow.hpp"
 #include "rts/obs.hpp"
 #include "rts/obs_pack.hpp"
 #include "rts/stats.hpp"
@@ -320,6 +324,80 @@ TEST_CASE("全局标量：wave 取 log2(1+w)，空军比例当前恒为 0", "[ob
     n.aerial_cap = 4.0f;
     rts::pack_globals(w.view(rts::Side::Attacker), n, b.glob);
     CHECK(b.glob[static_cast<std::size_t>(rts::ObsGlobal::AerialAliveFrac)] == 0.25f);
+}
+
+// 方向场那两条通道是本批**唯一没有任何调用方喂过**的一段代码：
+// `BatchedEnv::observe` 一律传 `nullptr`，于是 `FlowDi` / `FlowDj` 在训练真正
+// 会走的那条路上恒为 0。
+//
+// **恒 0 本身与 `AerialAliveFrac` 同类、也一样不是 bug，但危险程度不同。**
+// 空军那条恒 0 是因为世界里还没有空军——接线是对的，将来放一只不死鸟进去
+// 它自己就有值了（上面那条用例就是这么验的）。这一条恒 0 是因为**接线还不存在**，
+// 而没有调用方就等于没有覆盖：写反 `di` / `dj`、或者顺手把斜向单位化成 0.707，
+// 今天不会有任何测试红，等 `train/` 接上 field 之后症状是「AI 学不会朝目标走」。
+//
+// 所以这里绕过 `BatchedEnv` 直接把那段代码钉住。
+TEST_CASE("方向场两条通道：喂了 field 才有值，且刻意不做单位化", "[obspack]") {
+    // **`speed` 必须给。** 本文件那张占位表没设它，而默认是 0 ⇒ 每进一格的代价
+    // 是 `1 / 0 = +inf` ⇒ field 整片不可达 ⇒ `step_of` 处处 `Stop` ⇒ 两条通道
+    // 处处 0。而那正好让下面那圈「等于 `move_delta`」的等式**全部成立**——
+    // 这是本文件里同一个陷阱的第三例（前两例：`range` 为 0 永不出手、
+    // 漏 `submit_actions`，症状都是同一个 0）。所以下面还有一条 `reachable`
+    // 的前置断言：前提不成立就失败，不静默变成一条空转的用例。
+    rts::WorldInit init = arena();
+    for (rts::UnitStats& u : init.stats.unit) u.speed = 0.25f;
+    rts::World w(init);
+    const rts::UnitId g =
+        w.spawn_unit(rts::UnitType::Ghoul, rts::Vec2{20.5f, 20.5f}, 1, 40, 40);
+    w.advance(1);
+    const rts::WorldView v = w.view(rts::Side::Attacker);
+
+    // 不喂 field：整片是 0。**这是对照项**——少了它，下面那圈等式在
+    // 「打包器根本不写这两条通道」时同样全部成立。
+    Buf b0;
+    b0.pack(v, g);
+    for (int dy = 0; dy < rts::kObsK; ++dy) {
+        for (int dx = 0; dx < rts::kObsK; ++dx) {
+            REQUIRE(b0.at(dx, dy, rts::ObsChannel::FlowDi) == 0.0f);
+            REQUIRE(b0.at(dx, dy, rts::ObsChannel::FlowDj) == 0.0f);
+        }
+    }
+
+    // 喂一张真的：目标在东南方（+i、+j 各 6 格），于是窗口里同时有正交步与斜向步。
+    const rts::GridPos goal[1] = {rts::GridPos{26, 26}};
+    const rts::FlowField f =
+        rts::FlowField::compute(v, rts::UnitType::Ghoul, 0, goal);
+    REQUIRE(f.reachable(rts::GridPos{20, 20}));   // 前提，见上
+    Buf b;
+    b.pack(v, g, &f);
+
+    int nonzero = 0, diagonal = 0;
+    for (int dy = 0; dy < rts::kObsK; ++dy) {
+        for (int dx = 0; dx < rts::kObsK; ++dx) {
+            const int x = 20 - kHalf + dx;
+            const int y = 20 - kHalf + dy;
+            const float di = b.at(dx, dy, rts::ObsChannel::FlowDi);
+            const float dj = b.at(dx, dy, rts::ObsChannel::FlowDj);
+            const rts::UnitAction a = f.step_of(rts::GridPos{
+                static_cast<std::int16_t>(x), static_cast<std::int16_t>(y)});
+            if (!rts::is_move(a)) {
+                // 目标格上 / 不可达：`step_of` 给 `Stop`，两条通道留 0。
+                REQUIRE(di == 0.0f);
+                REQUIRE(dj == 0.0f);
+                continue;
+            }
+            const rts::GridDelta d = rts::move_delta(a);
+            REQUIRE(di == static_cast<float>(d.di));
+            REQUIRE(dj == static_cast<float>(d.dj));
+            if (di != 0.0f || dj != 0.0f) ++nonzero;
+            // 斜向的**两个分量都是 ±1**，不是 0.707：观测要的是「往哪走」
+            // 这个离散选择，而 8 个动作里斜向本来就同时动两轴。
+            if (di != 0.0f && dj != 0.0f) ++diagonal;
+        }
+    }
+    // 两种步都必须真的出现过，否则上面那圈等式是空转。
+    CHECK(nonzero > 0);
+    CHECK(diagonal > 0);
 }
 
 TEST_CASE("地形不过迷雾，越界格全 0", "[obspack]") {

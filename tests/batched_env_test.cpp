@@ -16,7 +16,7 @@
 // | `observe` 的输出偏移从 `ui * per_cells` 改成一个按完成顺序自增的计数器 | 「并行不改变结果」 |
 // | `observe` 开头那三次 `std::fill` 摘掉 | 「单位数减少后，尾部必须归零」 |
 // | `step` 里 `slice.resize(...)` 的补齐删掉 | 单位数 > 40 时抛（本批的占位局面到不了 40，故未直接覆盖） |
-// | 工作线程里那层 `try/catch` 摘掉 | 「工作线程的异常要捎回调用线程」 |
+// | 工作线程里那层 `try/catch` 摘掉 | **没有常驻用例会红**——那条路目前通过公开 API 到不了（理由见下面那条用例的注释），只有下面第一条破坏之后才走得到 |
 //
 // **第一条那次验证顺带查出了一个独立缺陷**，值得记：期待的是一条干净的断言失败，
 // 实际拿到的是**退出码 134（SIGABRT）**——工作线程里 `pack_unit_obs` 抛的
@@ -204,10 +204,8 @@ TEST_CASE("单位数减少后，尾部必须归零——否则策略读到过期
     REQUIRE(e.unit_counts()[0] == 1);
     e.observe(b.cells, b.self, b.glob);
 
-    const std::size_t per_self =
-        static_cast<std::size_t>(rts::BatchedEnv::kMaxUnitsPerEnv) *
-        static_cast<std::size_t>(rts::kObsSelfFloats);
-    // 第 2、3 段（下标 1、2）必须整段是 0。
+    // 第 2、3 段（下标 1、2）必须整段是 0。只有一局，所以段偏移就是 `u × 每段`
+    // ——不需要 `per_self` 那个跨局跨度（初版算了一个然后 `(void)` 掉，已删）。
     for (int u = 1; u < 3; ++u) {
         for (int f = 0; f < rts::kObsSelfFloats; ++f) {
             const std::size_t o = static_cast<std::size_t>(u) *
@@ -216,7 +214,6 @@ TEST_CASE("单位数减少后，尾部必须归零——否则策略读到过期
             CHECK(b.self[o] == 0.0f);
         }
     }
-    (void)per_self;
 }
 
 TEST_CASE("缓冲区长度必须恰好，批大小不能是 0", "[batchenv]") {
@@ -236,17 +233,28 @@ TEST_CASE("缓冲区长度必须恰好，批大小不能是 0", "[batchenv]") {
     REQUIRE_THROWS_AS(e.world_at(2), rts::ContractError);
 }
 
-TEST_CASE("工作线程里的异常要捎回调用线程，不能 terminate", "[batchenv]") {
-    // 不捎回的话进程 SIGABRT——从 Python 调时没有 traceback、什么都问不出来。
+TEST_CASE("长度检查在进线程之前就抛，抛完这一批仍然可用", "[batchenv]") {
+    // **这条用例的名字曾经写的是「工作线程里的异常要捎回调用线程」，那是一句
+    // 它没有兑现的承诺**：`observe` 的长度检查在 `for_each_env` **之前**、
+    // 在调用线程上就抛了，所以下面这两行一个工作线程都没进过。
     //
-    // **在线程里抛**的路径这里用「某一局的观测缓冲被打包器拒绝」来触发：
-    // 把 `side` 设成守方，而各局的守方单位是 `Archer`（合法），
-    // 于是改用另一条——`reset_one` 换进一个**攻方单位数超过 kMaxUnitsPerEnv**
-    // 的局面，`step` 的切片补齐因此会走到 `submit_actions` 的长度检查上。
+    // 而「捎回」那层 `try/catch` 确实是需要的——只是**目前通过公开 API 到不了**：
+    // `pack_unit_obs` 的三种抛出条件（缓冲区长度、self 不活、self 不同侧）在
+    // `observe` 里都不可能成立（子 span 长度恒精确，`ids` 每步 refresh 一次），
+    // 而 `step` 的切片被补齐到恰好等于活单位数。也就是说它是**防御性代码**，
+    // 由文件头那张表里的破坏性验证验过一次（那次实测：没有捎回时退出码
+    // 134/SIGABRT，加上之后是 42 + 一条干净的断言失败），此外没有常驻覆盖。
     //
-    // 造 41 个攻方单位太笨重，所以这条用例只锁**多线程路径下异常类型正确
-    // 且进程存活**这一半；「捎回」那一半由文件头那张表里的破坏性验证锁
-    // （实测：加捎回之前是退出码 134/SIGABRT，之后是 42 + 一条干净的断言失败）。
+    // **把这件事写清楚比留一个好听的名字重要**：读到旧名字的人会以为
+    // 「线程里抛异常」这条路有测试钉着，于是哪天把 `try/catch` 删了、
+    // 看见全绿就以为没事——而症状要到从 Python 调的时候才出现，且是进程直接死。
+    //
+    // 它能变成真覆盖的那一天：`observe` 或 `step` 里出现一个**逐局**才知道
+    // 合不合法的输入（比如按局给不同的 `ObsNorms`、或者允许某局单位数超过
+    // `kMaxUnitsPerEnv` 而不补齐）。那时请把这条用例改回去。
+    //
+    // 下面这两行仍然有值：多线程构型下，一次被拒绝的 `observe` 之后这一批
+    // 还能正常打包（清零与偏移都没被那次失败弄脏）。
     rts::BatchedEnv e(make_init(4, 4));
     Bufs b(4);
     std::vector<float> shortv(b.cells.size() - 1, 0.0f);

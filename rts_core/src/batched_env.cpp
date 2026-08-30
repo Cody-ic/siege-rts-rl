@@ -184,6 +184,8 @@ void BatchedEnv::observe(std::span<float> cells, std::span<float> self_vec,
             // 全局标量已经写过一份，这里给 `pack_unit_obs` 一段临时的：它会再写一遍
             // 同样的值（幂等），换来的是「一个单位一次调完」这个更难用错的接口。
             float scratch[kObsGlobalFloats] = {};
+            // `flow` 传 `nullptr` ⇒ `FlowDi` / `FlowDj` 恒 0，见头文件 `observe`
+            // 那段（那两条通道本身有测试钉着，在 `tests/obs_pack_test.cpp`）。
             pack_unit_obs(v, ids[static_cast<std::size_t>(u)], nullptr, p_->norms,
                           cells.subspan(co, static_cast<std::size_t>(kObsCellFloats)),
                           self_vec.subspan(so, static_cast<std::size_t>(kObsSelfFloats)),
