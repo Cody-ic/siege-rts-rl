@@ -46,6 +46,7 @@ add_library(rts_core STATIC
     src/flow.cpp
     src/replay.cpp
     src/unit_behavior.cpp
+    src/obs_pack.cpp
     ${_rts_self_contained_srcs}
 )
 
