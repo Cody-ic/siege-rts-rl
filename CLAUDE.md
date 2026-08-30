@@ -19,7 +19,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `rts_core/` | 确定性地基 + **接口契约（已全部落地）** + **机制全部六批（1c 清单已清空）**：承伤、目标选择、移动、建筑攻击、视野（第一批）；六种命令解算、经济收入、施工维修由工匠推进（第二批）；驻守与高度优势（第三批，12 种命令自此全部解算）；冲锋助跑、三轴推导的克制倍率、Tower 齐射（第四批）；在途弹丸（第五批，第四组实体）；flow field 寻路（等级 3 档，#57 组内定夺）与城门对守方可通行（第六批）。状态以 `rts/world.hpp` 文件头为准，进度记在 #57 |
 | `rts_core 接口契约.md` | 接口的**决定与理由**（形状看头文件）。含 PR #23 评论串里辩定的十三条，以及逐版答掉的七条 |
 | `tests/` | Catch2（经 FetchContent）。条目数不写死，要数就 `ctest -N` |
-| `tools/sprite_gen/` | 纯 Python 精灵预渲染流水线，37 实体 × 逐实体朝向 × 逐实体状态，成品已入库（`idle` / `move` / `attack` / `work`）。**朝向数不再全局一致**：弹丸只有一个 `FREE`（横躺一张，前端按飞行角 2D 旋转），其余仍是四方位——所以别再假定「× 4」，问 `dirs_of(ident)`。**张数刻意不写在这里**，要数就跑 `py tools/sprite_gen/check_assets.py`（它顺带校验元数据与磁盘一致，所以那个数不会骗人）——理由同下文「条目数不写死」 |
+| `tools/sprite_gen/` | 纯 Python 精灵预渲染流水线，38 实体 × 逐实体朝向 × 逐实体状态，成品已入库（`idle` / `move` / `attack` / `work`）。**朝向数不再全局一致**：弹丸只有一个 `FREE`（前端按飞行角 2D 旋转），其余仍是四方位——所以别再假定「× 4」，问 `dirs_of(ident)`。**弹丸内部还分两类**：箭与弩矢是横躺一张、真要转（`oriented: true`），魔法弹是球、旋转是恒等变换（`oriented: false`）。**张数刻意不写在这里**，要数就跑 `py tools/sprite_gen/check_assets.py`（它顺带校验元数据与磁盘一致，所以那个数不会骗人）——理由同下文「条目数不写死」 |
 | `tools/check_determinism_bans.py` | 把本文的确定性禁令变成会红的 ctest |
 | `tools/check_cmake_freshness.py` | 把「构建目录的配置比 `CMakeLists.txt` 旧」变成会红的 ctest。**`ctest` 单独跑不会发现这件事**，会给出一个绿色的子集 |
 | `.mailmap` / `.gitattributes` | 作者名规范化；数据文件强制 LF（理由见 `地图与场景设计.md` 6.3） |
