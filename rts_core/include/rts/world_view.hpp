@@ -157,15 +157,35 @@ public:
     // ——第四组：在途弹丸（机制第五批）——
     //
     // 与前三组不同，**没有 alive 掩码**：弹丸数组每 tick 稳定压实，长度即数量。
-    // 渲染层要的三样都在：位置、目的地（飞行角 = aim - pos，追踪弹逐 tick
-    // 刷新）、发射建筑（挑精灵：`Flak` 的是弩矢 `Bolt`，其余是箭 `Arrow`，
-    // `kProjFromUnit` = 单位射的）。伤害载荷刻意不暴露——渲染画的是箭，
+    // 渲染层要的四样都在：位置、目的地（飞行角 = aim - pos，追踪弹逐 tick
+    // 刷新）、发射建筑、发射方阵营。伤害载荷刻意不暴露——渲染画的是箭，
     // 不是伤害数字。
+    //
+    // **挑精灵要 `src_bld` 与 `side` 两个一起读**：
+    //
+    //   * `src_bld != kProjFromUnit` ⇒ 建筑射的，按 `BldType` 挑（`Flak` 是
+    //     弩矢 `Bolt`，`Tower` 是箭 `Arrow`）
+    //   * `src_bld == kProjFromUnit` ⇒ 单位射的，**再按 `side` 分**：
+    //     守方是 `Archer` 的箭，攻方是 `Shade` 的魔法弹
+    //
+    // 第二条成立是因为 `launches_projectile()`（Ranged × 非空中）在**每一侧
+    // 恰好命中一个兵种**（守 `Archer` / 攻 `Shade`）。这个前提由
+    // `tests/scene_model_test.cpp` 的 `[scene]` 用例钉住——**不是 `static_assert`**：
+    // `launches_projectile()` 是虚函数、`behavior_of()` 不是 constexpr，编译期
+    // 到不了（`CLAUDE.md`「多态按兵种」那节说的就是这处代价）。而**它会随花名册
+    // 变化而失效，所以不能只写在注释里**：若哪天某一侧多出第二个远程地面兵种，
+    // 按侧挑精灵就会让两者共用同一张图，而那是**静默**的（画面能出，只是错）。
+    //
+    // 这条路径刻意**不新增 `p_src_unit_`**：`p_side_` 本来就在 `World` 里
+    // （放箭那刻定格、随压实搬移、进哈希），只是没暴露。加数组要动 `World`
+    // 布局、`state_hash` 喂入清单与 `kWorldHashTag`（旧回放重录）；
+    // 加一个**只读访问器**这三样一个都不动。
     std::span<const Vec2> proj_pos() const noexcept { return sp(w_->p_pos_); }
     std::span<const Vec2> proj_aim() const noexcept { return sp(w_->p_aim_); }
     std::span<const std::uint8_t> proj_src_bld() const noexcept {
         return sp(w_->p_src_bld_);
     }
+    std::span<const Side> proj_side() const noexcept { return sp(w_->p_side_); }
 
     // 编队去处表（`MoveForce` 的解算产物），下标是编队号、值是格线性下标，
     // `kNoSlot` = 没下过。与 `unit_force()` 配对读：脚本按单位的编队查这里。

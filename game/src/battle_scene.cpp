@@ -128,19 +128,40 @@ std::vector<DrawItem> BattleScene::sorted(const MapData& map,
     }
 
     // 在途弹丸（第四组实体，机制第五批）。单张 FREE 图，方向由渲染侧按
-    // 飞行角旋转；归属按 tools/sprite_gen/README.md §8.2 的表——
-    // `Flak` 射的是弩矢（`Bolt`），其余（Archer / Shade / Tower）都是箭。
+    // 飞行角旋转；归属按 tools/sprite_gen/README.md §8.2 / §8.4 的表：
+    //
+    //   `Flak` → 弩矢 `Bolt`    `Tower` → 箭 `Arrow`
+    //   守方单位 → 箭 `Arrow`（`Archer`）   攻方单位 → 魔法弹 `Magic`（`Shade`）
+    //
+    // **按阵营分单位那两档不是巧合，是 `launches_projectile()` 的性质**
+    // （Ranged × 非空中）：它在每一侧恰好命中一个兵种（守 `Archer` / 攻 `Shade`），
+    // 所以「单位射的」这一档按阵营一分就够，不需要知道具体兵种。
+    //
+    // **这条路刻意不新增 `p_src_unit_`**：`p_side_` 本来就在 `World` 里，
+    // 只是没暴露；加数组要动布局、动 `state_hash` 的喂入清单、动
+    // `kWorldHashTag`（旧回放重录），而加一个只读访问器这三样一个都不动。
+    //
+    // **但它是花名册的性质、不是结构不变量。** 某一侧哪天多出第二个远程地面
+    // 兵种，按侧挑就会让两者共用同一张图——而那种错**画面照样出、只是画错了**。
+    // 因此由 `tests/scene_model_test.cpp` 的「弹丸精灵按阵营分档的前提」钉住
+    // （**不能用 `static_assert`**：`launches_projectile()` 是虚函数、
+    // `behavior_of()` 不是 constexpr，编译期到不了——这正是 `CLAUDE.md` 说的
+    // 「虚函数丢掉的那条完备性保证，由测试互相印证补回来」）。
     const auto p_pos = view.proj_pos();
     const auto p_aim = view.proj_aim();
     const auto p_src = view.proj_src_bld();
+    const auto p_side = view.proj_side();
     for (std::size_t k = 0; k < p_pos.size(); ++k) {
         DrawItem it;
         it.continuous = true;
         it.world = p_pos[k];
         it.pos = rts::grid_of(p_pos[k]);
-        it.sprite =
-            (p_src[k] == static_cast<std::uint8_t>(rts::BldType::Flak)) ? "Bolt"
-                                                                        : "Arrow";
+        if (p_src[k] != rts::kProjFromUnit) {
+            it.sprite = (p_src[k] == static_cast<std::uint8_t>(rts::BldType::Flak))
+                            ? "Bolt" : "Arrow";
+        } else {
+            it.sprite = (p_side[k] == rts::Side::Attacker) ? "Magic" : "Arrow";
+        }
         it.aim = p_aim[k];
         it.lift = 0.4f;   // 飞行高度的视觉占位——箭不贴地滑
         out.push_back(it);

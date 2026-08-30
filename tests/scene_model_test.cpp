@@ -7,6 +7,8 @@
 #include "game/map_data.hpp"
 #include "game/map_loader.hpp"
 #include "game/scene_model.hpp"
+#include "rts/roster.hpp"
+#include "rts/unit_behavior.hpp"
 
 #ifndef GAME_TESTDATA_DIR
 #error "GAME_TESTDATA_DIR 未定义，见 tests/CMakeLists.txt"
@@ -190,4 +192,46 @@ TEST_CASE("装配：地砖一遍，叠加物与实体混在同一个深度序列
             REQUIRE(again.sorted[k].facing == d.sorted[k].facing);
         }
     }
+}
+
+// `battle_scene.cpp` 挑弹丸精灵时，「单位射的」那一档**只按阵营分**：
+// 守方 → 箭（`Archer`）、攻方 → 魔法弹（`Shade`）。
+//
+// 这么做是因为 `p_side_` 本来就在 `World` 里（放箭那刻定格、随压实搬移、进哈希），
+// 而知道**具体兵种**要新增 `p_src_unit_`，那会动 `World` 布局、`state_hash` 的
+// 喂入清单与 `kWorldHashTag`（旧回放重录）。用已有字段是零代价的那条路。
+//
+// **但它靠的是花名册的一条性质，不是结构不变量**：`launches_projectile()`
+// （Ranged × 非空中）在每一侧恰好命中一个兵种。某一侧多出第二个远程地面兵种时，
+// 按侧挑就会让两者共用同一张图——而那种错**画面照样出、只是画错了**，
+// 没有任何别的测试会红。所以在这里钉住。
+//
+// **为什么不是 `static_assert`**：`launches_projectile()` 是虚函数、
+// `behavior_of()` 返回静态实例的引用且不是 constexpr，编译期到不了。
+// 这正是 `CLAUDE.md`「多态按兵种」那节说的——虚函数丢掉的完备性保证，
+// 由测试把两边互相印证补回来。
+//
+// 触发之后**不要把数字从 1 改成 2 了事**：那说明「按侧挑」这条前提没了，
+// 该去补 `p_src_unit_`（并把 `kWorldHashTag` 进格），
+// 或者给新兵种复用同一张图并在 `battle_scene.cpp` 写明为什么可以共用。
+TEST_CASE("弹丸精灵按阵营分档的前提：每侧恰好一个兵种会放弹丸", "[scene]") {
+    int per_side[rts::kSideCount] = {};
+    std::vector<rts::UnitType> launchers;
+    for (int i = 0; i < rts::kUnitTypeCount; ++i) {
+        const auto t = static_cast<rts::UnitType>(i);
+        if (!rts::behavior_of(t).launches_projectile()) continue;
+        launchers.push_back(t);
+        ++per_side[static_cast<int>(rts::side_of(t))];
+    }
+    CAPTURE(launchers.size());
+    REQUIRE(per_side[static_cast<int>(rts::Side::Defender)] == 1);
+    REQUIRE(per_side[static_cast<int>(rts::Side::Attacker)] == 1);
+
+    // 顺带钉住是**哪两个**：数字对而兵种换了人，精灵映射同样会错
+    // （比如某天 `Ranger` 改成远程、`Archer` 改成近战，计数仍是 1:1）。
+    REQUIRE(launchers.size() == 2);
+    REQUIRE(std::find(launchers.begin(), launchers.end(), rts::UnitType::Archer)
+            != launchers.end());
+    REQUIRE(std::find(launchers.begin(), launchers.end(), rts::UnitType::Shade)
+            != launchers.end());
 }
