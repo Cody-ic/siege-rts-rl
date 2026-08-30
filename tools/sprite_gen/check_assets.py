@@ -204,6 +204,12 @@ def check_projectiles(out_dir):
     那看着像弹道算错，不像资产不对。判据取内容框宽高比：横躺的箭实测 9.3、
     弩矢 5.1，而斜 45° 的话会掉到 2 以下。阈值 3.0 两边都有余量。
 
+    **但这一条只对「有朝向」的弹丸成立**（元数据 `oriented`）。魔法弹是个球，
+    旋转它是恒等变换，「躺平」对它没有定义、宽高比恒为 1.0——照搬这条检查
+    等于永远红。**这不是给它开豁免，是这条检查的适用范围本来就是有朝向的那一类。**
+    差别是实质的：豁免要靠人记得为什么放行，而 `oriented: false` 是一条
+    会被检查读到的事实，写错了（把箭标成无朝向）只会让检查变松，不会误报。
+
     **pivot 落在图上**：它是几何 bbox 中心的投影，而 alpha 内容框中心是
     渲染出来的实际中心，两者只该差抗锯齿那点量（实测 0.4 与 1.9 px）。
     差多了说明 `mesh_center_px()` 与实际渲的不是同一批网格。
@@ -220,7 +226,7 @@ def check_projectiles(out_dir):
         return 0
 
     RATIO_MIN, PIVOT_TOL = 3.0, 4.0
-    bad, n = [], 0
+    bad, n, n_or = [], 0, 0
     for ident, spr in meta["sprites"].items():
         for st, info in spr["states"].items():
             if info.get("kind") != "projectile":
@@ -240,7 +246,9 @@ def check_projectiles(out_dir):
                         continue
                     w, h = bb[2] - bb[0], bb[3] - bb[1]
                     ratio = w / max(h, 1)
-                    if ratio < RATIO_MIN:
+                    if info.get("oriented", True):
+                        n_or += 1
+                    if info.get("oriented", True) and ratio < RATIO_MIN:
                         bad.append(f"{fn}: 内容框 {w}x{h}，宽高比 {ratio:.2f} < "
                                    f"{RATIO_MIN}——没有横躺，前端的 2D 旋转会带一个"
                                    f"固定偏角")
@@ -260,7 +268,11 @@ def check_projectiles(out_dir):
             print("  · " + b)
         return 1
     if n:
-        print(f"弹丸检查通过（{n} 张，横躺且 pivot 落在图上）")
+        # **两个数字都要报。** 只说「N 张通过」的话，把某张误标成 `oriented: false`
+        # 会让它悄悄退出横躺检查而输出一字不变——那正是这条检查要防的失效方式，
+        # 却由它自己的提示语掩盖掉。报出「其中几张受横躺检查」，改动就看得见。
+        print(f"弹丸检查通过（{n} 张，pivot 均落在图上；其中 {n_or} 张受横躺检查，"
+              f"另 {n - n_or} 张标了 oriented: false（球状，旋转是恒等变换））")
     return 0
 
 

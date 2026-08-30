@@ -156,6 +156,51 @@ def setup_lights():
     bpy.context.scene.world = world
 
 
+def make_primitive(spec, ident):
+    """就地生成一个几何体，用在**素材库里没有、而借用别的模型会误导**的场合。
+
+    目前唯一的用户是魔法弹（`Magic`）。它不能借用现成模型，理由与当初否掉
+    「让法师射 `Arrow`」完全相同——**发射器与投射物必须匹配**：石头（`rocks-small`）
+    是 `Rubble` 的主体、史莱姆是一只怪物，两者都会让玩家读出错误的东西。
+    而法杖顶上那颗球虽然形状正对，却与杖身合并成了一块网格（`Wizard_Staff` 792 顶点
+    整块），`only_meshes` 取不出来。
+
+    **用 icosphere 而不是 uv_sphere**：整套素材都是低面数硬边风格，
+    光滑球在里面像个塑料珠子。2 级细分 = 80 面，棱面清晰。
+
+    这不违反「只用 CC0 素材」——那条约束的对象是**别人做的**素材（许可要允许我们
+    再分发）；就地生成的几何是我们自己的，不存在许可问题。
+    """
+    kind = spec.get("kind_geom", "icosphere")
+    before = set(bpy.data.objects)
+    if kind == "icosphere":
+        bpy.ops.mesh.primitive_ico_sphere_add(
+            subdivisions=int(spec.get("subdiv", 2)), radius=float(spec.get("radius", 1.0)))
+    elif kind == "uvsphere":
+        bpy.ops.mesh.primitive_uv_sphere_add(radius=float(spec.get("radius", 1.0)))
+    else:
+        print(f"  [跳过] {ident}: 未知的 primitive.kind_geom = {kind!r}")
+        return []
+    new = [o for o in bpy.data.objects if o not in before]
+    for o in new:
+        o.name = spec.get("name", f"{ident}_prim")
+        # 自带一份材质，否则 `apply_tint` 无处可染（新建的网格没有材质槽）。
+        # 用 Emission 而不是 Principled：魔法弹该是**自己发光**的，
+        # 受光的漫反射球在暗色地表上会跟着环境一起暗下去，读不出「这是能量」。
+        m = bpy.data.materials.new(f"{ident}_mat")
+        m.use_nodes = True
+        nt = m.node_tree
+        for n in list(nt.nodes):
+            if n.type != "OUTPUT_MATERIAL":
+                nt.nodes.remove(n)
+        em = nt.nodes.new("ShaderNodeEmission")
+        em.inputs["Strength"].default_value = float(spec.get("emission", 1.0))
+        out = next(n for n in nt.nodes if n.type == "OUTPUT_MATERIAL")
+        nt.links.new(em.outputs[0], out.inputs["Surface"])
+        o.data.materials.append(m)
+    return new
+
+
 def import_model(path):
     ext = os.path.splitext(path)[1].lower()
     before = set(bpy.data.objects)
@@ -746,6 +791,12 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
                 apply_mesh_tint(po, part["mesh_tint"], ident)
             objs.extend(po)
         path = os.path.join(base_dir, spec["parts"][0]["model"])
+    elif spec.get("primitive"):
+        # 就地生成的几何：没有文件、没有纹理、没有动作，所以三件事都跳过
+        objs = make_primitive(spec["primitive"], ident)
+        if not objs:
+            return 0, None
+        tinted = []
     else:
         path = os.path.join(base_dir, spec["model"])
         if not os.path.exists(path):
@@ -826,6 +877,17 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
         # 所以这里算的是**几何中心**（pivot 下所有网格的世界 bbox 中心），
         # 而不是原点。它与 alpha 内容框中心一致（描边对称，不改中心）。
         info["pivot"] = mesh_center_px(pivot, cam, W, H)
+        # **`oriented`：这枚弹丸有没有「朝向」这回事。**
+        #
+        # 箭与弩矢有：它们横躺一张、由前端按飞行角旋转，所以那张图必须真的躺平
+        # （`check_assets.py` 的宽高比检查守着这条）。**魔法弹没有**——它是个球，
+        # 旋转它是恒等变换，宽高比检查对它不成立（球的比是 1.0，永远过不了）。
+        #
+        # 写进元数据而不是只在检查脚本里判，是因为它同样是**前端契约的一部分**：
+        # 前端可以据它跳过那次旋转。现在的 `scene_renderer` 一律旋转，
+        # 对球而言只是白转一次、外加把棱面转起来（看着像自转，无害），
+        # 所以不强制它改——但这个事实该记在数据里，而不是靠读代码推断。
+        info["oriented"] = bool(spec.get("oriented", True))
     # impact_frame：本状态里「打出去」的那一帧（弓弦松开 / 刀锋落下）。
     #
     # 它存在的理由是**精灵资产不得编码任何待定数值**：`CLAUDE.md` 有「弓手有攻击前摇」

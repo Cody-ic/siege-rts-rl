@@ -1060,6 +1060,33 @@
       "dirs": [
         "FREE"
       ]
+    },
+    "Magic": {
+      "cn": "魔法弹",
+      "states": {
+        "idle": {
+          "canvas": [
+            144,
+            158
+          ],
+          "ground_anchor": [
+            72.0,
+            93.1
+          ],
+          "frames": [
+            1
+          ],
+          "kind": "projectile",
+          "pivot": [
+            72.0,
+            79.0
+          ],
+          "oriented": false
+        }
+      },
+      "dirs": [
+        "FREE"
+      ]
     }
   }
 }
