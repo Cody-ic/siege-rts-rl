@@ -619,9 +619,11 @@ int run_game(const Options& opt) {
     // 这里不再抄一份注释——两处各写一份必然漂移。
     //
     // #57 重开后的形状：框选取代「先按数字键选编队、再右键」；建造 / 征兵 /
-    // 维修从「先进模式再点」改成「先点目标，弹出菜单」。`PopupKind` 三者
-    // 互斥，理由与旧的 `ActMode` 相同——枚举而不是三个 bool，避免「同时在
-    // 建造又在维修」这种读不出规则的状态存在。
+    // 维修从「先进模式再点」改成「先点目标，弹出菜单」。`PopupKind` 标的是
+    // **弹窗本身用哪张清单摆选项**，不是「这一格只能做一件事」——一座掉血的
+    // 兵营/堡垒同时能修也能练兵，两者不互斥（试玩报出来的 bug：旧版按
+    // 「维修 > 征兵」优先级二选一，受损后练兵入口直接消失）。`Train` 弹窗
+    // 因此可能在练兵清单前面多插一行「维修」，见 `popup_options`。
     enum class PopupKind : int { None = 0, Build, Train, Repair };
     struct Popup {
         PopupKind kind = PopupKind::None;
@@ -663,6 +665,13 @@ int run_game(const Options& opt) {
         Rectangle box;
         std::string label;
         bool legal = true;
+        // 点中这一项该发哪种命令、发给清单里的第几个——分发（点击处理那段）
+        // 直接读这两个字段，不再各自重新按下标猜一遍「第 i 项是不是维修」。
+        // 维修行可能插在 Train 弹窗最前面，插了之后练兵清单的下标就整体
+        // 错了一位；把映射关系记在选项自己身上，才不会在两处分别算一遍
+        // 偏移量、算歪了却没有测试能抓（同类教训见 `can_afford_*` 那次修复）。
+        PopupKind action = PopupKind::None;
+        int index = 0;
     };
     // 按当前弹窗种类摆出选项列表，纵向排开、每项一行。**造价与合法性都在
     // 这里算好**——`draw_frame` 只管画，点击命中检测也只读这份表，两处
@@ -674,15 +683,16 @@ int run_game(const Options& opt) {
         // 实测过——换成 const 就没有这个假警告。
         const float kW = 240.0f, kH = 30.0f, kGap = 4.0f;
         const auto& stats = shell.battle()->world().stats();
-        const auto push = [&](std::string label, bool legal) {
+        const auto push = [&](std::string label, bool legal, PopupKind action, int index) {
             const float y = p.anchor.y + static_cast<float>(out.size()) * (kH + kGap);
-            out.push_back(
-                PopupOption{Rectangle{p.anchor.x, y, kW, kH}, std::move(label), legal});
+            out.push_back(PopupOption{Rectangle{p.anchor.x, y, kW, kH}, std::move(label),
+                                      legal, action, index});
         };
         char buf[96];
         switch (p.kind) {
             case PopupKind::Build:
-                for (const rts::BldType bt : buildable) {
+                for (std::size_t i = 0; i < buildable.size(); ++i) {
+                    const rts::BldType bt = buildable[i];
                     const rts::BldStats& s = stats.of(bt);
                     std::snprintf(buf, sizeof(buf), "%s (石%d 木%d)",
                                  std::string(game::display_name(bt)).c_str(),
@@ -691,22 +701,32 @@ int run_game(const Options& opt) {
                     // 位置合法 AND 买得起——只查前者时，钱不够也会亮绿框
                     // （一次试玩报出来的 bug：两条各查一半，缺了买不买得起）。
                     push(buf, game::can_place_hint(v, bt, p.cell) &&
-                                 game::can_afford_build(v, bt));
+                                 game::can_afford_build(v, bt),
+                        PopupKind::Build, static_cast<int>(i));
                 }
                 break;
             case PopupKind::Train:
-                for (const rts::UnitType ut : trainable) {
+                // 维修与练兵不互斥：掉血的兵营/堡垒既能修也能练兵，别把两者
+                // 做成二选一（试玩报出来的 bug：受损后左键只弹维修，练兵
+                // 入口直接消失）。维修永远排在第 0 项。
+                if (game::can_repair_hint(v, p.cell)) {
+                    push("维修", game::can_afford_repair(v, p.cell), PopupKind::Repair, 0);
+                }
+                for (std::size_t i = 0; i < trainable.size(); ++i) {
+                    const rts::UnitType ut = trainable[i];
                     const rts::UnitStats& s = stats.of(ut);
                     std::snprintf(buf, sizeof(buf), "%s (金%d)",
                                  std::string(game::display_name(ut)).c_str(),
                                  static_cast<int>(s.cost_gold));
                     push(buf, game::can_train_hint(v, p.cell) &&
-                                 game::can_afford_train(v, ut));
+                                 game::can_afford_train(v, ut),
+                        PopupKind::Train, static_cast<int>(i));
                 }
                 break;
             case PopupKind::Repair:
                 push("维修", game::can_repair_hint(v, p.cell) &&
-                                game::can_afford_repair(v, p.cell));
+                                game::can_afford_repair(v, p.cell),
+                    PopupKind::Repair, 0);
                 break;
             case PopupKind::None:
                 break;
@@ -933,16 +953,23 @@ int run_game(const Options& opt) {
                         // 深层裁决（资源够不够、点位规则）在 World 的解算里；
                         // 这里只把命令发出去，`legal` 只是同一份判据算出来的
                         // 展示层提示，不是第二套规则。
+                        //
+                        // 按 `opts[i].action`/`.index` 分发，不按 `popup.kind`
+                        // 与「第 i 项」重新配对——Train 弹窗里维修行可能插在
+                        // 最前面，此时第 0 项是 Repair、第 1 项才是
+                        // `trainable[0]`，这份对应关系只在 `popup_options`
+                        // 算过一遍，两处各算一遍必然有一天算歪。
                         rts::Command c;
                         bool have = true;
-                        switch (popup.kind) {
+                        const std::size_t opt_idx = static_cast<std::size_t>(opts[i].index);
+                        switch (opts[i].action) {
                             case PopupKind::Build:
-                                c = game::build_command(buildable[i], popup.cell,
-                                                        map.width());
+                                c = game::build_command(buildable[opt_idx],
+                                                        popup.cell, map.width());
                                 break;
                             case PopupKind::Train:
                                 c = game::train_command(
-                                    trainable[i],
+                                    trainable[opt_idx],
                                     static_cast<std::uint8_t>(train_force_sel),
                                     popup.cell, map.width());
                                 break;
@@ -982,8 +1009,12 @@ int run_game(const Options& opt) {
                     selected = game::units_in_rect(
                         view, ids, proj, game::Rect{x0, y0, x1 - x0, y1 - y0});
                 } else if (in_map) {
-                    // 点（没拖开）：这一格能不能弹出菜单，按「维修 > 征兵 > 建造」
-                    // 的优先级判——一座又受损又能出兵的建筑很少见，受损更急。
+                    // 点（没拖开）：这一格能不能弹出菜单。**练兵优先于维修**——
+                    // 能练兵的格子（完工的兵营/堡垒、没在练）一律走 Train 弹窗，
+                    // 维修选项由 `popup_options` 按需插进那份清单最前面，两者
+                    // 同时出现，不是二选一（试玩报的 bug：旧版反过来判，
+                    // 兵营/堡垒掉血后练兵入口直接消失，只剩维修）。
+                    // 不能练兵、但掉了血的建筑（墙、塔……）才落到纯 Repair 弹窗。
                     const auto tile_is_open_for_building =
                         [](const rts::WorldView& v, rts::GridPos c) {
                             if (!v.terrain().buildable(c.i, c.j)) return false;
@@ -999,10 +1030,10 @@ int run_game(const Options& opt) {
                             }
                             return true;
                         };
-                    if (game::can_repair_hint(view, cell)) {
-                        popup = Popup{PopupKind::Repair, cell, mouse};
-                    } else if (game::can_train_hint(view, cell)) {
+                    if (game::can_train_hint(view, cell)) {
                         popup = Popup{PopupKind::Train, cell, mouse};
+                    } else if (game::can_repair_hint(view, cell)) {
+                        popup = Popup{PopupKind::Repair, cell, mouse};
                     } else if (tile_is_open_for_building(view, cell)) {
                         popup = Popup{PopupKind::Build, cell, mouse};
                     } else {

@@ -252,6 +252,28 @@ TEST_CASE("distinct_forces：去重、跳过 kNoForce", "[input]") {
     REQUIRE(has1);
 }
 
+// 一次试玩报出来的 bug（与「造价提示」那条同批，但是另一层）：`render/`
+// 里点一格该弹哪种菜单，曾按「维修 > 征兵」互斥地判——受损的兵营/堡垒
+// 因此永远只弹维修菜单，练兵入口直接消失，严重影响正常游玩。
+//
+// 真正的根因在 `render/src/main.cpp` 的弹窗分支（这层没有默认构建测试，
+// 需要目测/试玩验证），但它的前提条件在这一层：`can_train_hint` 与
+// `can_repair_hint` 本就是两个**完全独立**的判断（前者只查兵种与是否在
+// 练，后者只查血量与是否在修），一座掉血又没在练的兵营/堡垒会让两者
+// **同时**为真。这条把这个前提钉死——`render/` 那边把它们当成互斥来判
+// 才是 bug，不是这一层的两个函数有问题（它们本来就没查过对方）。
+TEST_CASE("提示的独立性：掉血又没在练的兵营，征兵与维修提示同时为真（试玩报的 bug）",
+         "[input]") {
+    rts::WorldInit init = iarena();
+    init.stats.global.repair_wood_per_1000hp = 100;
+    rts::World w(init);
+    w.place_bld(rts::BldType::Barrack, rts::GridPos{2, 1}, 30, 50);   // 残血、完工、没在练
+    const rts::WorldView v = w.view(rts::Side::Defender);
+
+    REQUIRE(game::can_train_hint(v, rts::GridPos{2, 1}));
+    REQUIRE(game::can_repair_hint(v, rts::GridPos{2, 1}));
+}
+
 TEST_CASE("维修提示：只有完工、掉了血、且没在修的建筑可以点", "[input]") {
     rts::WorldInit init = iarena();
     // 维修单价给一个非零的占位值：默认表全是 0，那样「花木材」这条不成立，
