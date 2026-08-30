@@ -59,6 +59,8 @@ add_executable(rts_tests
     action_test.cpp
     command_test.cpp
     obs_test.cpp
+    obs_pack_test.cpp
+    batched_env_test.cpp
     terrain_test.cpp
     fog_test.cpp
     world_test.cpp
@@ -135,7 +137,7 @@ target_compile_definitions(rts_tests PRIVATE
 #     ./build/tests/Release/rts_tests "<用例名>"
 foreach(_tag rng hash types map scene iso names utf8path roster action command obs
         terrain fog world replay behavior stats mech econ garrison charge proj flow
-        script input menu assets demo)
+        script input menu assets demo obspack batchenv)
     add_test(NAME rts_tests_${_tag} COMMAND rts_tests "[${_tag}]")
 endforeach()
 
