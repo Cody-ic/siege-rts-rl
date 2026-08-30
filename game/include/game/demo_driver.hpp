@@ -28,17 +28,32 @@ namespace game {
 
 class DemoBattle {
 public:
-    // 建世界并摆开局兵力（守方城内一小队 + 箭楼与防空各一座，
-    // 攻方在集结点一波混编）。兵力构成是演示用的定数，血量按表 × 等级算。
+    // 建世界并摆守方开局兵力（城内一小队 + 箭楼与防空各一座）。
+    // 攻方**不再开局就位**：波次循环生效后，每波在建造阶段结束时于集结点
+    // 生成（编成是占位曲线，无平衡含义），打完进下一波。
     DemoBattle(const MapData& map, const rts::StatsTable& stats, std::uint64_t seed);
 
     // 推进 `ticks` 个 tick，途中每个决策周期（kDecisionPeriodMax）重发一遍动作。
+    // 波次循环也在这里驱动：建造倒计时 → 生波 → 攻方清空 → 下一波。
+    // **败局（Keep 被拆）后世界定格**——再 update 也不推进，好让人看清最后一帧。
     void update(int ticks);
 
     const rts::World& world() const noexcept { return w_; }
+    bool defeated() const noexcept { return defeated_; }
+    int build_ticks_left() const noexcept { return build_left_; }
+
+    // 玩家命令的入口（交互层从这里进，不直接碰 World——写入面收在一处）。
+    // 校验与解算都归 World：形状不合法当场抛，语义不合法（买不起、点位
+    // 不对）在解算时静默拒绝。`Summon` 也走这里：phase 一变，update 里的
+    // 波次机就会在下一 tick 生波——倒计时与提前召唤殊途同归。
+    void submit_defender(const rts::Command* cmds, std::size_t count) {
+        w_.submit(rts::Side::Defender, cmds, count);
+    }
 
 private:
     void issue_actions();
+    void spawn_wave();
+    bool keep_alive() const;
     rts::UnitAction greedy_move(rts::UnitId id, rts::Vec2 target) const;
     // 攻方推进：按 flow field 取下一步（机制第六批的消费侧）。field 指向
     // 被墙占着的格是正常输出——移动机制把那一步变成自动破坏，「绕远走缺口
@@ -48,6 +63,9 @@ private:
     rts::World w_;
     // 守方执行层（参数取占位默认；种子从对局种子派生，demo 因此仍是确定性的）。
     DefenderScript script_;
+    int build_left_ = 0;      // 建造阶段剩余 tick（时长是占位常量，见 .cpp）
+    bool wave_spawned_ = false;   // 本波的编成生了没（生波挂在进攻阶段的第一拍）
+    bool defeated_ = false;   // Keep 被拆即败（丢失即败是设计，不是演示便宜）
     int since_decision_ = 0;
     std::vector<rts::UnitId> ids_;
     std::vector<rts::UnitAction> acts_;
