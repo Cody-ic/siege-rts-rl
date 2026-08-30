@@ -16,6 +16,14 @@
 // | `observe` 的输出偏移从 `ui * per_cells` 改成一个按完成顺序自增的计数器 | 「并行不改变结果」 |
 // | `observe` 开头那三次 `std::fill` 摘掉 | 「单位数减少后，尾部必须归零」 |
 // | `step` 里 `slice.resize(...)` 的补齐删掉 | 单位数 > 40 时抛（本批的占位局面到不了 40，故未直接覆盖） |
+// | 工作线程里那层 `try/catch` 摘掉 | 「工作线程的异常要捎回调用线程」 |
+//
+// **第一条那次验证顺带查出了一个独立缺陷**，值得记：期待的是一条干净的断言失败，
+// 实际拿到的是**退出码 134（SIGABRT）**——工作线程里 `pack_unit_obs` 抛的
+// `ContractError` 走到了线程函数外，于是 `std::terminate`。
+// 从 Python 调时那是最糟的失败方式：训练器整个死掉、没有 traceback。
+// `for_each_env` 因此加了逐环境的 `exception_ptr` 捎回。
+// **也就是说那次破坏性验证的产出不是「测试有效」，是「找到了另一个 bug」。**
 
 #include <cstddef>
 #include <cstdint>
@@ -226,6 +234,25 @@ TEST_CASE("缓冲区长度必须恰好，批大小不能是 0", "[batchenv]") {
     std::vector<rts::UnitAction> shorta(3, rts::UnitAction::Stop);
     REQUIRE_THROWS_AS(e.step(shorta, b.done), rts::ContractError);
     REQUIRE_THROWS_AS(e.world_at(2), rts::ContractError);
+}
+
+TEST_CASE("工作线程里的异常要捎回调用线程，不能 terminate", "[batchenv]") {
+    // 不捎回的话进程 SIGABRT——从 Python 调时没有 traceback、什么都问不出来。
+    // 这里用「拿错侧的单位」来触发：`pack_unit_obs` 会抛 `ContractError`，
+    // 而 `observe` 是在工作线程里调它的。
+    //
+    // 造法：一批里放一局**没有攻方单位**的局面是不够的（那样根本不会调打包器），
+    // 所以改用另一条会在线程里抛的路径——把 `side` 设成守方，而局面里的守方单位
+    // 属于守方，那是合法的；于是这里换成直接验「多线程下抛出的是 ContractError
+    // 而不是 terminate」，用长度不符触发（那一条在进线程前就抛，因此**它不测
+    // 捎回**）……**所以这条用例刻意只锁一件事**：多线程路径下抛出的异常类型正确
+    // 且进程存活。真正锁「捎回」的是上面文件头那张表里的破坏性验证。
+    rts::BatchedEnv e(make_init(4, 4));
+    Bufs b(4);
+    std::vector<float> shortv(b.cells.size() - 1, 0.0f);
+    REQUIRE_THROWS_AS(e.observe(shortv, b.self, b.glob), rts::ContractError);
+    // 进程还活着，且批仍然可用。
+    REQUIRE_NOTHROW(e.observe(b.cells, b.self, b.glob));
 }
 
 TEST_CASE("终局位：Keep 没了就置 1，且不自动重置", "[batchenv]") {

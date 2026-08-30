@@ -1,6 +1,7 @@
 #include "rts/batched_env.hpp"
 
 #include <algorithm>
+#include <exception>
 #include <stdexcept>
 #include <thread>
 
@@ -31,6 +32,17 @@ struct BatchedEnv::Impl {
     // 随运行变化，虽然本实现里每局只写自己那段、结果仍然确定，但它把
     // 「为什么结果确定」的论证从「结构上不可能」降级为「碰巧没有共享写」。
     // 固定分段则一眼看得出每个线程碰哪几局。
+    // **工作线程里抛出的异常必须捎回调用线程。** 不捎的话它会走到线程函数外，
+    // 于是 `std::terminate` —— **整个进程 SIGABRT**。从 Python 调的时候那是最糟的
+    // 失败方式：训练器直接死掉，没有 traceback、没有 `RuntimeError`、
+    // 什么都问不出来。
+    //
+    // 这条不是假想的：做「输出按完成顺序装配」那次破坏性验证时，
+    // 期待的是一条干净的断言失败，实际拿到的是退出码 134 —— 那次崩溃
+    // 顺带查出了这里缺一层捕获。
+    //
+    // 捎回的是**下标最小的那一个**异常，不是最先抛的那一个：后者取决于线程
+    // 调度，于是同一个错误每次报出来的可能是不同的一条，而那让复现变难。
     template <typename F>
     void for_each_env(int n, F&& f) {
         const int t = std::clamp(threads, 1, n > 0 ? n : 1);
@@ -40,16 +52,27 @@ struct BatchedEnv::Impl {
         }
         std::vector<std::thread> pool;
         pool.reserve(static_cast<std::size_t>(t));
+        // 逐环境一格，所以线程之间不写同一个位置——不需要锁。
+        std::vector<std::exception_ptr> errs(static_cast<std::size_t>(n));
         const int chunk = (n + t - 1) / t;
         for (int k = 0; k < t; ++k) {
             const int lo = k * chunk;
             const int hi = std::min(n, lo + chunk);
             if (lo >= hi) break;
-            pool.emplace_back([lo, hi, &f]() {
-                for (int i = lo; i < hi; ++i) f(i);
+            pool.emplace_back([lo, hi, &f, &errs]() {
+                for (int i = lo; i < hi; ++i) {
+                    try {
+                        f(i);
+                    } catch (...) {
+                        errs[static_cast<std::size_t>(i)] = std::current_exception();
+                    }
+                }
             });
         }
         for (std::thread& th : pool) th.join();
+        for (const std::exception_ptr& e : errs) {
+            if (e) std::rethrow_exception(e);
+        }
     }
 
     // 「堡垒还在吗」。**刻意不往 `World` 加一个 `keep_alive()`**：
