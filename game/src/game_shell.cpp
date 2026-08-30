@@ -15,7 +15,15 @@ namespace {
 std::uint64_t seed_for_attempt(std::uint64_t base, int attempt) {
     // 黄金比例常数混一下，免得相邻两局的种子只差 1（xoshiro 的低位在种子相近时
     // 前几个输出也相近，见 `rts/rng.hpp`）。
-    return base ^ (0x9e3779b97f4a7c15ull * static_cast<std::uint64_t>(attempt));
+    //
+    // **常数必须显式声明成 `std::uint64_t`，不能直接写 `...ull` 字面量。**
+    // LP64（Linux）上 `std::uint64_t` 是 `unsigned long`，而 `ull` 字面量是
+    // `unsigned long long`——两者宽度相同却是**不同类型**，于是乘法结果要隐式
+    // 转回 `unsigned long`，GCC 的 `-Wsign-conversion` 因此报错（「may change
+    // the sign of the result」，尽管两边都是无符号）。Windows 是 LLP64、
+    // `uint64_t` 就是 `unsigned long long`，所以 MSVC 一声不响。
+    constexpr std::uint64_t kGolden = 0x9e3779b97f4a7c15ULL;
+    return base ^ (kGolden * static_cast<std::uint64_t>(attempt));
 }
 
 }  // namespace
