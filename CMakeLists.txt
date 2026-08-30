@@ -51,6 +51,17 @@ option(RTS_BUILD_RENDER "构建前端 render/" OFF)
 # `python3`（训练服务器上系统 python3 没有 Python.h，那份 miniforge 的有）。
 # 详见 bindings/CMakeLists.txt 文件头。
 option(RTS_BUILD_BINDINGS "构建 Python 绑定 bindings/（需要 Python 开发头）" OFF)
+
+# **开 bindings/ 时 rts_core 与 game 必须是位置无关代码。** Python 扩展是共享库，
+# 而链进它的静态库若不是 PIC，ld 会报「relocation against ... in read-only
+# section」并失败——那条报错读起来像 nlohmann 的问题（它点的是 json 的符号），
+# 实际是整个静态库缺 -fPIC。
+#
+# 只在开关打开时置位，而不是无条件置位：PIC 对不需要它的构建（游戏、ctest）
+# 是白付一点间接寻址的开销，没必要让所有人替训练侧买单。
+if(RTS_BUILD_BINDINGS)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
 option(RTS_WARNINGS_AS_ERRORS "把警告当错误（仅第一方代码）" ON)
 # 默认 ON：找不到 Python3 时让配置失败，而不是把确定性守卫静默摘掉。
 # 「守卫不在」必须是一个需要主动声明的决定，理由见 tests/CMakeLists.txt。
