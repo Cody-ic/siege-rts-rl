@@ -89,7 +89,7 @@ rts::UnitStats read_unit(const json& v, const std::string& origin,
     reject_unknown_keys(v, origin, where,
                         {"max_hp", "damage", "range", "speed", "vision",
                          "windup_ticks", "cooldown_ticks", "vs_structure_permille",
-                         "aoe_radius"});
+                         "aoe_radius", "cost_gold", "train_ticks"});
     rts::UnitStats s;
     s.max_hp = need_i64(need(v, "max_hp", origin, where), origin, where + ".max_hp");
     s.damage = need_i64(need(v, "damage", origin, where), origin, where + ".damage");
@@ -105,6 +105,10 @@ rts::UnitStats read_unit(const json& v, const std::string& origin,
                  where + ".vs_structure_permille");
     s.aoe_radius = need_f32(need(v, "aoe_radius", origin, where), origin,
                             where + ".aoe_radius");
+    s.cost_gold =
+        need_i64(need(v, "cost_gold", origin, where), origin, where + ".cost_gold");
+    s.train_ticks = need_i32(need(v, "train_ticks", origin, where), origin,
+                             where + ".train_ticks");
 
     if (s.max_hp < 1) fail(origin, where + ".max_hp 必须 >= 1");
     if (s.damage < 0) fail(origin, where + ".damage 不得为负");
@@ -116,6 +120,8 @@ rts::UnitStats read_unit(const json& v, const std::string& origin,
     if (s.vs_structure_permille < 0) {
         fail(origin, where + ".vs_structure_permille 不得为负");
     }
+    if (s.cost_gold < 0) fail(origin, where + ".cost_gold 不得为负");
+    if (s.train_ticks < 0) fail(origin, where + ".train_ticks 不得为负");
     return s;
 }
 
@@ -123,7 +129,8 @@ rts::BldStats read_bld(const json& v, const std::string& origin,
                        const std::string& where) {
     reject_unknown_keys(v, origin, where,
                         {"max_hp", "damage", "range", "vision", "windup_ticks",
-                         "cooldown_ticks"});
+                         "cooldown_ticks", "cost_stone", "cost_wood", "build_ticks",
+                         "income_amount"});
     rts::BldStats s;
     s.max_hp = need_i64(need(v, "max_hp", origin, where), origin, where + ".max_hp");
     s.damage = need_i64(need(v, "damage", origin, where), origin, where + ".damage");
@@ -133,12 +140,25 @@ rts::BldStats read_bld(const json& v, const std::string& origin,
                               where + ".windup_ticks");
     s.cooldown_ticks = need_i32(need(v, "cooldown_ticks", origin, where), origin,
                                 where + ".cooldown_ticks");
+    s.cost_stone = need_i64(need(v, "cost_stone", origin, where), origin,
+                            where + ".cost_stone");
+    s.cost_wood =
+        need_i64(need(v, "cost_wood", origin, where), origin, where + ".cost_wood");
+    s.build_ticks = need_i32(need(v, "build_ticks", origin, where), origin,
+                             where + ".build_ticks");
+    s.income_amount = need_i64(need(v, "income_amount", origin, where), origin,
+                               where + ".income_amount");
 
     if (s.max_hp < 1) fail(origin, where + ".max_hp 必须 >= 1");
     if (s.damage < 0) fail(origin, where + ".damage 不得为负");
     if (s.range < 0 || s.vision < 0) fail(origin, where + " 的 range / vision 不得为负");
     if (s.windup_ticks < 0) fail(origin, where + ".windup_ticks 不得为负");
     if (s.cooldown_ticks < 1) fail(origin, where + ".cooldown_ticks 必须 >= 1");
+    if (s.cost_stone < 0 || s.cost_wood < 0) {
+        fail(origin, where + " 的 cost_stone / cost_wood 不得为负");
+    }
+    if (s.build_ticks < 0) fail(origin, where + ".build_ticks 不得为负");
+    if (s.income_amount < 0) fail(origin, where + ".income_amount 不得为负");
     return s;
 }
 
@@ -184,8 +204,11 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
     const json& schema_v = need(doc, "schema", origin, "顶层");
     if (!schema_v.is_string()) fail(origin, "`schema` 必须是字符串");
     const std::string schema = schema_v.get<std::string>();
-    if (schema != "stats/1") {
-        fail(origin, "`schema` = \"" + schema + "\"，本程序只认 \"stats/1\"");
+    // 与 `rts::kStatsShapeTag` 同步进格（stats/1 → stats/2：机制第二批加了
+    // 造价 / 耗时 / 产出 / 维修那批字段）。刻意不做向后兼容——旧 schema 的表
+    // 缺新字段，静默补默认值正是「能跑但打不动」那种坑。
+    if (schema != "stats/2") {
+        fail(origin, "`schema` = \"" + schema + "\"，本程序只认 \"stats/2\"");
     }
 
     rts::StatsTable t;
@@ -231,17 +254,53 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
 
     const json& global = need(doc, "global", origin, "顶层");
     if (!global.is_object()) fail(origin, "`global` 必须是对象");
-    reject_unknown_keys(global, origin, "`global`",
-                        std::vector<std::string_view>{"hp_permille_per_level",
-                                                      "dmg_permille_per_level"});
+    reject_unknown_keys(
+        global, origin, "`global`",
+        std::vector<std::string_view>{
+            "hp_permille_per_level", "dmg_permille_per_level", "income_period_ticks",
+            "mason_work_radius", "repair_hp_per_work_tick", "repair_wood_per_1000hp",
+            "cancel_refund_permille"});
     t.global.hp_permille_per_level =
         need_i32(need(global, "hp_permille_per_level", origin, "`global`"), origin,
                  "`global.hp_permille_per_level`");
     t.global.dmg_permille_per_level =
         need_i32(need(global, "dmg_permille_per_level", origin, "`global`"), origin,
                  "`global.dmg_permille_per_level`");
+    t.global.income_period_ticks =
+        need_i32(need(global, "income_period_ticks", origin, "`global`"), origin,
+                 "`global.income_period_ticks`");
+    t.global.mason_work_radius =
+        need_f32(need(global, "mason_work_radius", origin, "`global`"), origin,
+                 "`global.mason_work_radius`");
+    t.global.repair_hp_per_work_tick =
+        need_i64(need(global, "repair_hp_per_work_tick", origin, "`global`"), origin,
+                 "`global.repair_hp_per_work_tick`");
+    t.global.repair_wood_per_1000hp =
+        need_i64(need(global, "repair_wood_per_1000hp", origin, "`global`"), origin,
+                 "`global.repair_wood_per_1000hp`");
+    t.global.cancel_refund_permille =
+        need_i32(need(global, "cancel_refund_permille", origin, "`global`"), origin,
+                 "`global.cancel_refund_permille`");
     if (t.global.hp_permille_per_level < 0 || t.global.dmg_permille_per_level < 0) {
         fail(origin, "`global` 的等级缩放系数不得为负");
+    }
+    if (t.global.income_period_ticks < 1) {
+        fail(origin, "`global.income_period_ticks` 必须 >= 1");
+    }
+    if (t.global.mason_work_radius < 0) {
+        fail(origin, "`global.mason_work_radius` 不得为负");
+    }
+    if (t.global.repair_hp_per_work_tick < 1) {
+        fail(origin, "`global.repair_hp_per_work_tick` 必须 >= 1");
+    }
+    if (t.global.repair_wood_per_1000hp < 0) {
+        fail(origin, "`global.repair_wood_per_1000hp` 不得为负");
+    }
+    // 上界 1000 是**结构性**的，不是风格检查：退款超过造价意味着
+    // 「下单再撤单」净赚资源——一条不用打仗的印钞回路（「结构封死」准则）。
+    if (t.global.cancel_refund_permille < 0 ||
+        t.global.cancel_refund_permille > 1000) {
+        fail(origin, "`global.cancel_refund_permille` 必须在 [0, 1000] 内");
     }
 
     return t;

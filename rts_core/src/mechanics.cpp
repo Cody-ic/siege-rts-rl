@@ -433,15 +433,14 @@ void World::tick_movement() {
     }
 }
 
-// ——阶段 4：建筑战斗 + 施工——
+// ——阶段 4：建筑战斗——
 
 void World::tick_bld_combat() {
     for (std::size_t k = 0; k < bld_pool_.slot_count(); ++k) {
         if (!bld_pool_.alive_at(static_cast<std::uint16_t>(k))) continue;
-        if (b_work_[k] > 0) {
-            --b_work_[k];   // 施工 / 维修中：不开火、无视野（见 tick_vision）
-            continue;
-        }
+        // 判据是**完工位**而不是 `b_work_ == 0`：维修复用 `b_work_`，
+        // 在修的塔照常开火——抢修残血结构是波次中的正当操作，不是自废武功。
+        if (!b_built_[k]) continue;
         if (b_cd_[k] > 0) --b_cd_[k];
         const BldStats& s = stats_.of(b_type_[k]);
         if (b_windup_[k] > 0) {
@@ -491,7 +490,139 @@ void World::tick_bld_combat() {
     }
 }
 
-// ——阶段 5：视野——
+// ——阶段 5：经济（第二批）——
+
+// 守方 `Mason` 是否在 `pos` 的施工半径内。二值（在场与否）而非人数：
+// 多名工匠不加速是占位机制，标定时再议。半径查全局表。
+bool World::mason_near(GridPos pos) const {
+    const float r = stats_.global.mason_work_radius;
+    if (r <= 0.0f) return false;
+    const float r2 = r * r;
+    const Vec2 c = center_of(pos);
+    for (std::size_t s = 0; s < unit_pool_.slot_count(); ++s) {
+        if (!unit_pool_.alive_at(static_cast<std::uint16_t>(s))) continue;
+        if (u_type_[s] != UnitType::Mason) continue;
+        if (dist2(u_pos_[s], c) <= r2) return true;
+    }
+    return false;
+}
+
+// 给槽位 `k` 上的建筑找出兵格：八邻按行主序（dj 外层、di 内层）扫，
+// 取第一个地形可通行、无建筑无障碍、无地面单位的格。**顺序即规范**，
+// 换一种扫法就是换一份回放。
+bool World::try_train_spawn(std::size_t k) {
+    const GridPos at = b_pos_[k];
+    for (int dj = -1; dj <= 1; ++dj) {
+        for (int di = -1; di <= 1; ++di) {
+            if (di == 0 && dj == 0) continue;
+            const int x = at.i + di;
+            const int y = at.j + dj;
+            if (!terrain_.in_bounds(x, y)) continue;
+            if (!terrain_.passable(x, y, Mobility::Ground)) continue;
+            const std::size_t c = static_cast<std::size_t>(y) *
+                                      static_cast<std::size_t>(width()) +
+                                  static_cast<std::size_t>(x);
+            if (bld_at_[c] != 0 || obstacle_at_[c] != 0) continue;
+            bool taken = false;
+            for (std::size_t s = 0; s < unit_pool_.slot_count(); ++s) {
+                if (!unit_pool_.alive_at(static_cast<std::uint16_t>(s))) continue;
+                if (is_aerial(u_type_[s])) continue;
+                const GridPos g = grid_of(u_pos_[s]);
+                if (g.i == x && g.j == y) {
+                    taken = true;
+                    break;
+                }
+            }
+            if (taken) continue;
+
+            const UnitType ut = static_cast<UnitType>(b_train_type_[k]);
+            const UnitStats& s = stats_.of(ut);
+            // 一律 1 级（apply_one 的 Train 那条注释）。等级缩放照走公式，
+            // 1 级时它就是基础值——这样升级轴落地时这里一行都不用改。
+            const std::int64_t hp = apply_permille(
+                s.max_hp,
+                {level_permille(kMinUnitLevel, stats_.global.hp_permille_per_level)});
+            const UnitId id = spawn_unit(ut, center_of(GridPos{
+                                                 static_cast<std::int16_t>(x),
+                                                 static_cast<std::int16_t>(y)}),
+                                         kMinUnitLevel, hp, hp);
+            u_force_[id.index()] = b_train_force_[k];
+            b_train_type_[k] = kNoTrain;
+            b_train_left_[k] = 0;
+            b_train_force_[k] = kNoForce;
+            return true;
+        }
+    }
+    return false;
+}
+
+void World::tick_economy() {
+    // 施工 / 维修：工匠在场才走工时。血量按「剩余缺口 ÷ 剩余工时」向上取整
+    // 逐工时补上——无人打扰时恰好在工时归零那一刻到满；挨了打则往后的每
+    // 工时多补一点、**总工期不变**（工期是买定的，血量是工期的产出）。
+    // 这条自我修正意味着工地挨打不延长工期，只压低它全程的血量下限——
+    // 要打断它得打死它，或者点杀工匠（那才是设计给 AI 的目标）。占位决定，
+    // 标定时若要「挨打延工」再改。
+    for (std::size_t k = 0; k < bld_pool_.slot_count(); ++k) {
+        if (!bld_pool_.alive_at(static_cast<std::uint16_t>(k))) continue;
+        if (b_work_[k] <= 0) continue;
+        if (!mason_near(b_pos_[k])) continue;
+        const std::int64_t gap = b_max_hp_[k] - b_hp_[k];
+        if (gap > 0) {
+            b_hp_[k] += (gap + b_work_[k] - 1) / b_work_[k];
+        }
+        --b_work_[k];
+        if (b_work_[k] == 0) b_built_[k] = 1;
+    }
+
+    // 征兵：倒计时归零后出兵。邻格全被占就滞留（不消单、不退钱），
+    // 下 tick 再试——征兵出口被自己人堵住是玩家该解的局面，不是机制该变的魔法。
+    for (std::size_t k = 0; k < bld_pool_.slot_count(); ++k) {
+        if (!bld_pool_.alive_at(static_cast<std::uint16_t>(k))) continue;
+        if (b_train_type_[k] == kNoTrain) continue;
+        if (b_train_left_[k] > 0) {
+            --b_train_left_[k];
+            continue;
+        }
+        try_train_spawn(k);
+    }
+
+    // 入账：每 `income_period_ticks` 一次（首次在第 period-1 tick 末，
+    // 即恰好推进一个周期之后）。采集建筑要**踩在对应资源点上**才产出——
+    // 建造时查过一遍，这里再按同一条件付账，付账条件是唯一真相
+    // （初始建筑不经 Build 命令，只有这里能拦住摆错位置的表）。
+    const std::int32_t period = stats_.global.income_period_ticks;
+    if (period > 0 && (tick_ + 1) % period == 0) {
+        for (std::size_t k = 0; k < bld_pool_.slot_count(); ++k) {
+            if (!bld_pool_.alive_at(static_cast<std::uint16_t>(k))) continue;
+            if (!b_built_[k]) continue;
+            const BldType bt = b_type_[k];
+            const std::int64_t amount = stats_.of(bt).income_amount;
+            if (amount <= 0) continue;
+            if (is_gatherer(bt)) {
+                bool on_site = false;
+                for (const ResourceSite& r : resources_) {
+                    if (r.pos == b_pos_[k] && r.kind == resource_of(bt)) {
+                        on_site = true;
+                        break;
+                    }
+                }
+                if (!on_site) continue;
+                stock_[static_cast<std::size_t>(resource_of(bt))] += amount;
+            } else if (bt == BldType::Keep) {
+                // 兵力地板：`Keep` 恒产极少量金币（CLAUDE.md 单列一节的护栏，
+                // 「三种资源都来自资源点」的唯一有意例外）。数额查表、待标定，
+                // 但**是金币**这一点是结构——它兜的是「金矿被点掉后连补兵
+                // 都做不到」那种死亡螺旋。
+                stock_[static_cast<std::size_t>(Resource::Gold)] += amount;
+            }
+            // 其余建筑填了 income_amount 也不产出：种类映射是结构，
+            // 表不能把瞭望塔配成印钞机。
+        }
+    }
+}
+
+// ——阶段 6：视野——
 
 void World::tick_vision() {
     for (int s = 0; s < kSideCount; ++s) {
@@ -506,11 +637,12 @@ void World::tick_vision() {
         mark_vision_circle(f, terrain_, u_pos_[k], stats_.of(t).vision, is_aerial(t),
                            tick_);
     }
-    // 建筑视野（建筑全属守方）。完工才有——施工中的骨架没有人在上面瞭望。
+    // 建筑视野（建筑全属守方）。完工才有——施工中的骨架没有人在上面瞭望；
+    // 在修的（`b_built_` 且 `b_work_ > 0`）照常有，同 tick_bld_combat 那条判据。
     FogLayer& df = fog_[static_cast<std::size_t>(index_of(Side::Defender))];
     for (std::size_t k = 0; k < bld_pool_.slot_count(); ++k) {
         if (!bld_pool_.alive_at(static_cast<std::uint16_t>(k))) continue;
-        if (b_work_[k] > 0) continue;
+        if (!b_built_[k]) continue;
         mark_vision_circle(df, terrain_, center_of(b_pos_[k]),
                            stats_.of(b_type_[k]).vision, false, tick_);
     }

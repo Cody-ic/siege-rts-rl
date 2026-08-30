@@ -21,10 +21,21 @@
 //   * **视野**：逐 tick 重算两侧迷雾（半径查表 + `blocks_vision` 视线遮挡，
 //     空中单位不受遮挡），可见格上的建筑写进记忆图
 //
-// **仍未做**（继续被 `deferred_command_count()` 记账，不静默丢弃）：七种命令
-// （`Build` / `Repair` / `Cancel` / `Train` / `MoveForce` / `Garrison` / `Clear`）、
-// flow field 寻路、克制倍率矩阵、冲锋助跑、高度优势、驻守解算、经济采集、
-// 在途弹丸实体。实现时把计数器删掉的那条约定不变。
+// **第二批**（经济闭环与命令解算，src/mechanics.cpp 的 tick_economy 一族）：
+//
+//   * **六种命令**：`Build`（验占位与点位、扣石+木、落工地）、`Repair`（扣木、
+//     排工时）、`Cancel`（工地退款 / 放弃维修）、`Train`（扣金、耗时、兵营旁出兵）、
+//     `MoveForce` / `Clear`（**记入世界状态的指令**——守方单兵由脚本驱动，
+//     执行层读这两条状态、World 不代替单位走路，见各自的解算注释）
+//   * **施工与维修由工匠推进**：`b_work_ > 0` 的建筑只在守方 `Mason` 在半径内时
+//     推进工时（「点杀施工中的工匠」因此是真的能打断工期，CLAUDE.md）
+//   * **经济收入**：每结算周期，完工的采集建筑在对应资源点上产出
+//     （`resource_of()`），`Keep` 恒产极少量金币（兵力地板）
+//
+// **仍未做**（继续被 `deferred_command_count()` 记账，不静默丢弃）：`Garrison`
+// ——它的执行层（驻守解算：上墙延迟、钉在墙上、高度优势）在 `World` 内，
+// 与高度优势成对，单独一批；只存指令而不解算比记账更糟。此外：flow field 寻路、
+// 克制倍率矩阵、冲锋助跑、在途弹丸实体。实现时把计数器删掉的那条约定不变。
 //
 // 每个 tick 内的阶段顺序固定，见 `advance()` 的注释——**改顺序等于让所有
 // 已录回放失效**（要动就把 `kWorldHashTag` 一起进格）。
@@ -107,6 +118,11 @@ enum class TgtKind : std::uint8_t {
 };
 
 inline constexpr int kTgtKindCount = 4;
+
+// 「没在练兵」的哨兵（`b_train_type_` 用）。不用 0：0 是 `UnitType::Archer`，
+// 拿它当哨兵会让「没在练」与「在练弓手」在字节上不可区分——
+// 同 `kNoSlot` / `kNoForce` 不取 0 的理由（`rts/command.hpp`）。
+inline constexpr std::uint8_t kNoTrain = 0xFFu;
 
 constexpr std::string_view ident_of(TgtKind k) noexcept {
     switch (k) {
@@ -382,7 +398,10 @@ inline GridPos pos_of_slot(std::uint16_t slot, int width) noexcept {
 //
 // `World/3` → `World/4`：机制第一批给单位加了四个字段（冷却 / 目标种类 /
 // 目标句柄 / 锁定落点）、给建筑加了三个（冷却 / 前摇 / 目标），全部进哈希。
-inline constexpr std::string_view kWorldHashTag = "World/4";
+//
+// `World/4` → `World/5`：机制第二批给建筑加了四个字段（完工位 / 在训兵种 /
+// 在训剩余 / 在训编队）、给障碍加了清野指令位、另加守方的编队去处表，全部进哈希。
+inline constexpr std::string_view kWorldHashTag = "World/5";
 
 class WorldView;
 
@@ -457,9 +476,11 @@ public:
     //      空闲且动作为 `Atk*` 的按目标选择承诺出手（打不到就空转，乙）
     //   3. 单位移动：动作为 `Move*` 且不在前摇中的连续推进；
     //      撞上可破坏阻挡物自动承诺破坏
-    //   4. 建筑战斗（`Tower` 对地 / `Flak` 对空），施工进度递减
-    //   5. 视野重算，两侧迷雾更新 + 记忆图写入
-    //   6. tick + 1
+    //   4. 建筑战斗（`Tower` 对地 / `Flak` 对空；**未完工不开火**）
+    //   5. 经济：施工 / 维修推进（守方 `Mason` 在半径内才走工时）、
+    //      征兵倒计时与出兵、按结算周期入账（采集建筑 + `Keep` 的金币地板）
+    //   6. 视野重算，两侧迷雾更新 + 记忆图写入（**未完工无视野**）
+    //   7. tick + 1
     //
     // 各阶段内一律按**槽位下标升序**遍历——与 `enumerate_units` 同一个规范顺序。
     void advance(int ticks);
@@ -521,14 +542,17 @@ public:
     BldType bld_type(BldId id) const;
     GridPos bld_pos(BldId id) const;
     std::int64_t bld_hp(BldId id) const;
-    bool bld_complete(BldId id) const;   // 施工 / 维修进度是否已走完
+    // 是否**完过工**。第二批起它读 `b_built_` 而不是 `b_work_ == 0`：
+    // 维修复用 `b_work_`，一座在修的塔若因此被判「未完工」，就会停火、失明
+    // ——抢修残血结构本该是波次中的正当操作，不是自废武功。
+    bool bld_complete(BldId id) const;
 
     // ——资源——
     std::int64_t stock(Resource r) const noexcept {
         return stock_[static_cast<std::size_t>(r)];
     }
-    // 存量的增减在 1c（产出速率与造价都是数值）。本版只提供存取，
-    // 让「资源是仿真状态、要进哈希」这一条先定死。
+    // 直写存量。机制内的增减不走它（收入 / 扣款 / 清野产出都在解算里直接记）；
+    // 留着它是给建局方设置初始资金（`game::make_world_init` 之后）与测试用。
     void set_stock(Resource r, std::int64_t v) noexcept;
 
     // ——攻方宏观状态——
@@ -542,7 +566,21 @@ public:
         return selected_force_[static_cast<std::size_t>(index_of(side))];
     }
 
-    // 本版没解算的命令，按种类计数。**1c 实现那七种时把这个函数一并删掉。**
+    // ——守方指令状态（第二批）——
+    //
+    // `MoveForce` / `Clear` 解算成**世界状态**而不是「World 代替单位走路」：
+    // 守方单兵由参数化脚本驱动（CLAUDE.md「守方 RL 只在决策层」），脚本每个
+    // 决策步从这里读指令、翻译成逐单位的 `UnitAction`。存在 `World` 里而不是
+    // 让脚本自己截听命令流，是因为命令可能由另一个模块提交（人类 UI、
+    // 决策层 RL 经 bindings），脚本唯一稳定可读的汇合点就是世界状态。
+    // `selected_force_` 早已是这个形态，这两条只是跟上先例。
+    std::uint16_t force_target(std::uint8_t force) const noexcept {
+        return force_target_[force];
+    }
+    bool obstacle_clear_ordered(ObstacleId id) const;
+
+    // 本版没解算的命令，按种类计数。第二批解算掉六种，**只剩 `Garrison`**
+    // （它的执行层与高度优势成对，单独一批）。做完驻守解算就把这个函数删掉。
     std::int64_t deferred_command_count(CommandKind k) const noexcept {
         return deferred_[static_cast<std::size_t>(k)];
     }
@@ -570,8 +608,11 @@ public:
     // 那条管的是还判不出来的位，这四位现在判得出来了。`Stop` 恒为 1。
     std::uint16_t action_mask(UnitId id) const;
 
-    // 11 位，第 k 位 = `command_kind_at(k)` 是否合法。
-    // 本版按 `is_legal_for` 与波次阶段判；买得起买不起要造价，属 1c。
+    // `kCommandKindCount` 位，第 k 位 = `command_kind_at(k)` 是否合法。
+    // 按 `is_legal_for` 与波次阶段判。**刻意不判「买得起买不起」**：命令掩码是
+    // 每侧一个、不带槽位维度，而「买不起」是逐建筑种类的事——那属决策层的
+    // 因子化掩码（`守方AI与协同演化.md` 第 3 节），不是这 12 位能表达的。
+    // 「掩码里未定的位默认允许」在这里继续成立：错误地允许只浪费样本。
     std::uint16_t command_mask(Side side) const noexcept;
 
     // ——状态哈希——
@@ -620,6 +661,17 @@ private:
     void tick_movement();
     void tick_bld_combat();
     void tick_vision();
+
+    // ——机制第二批的内部阶段与助手（同在 src/mechanics.cpp）——
+
+    // 施工 / 维修推进、征兵倒计时与出兵、按周期入账。顺序在 advance() 注释里。
+    void tick_economy();
+    // 守方 `Mason` 是否在 `pos` 的施工半径内（半径查表 `mason_work_radius`）。
+    // 第二批取「在场与否」的二值——多名工匠不加速，是占位机制，标定时再议。
+    bool mason_near(GridPos pos) const;
+    // 给槽位 `k` 上的建筑找一个出兵格：八邻按行主序扫，取第一个
+    // 地形可通行、无建筑无障碍、无地面单位的格。找不到返回 false（下 tick 再试）。
+    bool try_train_spawn(std::size_t k);
 
     // 承诺一次攻击：锁定落点、起前摇、进冷却。`windup_ticks == 0` 时当场落地。
     void commit_attack(std::size_t k, const TargetPick& t);
@@ -676,10 +728,17 @@ private:
     std::vector<GridPos> b_pos_;
     std::vector<std::int64_t> b_hp_;
     std::vector<std::int64_t> b_max_hp_;
-    std::vector<std::int32_t> b_work_;       // 施工 / 维修剩余 tick，0 = 完工
+    std::vector<std::int32_t> b_work_;       // 施工 / 维修剩余工时，0 = 没有在干
     std::vector<std::int32_t> b_cd_;         // 出手冷却（只有 Tower / Flak 会非零）
     std::vector<std::int32_t> b_windup_;     // 已承诺攻击的前摇剩余
     std::vector<std::uint32_t> b_tgt_raw_;   // 目标单位句柄的 raw()（建筑只打单位）
+    // 完过工没有。**不能用 `b_work_ == 0` 代替**：维修复用 `b_work_`，
+    // 那个等式会把「在修的塔」判成「没盖完的塔」（停火 + 失明）。
+    std::vector<std::uint8_t> b_built_;
+    // 征兵状态（`Barrack` / `Keep`，一次一名）。kNoTrain = 没在练。
+    std::vector<std::uint8_t> b_train_type_;
+    std::vector<std::int32_t> b_train_left_;
+    std::vector<std::uint8_t> b_train_force_;   // 出兵后编入哪个编队
 
     // ——中立可破坏障碍（第三组，决定 ⑤）——
     SlotPool<ObstacleTag> obstacle_pool_;
@@ -687,12 +746,18 @@ private:
     std::vector<GridPos> o_pos_;
     std::vector<std::int64_t> o_hp_;
     std::vector<std::int64_t> o_max_hp_;
+    std::vector<std::uint8_t> o_clear_ordered_;   // 玩家下过 `Clear` 没有
 
     // ——资源与宏观——
     std::array<std::int64_t, kResourceCount> stock_{};
     std::array<std::uint16_t, kUnitTypeCount> composition_{};
     std::vector<std::uint8_t> spawn_chosen_;
     std::array<std::uint8_t, kSideCount> selected_force_{kNoForce, kNoForce};
+    // 编队去处（`MoveForce` 的解算产物，脚本执行层的输入）。下标是编队号
+    // （0..254；kNoForce = 0xFF 那格永不写），值是格线性下标，kNoSlot = 没下过。
+    // 定长而不是 map：256 × 2 字节，整块进哈希，零判断。编队是守方概念，
+    // 攻方宏观层不用它，所以不按侧参数化。
+    std::array<std::uint16_t, 256> force_target_;
 
     // ——输入队列——
     std::array<std::vector<Command>, kSideCount> cmd_queue_;

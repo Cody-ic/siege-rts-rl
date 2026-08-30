@@ -52,7 +52,9 @@ namespace rts {
 // 与 `kWorldHashTag` 同一条纪律、不同的管辖：那个管 `state_hash` 的喂入清单，
 // 这个管「指纹是怎么从表算出来的」。形状变了而这个串没变，旧回放会报成
 // 「数值表变了」——方向仍然是对的（重录），但成因说错了；进一格则两边都对。
-inline constexpr std::string_view kStatsShapeTag = "Stats/1";
+// 已进格的历史：Stats/1 → Stats/2（机制第二批：造价 / 耗时 / 产出 / 维修，
+// 三个结构各加字段、`GlobalStats` 扩五项）。
+inline constexpr std::string_view kStatsShapeTag = "Stats/2";
 
 // 每兵种一行。**结构性属性不在这里**（能否对空、能否破坏结构、三轴定位归
 // `rts/unit_behavior.hpp` 与 `rts/roster.hpp`）；这里只有会随标定变的数。
@@ -71,6 +73,11 @@ struct UnitStats {
     // AOE 半径（格）。0 = 单体。落点在前摇开始那一刻锁定成坐标
     // （CLAUDE.md「结构破坏规则」那条实现要求），半径只是数值。
     float aoe_radius = 0.0f;
+    // ——机制第二批：征兵——
+    // 造价只有金币（三资源各对应一条决策轴：金币管**人力**，CLAUDE.md）。
+    // 攻方单位这两项无意义（攻方无经济，编成走 `Composition` 预算），诚实地填 0。
+    std::int64_t cost_gold = 0;       // 征兵造价（1 级；「越高越贵」的曲线待 §1.4）
+    std::int32_t train_ticks = 0;     // 征兵耗时
 };
 
 // 每建筑一行。只有 `Tower` / `Flak` 有攻击数值，其余那几列为 0——
@@ -83,6 +90,15 @@ struct BldStats {
     float vision = 0.0f;
     std::int32_t windup_ticks = 0;
     std::int32_t cooldown_ticks = 1;
+    // ——机制第二批：建造与产出——
+    // 「所有永久建筑都同时消耗石材与木材，配比不同」（CLAUDE.md 建筑花名册）。
+    // 金币不在建筑造价里——它管人力，那是第三条决策轴。
+    std::int64_t cost_stone = 0;
+    std::int64_t cost_wood = 0;
+    std::int32_t build_ticks = 0;     // 施工总工时（工匠在场才推进，见 tick_economy）
+    // 每个结算周期的产出数额。**种类不在这里**：采集建筑走 `resource_of()`（结构），
+    // `Keep` 恒产金币（兵力地板，CLAUDE.md 单列一节的护栏）。其余建筑填 0。
+    std::int64_t income_amount = 0;
 };
 
 // 每障碍一行。产出**种类**是结构（`harvest_of()`，`rts/roster.hpp`），
@@ -97,6 +113,14 @@ struct ObstacleStats {
 struct GlobalStats {
     std::int32_t hp_permille_per_level = 0;    // 等级每 +1，血量 +x‰（相对 1 级）
     std::int32_t dmg_permille_per_level = 0;   // 同上，伤害
+    // ——机制第二批：经济节律与维修——
+    // 默认值仍守「一眼看出没标定」的纪律，但两个被除数除外：0 会除零，
+    // 取 1 是「最小的合法值」而不是「看起来合理的值」。
+    std::int32_t income_period_ticks = 1;      // 产出结算周期（tick）
+    float mason_work_radius = 0.0f;            // 工匠有效施工/维修半径（格）
+    std::int64_t repair_hp_per_work_tick = 1;  // 维修每工时恢复的血量
+    std::int64_t repair_wood_per_1000hp = 0;   // 维修花费：每 1000 缺口血量的木材
+    std::int32_t cancel_refund_permille = 0;   // 撤销工地的退款比例（千分比）
 };
 
 // 四组分法来自 `rts_core 接口契约.md` §1.1.2 的三条形状决定。

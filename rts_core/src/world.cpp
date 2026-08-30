@@ -87,6 +87,7 @@ World::World(WorldInit init)
         }
     }
     spawn_chosen_.assign(spawns_.size(), 0);
+    force_target_.fill(kNoSlot);
 
     // 占位格（派生缓存，不进哈希——见头文件那段）。必须在放建筑与障碍**之前**
     // 就位，`place_bld` / `place_obstacle` 要往里写。
@@ -284,18 +285,152 @@ void World::apply_one(Side side, const Command& c) {
             // 可对多个集结点各下一条 = 分兵佯攻，所以是置位而不是赋值。
             spawn_chosen_[static_cast<std::size_t>(c.slot)] = std::uint8_t{1};
             break;
-        // ——以下七种需要造价 / 耗时 / 产出，本版不解算，但**不静默丢弃**——
+        // ——第二批解算的六种——
         //
-        // `Clear` 归这里而不是上面：清野要把障碍打掉（需要破坏速率）并给守方
-        // 产出资源（需要产出数额），两个都是待标定数值。种类是定的
-        // （`harvest_of()`），**数额不是**，所以它整条落在 1c。
-        case CommandKind::Build:
-        case CommandKind::Repair:
-        case CommandKind::Cancel:
-        case CommandKind::Train:
+        // **世界状态层面的不合法一律无操作**（买不起、格被占、点位不匹配、
+        // 目标不存在）。结构合法性已在 `validate` 拦过（字节层：越界、错侧），
+        // 剩下的是「掩码本可以屏蔽、但掩码刻意只做每侧一份」那一类——
+        // 丢弃是确定性的，且与 RL 约定一致（错误动作只浪费样本）。
+        case CommandKind::Build: {
+            const BldType bt = static_cast<BldType>(c.what);
+            // `Keep` 不可再建：它的唯一性是「丢失即败」与「兵力地板天然不可
+            // 摧毁」两条论证共同的前提。结构，不是数值。
+            if (bt == BldType::Keep) break;
+            const GridPos p = pos_of_slot(c.slot, width());
+            if (!terrain_.buildable(p.i, p.j)) break;
+            const std::size_t cell = static_cast<std::size_t>(c.slot);
+            if (bld_at_[cell] != 0 || obstacle_at_[cell] != 0) break;
+            // 地面单位站着的格不落地基（会把人封进墙里）；空军飞在上面无妨。
+            {
+                bool occupied = false;
+                for (std::size_t s = 0; s < unit_pool_.slot_count(); ++s) {
+                    if (!unit_pool_.alive_at(static_cast<std::uint16_t>(s))) continue;
+                    if (is_aerial(u_type_[s])) continue;
+                    if (grid_of(u_pos_[s]) == p) {
+                        occupied = true;
+                        break;
+                    }
+                }
+                if (occupied) break;
+            }
+            // 资源点规则：采集建筑必须建在**对应种类**的资源点上（收入的
+            // 唯一来源，CLAUDE.md「守方多资源」），其余建筑不得占资源点——
+            // 把资源点糊死是不可逆的浪费，按「结构封死」处理，不留给数值劝退。
+            {
+                const ResourceSite* site = nullptr;
+                for (const ResourceSite& r : resources_) {
+                    if (r.pos == p) {
+                        site = &r;
+                        break;
+                    }
+                }
+                if (is_gatherer(bt)) {
+                    if (site == nullptr || site->kind != resource_of(bt)) break;
+                } else if (site != nullptr) {
+                    break;
+                }
+            }
+            const BldStats& s = stats_.of(bt);
+            if (stock_[static_cast<std::size_t>(Resource::Stone)] < s.cost_stone ||
+                stock_[static_cast<std::size_t>(Resource::Wood)] < s.cost_wood) {
+                break;
+            }
+            stock_[static_cast<std::size_t>(Resource::Stone)] -= s.cost_stone;
+            stock_[static_cast<std::size_t>(Resource::Wood)] -= s.cost_wood;
+            // 工地从 1 血起步、由工匠随工时把血盖上去（tick_economy）。
+            // 工期为 0（未标定表的诚实默认）当场完工，那就该是满血。
+            if (s.build_ticks > 0) {
+                place_bld(bt, p, 1, s.max_hp, s.build_ticks);
+            } else {
+                place_bld(bt, p, s.max_hp, s.max_hp, 0);
+            }
+            break;
+        }
+        case CommandKind::Repair: {
+            const std::size_t cell = static_cast<std::size_t>(c.slot);
+            if (bld_at_[cell] == 0) break;
+            const std::size_t k = static_cast<std::size_t>(bld_at_[cell] - 1);
+            if (!b_built_[k]) break;      // 工地不「修」，工地是往前盖
+            if (b_work_[k] > 0) break;    // 已经在修了
+            const std::int64_t missing = b_max_hp_[k] - b_hp_[k];
+            if (missing <= 0) break;
+            const GlobalStats& g = stats_.global;
+            // 维修只花木材（木材那条决策轴：恢复速度与可维持性）。
+            // 费用与工时都对缺口取整向上；除法是普通整数除法，**不走
+            // `apply_permille`**——那个「钳到 >= 1」是伤害规则，不是记账规则。
+            const std::int64_t wood = (missing * g.repair_wood_per_1000hp + 999) / 1000;
+            if (stock_[static_cast<std::size_t>(Resource::Wood)] < wood) break;
+            const std::int64_t rate =
+                g.repair_hp_per_work_tick < 1 ? 1 : g.repair_hp_per_work_tick;
+            std::int64_t ticks = (missing + rate - 1) / rate;
+            if (ticks > INT32_MAX) ticks = INT32_MAX;
+            stock_[static_cast<std::size_t>(Resource::Wood)] -= wood;
+            b_work_[k] = static_cast<std::int32_t>(ticks);
+            break;
+        }
+        case CommandKind::Cancel: {
+            const std::size_t cell = static_cast<std::size_t>(c.slot);
+            if (bld_at_[cell] == 0) break;
+            const std::size_t k = static_cast<std::size_t>(bld_at_[cell] - 1);
+            if (!b_built_[k]) {
+                // 撤工地：按表比例退款。已走的工时不折算——工地暴露在杀伤区
+                // 是设计要的风险，撤销不是免费的后悔药。
+                const BldStats& s = stats_.of(b_type_[k]);
+                const std::int32_t pm = stats_.global.cancel_refund_permille;
+                stock_[static_cast<std::size_t>(Resource::Stone)] +=
+                    s.cost_stone * pm / 1000;
+                stock_[static_cast<std::size_t>(Resource::Wood)] +=
+                    s.cost_wood * pm / 1000;
+                destroy_bld(bld_pool_.id_at(static_cast<std::uint16_t>(k)));
+            } else if (b_work_[k] > 0) {
+                // 放弃维修：预付的木材不退。占位决定——若标定时把维修改成
+                // 按进度结算，这一行跟着改。
+                b_work_[k] = 0;
+            }
+            break;
+        }
+        case CommandKind::Train: {
+            const std::size_t cell = static_cast<std::size_t>(c.slot);
+            if (bld_at_[cell] == 0) break;
+            const std::size_t k = static_cast<std::size_t>(bld_at_[cell] - 1);
+            const BldType bt = b_type_[k];
+            // `Barrack` 是正职；`Keep` 是「兵营可退化为从堡垒出兵」那条兜底
+            // （CLAUDE.md 建筑花名册砍单顺序的依据）。其余建筑不出兵。
+            if (bt != BldType::Barrack && bt != BldType::Keep) break;
+            if (!b_built_[k]) break;
+            if (b_train_type_[k] != kNoTrain) break;   // 一次一名
+            const UnitStats& s = stats_.of(static_cast<UnitType>(c.what));
+            if (stock_[static_cast<std::size_t>(Resource::Gold)] < s.cost_gold) break;
+            stock_[static_cast<std::size_t>(Resource::Gold)] -= s.cost_gold;
+            // 一律 1 级。「征兵时选等级（1..上限，越高越贵）」连着堡垒等级上限，
+            // 归升级轴那一批——且 `Command` 还没有等级字段，到时一并加
+            // （追加字段不动既有字节，`rts/command.hpp` 的追加纪律）。
+            b_train_type_[k] = c.what;
+            b_train_left_[k] = s.train_ticks;
+            b_train_force_[k] = c.force;
+            break;
+        }
         case CommandKind::MoveForce:
+            // 解算 = 记入编队去处表。**World 不代替单位走路**：守方单兵由
+            // 参数化脚本驱动（CLAUDE.md），脚本读这张表、翻译成逐单位动作。
+            force_target_[c.force] = c.slot;
+            break;
+        case CommandKind::Clear: {
+            // 同上：记指令，不代打。破坏与产出早已是机制（移动撞上自动开始
+            // 破坏 + 最后一击归属产出），这条只是把「玩家要清这一格」放进
+            // 脚本执行层读得到的地方。
+            const std::size_t cell = static_cast<std::size_t>(c.slot);
+            if (obstacle_at_[cell] == 0) break;
+            o_clear_ordered_[static_cast<std::size_t>(obstacle_at_[cell] - 1)] = 1;
+            break;
+        }
+
+        // ——仍然记账的——
+        //
+        // `Garrison` 的执行层（上墙延迟、钉住、高度优势）在 `World` 内，
+        // 与高度优势成对、单独一批；只存指令而不解算比记账更糟——
+        // 「本版没做驻守」就不再是可断言的事实了。
         case CommandKind::Garrison:
-        case CommandKind::Clear:
             ++deferred_[static_cast<std::size_t>(c.kind)];
             break;
     }
@@ -312,12 +447,14 @@ void World::advance(int ticks) {
             q.clear();
         }
 
-        // 机制第一批的四个阶段（src/mechanics.cpp）。
+        // 机制的五个阶段（src/mechanics.cpp）。
         // 原先这里那两个「纯计数器递减」循环已被吸收：前摇归 tick_unit_combat
-        // （只有已承诺的攻击才有前摇可递减），施工进度归 tick_bld_combat。
+        // （只有已承诺的攻击才有前摇可递减），施工进度归 tick_economy
+        // （第二批起要工匠在场才推进，不再是纯递减）。
         tick_unit_combat();
         tick_movement();
         tick_bld_combat();
+        tick_economy();
         tick_vision();
 
         ++tick_;
@@ -391,6 +528,10 @@ BldId World::place_bld(BldType type, GridPos pos, std::int64_t hp, std::int64_t 
         b_cd_.resize(n);
         b_windup_.resize(n);
         b_tgt_raw_.resize(n);
+        b_built_.resize(n);
+        b_train_type_.resize(n);
+        b_train_left_.resize(n);
+        b_train_force_.resize(n);
     }
     b_type_[k] = type;
     b_pos_[k] = pos;
@@ -400,6 +541,12 @@ BldId World::place_bld(BldType type, GridPos pos, std::int64_t hp, std::int64_t 
     b_cd_[k] = 0;
     b_windup_[k] = 0;
     b_tgt_raw_[k] = UnitId::kInvalidRaw;
+    // 带工时进场的是工地（`Build` 命令那条路），不带的当场就是完工建筑
+    // （初始城圈与测试直摆的都走这里）。
+    b_built_[k] = (work_left == 0) ? std::uint8_t{1} : std::uint8_t{0};
+    b_train_type_[k] = kNoTrain;
+    b_train_left_[k] = 0;
+    b_train_force_[k] = kNoForce;
     bld_at_[static_cast<std::size_t>(pos.j) * static_cast<std::size_t>(width()) +
             static_cast<std::size_t>(pos.i)] = static_cast<std::uint16_t>(k + 1);
     return bld_pool_.id_at(k);
@@ -420,11 +567,13 @@ ObstacleId World::place_obstacle(ObstacleType type, GridPos pos, std::int64_t hp
         o_pos_.resize(n);
         o_hp_.resize(n);
         o_max_hp_.resize(n);
+        o_clear_ordered_.resize(n);
     }
     o_type_[k] = type;
     o_pos_[k] = pos;
     o_hp_[k] = hp;
     o_max_hp_[k] = max_hp;
+    o_clear_ordered_[k] = 0;
     obstacle_at_[static_cast<std::size_t>(pos.j) * static_cast<std::size_t>(width()) +
                  static_cast<std::size_t>(pos.i)] = static_cast<std::uint16_t>(k + 1);
     return obstacle_pool_.id_at(k);
@@ -471,6 +620,10 @@ void World::destroy_bld(BldId id) {
     b_cd_[k] = 0;
     b_windup_[k] = 0;
     b_tgt_raw_[k] = UnitId::kInvalidRaw;
+    b_built_[k] = 0;
+    b_train_type_[k] = kNoTrain;
+    b_train_left_[k] = 0;
+    b_train_force_[k] = kNoForce;
     bld_pool_.release(static_cast<std::uint16_t>(k));
 }
 
@@ -486,6 +639,7 @@ void World::destroy_obstacle(ObstacleId id) {
     o_pos_[k] = GridPos{};
     o_hp_[k] = 0;
     o_max_hp_[k] = 0;
+    o_clear_ordered_[k] = 0;
     obstacle_pool_.release(static_cast<std::uint16_t>(k));
 }
 
@@ -539,7 +693,11 @@ Vec2 World::unit_aim(UnitId id) const { return u_aim_[require(id)]; }
 BldType World::bld_type(BldId id) const { return b_type_[require(id)]; }
 GridPos World::bld_pos(BldId id) const { return b_pos_[require(id)]; }
 std::int64_t World::bld_hp(BldId id) const { return b_hp_[require(id)]; }
-bool World::bld_complete(BldId id) const { return b_work_[require(id)] == 0; }
+bool World::bld_complete(BldId id) const { return b_built_[require(id)] != 0; }
+
+bool World::obstacle_clear_ordered(ObstacleId id) const {
+    return o_clear_ordered_[require(id)] != 0;
+}
 
 void World::set_stock(Resource r, std::int64_t v) noexcept {
     stock_[static_cast<std::size_t>(r)] = v;
@@ -622,9 +780,9 @@ std::uint16_t World::command_mask(Side side) const noexcept {
 //   3. 时间与波次：tick、wave、phase、nominal_level
 //   4. RNG 状态
 //   5. 三组实体：各自的槽位池（alive + 代数 + 空闲表）+ 全部字段数组
-//   6. 资源、编成位、集结点选择、选中编队
+//   6. 资源、编成位、集结点选择、选中编队、编队去处表
 //   7. **两侧的待排空命令队列**
-//   8. 未解算命令的计数器（本版特有，1c 删）
+//   8. 未解算命令的计数器（第二批后只剩 `Garrison` 在用，驻守解算落地时删）
 //   9. 两侧迷雾
 //
 // 第 7 项是写回放格式时补的，理由值得记：队列是**跨 `submit` / `advance` 边界存活**
@@ -683,17 +841,23 @@ std::uint64_t World::state_hash() const noexcept {
     h.feed(b_cd_.data(), b_cd_.size() * sizeof(std::int32_t));
     h.feed(b_windup_.data(), b_windup_.size() * sizeof(std::int32_t));
     h.feed(b_tgt_raw_.data(), b_tgt_raw_.size() * sizeof(std::uint32_t));
+    h.feed(b_built_.data(), b_built_.size());
+    h.feed(b_train_type_.data(), b_train_type_.size());
+    h.feed(b_train_left_.data(), b_train_left_.size() * sizeof(std::int32_t));
+    h.feed(b_train_force_.data(), b_train_force_.size());
 
     obstacle_pool_.feed_hash(h);
     h.feed(o_type_.data(), o_type_.size() * sizeof(ObstacleType));
     h.feed(o_pos_.data(), o_pos_.size() * sizeof(GridPos));
     h.feed(o_hp_.data(), o_hp_.size() * sizeof(std::int64_t));
     h.feed(o_max_hp_.data(), o_max_hp_.size() * sizeof(std::int64_t));
+    h.feed(o_clear_ordered_.data(), o_clear_ordered_.size());
 
     h.feed(stock_.data(), stock_.size() * sizeof(std::int64_t));
     h.feed(composition_.data(), composition_.size() * sizeof(std::uint16_t));
     h.feed(spawn_chosen_.data(), spawn_chosen_.size());
     h.feed(selected_force_.data(), selected_force_.size());
+    h.feed(force_target_.data(), force_target_.size() * sizeof(std::uint16_t));
 
     // 待排空的命令队列。**长度必须一起喂**，否则「守方一条、攻方两条」与
     // 「守方两条、攻方一条」在拼接之后字节相同。

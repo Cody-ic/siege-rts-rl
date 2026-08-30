@@ -116,6 +116,18 @@ public:
     std::span<const std::int32_t> bld_windup() const noexcept {
         return sp(w_->b_windup_);
     }
+    // 完工位。**判「盖没盖完”用它，不要用 `bld_work_left() == 0`**：
+    // 维修复用工时字段，后一种写法会把在修的塔判成没盖完的（`rts/world.hpp`）。
+    std::span<const std::uint8_t> bld_built() const noexcept {
+        return sp(w_->b_built_);
+    }
+    // 征兵状态（`kNoTrain` = 没在练）。脚本执行层与前端的兵营面板都读它。
+    std::span<const std::uint8_t> bld_train_type() const noexcept {
+        return sp(w_->b_train_type_);
+    }
+    std::span<const std::int32_t> bld_train_left() const noexcept {
+        return sp(w_->b_train_left_);
+    }
     std::span<const std::uint8_t> bld_alive() const noexcept {
         return std::span<const std::uint8_t>(w_->bld_pool_.alive_bytes(),
                                              w_->bld_pool_.slot_count());
@@ -132,6 +144,18 @@ public:
     std::span<const std::uint8_t> obstacle_alive() const noexcept {
         return std::span<const std::uint8_t>(w_->obstacle_pool_.alive_bytes(),
                                              w_->obstacle_pool_.slot_count());
+    }
+    // 玩家的清野指令位（`CommandKind::Clear` 的解算产物）。守方脚本执行层
+    // 读它决定派谁去砸；破坏本身走既有机制（移动撞上自动开始破坏）。
+    std::span<const std::uint8_t> obstacle_clear_ordered() const noexcept {
+        return sp(w_->o_clear_ordered_);
+    }
+
+    // 编队去处表（`MoveForce` 的解算产物），下标是编队号、值是格线性下标，
+    // `kNoSlot` = 没下过。与 `unit_force()` 配对读：脚本按单位的编队查这里。
+    std::span<const std::uint16_t> force_target() const noexcept {
+        return std::span<const std::uint16_t>(w_->force_target_.data(),
+                                              w_->force_target_.size());
     }
 
     // 守方三资源的存量。攻方没有经济系统，所以它不按侧参数化——
