@@ -53,8 +53,9 @@ namespace rts {
 // 这个管「指纹是怎么从表算出来的」。形状变了而这个串没变，旧回放会报成
 // 「数值表变了」——方向仍然是对的（重录），但成因说错了；进一格则两边都对。
 // 已进格的历史：Stats/1 → Stats/2（机制第二批：造价 / 耗时 / 产出 / 维修，
-// 三个结构各加字段、`GlobalStats` 扩五项）。
-inline constexpr std::string_view kStatsShapeTag = "Stats/2";
+// 三个结构各加字段、`GlobalStats` 扩五项）；Stats/2 → Stats/3（机制第三批：
+// 驻守与高度优势，`GlobalStats` 扩四项）。
+inline constexpr std::string_view kStatsShapeTag = "Stats/3";
 
 // 每兵种一行。**结构性属性不在这里**（能否对空、能否破坏结构、三轴定位归
 // `rts/unit_behavior.hpp` 与 `rts/roster.hpp`）；这里只有会随标定变的数。
@@ -121,6 +122,16 @@ struct GlobalStats {
     std::int64_t repair_hp_per_work_tick = 1;  // 维修每工时恢复的血量
     std::int64_t repair_wood_per_1000hp = 0;   // 维修花费：每 1000 缺口血量的木材
     std::int32_t cancel_refund_permille = 0;   // 撤销工地的退款比例（千分比）
+    // ——机制第三批：驻守与高度优势——
+    // 三个 `high_ground_*` 是一组（前缀承载「墙血 >= 一半才生效」这一共同前提，
+    // 见 `World::on_high_wall`）。哪些效果**存在**是结构（CLAUDE.md 抄的
+    // Stronghold 三条），这里只有幅度。倍率默认 1000 = 恒等——它不守「默认 1/0」
+    // 的字面，但守它的实质：恒等一眼就能看出没标定，而 0 会把伤害路径整个掐断，
+    // 那是把「没标定」写成了一条结构禁令（同 income_period 取 1 的理由）。
+    std::int32_t garrison_mount_ticks = 0;         // 上墙延迟（原地登上那个「短暂」）
+    std::int32_t high_ground_miss_permille = 0;    // 低处打墙上单位：整发落空的概率
+    std::int32_t high_ground_dmg_permille = 1000;  // 低处打墙上单位：命中后的伤害倍率
+    float high_ground_range_bonus = 0.0f;          // 远程驻守的射程加成（格，加法）
 };
 
 // 四组分法来自 `rts_core 接口契约.md` §1.1.2 的三条形状决定。

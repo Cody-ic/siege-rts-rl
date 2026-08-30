@@ -1,11 +1,13 @@
 // `World` / `WorldView` / 槽位池 / 掩码 / 状态哈希。
 //
-// 这一批里有相当一部分测的是**「本版刻意没做」这件事本身**：
-// 那几种命令被记账而不是被丢弃、`advance()` 不是空操作。
-// 那些不是占位测试——它们锁住的是「没做」与「静默吞掉」的区别，
-// 而 1c 实现它们时正是要把这些断言翻过来。
-// （攻击掩码已随机制第一批从「默认允许」翻成「精确」——第一条被翻过来的。
-// 机制本身的用例在 tests/mechanics_test.cpp，这里只留掩码那几条。）
+// 这一批里曾有相当一部分测的是**「本版刻意没做」这件事本身**：
+// 命令被记账而不是被丢弃、`advance()` 不是空操作。那些不是占位测试——
+// 它们锁住的是「没做」与「静默吞掉」的区别，而 1c 实现时把断言逐条翻过来：
+// 攻击掩码随第一批翻成「精确」，记账用例随第三批整个退役
+// （12 种命令全部解算，`deferred_command_count` 按当初的约定删除；
+// 「加新命令时漏写解算分支」改由 apply_one 那个无 default 的 switch 兜住，
+// -Wswitch / /w14062 会红）。机制用例在 tests/mechanics_test.cpp 与
+// tests/garrison_test.cpp，这里只留掩码与数据布局那些。
 
 #include <array>
 #include <set>
@@ -363,59 +365,12 @@ TEST_CASE("Summon 提前结束建造阶段", "[world]") {
     REQUIRE_FALSE(has_bit(w.command_mask(rts::Side::Defender), rts::CommandKind::Summon));
 }
 
-TEST_CASE("需要数值的命令被记账，而不是静默丢弃", "[world]") {
-    // 「本版没解算」与「悄悄吞掉」的区别就在这个计数器上。
-    // 驻守解算落地时把 `deferred_command_count` 一并删掉。
-    //
-    // **标题里刻意不写数目。** 原来写的是「六种」，而加 `CommandKind::Clear` 之后
-    // 它变成七种——**那次这条用例照旧全绿**，因为下面的清单是硬编码的一个
-    // `array<..., 6>`，第七种进不了它的视野。同 `tests/CMakeLists.txt` 里
-    // 「刻意不写条目总数」那条：写死的数字保证它明天又错。
-    //
-    // 机制第二批解算掉六种（用例在 tests/economy_test.cpp），记账的只剩
-    // `Garrison`——它的执行层与高度优势成对，单独一批（`rts/world.hpp`）。
-    rts::World w(tiny_init());
-
-    // 记账的那些。
-    const std::array<rts::CommandKind, 1> deferred{rts::CommandKind::Garrison};
-
-    // 已解算、因此不该被记账的那些。
-    const std::array<rts::CommandKind, 11> applied{
-        rts::CommandKind::None,        rts::CommandKind::Summon,
-        rts::CommandKind::SelectForce, rts::CommandKind::Composition,
-        rts::CommandKind::PickSpawn,   rts::CommandKind::Build,
-        rts::CommandKind::Repair,      rts::CommandKind::Cancel,
-        rts::CommandKind::Train,       rts::CommandKind::MoveForce,
-        rts::CommandKind::Clear};
-
-    // **这条断言才是上面那次失效的修法**：两份清单必须正好铺满整个枚举。
-    // 于是加一个命令种类时，它要么进「记账」要么进「已应用」，**没有第三种去处**
-    // ——而漏登记会在这里当场红，不是等到某次回放对不上。
-    STATIC_REQUIRE(deferred.size() + applied.size() ==
-                   static_cast<std::size_t>(rts::kCommandKindCount));
-    std::set<rts::CommandKind> covered;
-    for (const rts::CommandKind k : deferred) covered.insert(k);
-    for (const rts::CommandKind k : applied) covered.insert(k);
-    REQUIRE(covered.size() == static_cast<std::size_t>(rts::kCommandKindCount));
-
-    for (const rts::CommandKind k : deferred) {
-        rts::Command c = cmd(k, rts::Side::Defender);
-        c.slot = 1;
-        c.force = 0;
-        c.what = static_cast<std::uint8_t>(rts::UnitType::Archer);
-        if (k == rts::CommandKind::Build) {
-            c.what = static_cast<std::uint8_t>(rts::BldType::Tower);
-        }
-        w.submit(rts::Side::Defender, &c, 1);
-    }
-    w.advance(1);
-    for (const rts::CommandKind k : deferred) {
-        REQUIRE(w.deferred_command_count(k) == 1);
-    }
-    for (const rts::CommandKind k : applied) {
-        REQUIRE(w.deferred_command_count(k) == 0);
-    }
-}
+// 这里曾有一条「需要数值的命令被记账，而不是静默丢弃」：未解算的命令按种类
+// 计数，好让「本版没做这一类」是可断言的事实。它经历过一次失效（加 `Clear` 时
+// 硬编码的 `array<..., 6>` 看不见第七种）、一次修复（两份清单铺满枚举），
+// 最终随第三批**按当初的约定退役**——12 种命令全部解算，「记账 / 已应用」的
+// 分类不复存在。它防的那件事（加新命令时漏写解算分支）由 apply_one 那个
+// 无 default 的穷举 switch 接手，-Wswitch / /w14062 在编译期就红。
 
 TEST_CASE("施工由工匠在场推进：无人则停，工时走完完工且血量盖满", "[world]") {
     // 第二批把施工从「纯递减」改成「守方 `Mason` 在半径内才走工时」——

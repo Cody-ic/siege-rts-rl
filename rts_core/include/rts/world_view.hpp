@@ -90,6 +90,9 @@ public:
     std::span<const std::uint16_t> unit_garrison() const noexcept {
         return sp(w_->u_garrison_);
     }
+    // 上墙延迟剩余（第三批）。与 `unit_garrison()` 配对读：garrison != kNoSlot
+    // 且 mount > 0 = 在爬（画攀爬动画、既不打也不走），mount == 0 = 已登顶。
+    std::span<const std::int32_t> unit_mount() const noexcept { return sp(w_->u_mount_); }
     std::span<const std::uint8_t> unit_force() const noexcept { return sp(w_->u_force_); }
     // 已承诺攻击的目标种类与锁定落点（机制第一批）。渲染层画「出手表现」
     // 靠它们：windup > 0 且 kind != None ⇒ 这个单位正在挥（或箭在弦上），
@@ -156,6 +159,13 @@ public:
     std::span<const std::uint16_t> force_target() const noexcept {
         return std::span<const std::uint16_t>(w_->force_target_.data(),
                                               w_->force_target_.size());
+    }
+
+    // 按格的驻守指令表（`Garrison` 的解算产物，第三批）。下标是格线性下标、
+    // 值是编队号，`kNoForce` = 没下过。登墙本身由 World 解算（tick_garrison），
+    // 脚本执行层读它只为一件事：把还没到墙边的编队成员往指令格挪。
+    std::span<const std::uint8_t> garrison_order() const noexcept {
+        return sp(w_->garrison_order_);
     }
 
     // 守方三资源的存量。攻方没有经济系统，所以它不按侧参数化——

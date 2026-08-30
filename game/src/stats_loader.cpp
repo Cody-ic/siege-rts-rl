@@ -204,11 +204,11 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
     const json& schema_v = need(doc, "schema", origin, "顶层");
     if (!schema_v.is_string()) fail(origin, "`schema` 必须是字符串");
     const std::string schema = schema_v.get<std::string>();
-    // 与 `rts::kStatsShapeTag` 同步进格（stats/1 → stats/2：机制第二批加了
-    // 造价 / 耗时 / 产出 / 维修那批字段）。刻意不做向后兼容——旧 schema 的表
+    // 与 `rts::kStatsShapeTag` 同步进格（stats/2 → stats/3：机制第三批加了
+    // 驻守与高度优势那四个全局字段）。刻意不做向后兼容——旧 schema 的表
     // 缺新字段，静默补默认值正是「能跑但打不动」那种坑。
-    if (schema != "stats/2") {
-        fail(origin, "`schema` = \"" + schema + "\"，本程序只认 \"stats/2\"");
+    if (schema != "stats/3") {
+        fail(origin, "`schema` = \"" + schema + "\"，本程序只认 \"stats/3\"");
     }
 
     rts::StatsTable t;
@@ -259,7 +259,9 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
         std::vector<std::string_view>{
             "hp_permille_per_level", "dmg_permille_per_level", "income_period_ticks",
             "mason_work_radius", "repair_hp_per_work_tick", "repair_wood_per_1000hp",
-            "cancel_refund_permille"});
+            "cancel_refund_permille", "garrison_mount_ticks",
+            "high_ground_miss_permille", "high_ground_dmg_permille",
+            "high_ground_range_bonus"});
     t.global.hp_permille_per_level =
         need_i32(need(global, "hp_permille_per_level", origin, "`global`"), origin,
                  "`global.hp_permille_per_level`");
@@ -281,6 +283,18 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
     t.global.cancel_refund_permille =
         need_i32(need(global, "cancel_refund_permille", origin, "`global`"), origin,
                  "`global.cancel_refund_permille`");
+    t.global.garrison_mount_ticks =
+        need_i32(need(global, "garrison_mount_ticks", origin, "`global`"), origin,
+                 "`global.garrison_mount_ticks`");
+    t.global.high_ground_miss_permille =
+        need_i32(need(global, "high_ground_miss_permille", origin, "`global`"), origin,
+                 "`global.high_ground_miss_permille`");
+    t.global.high_ground_dmg_permille =
+        need_i32(need(global, "high_ground_dmg_permille", origin, "`global`"), origin,
+                 "`global.high_ground_dmg_permille`");
+    t.global.high_ground_range_bonus =
+        need_f32(need(global, "high_ground_range_bonus", origin, "`global`"), origin,
+                 "`global.high_ground_range_bonus`");
     if (t.global.hp_permille_per_level < 0 || t.global.dmg_permille_per_level < 0) {
         fail(origin, "`global` 的等级缩放系数不得为负");
     }
@@ -301,6 +315,22 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
     if (t.global.cancel_refund_permille < 0 ||
         t.global.cancel_refund_permille > 1000) {
         fail(origin, "`global.cancel_refund_permille` 必须在 [0, 1000] 内");
+    }
+    if (t.global.garrison_mount_ticks < 0) {
+        fail(origin, "`global.garrison_mount_ticks` 不得为负");
+    }
+    // 两个上界同样是结构性的：miss 是概率（>1000 无意义），伤害倍率 > 1000
+    // 会把「高度优势」写成高度劣势——那不是标定出一个大数，是把不等号写反。
+    if (t.global.high_ground_miss_permille < 0 ||
+        t.global.high_ground_miss_permille > 1000) {
+        fail(origin, "`global.high_ground_miss_permille` 必须在 [0, 1000] 内");
+    }
+    if (t.global.high_ground_dmg_permille < 0 ||
+        t.global.high_ground_dmg_permille > 1000) {
+        fail(origin, "`global.high_ground_dmg_permille` 必须在 [0, 1000] 内");
+    }
+    if (t.global.high_ground_range_bonus < 0) {
+        fail(origin, "`global.high_ground_range_bonus` 不得为负");
     }
 
     return t;
