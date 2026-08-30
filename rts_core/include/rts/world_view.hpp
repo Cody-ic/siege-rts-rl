@@ -170,7 +170,9 @@ public:
     //
     // 第二条成立是因为 `launches_projectile()`（Ranged × 非空中）在**每一侧
     // 恰好命中一个兵种**（守 `Archer` / 攻 `Shade`）。这个前提由
-    // `game/src/battle_scene.cpp` 里那条 `static_assert` 钉住——**它会随花名册
+    // `tests/scene_model_test.cpp` 的 `[scene]` 用例钉住——**不是 `static_assert`**：
+    // `launches_projectile()` 是虚函数、`behavior_of()` 不是 constexpr，编译期
+    // 到不了（`CLAUDE.md`「多态按兵种」那节说的就是这处代价）。而**它会随花名册
     // 变化而失效，所以不能只写在注释里**：若哪天某一侧多出第二个远程地面兵种，
     // 按侧挑精灵就会让两者共用同一张图，而那是**静默**的（画面能出，只是错）。
     //
