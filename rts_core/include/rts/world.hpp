@@ -59,9 +59,21 @@
 //     （与 `Ram` 同一条承诺规则）；圈内不分敌我（溅射误伤是机制）。
 //     **对空建筑（`Flak`）结构上忽略 AOE**——「AA 只做单体狙击型」
 //
-// **仍未做**：flow field 寻路、在途弹丸实体。它们都不是命令（没有可记账的
-// 输入），「本版没做」的可断言形式是各自的观测效应缺席
-// （如单体伤害仍在落地帧瞬时结算）。
+// **第五批**（在途弹丸，第四组实体）：
+//
+//   * **谁放弹丸是结构**：单位侧 `launches_projectile()`（Ranged × 非空中，
+//     恰好 = Archer / Shade；Phoenix 俯冲直击）；建筑侧凡开火皆弹丸
+//     （Tower / Flak）。`Ram` 照旧是前摇撞击——CLAUDE.md「结构破坏规则」原文
+//   * **两类飞行**：单体弹丸**追踪目标句柄**（箭朝一个单位去，目标死了箭落空）；
+//     齐射弹丸**飞向锁定落点**（散开的躲闪窗口从「前摇」延长为「前摇 + 飞行」）。
+//     逐目标的倍率（高度 miss / 减伤）在**命中那一刻**结算，
+//     发射方的状态（等级、居高与否）在**放箭那一刻**定格随弹携带
+//   * **速度查表**（`proj_speed`，<= 0 = 瞬时命中）：§1.1.1 那条「落地帧瞬时
+//     结算」的书面近似没有删，而是降级成 0 速度的退化形态
+//   * 弹丸**无句柄**（没人引用它）：SoA + 稳定压实，全部字段进哈希
+//
+// **仍未做**：flow field 寻路（不是命令、没有可记账的输入，
+// 「本版没做」的可断言形式是移动仍只有相邻格推进 + 撞上自动破坏）。
 //
 // 每个 tick 内的阶段顺序固定，见 `advance()` 的注释——**改顺序等于让所有
 // 已录回放失效**（要动就把 `kWorldHashTag` 一起进格）。
@@ -92,6 +104,7 @@
 #include <vector>
 
 #include "rts/action.hpp"
+#include "rts/combat_math.hpp"
 #include "rts/command.hpp"
 #include "rts/fog.hpp"
 #include "rts/hash.hpp"
@@ -149,6 +162,12 @@ inline constexpr int kTgtKindCount = 4;
 // 拿它当哨兵会让「没在练」与「在练弓手」在字节上不可区分——
 // 同 `kNoSlot` / `kNoForce` 不取 0 的理由（`rts/command.hpp`）。
 inline constexpr std::uint8_t kNoTrain = 0xFFu;
+
+// 「这枚弹丸是单位射的」的哨兵（`p_src_bld_` 用；否则该值是 `BldType`）。
+// 不用 0 的理由同上（0 是 `BldType::Keep`）。渲染层用它挑精灵：
+// `Flak` 的是弩矢（`Bolt`），其余都是箭（`Arrow`）——映射在 game/ 侧，
+// 依据 `tools/sprite_gen/README.md` §8.2 的归属表。
+inline constexpr std::uint8_t kProjFromUnit = 0xFFu;
 
 constexpr std::string_view ident_of(TgtKind k) noexcept {
     switch (k) {
@@ -438,7 +457,11 @@ inline GridPos pos_of_slot(std::uint16_t slot, int width) noexcept {
 //
 // `World/6` → `World/7`：机制第四批给单位加了冲锋动量（`u_charge_`）、
 // 给建筑加了锁定落点（`b_aim_`，齐射与 `Ram` 同一条承诺规则），都进哈希。
-inline constexpr std::string_view kWorldHashTag = "World/7";
+//
+// `World/7` → `World/8`：机制第五批加了**第四组实体**（在途弹丸，全部字段
+// 进哈希）——正是上面「这一条正是在途弹丸那个悬而未决的问题的答案」预演的
+// 那次改动，按预演的方式兑现：不预留空位，改布局时进格。
+inline constexpr std::string_view kWorldHashTag = "World/8";
 
 class WorldView;
 
@@ -519,10 +542,13 @@ public:
     //      从同编队相邻单位里按槽位序挑一名开始登墙
     //   5. 建筑战斗（`Tower` 对地 / `Flak` 对空；**未完工不开火**；
     //      齐射的落点在承诺那一刻锁定）
-    //   6. 经济：施工 / 维修推进（守方 `Mason` 在半径内才走工时）、
+    //   6. 弹丸飞行与命中：追踪的刷新目的地（目标死了箭落空）、齐射的飞向
+    //      锁定落点；到达即结算。**本 tick 刚放出的弹丸也走这一步**
+    //      （阶段 2 / 5 在它之前），近距离的箭可以当 tick 命中
+    //   7. 经济：施工 / 维修推进（守方 `Mason` 在半径内才走工时）、
     //      征兵倒计时与出兵、按结算周期入账（采集建筑 + `Keep` 的金币地板）
-    //   7. 视野重算，两侧迷雾更新 + 记忆图写入（**未完工无视野**）
-    //   8. tick + 1
+    //   8. 视野重算，两侧迷雾更新 + 记忆图写入（**未完工无视野**）
+    //   9. tick + 1
     //
     // 各阶段内一律按**槽位下标升序**遍历——与 `enumerate_units` 同一个规范顺序。
     void advance(int ticks);
@@ -555,6 +581,8 @@ public:
     int live_unit_count(Side side) const noexcept;
     int live_bld_count() const noexcept { return bld_pool_.live_count(); }
     int live_obstacle_count() const noexcept { return obstacle_pool_.live_count(); }
+    // 在飞的弹丸数。弹丸数组**不含空槽**（每 tick 稳定压实），所以是 size。
+    int live_proj_count() const noexcept { return static_cast<int>(p_pos_.size()); }
 
     // **一侧活着的单位，按槽位下标升序。这是唯一的规范顺序。**
     //
@@ -751,6 +779,38 @@ private:
     // 墙格几乎总有空邻格（校验器要求墙有内外两侧），这条边界不值得一个重试态。
     void dismount_unit(std::size_t k);
 
+    // ——机制第五批的内部阶段与助手（同在 src/mechanics.cpp）——
+
+    // 一枚待发 / 在飞的弹丸。发射方的状态在放箭那一刻定格进这里
+    // （放箭之后发射方可以死、可以走，箭已与它无关）；逐目标的倍率
+    // （高度 miss / 减伤）留到命中那一刻按目标**当时**的状态结算。
+    struct ProjSpec {
+        Vec2 pos{};                    // 当前位置（发射时 = 发射方位置）
+        Vec2 aim{};                    // 目的地。追踪弹逐 tick 刷新成目标位置
+        float speed = 0.0f;            // 格 / tick；<= 0 = 瞬时命中
+        TgtKind kind = TgtKind::None;  // None = 齐射（AOE 砸 aim，只打地面单位）
+        std::uint32_t raw = 0;         // 目标句柄的 raw()（kind != None 时）
+        std::int64_t dmg = 0;          // Unit/None 目标 = 基础伤害（命中时再乘）；
+                                       // Bld/Obstacle = 最终伤害（倍率与目标无关，
+                                       // 放箭时一次乘完，只截断一次——决定 ⑫）
+        std::int64_t lvl_pm = kPermilleOne;   // 发射方的等级倍率（放箭时定格）
+        std::uint8_t from_high = 0;    // 发射方居高（空中 / 墙上 / 建筑）——
+                                       // 命中时免掉目标的高度 miss 与减伤
+        float aoe = 0.0f;              // 齐射半径（kind == None 时）
+        Side side = Side::Defender;    // 伤害归属（障碍产出归最后一击方）
+        std::uint8_t src_bld = kProjFromUnit;   // 渲染挑精灵用（Bolt vs Arrow）
+    };
+
+    // 登记一枚弹丸；`speed <= 0` 时当场命中（不进数组）——旧近似的退化形态。
+    void launch_projectile(const ProjSpec& p);
+    // 命中结算：掷高度 miss、乘逐目标倍率、deal_damage。齐射在这里展开圆圈。
+    void impact_projectile(const ProjSpec& p);
+    // 飞行阶段：刷新追踪目的地（目标死了箭落空）、推进、到达即结算，
+    // 然后稳定压实（保序删除，顺序 = 放箭顺序 = 规范序）。
+    void tick_projectiles();
+    // 把第 i 枚弹丸的字段装回 ProjSpec（tick_projectiles 与哈希探针共用视角）。
+    ProjSpec proj_at(std::size_t i) const;
+
     // 承诺一次攻击：锁定落点、起前摇、进冷却。`windup_ticks == 0` 时当场落地。
     void commit_attack(std::size_t k, const TargetPick& t);
     // 前摇走完，按锁定的落点 / 目标结算伤害（含 AOE 与死亡处理）。
@@ -828,6 +888,27 @@ private:
     std::vector<std::int64_t> o_hp_;
     std::vector<std::int64_t> o_max_hp_;
     std::vector<std::uint8_t> o_clear_ordered_;   // 玩家下过 `Clear` 没有
+
+    // ——在途弹丸（第四组，机制第五批）——
+    //
+    // **没有 SlotPool、没有句柄**，与前三组刻意不同：句柄与代数是给「别人会
+    // 引用它、引用可能悬空」的实体准备的，而没有任何东西引用一枚弹丸——
+    // 它自己引用别人。所以这里是纯 SoA + 每 tick 稳定压实（保序删除），
+    // 顺序 = 放箭顺序，确定。**全部字段进哈希**（含数组长度——变长数组
+    // 不喂长度会让不同的 (数量, 内容) 组合拼出相同的字节流）。
+    // 字段含义见私有 `ProjSpec`（两边由 proj_at() / launch_projectile() 互换，
+    // 不会各自漂移）。
+    std::vector<Vec2> p_pos_;
+    std::vector<Vec2> p_aim_;
+    std::vector<float> p_speed_;
+    std::vector<TgtKind> p_kind_;
+    std::vector<std::uint32_t> p_raw_;
+    std::vector<std::int64_t> p_dmg_;
+    std::vector<std::int64_t> p_lvl_pm_;
+    std::vector<std::uint8_t> p_from_high_;
+    std::vector<float> p_aoe_;
+    std::vector<Side> p_side_;
+    std::vector<std::uint8_t> p_src_bld_;
 
     // ——资源与宏观——
     std::array<std::int64_t, kResourceCount> stock_{};

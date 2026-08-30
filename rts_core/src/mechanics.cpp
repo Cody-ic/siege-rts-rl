@@ -1,5 +1,6 @@
 // 机制第一批：承伤与死亡、目标选择与攻击、相邻格移动、建筑攻击、视野。
 // 第二批：经济闭环与命令解算。第三批：驻守与高度优势（tick_garrison 一族）。
+// 第四批：冲锋与齐射。第五批：在途弹丸（tick_projectiles 一族）。
 //
 // 与 `world.cpp` 分开放：那边是数据布局与输入校验（1b 的产物），这边是
 // 逐 tick 的解算（1c）。阶段顺序的规范写在 `World::advance()` 的注释里，
@@ -230,12 +231,67 @@ void World::land_attack(std::size_t k) {
     const std::int64_t vs_structure =
         apply_permille(s.damage, {lvl, s.vs_structure_permille, charge_pm});
 
+    // 「居高」是攻击方的属性：空中单位从上方来，驻守且墙高完好的自己也在高处，
+    // 两者都不吃下面的高度惩罚（放箭的还把它定格进弹丸随弹携带）。
+    const bool atk_high = is_aerial(my_type) || on_high_wall(k);
+
+    // ——在途弹丸（第五批）：远程的伤害由弹丸送达——
+    //
+    // 谁放弹丸是**结构**（`launches_projectile()` = Ranged × 非空中，恰好
+    // Archer / Shade；`Ram` 照旧前摇撞击、`Phoenix` 俯冲直击）。发射方的状态
+    // （等级倍率、居高与否）在这一刻定格进弹丸；逐目标的倍率（高度 miss /
+    // 减伤）等**命中那一刻**按目标当时的状态结算。结构目标的伤害与目标状态
+    // 无关，在这里一次乘完（截断只发生一次，决定 ⑫）。
+    // 冲锋与反冲锋都不进弹丸路径：没有兵种既放箭又冲锋 / 又架枪阵——
+    // 轴组合的现状，tests/unit_behavior_test.cpp 锁住；破了先回来补字段。
+    if (beh.launches_projectile()) {
+        ProjSpec p;
+        p.pos = u_pos_[k];
+        p.speed = s.proj_speed;
+        p.lvl_pm = lvl;
+        p.from_high = atk_high ? 1 : 0;
+        p.side = my_side;
+        if (s.aoe_radius > 0.0f) {
+            // 花名册里没有「远程 + 溅射」的兵种，但表配得出来。语义取齐射：
+            // AOE 砸锁定落点、只打地面单位（与建筑齐射同一条命中路径）。
+            p.kind = TgtKind::None;
+            p.aim = aim;
+            p.dmg = s.damage;
+            p.aoe = s.aoe_radius;
+            launch_projectile(p);
+            return;
+        }
+        p.kind = kind;
+        p.raw = raw;
+        // 追踪弹的初始目的地 = 目标此刻的位置（此后逐 tick 刷新）。
+        // 目标在前摇里就死了 ⇒ 没有箭可放（与旧路径「落空」同义，只是提前）。
+        switch (kind) {
+            case TgtKind::Unit:
+                if (!unit_pool_.alive(unit_from_raw(raw))) return;
+                p.aim = u_pos_[static_cast<std::size_t>(raw >> 16)];
+                p.dmg = s.damage;
+                break;
+            case TgtKind::Bld:
+                if (!bld_pool_.alive(bld_from_raw(raw))) return;
+                p.aim = center_of(b_pos_[static_cast<std::size_t>(raw >> 16)]);
+                p.dmg = vs_structure;
+                break;
+            case TgtKind::Obstacle:
+                if (!obstacle_pool_.alive(obstacle_from_raw(raw))) return;
+                p.aim = center_of(o_pos_[static_cast<std::size_t>(raw >> 16)]);
+                p.dmg = vs_structure;
+                break;
+            case TgtKind::None:
+                return;
+        }
+        launch_projectile(p);
+        return;
+    }
+
     // ——高度优势（第三批）：从低处打墙上单位，有 miss 且伤害打折——
     //
-    // 「低处」是攻击方的属性：空中单位从上方来，驻守且墙高完好的自己也在高处，
-    // 两者都不吃惩罚。**只对单位目标生效**——打墙本身没有「墙居高临下」一说。
+    // **只对单位目标生效**——打墙本身没有「墙居高临下」一说。
     // miss 掷的是本世界的 RNG（状态进哈希，回放里同一发必然同判）。
-    const bool atk_high = is_aerial(my_type) || on_high_wall(k);
     const std::int64_t hg_dmg = stats_.global.high_ground_dmg_permille;
     const std::int64_t hg_miss = stats_.global.high_ground_miss_permille;
     const auto misses_high = [&](std::size_t t) {
@@ -293,9 +349,9 @@ void World::land_attack(std::size_t k) {
         return;
     }
 
-    // 单体：目标死了就落空（箭还在飞，人已经没了）。**不追加射程检查**——
-    // 承诺时查过一次，之后目标跑出射程照样中，本批没有在途弹丸实体，
-    // 这一条近似记在契约 §1.1.1（弹丸做成第四组实体时一并改）。
+    // 单体直击（近战 / `Ram` / `Phoenix` 俯冲——放箭的在上面已经走弹丸路径）。
+    // 目标死了就落空。**不追加射程检查**——承诺时查过一次，前摇里目标挪出
+    // 半步照样中：那半步是「弓手被贴脸即废」的镜像，挥出去的刀不检查卷尺。
     switch (kind) {
         case TgtKind::Unit:
             if (unit_pool_.alive(unit_from_raw(raw))) {
@@ -649,36 +705,203 @@ void World::tick_bld_combat() {
     }
 }
 
-// 建筑出手落地：齐射（AOE）或单体。
+// 建筑出手落地 = **放箭**（第五批起）：建筑不会近战，开火即弹丸。
+// `Tower` 的齐射箭雨飞向锁定落点，`Flak` 的狙击弩矢追踪目标。
 void World::land_bld_attack(std::size_t k) {
     const BldStats& s = stats_.of(b_type_[k]);
     const std::uint32_t raw = b_tgt_raw_[k];
     b_tgt_raw_[k] = UnitId::kInvalidRaw;
+
+    ProjSpec p;
+    p.pos = center_of(b_pos_[k]);
+    p.speed = s.proj_speed;
+    p.side = Side::Defender;
+    p.src_bld = static_cast<std::uint8_t>(b_type_[k]);
+    p.from_high = 1;   // 塔上放箭，居高是结构（这一位只管**免掉**高度惩罚）
+    p.dmg = s.damage;  // 倍率恒等（lvl_pm 默认 1000）：建筑没有等级轴（第五批时点）
+
     // 齐射：AOE 砸锁定落点，圈内不分敌我（「溅射误伤」是机制不是 bug——
-    // 别站在自家箭楼的齐射区里）、空中不挨砸（箭雨对地）。
+    // 别站在自家箭楼的齐射区里）、空中不挨砸（箭雨对地，展开在命中路径）。
     // **只对对地建筑生效**：「AA 只做单体狙击型」是结构，表里给 `Flak`
     // 配了半径也不齐射——同「表不能把瞭望塔配成印钞机」的先例。
     if (s.aoe_radius > 0.0f && !bld_targets_air(b_type_[k])) {
-        const float r2 = s.aoe_radius * s.aoe_radius;
-        const Vec2 aim = b_aim_[k];
-        const std::int64_t dmg = apply_permille(s.damage, {});
-        for (std::size_t t = 0; t < unit_pool_.slot_count(); ++t) {
-            if (!unit_pool_.alive_at(static_cast<std::uint16_t>(t))) continue;
-            if (is_aerial(u_type_[t])) continue;
-            if (dist2(u_pos_[t], aim) > r2) continue;
-            deal_damage(TgtKind::Unit,
-                        unit_pool_.id_at(static_cast<std::uint16_t>(t)).raw(), dmg,
-                        Side::Defender);
-        }
+        p.kind = TgtKind::None;
+        p.aim = b_aim_[k];
+        p.aoe = s.aoe_radius;
+        launch_projectile(p);
         return;
     }
-    // 单体：目标死了就落空（同单位路径的那条近似，弹丸实体来了一并改）。
-    if (raw != UnitId::kInvalidRaw && unit_pool_.alive(unit_from_raw(raw))) {
-        deal_damage(TgtKind::Unit, raw, apply_permille(s.damage, {}), Side::Defender);
+    // 单体：追踪目标。目标在前摇里就死了 ⇒ 没有箭可放。
+    if (raw == UnitId::kInvalidRaw || !unit_pool_.alive(unit_from_raw(raw))) return;
+    p.kind = TgtKind::Unit;
+    p.raw = raw;
+    p.aim = u_pos_[static_cast<std::size_t>(raw >> 16)];
+    launch_projectile(p);
+}
+
+// ——阶段 6：弹丸（第五批）——
+
+// 字段数组 ↔ ProjSpec 的唯一互换点（与 launch_projectile 成对）。
+// 两处若各写一遍字段清单，加字段时只改一边不会报错——症状是命中结算
+// 读到默认值。
+World::ProjSpec World::proj_at(std::size_t i) const {
+    ProjSpec p;
+    p.pos = p_pos_[i];
+    p.aim = p_aim_[i];
+    p.speed = p_speed_[i];
+    p.kind = p_kind_[i];
+    p.raw = p_raw_[i];
+    p.dmg = p_dmg_[i];
+    p.lvl_pm = p_lvl_pm_[i];
+    p.from_high = p_from_high_[i];
+    p.aoe = p_aoe_[i];
+    p.side = p_side_[i];
+    p.src_bld = p_src_bld_[i];
+    return p;
+}
+
+void World::launch_projectile(const ProjSpec& p) {
+    if (p.speed <= 0.0f) {
+        // 瞬时命中：§1.1.1 那条「落地帧瞬时结算」书面近似的退化形态。
+        // 没配速度的表行为一字不变——第五批之前的每条测试因此不用动。
+        impact_projectile(p);
+        return;
+    }
+    p_pos_.push_back(p.pos);
+    p_aim_.push_back(p.aim);
+    p_speed_.push_back(p.speed);
+    p_kind_.push_back(p.kind);
+    p_raw_.push_back(p.raw);
+    p_dmg_.push_back(p.dmg);
+    p_lvl_pm_.push_back(p.lvl_pm);
+    p_from_high_.push_back(p.from_high);
+    p_aoe_.push_back(p.aoe);
+    p_side_.push_back(p.side);
+    p_src_bld_.push_back(p.src_bld);
+}
+
+// 命中结算。高度 miss / 减伤在**这一刻**掷与乘（箭到的时候人在不在墙上，
+// 与放箭那一刻无关——躲上墙是真的能让飞来的箭打折）；发射方那一侧的免除
+// 用的是随弹携带的 from_high（放箭时定格，发射方此刻可能已经死了）。
+void World::impact_projectile(const ProjSpec& p) {
+    const std::int64_t hg_dmg = stats_.global.high_ground_dmg_permille;
+    const std::int64_t hg_miss = stats_.global.high_ground_miss_permille;
+    const auto misses_high = [&](std::size_t t) {
+        if (p.from_high != 0 || !on_high_wall(t)) return false;
+        return static_cast<std::int64_t>(rng_.below(1000)) < hg_miss;
+    };
+    const auto dmg_vs_unit = [&](std::size_t t) {
+        std::int64_t mods[2] = {p.lvl_pm, 0};
+        std::size_t n = 1;
+        if (p.from_high == 0 && on_high_wall(t)) mods[n++] = hg_dmg;
+        // 反冲锋不在这里：没有兵种既放箭又架枪阵（轴组合，测试锁住）。
+        return apply_permille(p.dmg, mods, n);
+    };
+    switch (p.kind) {
+        case TgtKind::Unit: {
+            // 箭还在飞，人已经没了 ⇒ 落空（飞行阶段也查，这里再查一遍是
+            // 因为瞬时命中不经飞行阶段，且同 tick 前面的命中可能刚杀了它）。
+            if (!unit_pool_.alive(unit_from_raw(p.raw))) return;
+            const std::size_t t = static_cast<std::size_t>(p.raw >> 16);
+            if (misses_high(t)) return;
+            deal_damage(TgtKind::Unit, p.raw, dmg_vs_unit(t), p.side);
+            return;
+        }
+        case TgtKind::Bld:
+            if (bld_pool_.alive(bld_from_raw(p.raw))) {
+                deal_damage(TgtKind::Bld, p.raw, p.dmg, p.side);
+            }
+            return;
+        case TgtKind::Obstacle:
+            if (obstacle_pool_.alive(obstacle_from_raw(p.raw))) {
+                deal_damage(TgtKind::Obstacle, p.raw, p.dmg, p.side);
+            }
+            return;
+        case TgtKind::None: {
+            // 齐射：AOE 砸锁定落点，圈内不分敌我、空中不挨砸（箭雨对地）。
+            const float r2 = p.aoe * p.aoe;
+            for (std::size_t t = 0; t < unit_pool_.slot_count(); ++t) {
+                if (!unit_pool_.alive_at(static_cast<std::uint16_t>(t))) continue;
+                if (is_aerial(u_type_[t])) continue;
+                if (dist2(u_pos_[t], p.aim) > r2) continue;
+                if (misses_high(t)) continue;
+                deal_damage(TgtKind::Unit,
+                            unit_pool_.id_at(static_cast<std::uint16_t>(t)).raw(),
+                            dmg_vs_unit(t), p.side);
+            }
+            return;
+        }
     }
 }
 
-// ——阶段 6：经济（第二批）——
+void World::tick_projectiles() {
+    if (p_pos_.empty()) return;
+    // 逐枚：刷新目的地 → 推进 → 到达即结算；结束后一次性稳定压实（保序左移）。
+    // **结算顺序 = 数组序 = 放箭序**，与三组实体的槽位序同族——都是规范序。
+    // 同 tick 内前面那枚的命中可能杀死后面那枚的追踪目标：后者轮到自己时
+    // **现查**，目标已死即落空——与「箭还在飞，人已经没了」同一条语义。
+    std::size_t out = 0;
+    for (std::size_t i = 0; i < p_pos_.size(); ++i) {
+        bool gone = false;
+        Vec2 dest = p_aim_[i];
+        switch (p_kind_[i]) {
+            case TgtKind::Unit:
+                if (!unit_pool_.alive(unit_from_raw(p_raw_[i]))) gone = true;
+                else dest = u_pos_[static_cast<std::size_t>(p_raw_[i] >> 16)];
+                break;
+            case TgtKind::Bld:
+                if (!bld_pool_.alive(bld_from_raw(p_raw_[i]))) gone = true;
+                else dest = center_of(b_pos_[static_cast<std::size_t>(p_raw_[i] >> 16)]);
+                break;
+            case TgtKind::Obstacle:
+                if (!obstacle_pool_.alive(obstacle_from_raw(p_raw_[i]))) gone = true;
+                else dest = center_of(o_pos_[static_cast<std::size_t>(p_raw_[i] >> 16)]);
+                break;
+            case TgtKind::None:
+                break;   // 齐射飞向锁定落点，目的地不刷新
+        }
+        if (!gone) {
+            p_aim_[i] = dest;
+            const float d = std::sqrt(dist2(p_pos_[i], dest));
+            if (d <= p_speed_[i]) {
+                impact_projectile(proj_at(i));
+                gone = true;
+            } else {
+                const float t = p_speed_[i] / d;
+                p_pos_[i] = Vec2{p_pos_[i].x + (dest.x - p_pos_[i].x) * t,
+                                 p_pos_[i].y + (dest.y - p_pos_[i].y) * t};
+            }
+        }
+        if (gone) continue;
+        if (out != i) {
+            p_pos_[out] = p_pos_[i];
+            p_aim_[out] = p_aim_[i];
+            p_speed_[out] = p_speed_[i];
+            p_kind_[out] = p_kind_[i];
+            p_raw_[out] = p_raw_[i];
+            p_dmg_[out] = p_dmg_[i];
+            p_lvl_pm_[out] = p_lvl_pm_[i];
+            p_from_high_[out] = p_from_high_[i];
+            p_aoe_[out] = p_aoe_[i];
+            p_side_[out] = p_side_[i];
+            p_src_bld_[out] = p_src_bld_[i];
+        }
+        ++out;
+    }
+    p_pos_.resize(out);
+    p_aim_.resize(out);
+    p_speed_.resize(out);
+    p_kind_.resize(out);
+    p_raw_.resize(out);
+    p_dmg_.resize(out);
+    p_lvl_pm_.resize(out);
+    p_from_high_.resize(out);
+    p_aoe_.resize(out);
+    p_side_.resize(out);
+    p_src_bld_.resize(out);
+}
+
+// ——阶段 7：经济（第二批）——
 
 // 守方 `Mason` 是否在 `pos` 的施工半径内。二值（在场与否）而非人数：
 // 多名工匠不加速是占位机制，标定时再议。半径查全局表。
@@ -814,7 +1037,7 @@ void World::tick_economy() {
     }
 }
 
-// ——阶段 7：视野——
+// ——阶段 8：视野——
 
 void World::tick_vision() {
     for (int s = 0; s < kSideCount; ++s) {

@@ -89,7 +89,7 @@ rts::UnitStats read_unit(const json& v, const std::string& origin,
     reject_unknown_keys(v, origin, where,
                         {"max_hp", "damage", "range", "speed", "vision",
                          "windup_ticks", "cooldown_ticks", "vs_structure_permille",
-                         "aoe_radius", "cost_gold", "train_ticks"});
+                         "aoe_radius", "proj_speed", "cost_gold", "train_ticks"});
     rts::UnitStats s;
     s.max_hp = need_i64(need(v, "max_hp", origin, where), origin, where + ".max_hp");
     s.damage = need_i64(need(v, "damage", origin, where), origin, where + ".damage");
@@ -105,6 +105,8 @@ rts::UnitStats read_unit(const json& v, const std::string& origin,
                  where + ".vs_structure_permille");
     s.aoe_radius = need_f32(need(v, "aoe_radius", origin, where), origin,
                             where + ".aoe_radius");
+    s.proj_speed = need_f32(need(v, "proj_speed", origin, where), origin,
+                            where + ".proj_speed");
     s.cost_gold =
         need_i64(need(v, "cost_gold", origin, where), origin, where + ".cost_gold");
     s.train_ticks = need_i32(need(v, "train_ticks", origin, where), origin,
@@ -112,8 +114,10 @@ rts::UnitStats read_unit(const json& v, const std::string& origin,
 
     if (s.max_hp < 1) fail(origin, where + ".max_hp 必须 >= 1");
     if (s.damage < 0) fail(origin, where + ".damage 不得为负");
-    if (s.range < 0 || s.speed < 0 || s.vision < 0 || s.aoe_radius < 0) {
-        fail(origin, where + " 的 range / speed / vision / aoe_radius 不得为负");
+    if (s.range < 0 || s.speed < 0 || s.vision < 0 || s.aoe_radius < 0 ||
+        s.proj_speed < 0) {
+        fail(origin,
+             where + " 的 range / speed / vision / aoe_radius / proj_speed 不得为负");
     }
     if (s.windup_ticks < 0) fail(origin, where + ".windup_ticks 不得为负");
     if (s.cooldown_ticks < 1) fail(origin, where + ".cooldown_ticks 必须 >= 1");
@@ -130,7 +134,7 @@ rts::BldStats read_bld(const json& v, const std::string& origin,
     reject_unknown_keys(v, origin, where,
                         {"max_hp", "damage", "range", "vision", "windup_ticks",
                          "cooldown_ticks", "cost_stone", "cost_wood", "build_ticks",
-                         "income_amount", "aoe_radius"});
+                         "income_amount", "aoe_radius", "proj_speed"});
     rts::BldStats s;
     s.max_hp = need_i64(need(v, "max_hp", origin, where), origin, where + ".max_hp");
     s.damage = need_i64(need(v, "damage", origin, where), origin, where + ".damage");
@@ -150,6 +154,8 @@ rts::BldStats read_bld(const json& v, const std::string& origin,
                                where + ".income_amount");
     s.aoe_radius = need_f32(need(v, "aoe_radius", origin, where), origin,
                             where + ".aoe_radius");
+    s.proj_speed = need_f32(need(v, "proj_speed", origin, where), origin,
+                            where + ".proj_speed");
 
     if (s.max_hp < 1) fail(origin, where + ".max_hp 必须 >= 1");
     if (s.damage < 0) fail(origin, where + ".damage 不得为负");
@@ -162,6 +168,7 @@ rts::BldStats read_bld(const json& v, const std::string& origin,
     if (s.build_ticks < 0) fail(origin, where + ".build_ticks 不得为负");
     if (s.income_amount < 0) fail(origin, where + ".income_amount 不得为负");
     if (s.aoe_radius < 0) fail(origin, where + ".aoe_radius 不得为负");
+    if (s.proj_speed < 0) fail(origin, where + ".proj_speed 不得为负");
     return s;
 }
 
@@ -207,11 +214,11 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
     const json& schema_v = need(doc, "schema", origin, "顶层");
     if (!schema_v.is_string()) fail(origin, "`schema` 必须是字符串");
     const std::string schema = schema_v.get<std::string>();
-    // 与 `rts::kStatsShapeTag` 同步进格（stats/3 → stats/4：机制第四批加了
-    // 建筑 AOE 半径与冲锋三参数）。刻意不做向后兼容——旧 schema 的表
-    // 缺新字段，静默补默认值正是「能跑但打不动」那种坑。
-    if (schema != "stats/4") {
-        fail(origin, "`schema` = \"" + schema + "\"，本程序只认 \"stats/4\"");
+    // 与 `rts::kStatsShapeTag` 同步进格（stats/4 → stats/5：机制第五批加了
+    // 单位与建筑的弹丸速度）。刻意不做向后兼容——旧 schema 的表缺新字段，
+    // 静默补默认值正是「能跑但打不动」那种坑（这次的形态是「箭永远瞬时命中」）。
+    if (schema != "stats/5") {
+        fail(origin, "`schema` = \"" + schema + "\"，本程序只认 \"stats/5\"");
     }
 
     rts::StatsTable t;

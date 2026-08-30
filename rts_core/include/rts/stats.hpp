@@ -55,8 +55,10 @@ namespace rts {
 // 已进格的历史：Stats/1 → Stats/2（机制第二批：造价 / 耗时 / 产出 / 维修，
 // 三个结构各加字段、`GlobalStats` 扩五项）；Stats/2 → Stats/3（机制第三批：
 // 驻守与高度优势，`GlobalStats` 扩四项）；Stats/3 → Stats/4（机制第四批：
-// 冲锋与齐射，`BldStats` 加 AOE 半径、`GlobalStats` 扩三项）。
-inline constexpr std::string_view kStatsShapeTag = "Stats/4";
+// 冲锋与齐射，`BldStats` 加 AOE 半径、`GlobalStats` 扩三项）；
+// Stats/4 → Stats/5（机制第五批：在途弹丸，`UnitStats` 与 `BldStats` 各加
+// 弹丸速度）。
+inline constexpr std::string_view kStatsShapeTag = "Stats/5";
 
 // 每兵种一行。**结构性属性不在这里**（能否对空、能否破坏结构、三轴定位归
 // `rts/unit_behavior.hpp` 与 `rts/roster.hpp`）；这里只有会随标定变的数。
@@ -75,6 +77,13 @@ struct UnitStats {
     // AOE 半径（格）。0 = 单体。落点在前摇开始那一刻锁定成坐标
     // （CLAUDE.md「结构破坏规则」那条实现要求），半径只是数值。
     float aoe_radius = 0.0f;
+    // ——机制第五批：在途弹丸——
+    // 弹丸飞行速度（格 / tick）。**<= 0 = 瞬时命中**——「单体伤害在落地帧瞬时
+    // 结算」那条书面近似（契约 §1.1.1）没有被删，而是降级成 0 速度的退化形态，
+    // 于是没配这个数的表行为一字不变（同 windup_ticks == 0 当场落地的先例）。
+    // **谁放弹丸是结构**（`UnitBehavior::launches_projectile()`：Ranged × 非空中），
+    // 给近战兵种配了速度也不放——这里只是弹丸真放出来之后飞多快。
+    float proj_speed = 0.0f;
     // ——机制第二批：征兵——
     // 造价只有金币（三资源各对应一条决策轴：金币管**人力**，CLAUDE.md）。
     // 攻方单位这两项无意义（攻方无经济，编成走 `Composition` 预算），诚实地填 0。
@@ -107,6 +116,10 @@ struct BldStats {
     // **对空建筑（`Flak`）结构上忽略它**——「AA 只做单体狙击型」是结构不是数值，
     // 表里配了也不齐射（同「表不能把瞭望塔配成印钞机」的先例，src/mechanics.cpp）。
     float aoe_radius = 0.0f;
+    // ——机制第五批：在途弹丸——
+    // 同 `UnitStats::proj_speed`（<= 0 = 瞬时命中）。建筑不会近战，
+    // 开火即弹丸——`Tower` 的齐射箭雨与 `Flak` 的狙击弩矢都真的在飞。
+    float proj_speed = 0.0f;
 };
 
 // 每障碍一行。产出**种类**是结构（`harvest_of()`，`rts/roster.hpp`），

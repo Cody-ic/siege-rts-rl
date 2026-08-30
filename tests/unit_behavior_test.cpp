@@ -185,3 +185,26 @@ TEST_CASE("二部图对称的一对，结构相同而阵营不同", "[behavior]"
     REQUIRE(archer.mobility() == shade.mobility());
     REQUIRE(archer.side() != shade.side());
 }
+
+TEST_CASE("放弹丸的恰好是 Archer 与 Shade，且与冲锋 / 枪阵不共存", "[behavior]") {
+    // 第一半锁谓词本身：launches_projectile = Ranged × 非空中，按 CLAUDE.md
+    // 「除 Ram 外，Archer / Shade / Tower / Flak 的攻击真有在途弹丸」的单位那半。
+    // Phoenix 是 Ranged × Aerial——俯冲直击，不放箭。
+    int n = 0;
+    for (int i = 0; i < rts::kUnitTypeCount; ++i) {
+        if (rts::behavior_of(rts::unit_at(i)).launches_projectile()) ++n;
+    }
+    REQUIRE(n == 2);
+    REQUIRE(rts::behavior_of(rts::UnitType::Archer).launches_projectile());
+    REQUIRE(rts::behavior_of(rts::UnitType::Shade).launches_projectile());
+    REQUIRE_FALSE(rts::behavior_of(rts::UnitType::Phoenix).launches_projectile());
+
+    // 第二半锁两条组合约束——弹丸的命中路径**没有**冲锋与反冲锋倍率，
+    // 其前提是「没有兵种既放箭又冲锋 / 又架枪阵」。新兵种破了任一条，
+    // 这里先红：去 mechanics.cpp 的 impact_projectile 补对应倍率，再改这条。
+    for (int i = 0; i < rts::kUnitTypeCount; ++i) {
+        const rts::UnitBehavior& b = rts::behavior_of(rts::unit_at(i));
+        REQUIRE_FALSE((b.launches_projectile() && b.charges()));
+        REQUIRE_FALSE((b.launches_projectile() && b.counters_charge()));
+    }
+}

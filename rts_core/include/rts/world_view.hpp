@@ -154,6 +154,19 @@ public:
         return sp(w_->o_clear_ordered_);
     }
 
+    // ——第四组：在途弹丸（机制第五批）——
+    //
+    // 与前三组不同，**没有 alive 掩码**：弹丸数组每 tick 稳定压实，长度即数量。
+    // 渲染层要的三样都在：位置、目的地（飞行角 = aim - pos，追踪弹逐 tick
+    // 刷新）、发射建筑（挑精灵：`Flak` 的是弩矢 `Bolt`，其余是箭 `Arrow`，
+    // `kProjFromUnit` = 单位射的）。伤害载荷刻意不暴露——渲染画的是箭，
+    // 不是伤害数字。
+    std::span<const Vec2> proj_pos() const noexcept { return sp(w_->p_pos_); }
+    std::span<const Vec2> proj_aim() const noexcept { return sp(w_->p_aim_); }
+    std::span<const std::uint8_t> proj_src_bld() const noexcept {
+        return sp(w_->p_src_bld_);
+    }
+
     // 编队去处表（`MoveForce` 的解算产物），下标是编队号、值是格线性下标，
     // `kNoSlot` = 没下过。与 `unit_force()` 配对读：脚本按单位的编队查这里。
     std::span<const std::uint16_t> force_target() const noexcept {
