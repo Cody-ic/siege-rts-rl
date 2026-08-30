@@ -52,15 +52,24 @@ namespace {
 // numpy 数组 → `std::span`。**要求 C 连续且 dtype 恰好对**：
 // 不检查的话 pybind11 会悄悄做一次转换拷贝，于是我们写进去的是那份**副本**，
 // 训练侧读到的永远是上一步的值——不报错、不崩，只是观测恒定不变。
-template <typename T>
-std::span<T> as_span(py::array_t<T, py::array::c_style | py::array::forcecast>& a) {
+// **模板参数写 `py::array_t<T, Flags>` 时 Flags 是类型的一部分。**
+// 初版把辅助函数写成 `c_style | forcecast` 而 lambda 形参写成 `c_style`，
+// 那是**两个不同的类型**，于是 5 处 `no matching function`。
+// 这里改成对 `array_t` 的任意实例化都成立，免得两处 Flags 必须逐字一致。
+//
+// **刻意不带 `forcecast`。** 带了的话 dtype 或步长不对时 pybind11 会**悄悄做一次
+// 转换拷贝**，我们于是写进那份副本、训练侧读到的永远是上一步的值
+// ——不报错、不崩，只是观测恒定不变。不带它则 dtype 不符直接抛。
+template <typename Arr>
+auto as_span(Arr& a) {
+    using T = typename Arr::value_type;
     py::buffer_info bi = a.request(true);
     return std::span<T>(static_cast<T*>(bi.ptr), static_cast<std::size_t>(bi.size));
 }
 
-template <typename T>
-std::span<const T> as_cspan(
-    const py::array_t<T, py::array::c_style | py::array::forcecast>& a) {
+template <typename Arr>
+auto as_cspan(const Arr& a) {
+    using T = typename Arr::value_type;
     py::buffer_info bi = a.request(false);
     return std::span<const T>(static_cast<const T*>(bi.ptr),
                               static_cast<std::size_t>(bi.size));
