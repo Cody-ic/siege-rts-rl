@@ -41,6 +41,12 @@
 *.cmake text eol=lf
 CMakeLists.txt text eol=lf
 
+# 批处理：与下面 `*.sh` 那条同族，只是方向相反——**Windows 的 cmd 要 CRLF**。
+# LF-only 的 .bat 大多数时候能跑，但 `goto` / 标签在某些 cmd 版本上会错乱，
+# 而症状是「双击之后闪一下就没了」，最不容易联想到换行符。
+# `play.bat` 是给不看命令行的人用的入口，正好是最经不起这种失败的那一个。
+*.bat   text eol=crlf
+
 # Shell 脚本：这一条不是「省去无谓的 diff」，是**不这么写就跑不了**。
 # `tools/server/*.sh` 在 Windows 上编辑、到 Linux 上执行，若被 `core.autocrlf`
 # 转成 CRLF，shebang 会变成 `#!/usr/bin/env bash\r`，内核把整个 `bash\r` 当程序名，

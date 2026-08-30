@@ -26,7 +26,20 @@ namespace render {
 
 // **约定：`args` 里的每一条都是 UTF-8**，`args[0]` 是程序名。
 // 建立这条约定的地方是 `cli_entry.cpp`，全程序只有那一处做编码转换。
+//
+// **`args[0]` 在 Windows 上是 exe 的绝对路径**（取自 `GetModuleFileNameW`，
+// 不是 CRT 给的 `argv[0]`）。素材自动发现要拿它推「exe 在哪个目录」，而
+// `argv[0]` 只保证是「调用时用的那个名字」——从 PATH 里调起来时它可能只是
+// `rts_render`，那样发现就少了一个起点。
 int cli_main(const std::vector<std::string>& args);
+
+// 最近一次致命错误的完整文本（UTF-8），没有则为空串。
+//
+// **存在的理由是双击启动。** 命令行下这些文本打在 stderr 上就够了，而双击时
+// 控制台是被隐藏的（见 `cli_entry.cpp`），于是「地图文件坏了」的表现会退化成
+// 「双击之后什么都没发生」——最查不出原因的一种失败。所以那一侧要能把这段文本
+// 弹成一个对话框，而它只能从这里取。
+const std::string& last_fatal_message();
 
 }  // namespace render
 
