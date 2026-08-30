@@ -420,7 +420,7 @@
           "brightness": 0.86
         },
         {
-          "_note": "魔杖。绑右手骨尾。scale 1.8：这个模型比剑小得多，0.62 时完全看不见。",
+          "_note": "魔杖。绑右手骨尾。scale 1.3：这个模型比剑小得多（0.62 时杖细到完全看不见），但 1.8 时柄会横穿整个身体——握点离花座 0.96、离柄尾 1.65，柄天然是长的那一段。",
           "model": "models/q_rpg/Blends/Only Weapons/Wizard_Staff.blend",
           "only_meshes": [
             "Wizard_Staff"
@@ -431,7 +431,7 @@
             0,
             0
           ],
-          "scale": 1.8,
+          "scale": 1.3,
           "tint": [
             90,
             150,
@@ -476,21 +476,21 @@
               "action": "Skeleton_Idle",
               "pose": {
                 "R.UpperLeg.001": [
-                  140,
+                  115,
                   0,
                   0
                 ],
                 "R.DownLeg.001": [
                   0,
                   0,
-                  0
+                  50
                 ]
               },
               "pose_frame": 1
             },
             "1": {
               "rot": [
-                -90,
+                -60,
                 0,
                 0
               ]
