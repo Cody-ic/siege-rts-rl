@@ -15,6 +15,7 @@
 #ifndef RENDER_MENU_VIEW_HPP
 #define RENDER_MENU_VIEW_HPP
 
+#include <cstdint>
 #include <string_view>
 
 #include "game/menu_model.hpp"
@@ -28,10 +29,16 @@ public:
     // 一屏的固定文案。**做成一个结构体而不是三个参数**，是为了让
     // `draw` 与 `hit_test` 收下的是同一个东西：副标题在不在会改变条目的 y 坐标，
     // 而两处各传一次就有可能只改了一处——那正好是头文件那条约束要防的错。
+    // 面板横向落在哪儿。**主菜单靠左、其余居中**：主菜单背后那张地图是居中
+    // 摆的（相机让整张图入画），面板也居中就正好把最值得看的城墙一带遮住。
+    // 暂停与败局屏相反——那时玩家的注意力就该在面板上。
+    enum class Align : std::uint8_t { Center, Left };
+
     struct Chrome {
         std::string_view title;
         std::string_view subtitle;   // 空串则不占位
         std::string_view footer;     // 空串则不占位
+        Align align = Align::Center;
     };
 
     explicit MenuView(const FontSet& font) noexcept : font_(&font) {}

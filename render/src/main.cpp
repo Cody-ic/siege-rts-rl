@@ -523,6 +523,13 @@ ScreenText screen_text(game::Screen s) {
     return {};
 }
 
+// 面板靠左还是居中。**只有主菜单靠左**：它背后那张地图是居中摆的，
+// 面板也居中就正好把城墙一带遮住；而暂停与败局屏本来就该让人看面板。
+render::MenuView::Align align_of(game::Screen s) {
+    return s == game::Screen::Main ? render::MenuView::Align::Left
+                                   : render::MenuView::Align::Center;
+}
+
 // 副标题：主菜单是一句定语，暂停与败局屏是这一局的实况。
 std::string screen_subtitle(const game::GameShell& shell) {
     const game::DemoBattle* b = shell.battle();
@@ -684,10 +691,11 @@ int run_game(const Options& opt) {
 
         // 菜单几屏：先压暗，再画面板。主菜单压得重一些（后面没有正在发生的事，
         // 压暗让面板成为唯一焦点）；暂停与败局压得轻，好让人还能看清战场。
-        menu_view.dim(vp, shell.screen() == game::Screen::Main ? 185 : 140);
+        menu_view.dim(vp, shell.screen() == game::Screen::Main ? 150 : 140);
         const ScreenText st = screen_text(shell.screen());
         const std::string sub = screen_subtitle(shell);
-        const render::MenuView::Chrome chrome{st.title, sub, st.footer};
+        const render::MenuView::Chrome chrome{st.title, sub, st.footer,
+                                              align_of(shell.screen())};
         if (shell.screen() == game::Screen::Help) {
             menu_view.draw_help(shell.menu(), chrome, vp);
         } else {
@@ -759,7 +767,8 @@ int run_game(const Options& opt) {
             // **拾取与绘制必须用同一份 chrome**（见 MenuView::Chrome 的注释）。
             const ScreenText st = screen_text(shell.screen());
             const std::string sub = screen_subtitle(shell);
-            const render::MenuView::Chrome chrome{st.title, sub, st.footer};
+            const render::MenuView::Chrome chrome{st.title, sub, st.footer,
+                                                  align_of(shell.screen())};
             const int hovered =
                 shell.screen() == game::Screen::Help
                     ? menu_view.hit_test_help(shell.menu(), chrome, mouse, vp)

@@ -47,7 +47,8 @@ struct Rows {
 //
 // 极小窗口不是假想的：`render/CMakeLists.txt` 里有几条 ctest 用 `--size 64 64`
 // （它们本来就该失败，但要失败在素材或字体上，不该先在这里算出一个负宽度矩形）。
-Rectangle frame_of(Vector2 vp, float want_w, float max_w, float content_h) {
+Rectangle frame_of(Vector2 vp, float want_w, float max_w, float content_h,
+                   MenuView::Align align) {
     // 下界 560 是量出来的，不是拍的：主菜单副标题「不对称波次生存 · 人类王国
     // vs 亡灵大军」在 22 px 下约 450 px 宽，再窄两边就贴着面板边了。
     // 面板不按内容自适应宽度是刻意的——那会让面板在切屏时忽宽忽窄。
@@ -57,17 +58,24 @@ Rectangle frame_of(Vector2 vp, float want_w, float max_w, float content_h) {
     float h = content_h;
     if (h > vp.y - 16.0f) h = vp.y - 16.0f;
     if (h < 40.0f) h = 40.0f;
-    return Rectangle{(vp.x - w) * 0.5f, (vp.y - h) * 0.5f, w, h};
+    // 靠左时留出一段边距，但**不小于居中时的位置也不越界**：窗口很窄时
+    // 靠左与居中会收敛到同一个位置，那是对的——没有空间可让。
+    float x = (vp.x - w) * 0.5f;
+    if (align == MenuView::Align::Left) {
+        const float margin = vp.x * 0.07f;
+        if (margin < x) x = margin;
+    }
+    return Rectangle{x, (vp.y - h) * 0.5f, w, h};
 }
 
-Rows menu_rows(int n, Vector2 vp, bool has_sub, bool has_foot) {
+Rows menu_rows(int n, Vector2 vp, bool has_sub, bool has_foot, MenuView::Align align) {
     const float title_h = kTitleSize + 16.0f;
     const float sub_h = has_sub ? kSubSize + 18.0f : 0.0f;
     const float foot_h = has_foot ? kFootSize + 24.0f : 0.0f;
     const float items_h = static_cast<float>(n) * kItemH;
     Rows r;
     r.panel = frame_of(vp, vp.x * 0.46f, 720.0f,
-                       kPad * 2.0f + title_h + sub_h + items_h + foot_h);
+                       kPad * 2.0f + title_h + sub_h + items_h + foot_h, align);
     float y = r.panel.y + kPad;
     r.title_y = y;
     y += title_h;
@@ -89,7 +97,8 @@ Rows help_rows(int entries, int n, Vector2 vp) {
     // 挤在菜单那个 720 px 里右边会贴着框。**它的高度要把脚注算进去**——
     // 不算的话脚注落在下边距里，看起来像溢出了一行。
     r.panel = frame_of(vp, vp.x * 0.72f, 1040.0f,
-                       kPad * 2.0f + title_h + body_h + items_h + foot_h);
+                       kPad * 2.0f + title_h + body_h + items_h + foot_h,
+                       MenuView::Align::Center);   // 说明屏永远居中
     float y = r.panel.y + kPad;
     r.title_y = y;
     y += title_h;
@@ -172,7 +181,8 @@ void draw_items(const FontSet& font, const Rows& r, const game::MenuModel& menu)
 void MenuView::draw(const game::MenuModel& menu, const Chrome& chrome,
                     Vector2 viewport) const {
     const Rows r = menu_rows(static_cast<int>(menu.items().size()), viewport,
-                             !chrome.subtitle.empty(), !chrome.footer.empty());
+                             !chrome.subtitle.empty(), !chrome.footer.empty(),
+                             chrome.align);
     draw_shell(*font_, r, chrome.title, chrome.subtitle, chrome.footer);
     draw_items(*font_, r, menu);
 }
@@ -182,7 +192,8 @@ int MenuView::hit_test(const game::MenuModel& menu, const Chrome& chrome, Vector
     // 与 draw 逐字同一份入参（这是 `Chrome` 存在的全部理由）：副标题或脚注
     // 在不在会把条目整体挪十几像素，而那足以让点击错行。
     const Rows r = menu_rows(static_cast<int>(menu.items().size()), viewport,
-                             !chrome.subtitle.empty(), !chrome.footer.empty());
+                             !chrome.subtitle.empty(), !chrome.footer.empty(),
+                             chrome.align);
     return hit_row(r, static_cast<int>(menu.items().size()), mouse);
 }
 
