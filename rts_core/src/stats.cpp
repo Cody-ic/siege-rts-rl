@@ -20,6 +20,7 @@ std::uint64_t StatsTable::fingerprint() const noexcept {
         h.feed_pod(s.cooldown_ticks);
         h.feed_pod(s.vs_structure_permille);
         h.feed_f32(s.aoe_radius);
+        h.feed_f32(s.proj_speed);
         h.feed_pod(s.cost_gold);
         h.feed_pod(s.train_ticks);
     }
@@ -35,6 +36,7 @@ std::uint64_t StatsTable::fingerprint() const noexcept {
         h.feed_pod(s.build_ticks);
         h.feed_pod(s.income_amount);
         h.feed_f32(s.aoe_radius);
+        h.feed_f32(s.proj_speed);
     }
     for (const ObstacleStats& s : obstacle) {
         h.feed_pod(s.max_hp);

@@ -490,6 +490,7 @@ void World::advance(int ticks) {
         tick_movement();
         tick_garrison();
         tick_bld_combat();
+        tick_projectiles();
         tick_economy();
         tick_vision();
 
@@ -856,7 +857,9 @@ std::uint16_t World::command_mask(Side side) const noexcept {
 //      （`rts/stats.hpp` 文件头）
 //   3. 时间与波次：tick、wave、phase、nominal_level
 //   4. RNG 状态
-//   5. 三组实体：各自的槽位池（alive + 代数 + 空闲表）+ 全部字段数组
+//   5. 四组实体：前三组各自的槽位池（alive + 代数 + 空闲表）+ 全部字段数组；
+//      弹丸无槽位池（保序压实的 SoA），**先喂数量再喂字段**——变长数组
+//      不喂长度会让不同的 (数量, 内容) 组合拼出相同的字节流
 //   6. 资源、编成位、集结点选择、选中编队、编队去处表、驻守指令表
 //   7. **两侧的待排空命令队列**
 //   8. 两侧迷雾
@@ -937,6 +940,27 @@ std::uint64_t World::state_hash() const noexcept {
     h.feed(o_hp_.data(), o_hp_.size() * sizeof(std::int64_t));
     h.feed(o_max_hp_.data(), o_max_hp_.size() * sizeof(std::int64_t));
     h.feed(o_clear_ordered_.data(), o_clear_ordered_.size());
+
+    // 第四组：在途弹丸（第五批）。数量先行（见上面第 5 项的理由）；
+    // 浮点按位喂，同 u_pos_ 那条纪律。
+    h.feed_pod(static_cast<std::uint64_t>(p_pos_.size()));
+    for (const Vec2& p : p_pos_) {
+        h.feed_f32(p.x);
+        h.feed_f32(p.y);
+    }
+    for (const Vec2& p : p_aim_) {
+        h.feed_f32(p.x);
+        h.feed_f32(p.y);
+    }
+    for (const float s : p_speed_) h.feed_f32(s);
+    h.feed(p_kind_.data(), p_kind_.size() * sizeof(TgtKind));
+    h.feed(p_raw_.data(), p_raw_.size() * sizeof(std::uint32_t));
+    h.feed(p_dmg_.data(), p_dmg_.size() * sizeof(std::int64_t));
+    h.feed(p_lvl_pm_.data(), p_lvl_pm_.size() * sizeof(std::int64_t));
+    h.feed(p_from_high_.data(), p_from_high_.size());
+    for (const float a : p_aoe_) h.feed_f32(a);
+    h.feed(p_side_.data(), p_side_.size() * sizeof(Side));
+    h.feed(p_src_bld_.data(), p_src_bld_.size());
 
     h.feed(stock_.data(), stock_.size() * sizeof(std::int64_t));
     h.feed(composition_.data(), composition_.size() * sizeof(std::uint16_t));

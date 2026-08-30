@@ -127,8 +127,27 @@ std::vector<DrawItem> BattleScene::sorted(const MapData& map,
         out.push_back(it);
     }
 
-    // 稳定排序：深度并列时保持上面的插入顺序（叠加物 → 建筑 → 障碍 → 单位），
-    // 顺序是确定的，画面不会逐帧跳变。
+    // 在途弹丸（第四组实体，机制第五批）。单张 FREE 图，方向由渲染侧按
+    // 飞行角旋转；归属按 tools/sprite_gen/README.md §8.2 的表——
+    // `Flak` 射的是弩矢（`Bolt`），其余（Archer / Shade / Tower）都是箭。
+    const auto p_pos = view.proj_pos();
+    const auto p_aim = view.proj_aim();
+    const auto p_src = view.proj_src_bld();
+    for (std::size_t k = 0; k < p_pos.size(); ++k) {
+        DrawItem it;
+        it.continuous = true;
+        it.world = p_pos[k];
+        it.pos = rts::grid_of(p_pos[k]);
+        it.sprite =
+            (p_src[k] == static_cast<std::uint8_t>(rts::BldType::Flak)) ? "Bolt"
+                                                                        : "Arrow";
+        it.aim = p_aim[k];
+        it.lift = 0.4f;   // 飞行高度的视觉占位——箭不贴地滑
+        out.push_back(it);
+    }
+
+    // 稳定排序：深度并列时保持上面的插入顺序（叠加物 → 建筑 → 障碍 → 单位
+    // → 弹丸），顺序是确定的，画面不会逐帧跳变。
     std::stable_sort(out.begin(), out.end(), [](const DrawItem& a, const DrawItem& b) {
         return a.depth_f() < b.depth_f();
     });
