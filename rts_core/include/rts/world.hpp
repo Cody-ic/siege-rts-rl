@@ -44,9 +44,24 @@
 //     **墙血 < 一半三者一起消失**（「局部破损」的二值实现，见 `on_high_wall`）；
 //     墙被拆 ⇒ 强制下墙站缺口
 //
-// **仍未做**：flow field 寻路、克制倍率矩阵、冲锋助跑、在途弹丸实体。
-// 它们都不是命令（没有可记账的输入），「本版没做」的可断言形式是
-// 各自的观测效应缺席（如单体伤害仍在落地帧瞬时结算）。
+// **第四批**（冲锋与齐射）：
+//
+//   * **冲锋助跑**：`Charge` 兵种逐 tick 累计移动距离（站停 / 撞停归零、
+//     前摇期间冻结），落地那一击按动量乘 `charge_permille`、随即耗尽——
+//     「伤害 ∝ 助跑距离」（机制等级无关，参数查表）。撞上可破坏阻挡物的
+//     自动破坏同样把动量带进去（骑士撞门是真撞）
+//   * **反冲锋（克制倍率的三轴推导）**：`Melee × HeavySlow`（能架住冲锋的阵，
+//     `counters_charge()`）打**有动量**的 `Charge` 单位吃克制倍率，幅度随
+//     对方动量线性放大——同一份动量既给冲锋加成也给枪阵加成，
+//     「开阔地克、巷战被反克」因此不需要读地形。二部图里这条只绑定
+//     `Spear ──► Knight`。**没有 N×N 表**：关系由轴推导，幅度是一个全局数
+//   * **`Tower` 齐射**：建筑 AOE（半径查表），落点在前摇开始那一刻锁定
+//     （与 `Ram` 同一条承诺规则）；圈内不分敌我（溅射误伤是机制）。
+//     **对空建筑（`Flak`）结构上忽略 AOE**——「AA 只做单体狙击型」
+//
+// **仍未做**：flow field 寻路、在途弹丸实体。它们都不是命令（没有可记账的
+// 输入），「本版没做」的可断言形式是各自的观测效应缺席
+// （如单体伤害仍在落地帧瞬时结算）。
 //
 // 每个 tick 内的阶段顺序固定，见 `advance()` 的注释——**改顺序等于让所有
 // 已录回放失效**（要动就把 `kWorldHashTag` 一起进格）。
@@ -420,7 +435,10 @@ inline GridPos pos_of_slot(std::uint16_t slot, int width) noexcept {
 // `World/5` → `World/6`：机制第三批加了单位的上墙延迟字段与按格的驻守指令表
 // （进哈希），并**删掉**了未解算命令计数器（12 种命令全部解算，它的喂入项
 // 随之消失——删字段与加字段一样是改口径）。
-inline constexpr std::string_view kWorldHashTag = "World/6";
+//
+// `World/6` → `World/7`：机制第四批给单位加了冲锋动量（`u_charge_`）、
+// 给建筑加了锁定落点（`b_aim_`，齐射与 `Ram` 同一条承诺规则），都进哈希。
+inline constexpr std::string_view kWorldHashTag = "World/7";
 
 class WorldView;
 
@@ -495,10 +513,12 @@ public:
     //      空闲且动作为 `Atk*` 的按目标选择承诺出手（打不到就空转，乙；
     //      **在爬墙的不出手**——上墙延迟就是这段不设防）
     //   3. 单位移动：动作为 `Move*` 且不在前摇中的连续推进；
-    //      撞上可破坏阻挡物自动承诺破坏；**驻守与在爬的被钉住**
+    //      撞上可破坏阻挡物自动承诺破坏；**驻守与在爬的被钉住**；
+    //      冲锋动量在此累计（站停 / 撞停而未承诺出手 ⇒ 归零）
     //   4. 驻守：在爬的推进上墙延迟、到 0 落位墙心；有指令的墙格
     //      从同编队相邻单位里按槽位序挑一名开始登墙
-    //   5. 建筑战斗（`Tower` 对地 / `Flak` 对空；**未完工不开火**）
+    //   5. 建筑战斗（`Tower` 对地 / `Flak` 对空；**未完工不开火**；
+    //      齐射的落点在承诺那一刻锁定）
     //   6. 经济：施工 / 维修推进（守方 `Mason` 在半径内才走工时）、
     //      征兵倒计时与出兵、按结算周期入账（采集建筑 + `Keep` 的金币地板）
     //   7. 视野重算，两侧迷雾更新 + 记忆图写入（**未完工无视野**）
@@ -564,6 +584,9 @@ public:
     // 线性下标，`mount > 0` = 还在爬（既不能打也不能走），`mount == 0` = 已登顶。
     std::uint16_t unit_garrison(UnitId id) const;
     std::int32_t unit_mount(UnitId id) const;
+    // 冲锋动量（第四批）：已连续助跑的格数。只有 `Charge` 兵种会非零；
+    // 站停 / 撞停归零、前摇冻结、落地耗尽（伤害倍率见 rts/combat_math.hpp）。
+    float unit_charge(UnitId id) const;
 
     BldType bld_type(BldId id) const;
     GridPos bld_pos(BldId id) const;
@@ -690,6 +713,12 @@ private:
     void tick_movement();
     void tick_bld_combat();
     void tick_vision();
+    // 移动被实体拦住时的自动破坏（「墙 = 高代价可通行」的机制那一半）。
+    // 返回是否真的承诺了出手——冲锋动量只在**没承诺成**时归零
+    // （骑士撞门是真撞，那一击把动量带进去）。
+    bool try_bump_attack(std::size_t k, GridPos to);
+    // 建筑出手落地：齐射（AOE 砸锁定落点，仅对地建筑）或单体。
+    void land_bld_attack(std::size_t k);
 
     // ——机制第二批的内部阶段与助手（同在 src/mechanics.cpp）——
 
@@ -766,6 +795,7 @@ private:
     std::vector<UnitAction> u_action_;        // 上个决策边界选的动作，保持 4–8 tick
     std::vector<std::uint16_t> u_garrison_;   // 驻守的墙段槽位，kNoSlot = 没上墙
     std::vector<std::int32_t> u_mount_;       // 上墙延迟剩余；>0 = 在爬（人还在地面）
+    std::vector<float> u_charge_;             // 冲锋动量（已助跑格数）；非 Charge 恒 0
     std::vector<std::uint8_t> u_force_;       // 编队，kNoForce = 未编队
     std::vector<std::int32_t> u_cd_;          // 出手冷却剩余 tick，0 = 可承诺
     std::vector<TgtKind> u_tgt_kind_;         // 已承诺攻击的目标种类，None = 空闲
@@ -782,6 +812,7 @@ private:
     std::vector<std::int32_t> b_cd_;         // 出手冷却（只有 Tower / Flak 会非零）
     std::vector<std::int32_t> b_windup_;     // 已承诺攻击的前摇剩余
     std::vector<std::uint32_t> b_tgt_raw_;   // 目标单位句柄的 raw()（建筑只打单位）
+    std::vector<Vec2> b_aim_;                // 锁定落点（齐射用，承诺那一刻定死）
     // 完过工没有。**不能用 `b_work_ == 0` 代替**：维修复用 `b_work_`，
     // 那个等式会把「在修的塔」判成「没盖完的塔」（停火 + 失明）。
     std::vector<std::uint8_t> b_built_;

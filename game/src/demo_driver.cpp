@@ -72,6 +72,9 @@ rts::WorldInit demo_init(const MapData& map, const rts::StatsTable& stats,
         add(rts::UnitType::Ghoul, s1.x, s1.y, 1, rts::kNoForce);
         add(rts::UnitType::Shade, s1.x + 0.5f, s1.y - 1.0f, 1, rts::kNoForce);
         add(rts::UnitType::Ram, s1.x, s1.y + 1.0f, 1, rts::kNoForce);
+        // 骑士走开阔走廊，一路直线 = 满动量冲锋（第四批）——它撞上第一个
+        // 目标的那一击在演示里明显重于后续互殴，这正是要看的。
+        add(rts::UnitType::Knight, s0.x + 1.0f, s0.y, 1, rts::kNoForce);
     }
     return init;
 }
