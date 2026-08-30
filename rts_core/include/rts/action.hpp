@@ -163,8 +163,10 @@ constexpr bool is_grid_diagonal(UnitAction a) noexcept {
 // 与「不得存在一条通路」（森林遮蔽通道）两类，极性是反的。所以这条要定死，
 // 不能让两侧各取各的保守。
 //
-// **仍需 ArLiangz 确认**：它落在寻路上，而寻路是他的分片。若他要改成 `false`，
-// 改这一个常量 + 校验器对齐即可，不涉及本文件其余部分。
+// **2026-08-30：从「暂取、仍需确认」改为已定**（`rts_core 接口契约.md` §4.2）。
+// 原先挂在 ArLiangz 的确认上，而 1c 已由 @zhxxx233 接手推进（#57），
+// 所以这条现在归接手人。**改动量不变**：要改仍是这一个常量 + 校验器对齐，
+// 变的只是它有了默认值的主人，不再等一个不确定何时到来的确认。
 inline constexpr bool kDiagonalNeedsBothOrthogonal = true;
 
 // ——名字——
