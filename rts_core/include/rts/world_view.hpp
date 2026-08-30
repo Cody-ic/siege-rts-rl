@@ -185,6 +185,11 @@ public:
     // 与机制同一份表、同一对函数（combat_math），不另立公式。
     const StatsTable& stats() const noexcept { return w_->stats(); }
 
+    // 动作掩码直通（只读）。脚本执行层与观测打包都要它（掩码本来就是观测的
+    // 一部分，契约 §2）——不给这条，脚本就得捧着 `World&`，「脚本一律经
+    // `WorldView`」那条纪律就名存实亡。
+    std::uint16_t action_mask(UnitId id) const { return w_->action_mask(id); }
+
     // 守方三资源的存量。攻方没有经济系统，所以它不按侧参数化——
     // 攻方策略读到它是正常的（那是**免费可见**的一部分吗？不是，
     // 但把「攻方能不能看见玩家有多少钱」这个决定塞进一个 getter 是错的位置：
