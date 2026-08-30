@@ -25,6 +25,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include "rts/action.hpp"
 #include "rts/obs.hpp"
 #include "rts/obs_pack.hpp"
 #include "rts/stats.hpp"
@@ -42,6 +43,9 @@ rts::StatsTable pack_stats() {
     for (rts::UnitStats& u : t.unit) {
         u.max_hp = 20;
         u.vision = 3.0f;      // 小视野，方便把敌人放到雾外
+        u.range = 2.0f;       // **必须给**：射程 0 的单位永远打不到人，
+                              // 于是永不承诺出手、`windup_left` 恒为 0
+        u.damage = 3;
         u.cooldown_ticks = 3;
         u.windup_ticks = 4;   // 前摇 4，好让 windup_left 有几档可看
     }
@@ -169,41 +173,44 @@ TEST_CASE("硬要求 1：迷雾之外的敌人一个字节都不进张量", "[ob
 TEST_CASE("硬要求 1：记忆记建筑、不记单位", "[obspack]") {
     // 设计依据是 `CLAUDE.md`「迷雾记建筑、不记单位」——建筑不动，
     // 而记住的单位位置会**主动误导**，那份误导正是玩家佯攻的手段。
+    //
+    // **必须站在攻方视角看守方的墙。** 初版写的是守方看自家的墙，
+    // 那一格永远是 `Visible`——`mechanics.cpp:1072` 给**建筑本身**也算视野，
+    // 而 `mark_vision_circle` 无条件标记原点格，所以自家建筑所在的格
+    // 哪怕 `vision = 0` 也永远可见。那是对的（自家建筑当然知道在哪），
+    // 只是让那条用例测不到「记忆」。
     rts::WorldInit init = arena();
     init.buildings.push_back(
         rts::BldInit{rts::BldType::Wall, rts::GridPos{24, 20}, 50, 50});
     rts::World w(init);
-    const rts::UnitId scout =
-        w.spawn_unit(rts::UnitType::Scout, rts::Vec2{24.5f, 20.5f}, 1, 20, 20);
-    // 斥候站在墙上那一格旁边先看一眼，于是墙进了记忆。
+    // 攻方的窥使先走到墙边看一眼（视野 3，站 2 格外看得到）。
+    const rts::UnitId spy =
+        w.spawn_unit(rts::UnitType::Wraith, rts::Vec2{22.5f, 20.5f}, 1, 20, 20);
+    // 同时放一个**守方**单位在墙那一片，让它也被看见一次。
+    w.spawn_unit(rts::UnitType::Archer, rts::Vec2{24.5f, 21.5f}, 1, 20, 20);
     w.advance(1);
-    // 再放一个敌人在同一格附近，然后把斥候撤走 —— 这样那一片变成「记忆」。
-    w.spawn_unit(rts::UnitType::Ghoul, rts::Vec2{24.5f, 21.5f}, 1, 40, 40);
-    w.advance(1);
-    w.kill_unit(scout);
-    // 换一个远处的观测者：它看不见那一片，但队友的记忆是**共享**的（每侧一份雾）。
+    REQUIRE(w.fog(rts::Side::Attacker).at(24, 20) == rts::Vis::Visible);
+    // 窥使阵亡 ⇒ 那一片降级为记忆。
+    w.kill_unit(spy);
+    // 换一个远处的攻方观测者：它看不见那一片，但**同侧的记忆是共享的**。
     const rts::UnitId far =
-        w.spawn_unit(rts::UnitType::Archer, rts::Vec2{20.5f, 20.5f}, 1, 20, 20);
+        w.spawn_unit(rts::UnitType::Ghoul, rts::Vec2{20.5f, 20.5f}, 1, 40, 40);
     w.advance(1);
 
+    const rts::Vis vw = w.fog(rts::Side::Attacker).at(24, 20);
+    // 前提不成立就**失败**，不静默跳过——静默跳过的守卫等于没有守卫。
+    REQUIRE(vw == rts::Vis::Remembered);
+
     Buf b;
-    b.pack(w.view(rts::Side::Defender), far);
+    b.pack(w.view(rts::Side::Attacker), far);
     const int dxw = kHalf + 4;   // 墙在 (24,20)，观测者在 (20,20)
     const int dyw = kHalf;
-    const rts::Vis vw = w.fog(rts::Side::Defender).at(24, 20);
-    if (vw == rts::Vis::Remembered) {
-        // 建筑**要**从记忆里出来
-        CHECK(b.at(dxw, dyw, rts::ObsChannel::WallHp) > 0.0f);
-        CHECK(b.at(dxw, dyw, rts::ObsChannel::Visible) == 0.5f);
-        // 而同一片上的**单位**必须是 0：那个食尸鬼当时被看见过。
-        CHECK(b.at(dxw, dyw + 1, rts::ObsChannel::EnemyDensity) == 0.0f);
-        CHECK(b.at(dxw, dyw + 1, rts::ObsChannel::EnemyHp) == 0.0f);
-    } else {
-        // 视野解算的半径 / 时序若与预期不同，这条用例就没在测它想测的东西。
-        // **失败而不是静默跳过**——静默跳过的守卫等于没有守卫。
-        FAIL("(24,20) 应当处于「记忆」态，实测 " << rts::ident_of(vw)
-             << "；这条用例的前提没成立，请调整站位或视野半径");
-    }
+    // 建筑**要**从记忆里出来
+    CHECK(b.at(dxw, dyw, rts::ObsChannel::WallHp) > 0.0f);
+    CHECK(b.at(dxw, dyw, rts::ObsChannel::Visible) == 0.5f);
+    // 而同一片上的**单位**必须是 0：那个弓手当时被看见过。
+    CHECK(b.at(dxw, dyw + 1, rts::ObsChannel::EnemyDensity) == 0.0f);
+    CHECK(b.at(dxw, dyw + 1, rts::ObsChannel::EnemyHp) == 0.0f);
 }
 
 TEST_CASE("硬要求 1 的另一半：己方单位不受迷雾影响", "[obspack]") {
@@ -268,6 +275,13 @@ TEST_CASE("自身向量：兵种 one-hot 恰好一个 1，前摇是剩余比例"
     CHECK(b.self[static_cast<std::size_t>(rts::ObsSelfField::WindupLeft)] == 0.0f);
 
     // 让它承诺一次攻击，前摇应当变成正数且 ≤ 1。
+    //
+    // **必须显式提交 `AtkNear`**：单位不会自己开打（`UnitAction` 是意图，
+    // 由策略 / 脚本给出）。初版漏了这一步，于是 `windup_left` 恒为 0，
+    // 而那个 0 与「射程为 0 所以永远打不到」是**同一个症状**——
+    // 两件事我都漏了，测试一次报出来的却只是一个 0。
+    std::vector<rts::UnitAction> acts(1, rts::UnitAction::AtkNear);
+    w.submit_actions(rts::Side::Defender, acts.data(), acts.size());
     w.advance(1);
     Buf b2;
     b2.pack(w.view(rts::Side::Defender), a);
