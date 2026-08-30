@@ -149,16 +149,39 @@ PYBIND11_MODULE(rts_native, m) {
     m.def(
         "make_world_init",
         [](const std::string& map_path, const std::string& stats_path,
-           std::uint64_t seed, std::int32_t nominal_level) {
+           std::uint64_t seed, std::int32_t nominal_level,
+           const std::vector<std::tuple<int, float, float, int>>& attackers) {
             const game::MapData map = game::MapLoader::from_file(map_path);
             const rts::StatsTable stats = game::StatsLoader::from_file(stats_path);
-            return game::make_world_init(map, stats, seed, nominal_level);
+            rts::WorldInit init =
+                game::make_world_init(map, stats, seed, nominal_level);
+            // 攻方编成由**调用方**给。
+            //
+            // **这一条不是接口偷懒，是设计。** `CLAUDE.md`：「一波 = 一个 RL
+            // episode」，而本波的编成是**宏观层**（bandit 尺度、一波决策一次）
+            // 的产物——那一层住在 `train/`。`World` 自己不生波：生波逻辑在
+            // `game::DemoBattle` 里，那是**演示**的波次循环，不该被训练回路复用
+            // （它按占位曲线生兵，而训练要的是策略给出的编成）。
+            //
+            // 不给这个参数的话 `BatchedEnv` 会拿到一个**永远没有攻方单位**的局面
+            // ——实测：推 2400 tick 仍然是 0。那不报错，只是每一步都在打包空张量。
+            for (const auto& [t, x, y, lvl] : attackers) {
+                const auto ut = static_cast<rts::UnitType>(t);
+                const std::int64_t hp = stats.of(ut).max_hp;
+                init.units.push_back(rts::UnitInit{ut, rts::Vec2{x, y},
+                                                   lvl, hp, hp, rts::kNoForce});
+            }
+            return init;
         },
         py::arg("map_path"), py::arg("stats_path"), py::arg("seed") = 0,
         py::arg("nominal_level") = 1,
+        py::arg("attackers") = std::vector<std::tuple<int, float, float, int>>{},
         "从地图 JSON + 数值表 JSON 装配建局参数。走的是游戏自己那条路"
         "（game::MapLoader / StatsLoader / make_world_init），"
-        "所以 Python 造的局面与双击 exe 玩的局面是同一个来源。");
+        "所以 Python 造的局面与双击 exe 玩的局面是同一个来源。
+"
+        "attackers 是 [(unit_type, x, y, level), ...]：**本波编成由调用方给**，"
+        "因为它是宏观层的产物，而 World 自己不生波。");
 
     py::class_<rts::BatchedEnv>(m, "BatchedEnv")
         .def(py::init([](std::vector<rts::WorldInit> worlds, rts::Side side,

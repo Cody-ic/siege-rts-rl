@@ -27,6 +27,7 @@ def main() -> None:
     print("前六条通道:", [c[0] for c in R.obs.CHANNELS[:6]])
     print("动作:", R.obs.ACTION_NAMES)
 
+    GHOUL = R.obs.UNIT_TYPE_NAMES.index("Ghoul")
     n = 8
     worlds = [
         R.make_world_init(
@@ -34,6 +35,11 @@ def main() -> None:
             "game/data/stats_placeholder.json",
             seed=i,
             nominal_level=1,
+            # **本波编成由这一侧给** —— `World` 自己不生波（生波在
+            # `game::DemoBattle` 里，那是演示的循环）。不给的话这批局面
+            # 永远没有攻方单位，实测推 2400 tick 仍然是 0。
+            # 这里手摆几个 Ghoul 只为冒烟；真正的编成来自宏观层。
+            attackers=[(GHOUL, 20.5 + k, 18.5, 1) for k in range(3 + i % 3)],
         )
         for i in range(n)
     ]
