@@ -580,16 +580,31 @@
       "states": {
         "idle": {
           "canvas": [
-            370,
-            822
+            526,
+            938
           ],
           "ground_anchor": [
-            185.0,
-            696.1
+            263.0,
+            735.3
           ],
           "frames": [
             1
           ]
+        },
+        "attack": {
+          "canvas": [
+            526,
+            938
+          ],
+          "ground_anchor": [
+            263.0,
+            735.3
+          ],
+          "frames": [
+            1,
+            2
+          ],
+          "impact_frame": 2
         }
       }
     },
@@ -760,11 +775,11 @@
         "idle": {
           "canvas": [
             370,
-            720
+            574
           ],
           "ground_anchor": [
             185.0,
-            594.2
+            448.3
           ],
           "frames": [
             1

@@ -33,8 +33,12 @@ ALLOW_SHARED = {
     # 靠把同一套砌体染棕来表示木质——那是无效的，染色改不掉「实心砌体」这个形体。
     # 它现在改用镂空木架，因此不在此列。这条例外的适用边界是**机制同族**，
     # 不是「反正都是塔」。
-    "tower-square-base.glb": "Tower / Flak / Barrack 三座砌体建筑共用模块化底座，靠顶部区分",
-    "tower-square-mid.glb": "同上",
+    #
+    # **`Barrack` 曾经也在这一列，2026-08-30 移出。** 它零战力，而这一族的定义是
+    # 「有火力」——把它算进来正是「太像」的根因（评审直接指出）。现在它一件构件都
+    # 不与人共用（`mid-door` + `top-roof-high-windows` 都是独占），所以**这里不必给它
+    # 留位置**。留着一条用不到的豁免比没有更坏：它会在将来真的共用时静默放行。
+    "tower-square-base.glb": "Tower / Flak 两座砌体战斗塔共用模块化底座，靠顶部区分",
     "tower-square-top.glb": "同上（Watch 用它作开放平台，是配件不是主体）",
     # ForestB 就是 Forest 枚举的贴图变体，机制相同，共用底模是定义本身
     "tree-large.glb": "ForestB 是 Forest 的贴图变体（单株巨树占一格），机制相同",

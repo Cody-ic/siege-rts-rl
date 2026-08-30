@@ -867,10 +867,57 @@
         },
         {
           "model": "models/kenney_castle/glb/tower-square-top-roof-high.glb"
+        },
+        {
+          "_note": "垛口上待发的箭。**塔身没有可动部件，所以攻击表现由挂件承担**——同 README 第 2 条自查的第 3 项（Shade 的弓）。用的正是弓手弦上、以及飞出去那支的同一个 mesh。",
+          "model": "models/q_rpg/Blends/Only Weapons/Ranger_Bow.blend",
+          "only_meshes": [
+            "Ranger_Arrow"
+          ],
+          "scale": 0.7,
+          "rot": [
+            0,
+            50,
+            0
+          ],
+          "offset": [
+            0.3,
+            0.3,
+            2.62
+          ]
         }
       ],
       "_note": "封闭尖顶 = 对地齐射，与开放垛口的蔽空弩楼对照",
-      "modules": 1
+      "modules": 1,
+      "states": {
+        "idle": {
+          "frames": [
+            1
+          ],
+          "mesh_anim": {
+            "Ranger_Arrow": {
+              "visible": [
+                false
+              ]
+            }
+          }
+        },
+        "attack": {
+          "frames": [
+            1,
+            2
+          ],
+          "impact_frame": 2,
+          "mesh_anim": {
+            "Ranger_Arrow": {
+              "visible": [
+                true,
+                false
+              ]
+            }
+          }
+        }
+      }
     },
     "Flak": {
       "cn": "蔽空弩楼",
@@ -1186,15 +1233,15 @@
     },
     "Barrack": {
       "cn": "兵营",
-      "_note": "部队产出点。离前线越近补员越快、也越容易被点掉，位置即决策",
+      "_note": "**不属砌体战斗塔族**——那族的定义是「石材造、有火力」，而 `Barrack` 零战力（部队产出点）。与 `Tower` 的差异铺在三个维度上，其中两个是**类别性**的：**拱门 vs 射孔窗**（出入 vs 开火）、**阁楼窗坡顶 vs 纯尖锥顶 + 垛口层**（住人 vs 打人），再加高度只有一半。**不共用任何主体构件**（`tower-square-mid-door` 与 `tower-square-top-roof-high-windows` 都是独占），所以不需要 ALLOW_SHARED 豁免。踩过两版：`base`+`roof` 两件时读作「矮一点的战斗塔」（高矮是族内维度）；换 `tower-slant-roof` 时与 `Mine` 撞了——**那个文件不是屋顶构件而是一整座小屋**，正是 8-28 日志记的「先渲构件对照表，不要照文件名猜」。",
       "yaw": 0,
       "modules": 1,
       "parts": [
         {
-          "model": "models/kenney_castle/glb/tower-square-base.glb"
+          "model": "models/kenney_castle/glb/tower-square-mid-door.glb"
         },
         {
-          "model": "models/kenney_castle/glb/tower-square-roof.glb"
+          "model": "models/kenney_castle/glb/tower-square-top-roof-high-windows.glb"
         }
       ]
     }
