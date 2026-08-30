@@ -62,14 +62,24 @@ void SceneRenderer::place(const game::DrawItem& item) {
                 static_cast<int>(c.y - s.ground_anchor.y), WHITE);
 
     // 血条：满血不画（画面干净，且「谁在挨打」一眼可见）。
-    // 在世界空间画（跟着缩放走），贴在精灵画布顶端上方。
+    //
+    // **尺寸按屏幕算，不随镜头缩放**（`set_screen_scale` 的注释讲了为什么）：
+    // 下面几个数字是**屏幕像素**，乘 `ui_scale_` 换成世界像素。
     if (item.hp_frac >= 0.0f && item.hp_frac < 1.0f) {
-        const float w = 56.0f;
-        const float h = 8.0f;
+        const float w = 42.0f * ui_scale_;
+        const float h = 7.0f * ui_scale_;
+        const float border = 1.5f * ui_scale_;
+        const float gap = 5.0f * ui_scale_;
         const float x = c.x - w * 0.5f;
-        const float y = c.y - s.ground_anchor.y - h - 6.0f;
-        DrawRectangleRec(Rectangle{x - 1.0f, y - 1.0f, w + 2.0f, h + 2.0f},
-                         Color{20, 20, 24, 220});
+        // 竖直位置仍按**精灵**算（贴在它头顶），所以这一项不缩放——
+        // 缩放它会让血条在拉近时飘到天上去。
+        const float y = c.y - s.ground_anchor.y - h - gap;
+        // 深色描边 + 空槽底。只画一个深色边框的话，掉了一半血的那一半是透明的，
+        // 压在草地上读不出「还剩多少」——空槽必须是实心的。
+        DrawRectangleRec(
+            Rectangle{x - border, y - border, w + border * 2.0f, h + border * 2.0f},
+            Color{12, 12, 16, 235});
+        DrawRectangleRec(Rectangle{x, y, w, h}, Color{62, 46, 46, 235});
         const unsigned char r =
             static_cast<unsigned char>(230.0f * (1.0f - item.hp_frac) + 25.0f);
         const unsigned char g =

@@ -32,6 +32,17 @@ public:
     void preload(const std::vector<game::DrawItem>& tiles,
                  const std::vector<game::DrawItem>& sorted);
 
+    // 血条要按**屏幕**尺寸画，所以每帧把「一个屏幕像素等于多少世界像素」告诉它
+    // （= 1 / 相机 zoom，与 `SceneOverlay` 那条描边宽度同一个做法）。
+    //
+    // 不这么做的后果是实测出来的、也是玩家第一眼就抱怨的：整张 20×12 的图入画
+    // 时 zoom ≈ 0.25，于是 56×8 世界像素的血条在屏幕上只有 14×2 像素——
+    // 一根两像素高的短横线，「谁在挨打」根本读不出来。血条是 UI，不是场景里的
+    // 物件，它不该随镜头缩放。
+    void set_screen_scale(float world_px_per_screen_px) noexcept {
+        ui_scale_ = world_px_per_screen_px > 0.0f ? world_px_per_screen_px : 1.0f;
+    }
+
 private:
     // 关键一步：把**锚点**对齐到格心，而不是把图片左上角对齐到格心。
     // 各精灵画布尺寸不同（地砖 256×128、密林 532×758），按左上角贴会让高个子
@@ -40,6 +51,7 @@ private:
 
     SpriteAtlas* atlas_;
     game::IsoProjection proj_;
+    float ui_scale_ = 1.0f;
 };
 
 }  // namespace render

@@ -13,6 +13,7 @@
 #include "game/battle_scene.hpp"
 #include "game/demo_driver.hpp"
 #include "game/map_loader.hpp"
+#include "game/player_input.hpp"
 #include "game/stats_loader.hpp"
 #include "rts/world_view.hpp"
 
@@ -151,4 +152,78 @@ TEST_CASE("BattleScene 把活的实体排进同一个深度序列", "[demo]") {
             REQUIRE(it.hp_frac >= 0.0f);
         }
     }
+}
+
+// 玩家真的能把经济与补员跑起来吗？
+//
+// 这条是从一次试玩里长出来的：交互层此前只让玩家造**墙 / 门 / 木栅 / 箭楼 /
+// 弩楼**五种，而三种资源的**流量只来自采集建筑**（`Keep` 那点金币是地板、
+// 不是收入）。于是石与木永远停在开局那个数，金币每 5 秒 +2——一名弓手 60 金，
+// 要等 150 秒。玩家的原话是「只能新建造建筑，不能招兵，兵被打死了就没了」。
+//
+// **所以这条测的不是某个函数，而是那条链路通不通**：建采集建筑 → 收入涨 →
+// 买得起兵 → 兵真的出来、且进了指定编队。占位数值下它成立；数值一改，
+// 这条会红——那正是该有人回来看一眼的时刻。
+TEST_CASE("经济与补员的闭环：建金矿 → 攒够金 → 征兵 → 新兵进编队", "[demo]") {
+    const game::MapData map = demo_map();
+    const rts::StatsTable stats = demo_stats();
+    game::DemoBattle d(map, stats, 7);
+    const int w = map.width();
+
+    // 演示地图城内有一个金矿点 (2,6)。`Mine` 只能盖在金矿点上（结构规则）。
+    const rts::Command build =
+        game::build_command(rts::BldType::Mine, rts::GridPos{2, 6}, w);
+    REQUIRE(game::can_place_hint(d.world().view(rts::Side::Defender), rts::BldType::Mine,
+                                 rts::GridPos{2, 6}));
+    d.submit_defender(&build, 1);
+    d.update(1);
+    REQUIRE(d.world().live_bld_count() > 0);
+
+    // 工地要工匠盖（开局那名 3 号编队的工匠），所以先把它叫过去，再等它盖完。
+    const rts::Command send = game::command_for_click(
+        d.world().view(rts::Side::Defender), /*force=*/3, rts::GridPos{3, 6});
+    REQUIRE(send.kind == rts::CommandKind::MoveForce);
+    d.submit_defender(&send, 1);
+
+    const std::int64_t gold_before = d.world().stock(rts::Resource::Gold);
+    d.update(1500);
+    const std::int64_t gold_after = d.world().stock(rts::Resource::Gold);
+
+    // 金矿盖起来之后，收入曲线要明显快过「只有堡垒那条地板」。
+    // 占位表：Keep 每 100 tick +2，Mine 每 100 tick +10 ⇒ 1500 tick 至少多 100。
+    REQUIRE(gold_after - gold_before > 100);
+
+    // 征兵：堡垒也能出兵（兵营可退化为从堡垒出兵，机制侧同一条）。
+    const rts::GridPos keep = map.keep();
+    REQUIRE(game::can_train_hint(d.world().view(rts::Side::Defender), keep));
+
+    // **按「0 号编队的弓手数」计数，不按守方总人数**：这一千多 tick 里波次
+    // 一直在打，守方在减员，用总数判会被战损盖过去（而那是一条会随占位数值
+    // 变化而时红时绿的断言——比不判更糟）。
+    const auto force0_archers = [](const rts::WorldView& v) {
+        int n = 0;
+        for (std::size_t k = 0; k < v.unit_alive().size(); ++k) {
+            if (v.unit_alive()[k] == 0) continue;
+            if (v.unit_type()[k] == rts::UnitType::Archer && v.unit_force()[k] == 0) ++n;
+        }
+        return n;
+    };
+    const int before = force0_archers(d.world().view(rts::Side::Defender));
+
+    const rts::Command train =
+        game::train_command(rts::UnitType::Archer, /*force=*/0, keep, w);
+    d.submit_defender(&train, 1);
+    d.update(1);
+    // 钱扣了 ⇒ 命令没有被静默拒绝（买不起时解算是 break，什么都不说）。
+    REQUIRE(d.world().stock(rts::Resource::Gold) < gold_after);
+    // 兵营占用了 ⇒ 这一格立刻不能再点（一次一名）。
+    REQUIRE_FALSE(game::can_train_hint(d.world().view(rts::Side::Defender), keep));
+
+    // 训练要时间（占位 100 tick）。等它出来。
+    //
+    // 新兵进的是**指定的编队**——命令枚举里没有「把单位编入编队」（#57 定的
+    // 12 种不变），所以「往打薄的那支里补兵」只有征兵这一条路，
+    // 而这条断言就是那句话的可执行形式。
+    d.update(200);
+    REQUIRE(force0_archers(d.world().view(rts::Side::Defender)) == before + 1);
 }

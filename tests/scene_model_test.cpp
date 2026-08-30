@@ -13,6 +13,11 @@
 #ifndef GAME_TESTDATA_DIR
 #error "GAME_TESTDATA_DIR 未定义，见 tests/CMakeLists.txt"
 #endif
+// 演示地图（交付物那一份）另有一条用例要读它——桥的那个形状只在**那张图**上，
+// 抄进夹具就等于把「玩家看到的图修好了没有」换成「我抄对了没有」。
+#ifndef GAME_DATA_DIR
+#error "GAME_DATA_DIR 未定义，见 tests/CMakeLists.txt"
+#endif
 
 namespace {
 
@@ -108,19 +113,77 @@ TEST_CASE("线性结构的朝向由走向决定", "[scene]") {
                 game::Facing::SW);
     }
 
-    SECTION("沿 gj 铺的墙段用 NW") {
+    SECTION("沿 gj 铺的墙段用 SE") {
         // 夹具右侧有一段竖墙 (6,0) (6,1) (6,2)：i 方向没有邻居。
+        //
+        // **这一条上一版写的是 NW**，改成 SE 是重测的结果（判据多了「贴得正
+        // 不正」，见 scene_model.hpp 那张表）：墙板 180° 对称，两个朝向拼起来
+        // 都无缝，但这套素材的 NE / NW 内容偏离锚点，于是墙浮在格子外、
+        // 门与墙错开约 0.9 格。
         REQUIRE(SceneModel::run_direction(m, at(6, 1), RunKind::Wall) ==
-                game::Facing::NW);
+                game::Facing::SE);
     }
 
-    SECTION("桥看的是相邻的 Bridge 地形格，不是墙") {
-        // 桥在 (3,2) (4,2)，沿 gi 铺。
+    SECTION("同一条墙线上，门与墙取到的朝向必须相同") {
+        // 这条钉的是玩家看到的那个症状本身（「城门缩在城内、没和城墙连上」）。
+        // 门与墙是两个 ident、画布与锚点都不同，一旦朝向不同就必然错开；
+        // 而它们的朝向来自同一个函数，所以这条断言等价于「同一条墙线上
+        // 每一段问出来的走向一致」。
+        //
+        // 夹具第 4 行：(0,4) 墙、(1,4) 墙、(2,4) 门，沿 gi。
+        const game::Facing f = SceneModel::run_direction(m, at(0, 4), RunKind::Wall);
+        REQUIRE(SceneModel::run_direction(m, at(1, 4), RunKind::Wall) == f);
+        REQUIRE(SceneModel::run_direction(m, at(2, 4), RunKind::Wall) == f);
+    }
+
+    SECTION("桥的走向是过河的方向，看的是相邻的水格") {
+        // 桥在 (3,2) (4,2)，河沿 gj（x=3、x=4 两列都是水），所以桥沿 gi。
+        // **桥沿 gi 用 SE，与墙的表相反**（两个模型的长轴不同轴，见头文件那张表）。
         REQUIRE(SceneModel::run_direction(m, at(3, 2), RunKind::Bridge) ==
+                game::Facing::SE);
+    }
+
+    SECTION("同样是沿 gi，墙与桥取到的朝向不同") {
+        // 两张表是**反的**（两个模型的长轴不同轴）。这条把它钉住，免得哪天
+        // 有人「顺手统一一下」——统一之后桥会横过来躺在河里，而墙会浮到格外。
+        //
+        // (1,4) 是沿 gi 的墙、(3,2) 是沿 gi 的桥（河沿 gj）。
+        REQUIRE(SceneModel::run_direction(m, at(1, 4), RunKind::Wall) ==
                 game::Facing::SW);
-        // 同一格若按「墙」去问，答案不同——这正是要分成两种 RunKind 的理由。
-        REQUIRE(SceneModel::run_direction(m, at(3, 2), RunKind::Wall) ==
-                game::Facing::NW);
+        REQUIRE(SceneModel::run_direction(m, at(3, 2), RunKind::Bridge) ==
+                game::Facing::SE);
+    }
+}
+
+// 演示地图上的桥：**两格桥并排在同一条一格宽的河上**，而这正是「看相邻桥格」
+// 那条旧规则会答错的形状——它会把走向答成「沿着河」，于是桥板顺着水流铺，
+// 画面上读作「河里漂着两块板」，玩家的原话是「bridge 没在水上」。
+//
+// 用真的演示地图而不是另造夹具：这个形状是**那张图**的形状，抄一份到夹具里
+// 就等于把「玩家实际看到的图有没有被修好」换成「我抄对了没有」。
+TEST_CASE("桥的走向：一格宽的河上并排两格桥，走向仍是过河方向", "[scene]") {
+    using game::SceneModel;
+    using RunKind = game::SceneModel::RunKind;
+    const game::MapData demo =
+        game::MapLoader::from_file(std::string(GAME_DATA_DIR) + "/demo_skirmish.json");
+
+    // 河是 x=13 那一列，桥在 (13,5) 与 (13,6)——两格沿 gj 相邻。
+    REQUIRE(demo.terrain_at(13, 5) == game::Terrain::Bridge);
+    REQUIRE(demo.terrain_at(13, 6) == game::Terrain::Bridge);
+    REQUIRE(demo.terrain_at(13, 4) == game::Terrain::Water);
+    REQUIRE(demo.terrain_at(12, 5) == game::Terrain::Plain);
+
+    // 过河的方向是 gi ⇒ 桥用 SE。（旧规则看相邻桥格，会答成沿 gj。）
+    REQUIRE(SceneModel::run_direction(demo, at(13, 5), RunKind::Bridge) ==
+            game::Facing::SE);
+    REQUIRE(SceneModel::run_direction(demo, at(13, 6), RunKind::Bridge) ==
+            game::Facing::SE);
+    // 演示地图的墙线沿 gj（x=7，j=3..9），门在 (7,6)：整条线朝向一致，
+    // 这就是「门缩在城内」那条修好之后该有的样子。
+    const game::Facing wf = SceneModel::run_direction(demo, at(7, 3), RunKind::Wall);
+    REQUIRE(wf == game::Facing::SE);
+    for (int j = 4; j <= 9; ++j) {
+        REQUIRE(SceneModel::run_direction(demo, at(7, j), RunKind::Wall) == wf);
     }
 }
 

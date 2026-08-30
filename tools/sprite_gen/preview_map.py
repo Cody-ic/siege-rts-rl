@@ -72,16 +72,33 @@ def expand(terrain):
     return OVERLAY.get(terrain, (terrain, None))
 
 
-def run_dir(cells, gi, gj):
+def run_dir(cells, gi, gj, kind="wall"):
     """**线性结构（墙 / 桥）的朝向由它的走向决定，不是固定 `SE`。**
 
     这条很容易漏：单位的 `d` 是朝向，而墙的 `d` 是**走向**——同一段墙沿 gi 铺和沿 gj
     铺要用不同的精灵，否则相邻墙段接不上，一条边读作一排分开的板子。
 
-    哪个朝向无缝是**实测出来的**（渲四个朝向各排三格看哪个接得上）：
-    沿 gi 走用 `SW`，沿 gj 走用 `NW`。换素材后要重测。
+    哪个朝向对是**实测出来的**，2026-08-30 重测过一次，判据多了一条、结论变了：
+
+    | 走向 | 墙 / 门 | 桥 |
+    |---|---|---|
+    | 沿 gi | `SW` | `SE` |
+    | 沿 gj | `SE` | `SW` |
+
+    **多出来的判据是「贴得正不正」，不只是「接不接得上」。** 墙板 180° 对称，
+    所以 `SE` 与 `NW` 拼起来都无缝，上一版只测无缝、两个都过，选了 `NW`；
+    但这套素材的 `NE` / `NW` 两张图内容偏离锚点（`Wall` 偏 +34 px 且右侧被画布
+    切掉、`Gate` 偏 −33 px），于是墙浮在格子外、**门与墙错开约 0.9 格**。
+
+    **两种结构的表是反的**，因为 `wall-narrow.glb` 与 `bridge-draw.glb` 的长轴
+    不是同一个轴——所以这张表只能逐模型测，不能共用一份。
+
+    换素材后要重测。C++ 侧的同一张表在 `game/include/game/scene_model.hpp`。
     """
-    return "SW" if ((gi - 1, gj) in cells or (gi + 1, gj) in cells) else "NW"
+    along_i = (gi - 1, gj) in cells or (gi + 1, gj) in cells
+    if kind == "bridge":
+        return "SE" if along_i else "SW"
+    return "SW" if along_i else "SE"
 
 
 def draw_scene(canvas, ox, oy, terrain, variant, objs, overlay_kw=None):
@@ -280,7 +297,8 @@ def build():
     ox, oy = canvas.width // 2, TW * 2      # 顶部留够：堡垒高达 4 格边长
     def overlay_kw(gi, gj, ident):
         # 桥是线性结构，朝向按走向取；岩壁与密林是团块，朝向无所谓
-        return {"d": run_dir(BRIDGE, gi, gj)} if ident == "Bridge" else {}
+        return ({"d": run_dir(BRIDGE, gi, gj, kind="bridge")}
+                if ident == "Bridge" else {})
 
     draw_scene(canvas, ox, oy, terrain, variant, objs, overlay_kw)
     return canvas
