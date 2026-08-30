@@ -14,8 +14,25 @@
 ```bash
 cmake -B build -DRTS_BUILD_RENDER=ON
 cmake --build build --config Release
+```
 
-# 窗口模式
+构建完之后**要玩就双击**：仓库根的 `play.bat`，或直接双击
+`build/render/Release/rts_render.exe`。什么参数都不用给——地图、数值表、精灵
+由 `game::discover_assets()` 从「工作目录」与「exe 所在目录」逐级向上找仓库根
+（判据是三个标记文件同时存在，见 `game/include/game/asset_paths.hpp`）。
+进去是主菜单，键盘或鼠标都能操作，游戏内「操作说明」那一屏列全部按键。
+
+双击启动时程序会把控制台黑框藏起来，并在启动失败时**弹一个对话框**
+（否则失败的表现是「双击之后什么都没发生」）。这两件事只在双击时发生，
+命令行下行为一字不变——判据与理由见 `render/src/cli_entry.cpp`。
+
+下面几条是给开发用的：
+
+```bash
+# 直接开局，跳过主菜单
+./build/render/Release/rts_render.exe --battle
+
+# 地图查看器（只给 --map，不给 --battle / --menu）
 ./build/render/Release/rts_render.exe \
     --map game/testdata/fixture_min.json \
     --sprites tools/sprite_gen/out_3d
@@ -110,8 +127,13 @@ CameraController 平移 / 缩放 / 让整张地图入画
 
 ### 现在能做什么
 
-读一张地图文件、画出地形与初始墙段、平移缩放、查看光标所在格、中文界面文字。
-**没有实体渲染**（等 `rts_core` 接口）。
+**能玩**：主菜单 → 对局 → 暂停 / 操作说明 / 败局，双击就能启动。对局里
+按编队下令、建造放置、提前召唤下一波，实体按连续坐标绘制、带血条与状态动画。
+地图查看器与截图模式仍在。
+
+**这一段以前写的是「没有实体渲染（等 `rts_core` 接口）」**，那是接口定稿之前的
+状态，已经过期很久了。改动本目录时顺手核一眼这一节——它是唯一一处会悄悄骗人的
+地方（其余各节写的是「为什么」，不随进度变）。
 
 ### 中文文字：三个坑，三道检查
 
