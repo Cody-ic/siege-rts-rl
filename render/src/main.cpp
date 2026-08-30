@@ -617,13 +617,17 @@ int run_game(const Options& opt) {
     // ——交互状态——
     // 按键绑定的**唯一说明**是 `game::help_entries()`（游戏内那一屏就是它），
     // 这里不再抄一份注释——两处各写一份必然漂移。
+    //
+    // 三个「点一格生效」的模式（建造 / 征兵 / 维修）**互斥**，所以是一个枚举而不是
+    // 三个 bool：三个 bool 允许「同时在建造又在维修」这种状态存在，而那时左键
+    // 该干什么只能靠代码里的先后顺序决定——一个读不出来的规则。
+    enum class ActMode : int { None = 0, Build, Train, Repair };
+    ActMode mode = ActMode::None;
     int force_sel = 0;
-    int build_sel = -1;   // -1 = 不在建造模式
-    constexpr rts::BldType kBuildable[] = {rts::BldType::Wall, rts::BldType::Gate,
-                                           rts::BldType::Fence, rts::BldType::Tower,
-                                           rts::BldType::Flak};
-    constexpr int kBuildableCount =
-        static_cast<int>(sizeof(kBuildable) / sizeof(kBuildable[0]));
+    int build_sel = 0;   // 索引进 game::buildable_types()
+    int train_sel = 0;   // 索引进 game::trainable_types()
+    const std::vector<rts::BldType>& buildable = game::buildable_types();
+    const std::vector<rts::UnitType>& trainable = game::trainable_types();
     bool paused = false;
     int preloaded_attempt = 0;
 
@@ -647,6 +651,8 @@ int run_game(const Options& opt) {
     const auto draw_frame = [&](Vector2 vp, bool has_cursor, rts::GridPos cell) {
         const game::DemoBattle* b = shell.battle();
         ClearBackground(bg);
+        // 血条按屏幕尺寸画，所以每帧把当前缩放告诉渲染器（见 set_screen_scale）。
+        renderer.set_screen_scale(1.0f / cam.camera().zoom);
         BeginMode2D(cam.camera());
         if (b != nullptr) {
             renderer.draw(tiles, game::BattleScene::sorted(
@@ -659,30 +665,64 @@ int run_game(const Options& opt) {
         }
         if (shell.screen() == game::Screen::Battle && b != nullptr && has_cursor &&
             map.in_bounds(cell.i, cell.j)) {
-            // 建造模式下描边就是合法性提示（绿可放 / 红不行）；平时是白色悬停框。
-            const Color line =
-                build_sel < 0
-                    ? Color{235, 235, 245, 255}
-                    : (game::can_place_hint(b->world().view(rts::Side::Defender), cell)
-                           ? Color{120, 220, 120, 255}
-                           : Color{230, 90, 90, 255});
+            // 三个模式下描边就是合法性提示（绿=点了会生效 / 红=不会）；
+            // 不在模式里时是白色悬停框。三个模式各问自己那条 hint——
+            // 「绿框点了没反应」比红框更难懂，所以 hint 要与解算的结构性规则一致。
+            const rts::WorldView v = b->world().view(rts::Side::Defender);
+            bool ok = false;
+            switch (mode) {
+                case ActMode::Build:
+                    ok = game::can_place_hint(
+                        v, buildable[static_cast<std::size_t>(build_sel)], cell);
+                    break;
+                case ActMode::Train: ok = game::can_train_hint(v, cell); break;
+                case ActMode::Repair: ok = game::can_repair_hint(v, cell); break;
+                case ActMode::None: break;
+            }
+            const Color line = mode == ActMode::None
+                                   ? Color{235, 235, 245, 255}
+                                   : (ok ? Color{120, 220, 120, 255}
+                                         : Color{230, 90, 90, 255});
             overlay.draw_cell_outline(cell, line, 2.0f / cam.camera().zoom);
         }
         EndMode2D();
 
         if (shell.screen() == game::Screen::Battle && b != nullptr) {
             draw_battle_hud(*font, map, *b, paused);
-            char ibuf[240];
-            if (build_sel >= 0) {
-                std::snprintf(ibuf, sizeof(ibuf),
-                              "编队 %d   建造模式 %s   TAB 换型   左键放置   右键退出",
-                              force_sel + 1,
-                              std::string(game::display_name(kBuildable[build_sel]))
-                                  .c_str());
-            } else {
-                std::snprintf(ibuf, sizeof(ibuf),
-                              "编队 %d   右键下令   B 建造   N 召唤下一波",
-                              force_sel + 1);
+            // 模式提示行。**造价写在这里**：三种模式各花不同的资源，而「点了
+            // 没反应」最常见的真因就是买不起——把价钱摆在眼前比事后猜便宜。
+            char ibuf[320];
+            switch (mode) {
+                case ActMode::Build: {
+                    const rts::BldType bt = buildable[static_cast<std::size_t>(build_sel)];
+                    const rts::BldStats& s = b->world().stats().of(bt);
+                    std::snprintf(ibuf, sizeof(ibuf),
+                                  "建造 %s   石 %d 木 %d   TAB 换型   左键放置   右键退出",
+                                  std::string(game::display_name(bt)).c_str(),
+                                  static_cast<int>(s.cost_stone),
+                                  static_cast<int>(s.cost_wood));
+                    break;
+                }
+                case ActMode::Train: {
+                    const rts::UnitType ut = trainable[static_cast<std::size_t>(train_sel)];
+                    const rts::UnitStats& s = b->world().stats().of(ut);
+                    std::snprintf(ibuf, sizeof(ibuf),
+                                  "征兵 %s   金 %d   进编队 %d   TAB 换兵种   "
+                                  "左键点兵营或堡垒   右键退出",
+                                  std::string(game::display_name(ut)).c_str(),
+                                  static_cast<int>(s.cost_gold), force_sel + 1);
+                    break;
+                }
+                case ActMode::Repair:
+                    std::snprintf(ibuf, sizeof(ibuf),
+                                  "维修   左键点掉了血的建筑   花木材   右键退出");
+                    break;
+                case ActMode::None:
+                    std::snprintf(ibuf, sizeof(ibuf),
+                                  "编队 %d   右键下令   B 建造   T 征兵   R 维修   "
+                                  "N 召唤下一波",
+                                  force_sel + 1);
+                    break;
             }
             font->draw(ibuf, rts::Vec2{14.0f, 12.0f + kHudLine * 3.0f}, kHudSize,
                        Color{200, 205, 160, 255});
@@ -755,7 +795,9 @@ int run_game(const Options& opt) {
             // 建造模式会跟到新局里，而玩家并不知道自己还在建造模式。
             cam.fit(proj, map.width(), map.height(), vp);
             paused = false;
-            build_sel = -1;
+            mode = ActMode::None;
+            build_sel = 0;
+            train_sel = 0;
             force_sel = 0;
         }
 
@@ -794,9 +836,18 @@ int run_game(const Options& opt) {
             if (IsKeyPressed(KEY_TWO)) force_sel = 1;
             if (IsKeyPressed(KEY_THREE)) force_sel = 2;
             if (IsKeyPressed(KEY_FOUR)) force_sel = 3;
-            if (IsKeyPressed(KEY_B)) build_sel = build_sel < 0 ? 0 : -1;
-            if (build_sel >= 0 && IsKeyPressed(KEY_TAB)) {
-                build_sel = (build_sel + 1) % kBuildableCount;
+            // 三个模式键都是「切到它 / 从它退出」。按 B 再按 T 直接换模式，
+            // 不必先退出——否则玩家要按两下，而第一下看起来什么都没发生。
+            const auto toggle = [&mode](ActMode m) { mode = mode == m ? ActMode::None : m; };
+            if (IsKeyPressed(KEY_B)) toggle(ActMode::Build);
+            if (IsKeyPressed(KEY_T)) toggle(ActMode::Train);
+            if (IsKeyPressed(KEY_R)) toggle(ActMode::Repair);
+            if (IsKeyPressed(KEY_TAB)) {
+                if (mode == ActMode::Build) {
+                    build_sel = (build_sel + 1) % static_cast<int>(buildable.size());
+                } else if (mode == ActMode::Train) {
+                    train_sel = (train_sel + 1) % static_cast<int>(trainable.size());
+                }
             }
             if (IsKeyPressed(KEY_N)) {
                 rts::Command c;
@@ -812,22 +863,37 @@ int run_game(const Options& opt) {
             const bool in_map = map.in_bounds(cell.i, cell.j);
             const rts::WorldView view = b->world().view(rts::Side::Defender);
             if (in_map && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
-                if (build_sel >= 0) {
-                    build_sel = -1;   // RTS 惯例：右键退出建造模式
+                if (mode != ActMode::None) {
+                    mode = ActMode::None;   // RTS 惯例：右键退出当前模式
                 } else {
                     const rts::Command c = game::command_for_click(
                         view, static_cast<std::uint8_t>(force_sel), cell);
                     b->submit_defender(&c, 1);
                 }
             }
-            if (in_map && build_sel >= 0 && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-                // 深层裁决（资源、点位）在 World 的 Build 解算；虚影颜色只是提示。
+            if (in_map && mode != ActMode::None &&
+                IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                // 深层裁决（资源够不够、点位规则、兵营在不在练兵）在 World 的
+                // 解算里；这里只把命令发出去，虚影颜色是提示不是裁决。
+                bool have = true;
                 rts::Command c;
-                c.kind = rts::CommandKind::Build;
-                c.side = rts::Side::Defender;
-                c.what = static_cast<std::uint8_t>(kBuildable[build_sel]);
-                c.slot = rts::slot_of(cell, map.width());
-                b->submit_defender(&c, 1);
+                switch (mode) {
+                    case ActMode::Build:
+                        c = game::build_command(
+                            buildable[static_cast<std::size_t>(build_sel)], cell,
+                            map.width());
+                        break;
+                    case ActMode::Train:
+                        c = game::train_command(
+                            trainable[static_cast<std::size_t>(train_sel)],
+                            static_cast<std::uint8_t>(force_sel), cell, map.width());
+                        break;
+                    case ActMode::Repair:
+                        c = game::repair_command(cell, map.width());
+                        break;
+                    case ActMode::None: have = false; break;
+                }
+                if (have) b->submit_defender(&c, 1);
             }
         }
 

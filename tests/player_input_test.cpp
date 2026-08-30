@@ -2,8 +2,10 @@
 // 建造虚影的合法性提示。这层不含像素，在默认构建里测（GCC 侧也验）——
 // 「点墙下的是驻守不是开拔」写错了，交互层就是一个手感很怪的 bug 制造机。
 
+#include <algorithm>
 #include <cstddef>
 #include <utility>
+#include <vector>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -79,11 +81,109 @@ TEST_CASE("建造提示：地形、建筑、障碍三种占法都报不可放", 
     rts::World w(iarena());
     w.place_bld(rts::BldType::Wall, rts::GridPos{4, 2}, 40, 40);
     const rts::WorldView v = w.view(rts::Side::Defender);
+    const rts::BldType wall = rts::BldType::Wall;
 
-    REQUIRE(game::can_place_hint(v, rts::GridPos{8, 1}));          // 空平地
-    REQUIRE_FALSE(game::can_place_hint(v, rts::GridPos{7, 2}));    // 岩壁
-    REQUIRE_FALSE(game::can_place_hint(v, rts::GridPos{4, 2}));    // 有墙
-    REQUIRE_FALSE(game::can_place_hint(v, rts::GridPos{5, 4}));    // 有障碍
-    REQUIRE_FALSE(game::can_place_hint(v, rts::GridPos{0, 0}));    // Keep 本体
-    REQUIRE_FALSE(game::can_place_hint(v, rts::GridPos{-1, 0}));   // 越界给否
+    REQUIRE(game::can_place_hint(v, wall, rts::GridPos{8, 1}));          // 空平地
+    REQUIRE_FALSE(game::can_place_hint(v, wall, rts::GridPos{7, 2}));    // 岩壁
+    REQUIRE_FALSE(game::can_place_hint(v, wall, rts::GridPos{4, 2}));    // 有墙
+    REQUIRE_FALSE(game::can_place_hint(v, wall, rts::GridPos{5, 4}));    // 有障碍
+    REQUIRE_FALSE(game::can_place_hint(v, wall, rts::GridPos{0, 0}));    // Keep 本体
+    REQUIRE_FALSE(game::can_place_hint(v, wall, rts::GridPos{-1, 0}));   // 越界给否
+}
+
+TEST_CASE("建造提示：资源点归属两个方向都要拦", "[input]") {
+    // 这条钉的是玩家会撞上的那个形状：石木两种资源**只能**靠采集建筑产出，
+    // 而采集建筑只能盖在对应种类的资源点上。少了这条提示，玩家会在草地上
+    // 看到绿框、点出一个采石场，然后命令被**静默**拒绝——资源点在画面上
+    // 没有专门标记，绿框是唯一的线索。
+    rts::WorldInit init = iarena();
+    init.resources.push_back(rts::ResourceSite{rts::GridPos{3, 1}, rts::Resource::Stone});
+    init.resources.push_back(rts::ResourceSite{rts::GridPos{3, 3}, rts::Resource::Gold});
+    rts::World w(init);
+    const rts::WorldView v = w.view(rts::Side::Defender);
+
+    // 采集建筑：必须在**对应种类**的点上。
+    REQUIRE(game::can_place_hint(v, rts::BldType::Quarry, rts::GridPos{3, 1}));
+    REQUIRE_FALSE(game::can_place_hint(v, rts::BldType::Quarry, rts::GridPos{3, 3}));
+    REQUIRE_FALSE(game::can_place_hint(v, rts::BldType::Quarry, rts::GridPos{8, 1}));
+    REQUIRE(game::can_place_hint(v, rts::BldType::Mine, rts::GridPos{3, 3}));
+
+    // 其余建筑：不得占资源点（把点糊死是不可逆的浪费，World 按结构封死）。
+    REQUIRE_FALSE(game::can_place_hint(v, rts::BldType::Wall, rts::GridPos{3, 1}));
+    REQUIRE(game::can_place_hint(v, rts::BldType::Wall, rts::GridPos{8, 1}));
+}
+
+TEST_CASE("建造清单：Keep 不在列，采集三座在列", "[input]") {
+    const std::vector<rts::BldType>& list = game::buildable_types();
+    REQUIRE(list.size() >= 5);
+    bool has_keep = false;
+    int gatherers = 0;
+    for (const rts::BldType b : list) {
+        if (b == rts::BldType::Keep) has_keep = true;
+        if (rts::is_gatherer(b)) ++gatherers;
+    }
+    // `Keep` 不可再建是结构（World 的 Build 解算第一行就 break）——列进去
+    // 等于给玩家一个永远点不出东西的选项。
+    REQUIRE_FALSE(has_keep);
+    // 采集三座必须齐：石 / 木 / 金三条收入轴各一座，缺一座那种资源就永远
+    // 没有流量（`Keep` 那点金币是地板、不是收入）。
+    REQUIRE(gatherers == 3);
+    // 清单里不能有重名项（TAB 循环会卡在同一个类型上两拍）。
+    std::vector<rts::BldType> sorted(list.begin(), list.end());
+    std::sort(sorted.begin(), sorted.end());
+    REQUIRE(std::adjacent_find(sorted.begin(), sorted.end()) == sorted.end());
+}
+
+TEST_CASE("征兵提示：只有完工且没在练的兵营或堡垒可以点", "[input]") {
+    rts::WorldInit init = iarena();
+    // 数值在**建局参数**里给，不在构造之后改：数值表的指纹进状态哈希，
+    // 事后改它等于让同一局有两份表（`rts/stats.hpp` 文件头）。
+    init.stats.unit[static_cast<std::size_t>(rts::UnitType::Archer)].cost_gold = 5;
+    init.stats.unit[static_cast<std::size_t>(rts::UnitType::Archer)].train_ticks = 50;
+    rts::World w(init);
+    w.place_bld(rts::BldType::Barrack, rts::GridPos{2, 1}, 50, 50);
+    w.place_bld(rts::BldType::Barrack, rts::GridPos{2, 3}, 50, 50, /*work_left=*/10);
+    w.place_bld(rts::BldType::Tower, rts::GridPos{6, 1}, 50, 50);
+    const rts::WorldView v = w.view(rts::Side::Defender);
+
+    REQUIRE(game::can_train_hint(v, rts::GridPos{2, 1}));          // 完工的兵营
+    REQUIRE(game::can_train_hint(v, rts::GridPos{0, 0}));          // 堡垒也行（兜底）
+    REQUIRE_FALSE(game::can_train_hint(v, rts::GridPos{2, 3}));    // 工地
+    REQUIRE_FALSE(game::can_train_hint(v, rts::GridPos{6, 1}));    // 塔不出兵
+    REQUIRE_FALSE(game::can_train_hint(v, rts::GridPos{8, 1}));    // 空地
+
+    // 真的下一条征兵命令，然后这一格就该变成不可点（一次一名）。
+    w.set_stock(rts::Resource::Gold, 100);
+    const rts::Command c =
+        game::train_command(rts::UnitType::Archer, 2, rts::GridPos{2, 1}, 10);
+    REQUIRE_NOTHROW(w.submit(rts::Side::Defender, &c, 1));
+    w.advance(1);
+    REQUIRE_FALSE(game::can_train_hint(w.view(rts::Side::Defender), rts::GridPos{2, 1}));
+    REQUIRE(w.stock(rts::Resource::Gold) == 95);
+}
+
+TEST_CASE("维修提示：只有完工、掉了血、且没在修的建筑可以点", "[input]") {
+    rts::WorldInit init = iarena();
+    // 维修单价给一个非零的占位值：默认表全是 0，那样「花木材」这条不成立，
+    // 下面那句断言就会因为**错误的理由**通过（花了 0 木也叫没花钱）。
+    init.stats.global.repair_wood_per_1000hp = 100;
+    rts::World w(init);
+    w.place_bld(rts::BldType::Wall, rts::GridPos{4, 2}, 40, 40);        // 满血
+    w.place_bld(rts::BldType::Wall, rts::GridPos{4, 3}, 10, 40);        // 残血
+    w.place_bld(rts::BldType::Wall, rts::GridPos{4, 4}, 10, 40, /*work_left=*/10);
+    const rts::WorldView v = w.view(rts::Side::Defender);
+
+    REQUIRE_FALSE(game::can_repair_hint(v, rts::GridPos{4, 2}));   // 满血不用修
+    REQUIRE(game::can_repair_hint(v, rts::GridPos{4, 3}));
+    REQUIRE_FALSE(game::can_repair_hint(v, rts::GridPos{4, 4}));   // 工地不「修」
+    REQUIRE_FALSE(game::can_repair_hint(v, rts::GridPos{8, 1}));   // 空地
+
+    // 下一条维修命令：木材扣掉、工时排上，于是这一格立刻变成不可再点
+    // （已经在修了）——「点了两下扣两次木头」正是这条 hint 要防的。
+    w.set_stock(rts::Resource::Wood, 1000);
+    const rts::Command c = game::repair_command(rts::GridPos{4, 3}, 10);
+    REQUIRE_NOTHROW(w.submit(rts::Side::Defender, &c, 1));
+    w.advance(1);
+    REQUIRE(w.stock(rts::Resource::Wood) < 1000);
+    REQUIRE_FALSE(game::can_repair_hint(w.view(rts::Side::Defender), rts::GridPos{4, 3}));
 }
