@@ -9,6 +9,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include "game/iso_projection.hpp"
 #include "game/player_input.hpp"
 #include "rts/stats.hpp"
 #include "rts/world.hpp"
@@ -160,6 +161,95 @@ TEST_CASE("征兵提示：只有完工且没在练的兵营或堡垒可以点", 
     w.advance(1);
     REQUIRE_FALSE(game::can_train_hint(w.view(rts::Side::Defender), rts::GridPos{2, 1}));
     REQUIRE(w.stock(rts::Resource::Gold) == 95);
+}
+
+// ——框选（#57 重开）——
+
+TEST_CASE("框选：矩形只框到落在其中的己方单位", "[input]") {
+    // **单位的编队只能在建局参数里给**（`spawn_unit` 没有 force 参数，
+    // 那是运行时动态出兵的接口，不带编队——同 `demo_driver.cpp` 的先例）。
+    rts::WorldInit init = iarena();
+    init.units.push_back(
+        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{2.5f, 2.5f}, 1, 20, 20, 0});
+    init.units.push_back(
+        rts::UnitInit{rts::UnitType::Spear, rts::Vec2{2.5f, 2.6f}, 1, 20, 20, 1});
+    init.units.push_back(
+        rts::UnitInit{rts::UnitType::Ranger, rts::Vec2{8.5f, 4.5f}, 1, 20, 20, 2});
+    rts::World w(std::move(init));
+    std::vector<rts::UnitId> ids;
+    w.enumerate_units(rts::Side::Defender, ids);
+    REQUIRE(ids.size() == 3);
+    const rts::UnitId a = ids[0];
+    const rts::UnitId b = ids[1];
+    const rts::UnitId c = ids[2];
+    const rts::WorldView v = w.view(rts::Side::Defender);
+    const game::IsoProjection proj(256);
+
+    // 矩形只套住 a、b 那一小片（两者格坐标相邻，屏幕像素上离得很近）。
+    const rts::Vec2 pa = proj.world_to_screen(rts::Vec2{2.5f, 2.5f});
+    const rts::Vec2 pb = proj.world_to_screen(rts::Vec2{2.5f, 2.6f});
+    const float x0 = std::min(pa.x, pb.x) - 5.0f;
+    const float y0 = std::min(pa.y, pb.y) - 5.0f;
+    const float x1 = std::max(pa.x, pb.x) + 5.0f;
+    const float y1 = std::max(pa.y, pb.y) + 5.0f;
+    const std::vector<rts::UnitId> got =
+        game::units_in_rect(v, ids, proj, game::Rect{x0, y0, x1 - x0, y1 - y0});
+
+    REQUIRE(got.size() == 2);
+    const bool has_a = std::find(got.begin(), got.end(), a) != got.end();
+    const bool has_b = std::find(got.begin(), got.end(), b) != got.end();
+    const bool has_c = std::find(got.begin(), got.end(), c) != got.end();
+    REQUIRE(has_a);
+    REQUIRE(has_b);
+    REQUIRE_FALSE(has_c);
+}
+
+TEST_CASE("框选：矩形的两个角谁大谁小不影响结果（鼠标可能往任何方向拖）",
+         "[input]") {
+    rts::WorldInit init = iarena();
+    init.units.push_back(
+        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{2.5f, 2.5f}, 1, 20, 20, 0});
+    rts::World w(std::move(init));
+    std::vector<rts::UnitId> ids;
+    w.enumerate_units(rts::Side::Defender, ids);
+    REQUIRE(ids.size() == 1);
+    const rts::UnitId a = ids[0];
+    const rts::WorldView v = w.view(rts::Side::Defender);
+    const game::IsoProjection proj(256);
+    const rts::Vec2 p = proj.world_to_screen(rts::Vec2{2.5f, 2.5f});
+
+    // 反着给：x/width、y/height 都是负的（对角从右下往左上拖）。
+    const game::Rect flipped{p.x + 10.0f, p.y + 10.0f, -20.0f, -20.0f};
+    const std::vector<rts::UnitId> got = game::units_in_rect(v, ids, proj, flipped);
+    REQUIRE(got.size() == 1);
+    REQUIRE(got[0] == a);
+}
+
+TEST_CASE("distinct_forces：去重、跳过 kNoForce", "[input]") {
+    rts::WorldInit init = iarena();
+    init.units.push_back(
+        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{2.5f, 2.5f}, 1, 20, 20, 0});
+    init.units.push_back(
+        rts::UnitInit{rts::UnitType::Spear, rts::Vec2{3.5f, 2.5f}, 1, 20, 20, 0});
+    init.units.push_back(
+        rts::UnitInit{rts::UnitType::Ranger, rts::Vec2{4.5f, 2.5f}, 1, 20, 20, 1});
+    rts::World w(std::move(init));
+    std::vector<rts::UnitId> defenders;
+    w.enumerate_units(rts::Side::Defender, defenders);
+    REQUIRE(defenders.size() == 3);
+    // 第四个是攻方单位（`spawn_unit` 没有 force 参数——攻方本就没有编队），
+    // 混进选中集要验证 distinct_forces 会跳过它，不是漏了才刚好没崩。
+    const rts::UnitId d =
+        w.spawn_unit(rts::UnitType::Ghoul, rts::Vec2{5.5f, 2.5f}, 1, 20, 20);
+    const rts::UnitId ids_arr[4] = {defenders[0], defenders[1], defenders[2], d};
+    const rts::WorldView v = w.view(rts::Side::Defender);
+
+    const std::vector<std::uint8_t> forces = game::distinct_forces(v, ids_arr);
+    REQUIRE(forces.size() == 2);
+    const bool has0 = std::find(forces.begin(), forces.end(), 0) != forces.end();
+    const bool has1 = std::find(forces.begin(), forces.end(), 1) != forces.end();
+    REQUIRE(has0);
+    REQUIRE(has1);
 }
 
 TEST_CASE("维修提示：只有完工、掉了血、且没在修的建筑可以点", "[input]") {

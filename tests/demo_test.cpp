@@ -5,6 +5,7 @@
 // demo 里真的发生了攻防（不是两队人马站着对视）、场景装配把活的实体排进了
 // 同一个深度序列。
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -197,18 +198,27 @@ TEST_CASE("经济与补员的闭环：建金矿 → 攒够金 → 征兵 → 新
     const rts::GridPos keep = map.keep();
     REQUIRE(game::can_train_hint(d.world().view(rts::Side::Defender), keep));
 
-    // **按「0 号编队的弓手数」计数，不按守方总人数**：这一千多 tick 里波次
-    // 一直在打，守方在减员，用总数判会被战损盖过去（而那是一条会随占位数值
-    // 变化而时红时绿的断言——比不判更糟）。
-    const auto force0_archers = [](const rts::WorldView& v) {
-        int n = 0;
-        for (std::size_t k = 0; k < v.unit_alive().size(); ++k) {
-            if (v.unit_alive()[k] == 0) continue;
-            if (v.unit_type()[k] == rts::UnitType::Archer && v.unit_force()[k] == 0) ++n;
+    // **认「新面孔」，不数总数**：这一千多 tick 里波次一直在打，0 号编队的
+    // 弓手本来就可能在训练完成前后死掉——`before + 1` 这种纯计数断言会被
+    // 同一时间窗口内的战损抵消掉（死一个、补一个，总数不变，但训练那条
+    // 链路其实是通的）。真正要证明的是「训练确实产出了一个原来不存在的
+    // 单位，且它进了指定编队」，与其余弓手的战损无关——按 `UnitId` 认，
+    // 一个在 `before` 里没见过的 id 出现在 0 号编队里，就是训练生效的
+    // 直接证据。
+    const auto force0_archer_ids = [](const rts::World& world) {
+        std::vector<rts::UnitId> ids;
+        world.enumerate_units(rts::Side::Defender, ids);
+        const rts::WorldView v = world.view(rts::Side::Defender);
+        std::vector<rts::UnitId> out;
+        for (const rts::UnitId id : ids) {
+            const std::size_t k = id.index();
+            if (v.unit_type()[k] == rts::UnitType::Archer && v.unit_force()[k] == 0) {
+                out.push_back(id);
+            }
         }
-        return n;
+        return out;
     };
-    const int before = force0_archers(d.world().view(rts::Side::Defender));
+    const std::vector<rts::UnitId> before_ids = force0_archer_ids(d.world());
 
     const rts::Command train =
         game::train_command(rts::UnitType::Archer, /*force=*/0, keep, w);
@@ -225,5 +235,11 @@ TEST_CASE("经济与补员的闭环：建金矿 → 攒够金 → 征兵 → 新
     // 12 种不变），所以「往打薄的那支里补兵」只有征兵这一条路，
     // 而这条断言就是那句话的可执行形式。
     d.update(200);
-    REQUIRE(force0_archers(d.world().view(rts::Side::Defender)) == before + 1);
+    const std::vector<rts::UnitId> after_ids = force0_archer_ids(d.world());
+    const bool found_new = std::any_of(
+        after_ids.begin(), after_ids.end(), [&](rts::UnitId id) {
+            return std::find(before_ids.begin(), before_ids.end(), id) ==
+                  before_ids.end();
+        });
+    REQUIRE(found_new);
 }

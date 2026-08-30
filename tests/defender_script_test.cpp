@@ -329,6 +329,117 @@ TEST_CASE("工匠自动找活：走进半径，工时才开始动", "[script]") 
 
 // ——确定性——
 
+// ——框选临时指令 + 无指令时的集结点默认值（#57 重开）——
+//
+// ## 破坏性验证（做过，改这份文件前请重做）
+//
+// | 把 defender_script.cpp 改成 | 应当红的用例 |
+// |---|---|
+// | `muster_fallback` 插到 `Ranger`/`Mason` 自己的兜底**之前** | 「摸攻城锤」「工匠自动找活」两条既有用例——它们的兜底会被截胡，永远走不到 |
+// | `follow_orders` 的临时指令检查漏了世代比对 | 无法直接构造（依赖槎位复用的时序），改动前请至少手动推演一遍 |
+// | 最后一行 `return rts::UnitAction::Stop;` 忘了改成 `return std::nullopt;` | 「已到达的编队仍应保持不动」——会被错误地送去集结点 |
+
+TEST_CASE("没有任何指令：走向按编队错开的集结点待命，不再永远杵在原地", "[script]") {
+    rts::WorldInit init = sarena(20, 20);
+    init.keep = rts::GridPos{10, 10};
+    init.buildings.clear();
+    init.buildings.push_back(rts::BldInit{rts::BldType::Keep, init.keep, 200, 200});
+    init.units.push_back(
+        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{2.5f, 2.5f}, 1, 20, 20, 0});
+    init.units.push_back(
+        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{2.5f, 3.5f}, 1, 20, 20, 1});
+    rts::World w(std::move(init));
+    std::vector<rts::UnitId> ids;
+    w.enumerate_units(rts::Side::Defender, ids);
+    const rts::UnitId a0 = ids[0];
+    const rts::UnitId a1 = ids[1];
+
+    game::DefenderScript s(game::ScriptParams{}, 3);
+    run(w, s, 400);   // 无攻方、无命令：纯看它自己会不会挪窝
+
+    const rts::Vec2 p0 = w.unit_pos(a0);
+    const rts::Vec2 p1 = w.unit_pos(a1);
+    // 两支编队的集结点在堡垒不同侧，所以两个终点必须不同——
+    // 若两者挤到同一格，说明 muster_point_for 没有按编队区分。
+    const float dx = p0.x - p1.x, dy = p0.y - p1.y;
+    REQUIRE(dx * dx + dy * dy > 1.0f);
+    // 都离开了出生点（原地不动是这条要防的旧行为）。
+    REQUIRE((p0.x != 2.5f || p0.y != 2.5f));
+    REQUIRE((p1.x != 2.5f || p1.y != 3.5f));
+}
+
+TEST_CASE("框选临时指令：只影响被点到的单位，同编队其余成员照旧听编队指令",
+         "[script]") {
+    rts::WorldInit init = sarena(20, 20);
+    init.units.push_back(
+        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{2.5f, 2.5f}, 1, 20, 20, 0});
+    init.units.push_back(
+        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{2.5f, 3.5f}, 1, 20, 20, 0});
+    rts::World w(std::move(init));
+    std::vector<rts::UnitId> ids;
+    w.enumerate_units(rts::Side::Defender, ids);
+    const rts::UnitId picked = ids[0];    // 只框选这一个
+    const rts::UnitId other = ids[1];
+
+    // 编队 0 的持久指令：去 A。
+    rts::Command c;
+    c.kind = rts::CommandKind::MoveForce;
+    c.side = rts::Side::Defender;
+    c.force = 0;
+    c.slot = rts::slot_of(rts::GridPos{16, 2}, w.width());
+    w.submit(rts::Side::Defender, &c, 1);
+
+    game::DefenderScript s(game::ScriptParams{}, 3);
+    // 框选到的那一个改去 B（离出生点更近，好与 A 区分）。
+    const rts::UnitId picked_ids[1] = {picked};
+    s.issue_move_order(picked_ids, rts::GridPos{4, 8});
+
+    // 只跑一小段，看**方向**而不是等「到没到」——到达时机对两段路径的
+    // 长短很敏感，纯看进度不用猜时长：B 比 A 近，若跑到 picked 真到了 B，
+    // 它会清空临时指令继续往 A 走，反而看不出「只影响 picked」这件事
+    // （下一条用例才是测「到达后退回编队指令」）。
+    run(w, s, 20);
+
+    const rts::Vec2 pa = w.unit_pos(picked);
+    const rts::Vec2 pb = w.unit_pos(other);
+    // 被框选的那个朝 B（4, 8）走：B 的 y 比起点大得多，y 应显著增大。
+    REQUIRE(pa.y > 4.0f);
+    // 没被框选的那个没有跟着去 B（y 不该被拉向 8 那一侧），而是朝编队
+    // 持久指令 A（16, 2）走：x 应显著增大。
+    REQUIRE(pb.y < 4.0f);
+    REQUIRE(pb.x > 4.0f);
+}
+
+TEST_CASE("框选临时指令到达后清空：退回编队的持久指令，不是空等一拍",
+         "[script]") {
+    rts::WorldInit init = sarena(20, 20);
+    init.units.push_back(
+        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{2.5f, 2.5f}, 1, 20, 20, 0});
+    rts::World w(std::move(init));
+    std::vector<rts::UnitId> ids;
+    w.enumerate_units(rts::Side::Defender, ids);
+    const rts::UnitId a = ids[0];
+
+    // 编队持久指令：去远处 A（18, 2）。
+    rts::Command c;
+    c.kind = rts::CommandKind::MoveForce;
+    c.side = rts::Side::Defender;
+    c.force = 0;
+    c.slot = rts::slot_of(rts::GridPos{18, 2}, w.width());
+    w.submit(rts::Side::Defender, &c, 1);
+
+    game::DefenderScript s(game::ScriptParams{}, 3);
+    // 临时指令：先去近处 B（4, 2），到了应当继续赶去 A，不会卡在 B。
+    const rts::UnitId picked_ids[1] = {a};
+    s.issue_move_order(picked_ids, rts::GridPos{4, 2});
+
+    run(w, s, 400);   // 给足够 tick 走完 B 再走完 A
+
+    const rts::Vec2 p = w.unit_pos(a);
+    const float dx = p.x - 18.5f, dy = p.y - 2.5f;
+    REQUIRE(dx * dx + dy * dy <= 1.5f * 1.5f);
+}
+
 TEST_CASE("同种子同输入 ⇒ 同一局：脚本不是不确定性的来源", "[script]") {
     const auto build = [] {
         rts::WorldInit init = sarena();
