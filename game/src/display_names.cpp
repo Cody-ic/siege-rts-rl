@@ -33,10 +33,10 @@ constexpr std::string_view kNoBuild  = "禁建";
 constexpr std::string_view kKeep     = "领主堡垒";
 constexpr std::string_view kHpFrac   = "残血";
 constexpr std::string_view kSpawn    = "集结点";
-constexpr std::string_view kCorridor = "走廊";
 
+// 2026-08-31：`kCorridor`（「走廊」）已随 CorridorKind 一起删除。
 constexpr std::string_view kLiterals[] = {
-    kSep, kCell, kOutside, kNoBuild, kKeep, kHpFrac, kSpawn, kCorridor,
+    kSep, kCell, kOutside, kNoBuild, kKeep, kHpFrac, kSpawn,
 };
 
 }  // namespace
@@ -72,15 +72,7 @@ std::string_view display_name(ResourceTier t) noexcept {
     return {};
 }
 
-std::string_view display_name(CorridorKind k) noexcept {
-    switch (k) {
-        case CorridorKind::Open:    return "开阔平原";
-        case CorridorKind::Defile:  return "隘口";
-        case CorridorKind::Forest:  return "林地";
-        case CorridorKind::Economy: return "经济侧";
-    }
-    return {};
-}
+// 2026-08-31：`display_name(CorridorKind)` 已随「走廊」概念一起删除。
 
 std::string_view display_name(WallKind k) noexcept {
     switch (k) {
@@ -190,9 +182,6 @@ std::string describe_cell(const MapData& map, rts::GridPos p) {
             out += kSep;
             out += kSpawn;
             out += id;
-            out += " ";
-            out += display_name(s.corridor);
-            out += kCorridor;
         }
     }
     return out;
@@ -212,9 +201,6 @@ const std::vector<std::string_view>& all_display_strings() {
         }
         for (int i = 0; i < kResourceTierCount; ++i) {
             v.push_back(display_name(static_cast<ResourceTier>(i)));
-        }
-        for (int i = 0; i < kCorridorKindCount; ++i) {
-            v.push_back(display_name(static_cast<CorridorKind>(i)));
         }
         for (int i = 0; i < kWallKindCount; ++i) {
             v.push_back(display_name(static_cast<WallKind>(i)));

@@ -22,6 +22,29 @@ float hp_frac_of(std::int64_t hp, std::int64_t max_hp) noexcept {
     return f < 0.0f ? 0.0f : (f > 1.0f ? 1.0f : f);
 }
 
+// 驻守槽位 `slot` 那一格上，人踩着的是哪座建筑的精灵。
+//
+// 走一遍建筑数组而不是查一张格→建筑的表：`WorldView` 没有暴露那张表
+// （`bld_at_` 是 `World` 的私有派生缓存，刻意不进哈希），而驻守单位是个位数、
+// 建筑是几百，逐帧的这点开销远不值得为它开一个新的公开接口。
+//
+// **查不到就返回空**（人画在地面上）而不是猜一个 `Wall`：墙被拆掉的那一拍，
+// `destroy_bld` 会清掉驻守指令、把人放到缺口里，画在地面才是对的。
+std::string_view garrison_stand_sprite(const rts::WorldView& view,
+                                       std::uint16_t slot) noexcept {
+    const auto b_alive = view.bld_alive();
+    const auto b_type = view.bld_type();
+    const auto b_pos = view.bld_pos();
+    const auto b_built = view.bld_built();
+    for (std::size_t k = 0; k < b_alive.size(); ++k) {
+        if (b_alive[k] == 0 || b_built[k] == 0) continue;
+        if (b_type[k] != rts::BldType::Wall && b_type[k] != rts::BldType::Gate) continue;
+        if (rts::slot_of(b_pos[k], view.width()) != slot) continue;
+        return rts::ident_of(b_type[k]);
+    }
+    return {};
+}
+
 }  // namespace
 
 Facing BattleScene::facing_of(rts::UnitAction a, rts::Vec2 pos, rts::Vec2 aim,
@@ -116,9 +139,11 @@ std::vector<DrawItem> BattleScene::sorted(const MapData& map,
         it.world = u_pos[k];
         it.pos = rts::grid_of(u_pos[k]);
         it.sprite = rts::ident_of(u_type[k]);
-        // 驻守登顶：抬到墙顶画（仿真里位置就是墙格中心，画面上要站在墙上；
-        // 在爬的还在地面，不抬）。数值是视觉占位，随墙的精灵高度调。
-        if (u_garrison[k] != rts::kNoSlot && u_mount[k] == 0) it.lift = 0.75f;
+        // 驻守登顶：画成站在墙头（仿真里位置就是墙格中心；在爬的还在地面，不抬）。
+        // **抬多少不在这里定**——只说踩着哪座建筑，像素归渲染侧（见 `stand_on`）。
+        if (u_garrison[k] != rts::kNoSlot && u_mount[k] == 0) {
+            it.stand_on = garrison_stand_sprite(view, u_garrison[k]);
+        }
         const bool winding = u_windup[k] > 0 && u_tgt[k] != rts::TgtKind::None;
         it.facing = facing_of(u_action[k], u_pos[k], u_aim[k], winding);
         it.state = winding ? "attack" : (rts::is_move(u_action[k]) ? "move" : "idle");

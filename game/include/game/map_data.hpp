@@ -52,10 +52,8 @@ static_assert(kTerrainCount <= 10,
 // `inner` 在城内、是保底收入；`outer` 在墙外、要派兵争夺（CLAUDE.md「资源分布形态」）。
 enum class ResourceTier : std::uint8_t { Inner, Outer };
 
-// 走廊种类。**这是拼写检查用的枚举，不是「必须四种都有」**——2.2 明写走廊清单是候选
-// 而非定数，把它当定数正是 #17 订正过的那类错误。
-enum class CorridorKind : std::uint8_t { Open, Defile, Forest, Economy };
-
+// 2026-08-31：`CorridorKind` 已随「走廊」概念一起删除（组长拍板取缔，
+// `spawns[].corridor` 字段一并废除）。集结点是固定边缘候选点，不带性质标签。
 enum class WallKind : std::uint8_t { Wall, Gate };
 
 // 各枚举的取值个数。存在的理由是**要能机械地遍历一个枚举**：
@@ -69,13 +67,11 @@ enum class WallKind : std::uint8_t { Wall, Gate };
 // 未登记的字符直接抛并指名是哪个字。所以这个洞的兜底在渲染侧，不在这里。
 inline constexpr int kResourceTypeCount = rts::kResourceCount;
 inline constexpr int kResourceTierCount = 2;
-inline constexpr int kCorridorKindCount = 4;
 inline constexpr int kWallKindCount = 2;
 
 struct SpawnPoint {
     int id = 0;
     rts::GridPos pos{};
-    CorridorKind corridor = CorridorKind::Open;
 };
 
 struct ResourceNode {

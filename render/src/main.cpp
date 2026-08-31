@@ -284,9 +284,13 @@ int run_verify(const Options& opt) {
         //
         // 先跑前者：它不碰 GPU、几微秒就出结果，而后者要把 476 张纹理传上去。
         const std::size_t entities = atlas.verify_roster_covered();
+        // 第三条：可驻守建筑的抬升量落在合理区间（`kStandFrac` 是目视标定的，
+        // 这条挡量级错——见 `verify_stand_geometry()`）。同样不碰 GPU，先跑。
+        const std::size_t stands = atlas.verify_stand_geometry();
         const std::size_t n = atlas.verify_all_declared();
-        std::printf("素材校验通过：花名册 %zu 个实体全部有图，共 %zu 张，px_per_tile = %d\n",
-                    entities, n, atlas.px_per_tile());
+        std::printf("素材校验通过：花名册 %zu 个实体全部有图，共 %zu 张，"
+                    "%zu 种可驻守建筑的抬升在区间内，px_per_tile = %d\n",
+                    entities, n, stands, atlas.px_per_tile());
     } catch (const std::exception& e) {
         fatal(e.what());
         rc = 4;

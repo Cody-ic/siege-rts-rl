@@ -41,6 +41,30 @@ public:
     int tile_w() const noexcept { return tile_w_; }
     int tile_h() const noexcept { return tile_h_; }
 
+    // **世界竖直方向**上 1 格边长在屏幕上占多少像素。给「把实体抬离地面」用
+    // （驻守单位站上墙顶、弹丸的飞行高度）。
+    //
+    // **它不是 `tile_h()`。** 那是菱形的半高，属于**地面**两轴；竖直是第三个方向，
+    // 缩放系数不同。混用的症状是抬升量系统性偏小 22%，而这在静态图上看着只是
+    // 「站得不太对」，很容易被当成美术锚点问题去改精灵（实际发生过：驻守单位
+    // 用 `0.75 * tile_h()` 抬，脚落在墙高的 37% 处，看起来像站在墙外的地上）。
+    //
+    // 系数由**预渲染相机的姿态**决定，不是可调参数：
+    // `tools/sprite_gen/blender_render.py` 里 `CAM_PITCH = 60°`（俯角 30°）、
+    // 一格边长 `TILE_SIDE = 1/√2` 世界单位，而世界 z 轴在相机 up 向量上的分量是
+    // `sin(CAM_PITCH)`，故竖直 1 格边长 = `sin(60°)/√2 × px_per_tile`
+    // ≈ `0.6124 × px_per_tile`（px_per_tile = 256 时是 156.8 px，而 tile_h 只有 128）。
+    // 改那两个常量等于改掉整套素材，所以这里跟着它们、不另立一个旋钮。
+    // 一致性由 `tests/iso_projection_test.cpp` 与 `tools/sprite_gen/check_assets.py`
+    // 两侧各钉一次（后者读 `blender_render.py` 的真常量，防跨语言漂移）。
+    float tile_z() const noexcept {
+        return kVerticalPerTileSide * static_cast<float>(tile_w_);
+    }
+
+    // sin(60°)/√2。写成字面量而不是 `std::sin` 的调用：它是一个契约常数，
+    // 出现在测试的期望值里，不该随标准库的 sin 实现有末位差异。
+    static constexpr float kVerticalPerTileSide = 0.61237243f;
+
     // 格心的世界像素坐标。与 `preview_map.py` 的 `grid_to_screen` 逐字对应：
     //     ox + (gi - gj) * TW // 2,  oy + (gi + gj) * TH // 2
     //

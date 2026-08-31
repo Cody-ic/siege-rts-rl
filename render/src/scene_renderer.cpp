@@ -41,7 +41,7 @@ void SceneRenderer::place(const game::DrawItem& item) {
         const float deg = (dx == 0.0f && dy == 0.0f)
                               ? 0.0f
                               : std::atan2(dy, dx) * (180.0f / 3.14159265f);
-        c.y -= item.lift * static_cast<float>(proj_.tile_h());
+        c.y -= item.lift * proj_.tile_z();
         // 旋转中心必须是 `pivot`，不是 `ground_anchor`——后者是世界原点的
         // 投影、离箭的视觉中心实测差 19–26 px，拿它旋转的症状只在**转起来**
         // 之后可见：箭绕一个看不见的点公转（sprite_atlas.hpp 那段）。
@@ -52,9 +52,15 @@ void SceneRenderer::place(const game::DrawItem& item) {
                        Rectangle{c.x, c.y, w, h}, pivot, deg, WHITE);
         return;   // 弹丸不画血条
     }
-    // 竖直提升（驻守单位站上墙顶）。`lift` 的单位是格高，像素换算在这一侧
-    // （§7：像素几何只有一个来源）。血条跟着 c 一起抬，不用另算。
-    c.y -= item.lift * static_cast<float>(proj_.tile_h());
+    // 竖直提升。像素换算在这一侧（§7：像素几何只有一个来源），血条跟着 c 一起抬。
+    //
+    // 两条路，量纲不同、来源也不同：
+    //   * `stand_on`（驻守登顶）——抬多少由**那座建筑的精灵**说，见 `stand_lift_px`。
+    //     城墙与门楼一高一矮，所以这一档不能是一个固定数。
+    //   * `lift`（弹丸的飞行高度）——世界量，单位是竖直格边长，用 `tile_z()` 换算。
+    //     **不是 `tile_h()`**：那是菱形半高、属于地面两轴，混用会让抬升偏小 22%。
+    c.y -= item.lift * proj_.tile_z();
+    if (!item.stand_on.empty()) c.y -= atlas_->stand_lift_px(item.stand_on);
     // 截断而不是四舍五入，与 `preview_map.py` 的 `int(x - ax)` 一致。
     // 锚点里确实有 .5（例如 Archer 的 227.5），两种取法差一个像素——
     // 差一个像素本身无所谓，但**两边不一致**会让「照抄那份 Python 校验渲染结果」

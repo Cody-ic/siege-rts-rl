@@ -162,13 +162,8 @@ const std::map<std::string, ResourceTier> kResourceTiers{
     {"outer", ResourceTier::Outer},
 };
 
-const std::map<std::string, CorridorKind> kCorridorKinds{
-    {"defile", CorridorKind::Defile},
-    {"economy", CorridorKind::Economy},
-    {"forest", CorridorKind::Forest},
-    {"open", CorridorKind::Open},
-};
-
+// 2026-08-31：`kCorridorKinds` 已随「走廊」概念一起删除（`spawns[].corridor`
+// 字段废除，见 `map_data.hpp` 该处注释）。
 const std::map<std::string, WallKind> kWallKinds{
     {"Gate", WallKind::Gate},
     {"Wall", WallKind::Wall},
@@ -177,7 +172,7 @@ const std::map<std::string, WallKind> kWallKinds{
 // 键就是 `rts::ident_of(ObstacleType)` 那三个串，大小写一字不差。
 // **刻意与 `kResourceTypes` 的小写风格不同**，而是跟着 `kWallKinds` 走：
 // 这两张表的键是**实体标识符**（花名册里的 `Stump` / `Wall`），
-// 而资源与走廊那几张的键是**类别名**。6.2 里两种风格并存是既有事实，
+// 而资源那张表的键是**类别名**。6.2 里两种风格并存是既有事实，
 // 新字段跟哪一种，取决于它的值是不是一个花名册标识符——这里是。
 const std::map<std::string, rts::ObstacleType> kObstacleTypes{
     {"Rubble", rts::ObstacleType::Rubble},
@@ -291,10 +286,8 @@ MapData MapLoader::from_string(std::string_view json_text, const std::string& or
         sp.id = need_int(need(s, "id", origin, where), origin, where + ".id");
         sp.pos = need_pos(need(s, "pos", origin, where), origin, where + ".pos",
                           m.width_, m.height_);
-        sp.corridor = lookup(kCorridorKinds,
-                             need_string(need(s, "corridor", origin, where), origin,
-                                         where + ".corridor"),
-                             origin, where + ".corridor");
+        // 2026-08-31：`corridor` 字段已废除——旧文件里多余的这个键被静默忽略
+        // （`need_*` 只查必填项），兼容性免费；新写的地图不要再带它。
         m.spawns_.push_back(sp);
     }
 

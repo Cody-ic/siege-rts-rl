@@ -55,9 +55,8 @@ rts::WorldInit make_world_init(const MapData& map, const rts::StatsTable& stats,
 
     init.spawns.reserve(map.spawns().size());
     for (const SpawnPoint& s : map.spawns()) {
-        // **走廊种类刻意不带过去**，理由见 `rts::SpawnSite` 的注释：
-        // 「每个集结点对应一条性质不同的走廊」是对**地图**的结构约束，
-        // 仿真不消费它；带过去会诱使有人按走廊种类写分支。
+        // 集结点不携带任何性质标签（2026-08-31：走廊概念已取缔，
+        // `spawns[].corridor` 字段随之一并删除）。
         init.spawns.push_back(rts::SpawnSite{s.pos});
     }
 
