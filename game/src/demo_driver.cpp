@@ -114,13 +114,24 @@ void DemoBattle::spawn_wave() {
     const std::int32_t lv = w_.nominal_level();
     const rts::StatsTable& stats = w_.stats();
 
+    // 由易到难：`Ghoul`（肉盾）从第 1 波起就是主力，其余按威胁强度依次推后
+    // 才第一次出场——第 1 波只应付基础压力，不必同时应付压制与破墙
+    // （2026-08-31 试玩反馈：不能一开局就刷 `Ram` 这种攻城单位）。`Knight`/
+    // `Phoenix` 原来就是这个节奏（wave>=2/wave>=3 才出现），这次只是把
+    // `Shade`（中程压制）与 `Ram`（攻城，本作单件威胁最高）也接上同一条曲线，
+    // 而不是像原来那样从第 1 波就以 `1 + wave/3`（wave=1 时已经是 1）出场。
     std::vector<rts::UnitType> roster;
     const int ghouls = wave + 2 > 8 ? 8 : wave + 2;
     for (int k = 0; k < ghouls; ++k) roster.push_back(rts::UnitType::Ghoul);
-    const int shades = 1 + wave / 2 > 4 ? 4 : 1 + wave / 2;
-    for (int k = 0; k < shades; ++k) roster.push_back(rts::UnitType::Shade);
-    for (int k = 0; k < 1 + wave / 3; ++k) roster.push_back(rts::UnitType::Ram);
+    if (wave >= 2) {
+        const int shades = 1 + (wave - 2) / 2 > 4 ? 4 : 1 + (wave - 2) / 2;
+        for (int k = 0; k < shades; ++k) roster.push_back(rts::UnitType::Shade);
+    }
     if (wave >= 2) roster.push_back(rts::UnitType::Knight);
+    if (wave >= 3) {
+        const int rams = 1 + (wave - 3) / 3 > 4 ? 4 : 1 + (wave - 3) / 3;
+        for (int k = 0; k < rams; ++k) roster.push_back(rts::UnitType::Ram);
+    }
     if (wave >= 3) roster.push_back(rts::UnitType::Phoenix);
 
     // 固定的落位偏移环（不掷点：demo 的确定性不该依赖「生成时的随机散布」）。

@@ -287,10 +287,25 @@ def carve_corridor(cv, cfg, rng, side, corridor, mouth):
             py = by + (w if dy == 0 else 0)
             if cv.inside(px, py):
                 cells.append((px, py))
-    # 走廊内一律先清成 Plain（可能覆盖城圈的 Rock，这正是「口」的意思）
+    # 走廊内一律先清成 Plain（可能覆盖城圈的 Rock，这正是「口」的意思）。
+    #
+    # **`d > R`，不是 `d >= R`。** 这里原来写 `d >= R`，而 `width_half`
+    # 对 open/forest/economy 三种走廊比 `mouth` 的半宽多 1（见上面「走廊比口
+    # 略宽一点」那条注释）——t=0 那一圈恰好落在 `d == R` 上，于是 `d >= R`
+    # 对 `width_half` span 里**所有**格都成立，不只是 `mouth` 里那些。结果是
+    # 每条非 defile 走廊的墙两侧各多出一格：先被 `build_city_wall_ring` 设成
+    # `Rock`（因为它不在 `mouth` 里），又被这里的旧判据原样冲回 `Plain`，
+    # 而 `place_initial_walls` 只在 `mouth` 里摆墙——那一格于是变成一个
+    # **恒定存在、不受 `initial_breaches` 控制**的免费缺口，攻方一开局就能
+    # 从那里直接走进城，与「初始城圈至少留一处**可控数量**的缺口」这条设计
+    # 意图不符（2026-08-31 试玩发现）。改成 `d > R` 后，ring 上（t=0）只有
+    # 真正在 `mouth` 里的格才会被强制置 Plain，`width_half` 的加宽只从 t=1
+    # （环外一格）起生效——这正是那条注释想要的效果（防止口两侧的 Rock 把
+    # 走廊夹成死胡同），且不再波及 t=0 本身。defile 因为 `width_half < half`，
+    # t=0 的 span 本就是 `mouth` 的子集，这条改动对它是空操作。
     for x, y in cells:
         d = max(abs(x - cx), abs(y - cy))
-        if d >= R or (x, y) in mouth:
+        if d > R or (x, y) in mouth:
             cv.set_terrain(x, y, "Plain")
 
     if corridor == "defile":
