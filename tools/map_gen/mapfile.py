@@ -87,11 +87,8 @@ WALL_KINDS = {"Wall", "Gate"}
 # （这两张表的键是实体标识符，不是类别名）。
 BUILDING_TYPES = {"Tower", "Flak", "Watch", "Barrack", "Fence", "Quarry", "Lumber", "Mine"}
 
-# 6.2 的 corridor 是枚举而非自由字符串（校验器第 3 条要查每种恰好一次）。
-# 取值来自 2.2 的走廊候选清单。**清单本身是候选、不是定数**（2.2 明写），
-# 所以这里只用于拼写检查，不用于「必须四种都有」——那条属校验器第 3 条，
-# 且它查的是「种类数 = 集结点数」，不是「等于 4」。
-CORRIDOR_KINDS = {"open", "defile", "forest", "economy"}
+# 2026-08-31：`CORRIDOR_KINDS` 已随「走廊」概念一起删除（组长拍板取缔，
+# 校验器第 3 条废除、`spawns[].corridor` 字段一并删除）。
 
 
 class MapFormatError(ValueError):
@@ -288,11 +285,9 @@ def check_format(doc):
             raise MapFormatError(f"{where} 的 id={sid} 与前面的重复")
         seen_ids.add(sid)
         _need_pos(_need(s, "pos", list, where=where), f"{where}.pos", size)
-        corridor = _need(s, "corridor", str, where=where)
-        if corridor not in CORRIDOR_KINDS:
-            raise MapFormatError(
-                f"{where}.corridor = {corridor!r} 不在候选清单 "
-                f"{sorted(CORRIDOR_KINDS)} 里")
+        # 2026-08-31：`spawns[].corridor` 字段已随「走廊」概念一起废除。
+        # 本层**不拒未知键**（只有 layers 走白名单），所以旧文件仍读得进来——
+        # 兼容性免费；新写的地图不要再带这个字段。
 
     resources = _need(doc, "resources", list)
     for i, r in enumerate(resources):

@@ -46,6 +46,10 @@ foreach(_t Catch2 Catch2WithMain)
 endforeach()
 
 add_executable(rts_tests
+    # 不是测试：把 MSVC Debug 的两类诊断弹窗（/RTC 与 assert）改成 stderr 输出，
+    # 并顺带打出 RTC 自己知道的 filename:line。弹窗在 ctest 下是永久挂住，
+    # 而挂住比失败难查——见该文件头。其他工具链下它是空 TU。
+    msvc_debug_to_stderr.cpp
     rng_test.cpp
     hash_test.cpp
     types_test.cpp

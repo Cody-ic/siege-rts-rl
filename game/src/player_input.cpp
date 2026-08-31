@@ -228,19 +228,36 @@ rts::Command repair_command(rts::GridPos cell, int map_width) {
     return make(rts::CommandKind::Repair, cell, map_width);
 }
 
-bool can_upgrade_hint(const rts::WorldView& view, rts::GridPos cell) {
-    if (!in_map(view, cell)) return false;
+UpgradeBlock upgrade_block(const rts::WorldView& view, rts::GridPos cell) {
+    if (!in_map(view, cell)) return UpgradeBlock::NoBuilding;
     const int k = bld_slot_at(view, cell);
-    if (k < 0) return false;
+    if (k < 0) return UpgradeBlock::NoBuilding;
     const auto idx = static_cast<std::size_t>(k);
-    if (view.bld_built()[idx] == 0) return false;       // 工地不能升级
-    if (view.bld_work_left()[idx] > 0) return false;    // 在建/在修
-    if (view.bld_upgrade_left()[idx] > 0) return false; // 已经在升
+    if (view.bld_built()[idx] == 0) return UpgradeBlock::Unbuilt;
+    // 在建/在修 与 已经在升 都归 `Busy`：对玩家是同一句话（「等这件工程
+    // 完了再来」），而两者的区别（`b_work_` 还是 `b_upgrade_left_`）是
+    // 实现细节，分成两档只会让文案多一条却不多给一点信息。
+    if (view.bld_work_left()[idx] > 0) return UpgradeBlock::Busy;
+    if (view.bld_upgrade_left()[idx] > 0) return UpgradeBlock::Busy;
     // `Keep` 不受等级上限约束，其余建筑受 `building_level_cap()` 约束——
     // 判据只在这里查一遍 `view.building_level_cap()`，不重新推
     // `rts_core/src/world.cpp` 那条公式（同 `repair_wood_cost` 的纪律）。
-    if (view.bld_type()[idx] == rts::BldType::Keep) return true;
-    return view.bld_level()[idx] < view.building_level_cap();
+    if (view.bld_type()[idx] == rts::BldType::Keep) return UpgradeBlock::None;
+    if (view.bld_level()[idx] >= view.building_level_cap()) {
+        return UpgradeBlock::LevelCap;
+    }
+    return UpgradeBlock::None;
+}
+
+std::int32_t bld_level_at(const rts::WorldView& view, rts::GridPos cell) {
+    if (!in_map(view, cell)) return 0;
+    const int k = bld_slot_at(view, cell);
+    if (k < 0) return 0;
+    return view.bld_level()[static_cast<std::size_t>(k)];
+}
+
+bool can_upgrade_hint(const rts::WorldView& view, rts::GridPos cell) {
+    return upgrade_block(view, cell) == UpgradeBlock::None;
 }
 
 std::int64_t upgrade_cost_stone(const rts::WorldView& view, rts::GridPos cell) {

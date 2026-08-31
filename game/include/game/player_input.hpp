@@ -144,7 +144,31 @@ rts::Command repair_command(rts::GridPos cell, int map_width);
 
 // ——升级（建筑等级上限，守方升级轴第一个输出）——
 //
-// 这一格能不能升级:己方**完工**建筑、没有在建/在修/在升、没顶到
+// 这一格**为什么**不能升级。`can_upgrade_hint` 就是它 `== None`，两者
+// 共用同一份判定、不各写一遍（同 `can_afford_repair` 内部调
+// `repair_wood_cost` 的做法）。
+//
+// **露出理由而不只给一个 bool，是因为其中一种原因在画面上没有任何线索。**
+// 血条看得见掉血、施工进度看得见在忙，而「这座建筑几级」与「当前上限是
+// 几级」画面上一个字都没有。于是 `LevelCap` 那一种若只表现为「菜单里没
+// 有升级这一行」，玩家不会知道存在升级这件事，更不会想到该先去升堡垒
+// ——而占位系数 `building_level_cap_divisor = 2` 下，1 级堡垒的上限就是
+// 1 级，**开局每一座建筑都是 `LevelCap`**。所以弹窗对己方完工建筑
+// **恒显示**升级行（`!= NoBuilding` 即显示），靠这个理由说明为什么灰着。
+enum class UpgradeBlock : int {
+    None = 0,      // 能升（还要另查造价，见 `can_afford_upgrade`）
+    NoBuilding,    // 这一格没有己方活着的建筑：升级行不该出现
+    Unbuilt,       // 是工地：工地往前盖，不谈升级（同 `can_repair_hint`）
+    Busy,          // 在建 / 在修 / 已经在升——同一时刻只能有一件工程在推进
+    LevelCap,      // 顶到 `building_level_cap()`（`Keep` 永远不会是这个）
+};
+UpgradeBlock upgrade_block(const rts::WorldView& view, rts::GridPos cell);
+
+// 这一格的建筑现在几级——弹窗要把 `Lv2 → 3` 印出来，理由同上（等级在
+// 画面上没有别的来源）。这一格没有活着的建筑时返回 0。
+std::int32_t bld_level_at(const rts::WorldView& view, rts::GridPos cell);
+
+// 这一格能不能升级：己方**完工**建筑、没有在建/在修/在升、没顶到
 // `WorldView::building_level_cap()`（`Keep` 本身不受这条上限约束——
 // 「堡垒等级本身不设上限」，CLAUDE.md）。**不查造价**，理由同
 // `can_repair_hint`。

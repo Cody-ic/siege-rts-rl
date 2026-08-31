@@ -1,5 +1,5 @@
 {
-  "schema": "stats/7",
+  "schema": "stats/8",
   "_note": "本文件名仍叫 stats_placeholder.json，但这句话本身已经滞后过一次：这里原写「全部数值为占位值，一个都没有标定过」，实际是 @ArLiangz 已于 2026-08-30/31 做完 v1 标定（《数值设计与成本产出矩阵.md》），参考 AoE4/TAB 的比例关系、用 rts_core 战斗公式的 Python 复现版逐条验证过 CLAUDE.md「克制二部图」点名的关键克制关系（工具在 tools/balance/，闭式 1v1 近似而非批量仿真，见该目录 README「已知局限」）。这仍不是长期方案的终点——CLAUDE.md「关于数值」要的批量仿真 + 自动标定要等 bindings/+train/ 长出真正的训练循环（现在只有冒烟脚本，见 train/README.md）才能做，届时应换成黑箱优化 + 协同演化两步法复核。少数字段仍是纯占位、没有随 v1 一起复核——见各自局部的 _note（例如 global 的 cancel_refund_permille）。",
   "_note_1b": "改这里的数会变动 `StatsTable::fingerprint()`，于是既有回放以 `StatsMismatch` 失效（要重录）。那是设计的，不是坏了——见 rts/stats.hpp。**另有两个数被 tools/map_gen 读走**：`units.Ram.speed`（第 5 条算行军占比）与**所有 buildings 的 vision 最大值**（第 14 条那条「静态建筑视野不得覆盖集结区」的上限）。动这两处要连带看 tools/map_gen/thresholds.json，校验器会自己报不一致。",
   "_note_2": "结构性的零不在这里承载：Scout/Mason/Wraith 打不了任何东西是 is_combat()（结构），Phoenix 对墙为 0 是 can_break_structure()（结构）。这里的 damage: 0 只是与结构一致的诚实默认。",
@@ -7,8 +7,8 @@
   "_note_4": "cost_gold/train_ticks 只对守方单位有意义（金币管人力）；攻方无经济，编成走 Composition 预算，那两列诚实地填 0。建筑造价「同时耗石与木、配比不同」是设计（墙偏石、门楼偏木），收入种类是结构（采集建筑走 resource_of、Keep 恒产金币），income_amount 只是数额。",
   "_note_5": "proj_speed 只对真放弹丸的生效（结构：单位侧 Ranged × 非空中 = Archer/Shade，建筑侧凡开火皆弹丸 = Tower/Flak；Ram 前摇撞击、Phoenix 俯冲直击，配了也不放）。<= 0 = 瞬时命中。0.45 格/tick = 每秒 9 格，5 格射程约飞 0.55 秒——占位，只求肉眼看得见箭在飞。",
   "_note_6": "schema stats/5 -> stats/6：单位新增 splash_dmg_permille（2026-08-31 试玩反馈：Ram 的 AOE 圈内主目标和溅射单位吃的是同一份伤害，等于『点一个等于点一片』，太离谱）。1000 = 与主目标同倍率（对 aoe_radius=0 的单位这个字段用不上，诚实填 1000）；aoe_radius>0 时 StatsLoader 会拦 splash_dmg_permille>=1000（主目标必须比溅射打得更重）。目前只有 Ram 需要真的调它，见该条目局部 _note。",
-  "_note_7": "schema stats/6 -> stats/7：建筑等级上限落地（CLAUDE.md『守方的一条升级轴：堡垒等级』三个输出里的第一个——征兵选级/批量升级/人口上限那两个输出仍未做）。三条新增：`global.building_level_cap_divisor`（建筑等级上限 = ceil(Keep 等级 / 这个数），2 对应《波次预算曲线与堡垒等级曲线.md》§2『每 2 级堡垒开 1 级建筑上限』）；每座建筑新增 upgrade_cost_stone/_wood/upgrade_ticks。**Wall/Gate/Watch/Barrack/Fence/Quarry/Lumber/Mine/Tower/Flak 十座的数直接抄各自的 cost_stone/cost_wood/build_ticks**——『升一级约等于再建一次』只是能自洽的起点，不是标定值；Keep 自己的 cost 都是 0（不可再建，结构），照抄会让升级免费，改用一组单独占位（全场最贵最慢，匹配核心投资定位）。**已知空转，不阻塞落地**：hp_permille_per_level 现在是 0（§1.4 待表决），意味着任何建筑靠升级涨的血量在数值上是 0；升 Keep 本身仍有实质效果（抬高其他建筑上限），Tower/Flak 的伤害缩放吃 dmg_permille_per_level=220（非零），立刻见效——血量那一半等 §1.4 表决后再补数字，机制先按正确的形状落地。",
-  "_note_8": "2026-08-31 试玩反馈第二轮（数值不改 schema，仍是 stats/7）：守方移动单位血量普遍偏低、城墙也偏脆，配合当时偏紧的波次节奏，开局手感过差。两处调整：`Archer`/`Spear`/`Ranger`/`Scout`/`Mason` 的 `max_hp` 翻倍（100→200 / 180→360 / 130→260 / 50→100 / 60→120——`Scout`/`Mason` 本零战力，翻倍只延长其被杀所需时间，`is_combat()` 仍为假，结构不变）；`Wall.max_hp` +50%（800→1200）。**`Gate` 未同步调整，仍是 520**——用户原话点名的是「城墙」，花名册里 `Wall`/`Gate` 是两个独立条目，这次按字面只改 `Wall`；副作用是 `Gate`/`Wall` 的血量比从 0.65 被动拉到约 0.43，城门相对更脆（既定薄弱点这条设计意图没被削弱，只是被动加深了）——CLAUDE.md「可升级，只加血量，与 Wall 同倍率」那条管的是 `Upgrade` 命令按等级涨的量，不管这次的基线值调整，两者不冲突；若这个副作用不是预期效果，需团队另外决定是否让 `Gate` 同步 +50%。这批改动会连带变动 `StatsTable::fingerprint()`，既有回放需要重录，是设计的、不是坏了（见 `rts/stats.hpp`）。波次节奏改动见 `game/src/demo_driver.cpp` 的 `kBuildTicksPlaceholder`/`kFirstBuildTicksPlaceholder`；「所有城墙初始满血」只改了两张手写地图（`demo_skirmish.json`、`reference_border_keep_01.json`），训练地图集 `thresholds.json` 的 `wall_hp_frac_range` 残血生成未动——理由见 `tools/map_gen/build_reference_map.py` 同一天的注释：训练侧的残血墙多样性是独立于这次演示手感调整的既有设计。",
+  "_note_7": "schema stats/6 -> stats/7：建筑等级上限落地（CLAUDE.md『守方的一条升级轴：堡垒等级』三个输出里的第一个——征兵选级/批量升级/人口上限那两个输出仍未做）。三条新增：`global.building_level_cap_divisor`（建筑等级上限 = ceil(Keep 等级 / 这个数），2 对应《波次预算曲线与堡垒等级曲线.md》§2『每 2 级堡垒开 1 级建筑上限』）；每座建筑新增 upgrade_cost_stone/_wood/upgrade_ticks。**Wall/Gate/Watch/Barrack/Fence/Quarry/Lumber/Mine/Tower/Flak 十座的数直接抄各自的 cost_stone/cost_wood/build_ticks**——『升一级约等于再建一次』只是能自洽的起点，不是标定值；Keep 自己的 cost 都是 0（不可再建，结构），照抄会让升级免费，改用一组单独占位（全场最贵最慢，匹配核心投资定位）。**落地时认下的「已知空转」（`hp_permille_per_level` 为 0 ⇒ 升级涨血量为 0）当天已随 §1.4 落地消解**——两个系数都成了 220（见 `_note` 与 `_note_1b_wall_upgrade`），十一座建筑的升级真的涨血量，机制自落地起就没有空转过。",
+  "_note_8": "2026-08-31 试玩反馈第二轮（**纯数值改动，不进 schema 版本号**——写成时是 stats/7，同日 §1.4 落地后 schema 进到 stats/8，与本条无关）：守方移动单位血量普遍偏低、城墙也偏脆，配合当时偏紧的波次节奏，开局手感过差。两处调整：`Archer`/`Spear`/`Ranger`/`Scout`/`Mason` 的 `max_hp` 翻倍（100→200 / 180→360 / 130→260 / 50→100 / 60→120——`Scout`/`Mason` 本零战力，翻倍只延长其被杀所需时间，`is_combat()` 仍为假，结构不变）；`Wall.max_hp` +50%（800→1200）。**`Gate` 未同步调整，仍是 520**——用户原话点名的是「城墙」，花名册里 `Wall`/`Gate` 是两个独立条目，这次按字面只改 `Wall`；副作用是 `Gate`/`Wall` 的血量比从 0.65 被动拉到约 0.43，城门相对更脆（既定薄弱点这条设计意图没被削弱，只是被动加深了）——CLAUDE.md「可升级，只加血量，与 Wall 同倍率」那条管的是 `Upgrade` 命令按等级涨的量，不管这次的基线值调整，两者不冲突；若这个副作用不是预期效果，需团队另外决定是否让 `Gate` 同步 +50%。这批改动会连带变动 `StatsTable::fingerprint()`，既有回放需要重录，是设计的、不是坏了（见 `rts/stats.hpp`）。波次节奏改动见 `game/src/demo_driver.cpp` 的 `kBuildTicksPlaceholder`/`kFirstBuildTicksPlaceholder`；「所有城墙初始满血」只改了两张手写地图（`demo_skirmish.json`、`reference_border_keep_01.json`），训练地图集 `thresholds.json` 的 `wall_hp_frac_range` 残血生成未动——理由见 `tools/map_gen/build_reference_map.py` 同一天的注释：训练侧的残血墙多样性是独立于这次演示手感调整的既有设计。",
   "units": {
     "Archer": {
       "max_hp": 200,
@@ -392,11 +392,11 @@
     }
   },
   "global": {
-    "_note": "§1.4（等级提升哪几个数值）**已定：只涨伤害**（#96，理由见《数值设计与成本产出矩阵.md》§2）。两个系数仍然都存、形状不动，`hp_permille_per_level` 归零即是那个决定的落地。",
-    "_note_1b_wall_upgrade": "**`hp_permille_per_level = 0` 与「城墙/城门可升级、只加血量」互斥，而 CLAUDE.md 明写这两条必须成对存在。** 两者共用这一个系数（建筑侧没有单独的），所以墙升一级时血量不涨，而破坏速率照 `dmg_permille_per_level` 涨 ⇒ 破墙时间 ∝ 1/L → 0，正是 CLAUDE.md「结构破坏规则」点名的那个失效（『只让速率随等级则 → 0，三阶段攻防的中段消失』）。改动前是 150/150 对称，那时不变量由构造满足。**这段曾写『建筑还没有等级字段』，已过期**——建筑等级上限已落地（`World::b_level_`、`CommandKind::Upgrade`，见 `_note_7`），所以现在是「机制对、这一个系数还没标定」而不是「机制不存在」：墙确实能升级，只是升级带来的血量增量在数值上是 0。连带影响仍在跑：flow.cpp 的 `break_ticks = ceil(墙血/dmg) × period`，分母吃等级系数、分子不吃。§1.4 表决出 hp 那一半的取值后，这条自动生效，不需要再改代码。",
+    "_note": "§1.4（等级提升哪几个数值）**已定：血量与伤害各开一份平方根**（`√(1 + k(L−1))`，见 `rts_core/include/rts/combat_math.hpp` 的 `level_permille`）。下面两个系数就是那个 k，**语义是「开方前」的线性系数，不是「每级 +x‰」**，且**必须相等**——`p − q = 0` 是结构约束（TTK 与破墙时间两条不变量都只看 p−q），`StatsLoader` 载入时拒绝不相等的表。k = 220 使战力曲线与 #96 那版「只涨伤害」**逐点相同**（1.22 / 1.44 / 1.88 / 2.98 / 5.18 / 9.58，对应 2/3/5/10/20/40 级），换来的是 TTK 从 ×0.19 回到 ×1.00、破墙时间从 ×0.20 回到 ×1.03——没有一项更差。**k 本身仍是占位**：它管 `p + q`（一级值多少战力），要与波次预算、堡垒等级两条曲线一起标。理由全文见 `CLAUDE.md` §1.4 段。",
+    "_note_1b_wall_upgrade": "**「城墙/城门可升级、只加血量」与「破坏速率随等级」这两条现在真的成对成立了。** 此前 `hp_permille_per_level = 0`（#96 那版「只涨伤害」），于是墙升一级血量不涨而破坏速率照涨 ⇒ 破墙时间 ∝ 1/L → 0，正是 `CLAUDE.md`「结构破坏规则」点名的失效（『只让速率随等级则 → 0，三阶段攻防的中段消失』）。§1.4 改成各开一份平方根之后，两者同比例缩放 ⇒ **破墙时间基本不随等级漂移**（实测 ×1.03，余量来自整数舍入），那条区间不变量由构造满足、不再靠人盯。连带 `flow.cpp` 的 `break_ticks = ceil(墙血/dmg) × period` 也自洽了：分子读的是实时血量（含等级加成）、分母吃等级系数，两边同源。",
     "_note_2": "income_period_ticks 100 = 每 5 秒结算一次。repair_wood_per_1000hp 15 ⇒ 修满一段 800 血的墙约 12 木，显著低于重建的 30 石 + 10 木（「维修成本显著低于重建」的占位实现）。cancel_refund_permille 上界 1000 是结构（超过就是撤单印钞），当前 700 是占位。",
     "_note_3": "冲锋三项也是占位：每格 +250‰、封顶 4 格（满助跑双倍伤害）、枪阵对满动量冲锋 +800‰；克制幅度随动量线性放大是机制（combat_math），这里只有端点。高度优势三项（miss / 伤害倍率 / 远程射程加成）与上墙延迟全是占位。哪些效果存在是结构（Stronghold 那三条，见 CLAUDE.md「防御建筑与城墙是消耗品」）；墙血 < 一半三项一起失效（局部破损）不是数值，是 on_high_wall 的判据。miss 与伤害倍率的上界 1000 也是结构（载入器会拦）：超过就把高度优势写成劣势。",
-    "hp_permille_per_level": 0,
+    "hp_permille_per_level": 220,
     "dmg_permille_per_level": 220,
     "income_period_ticks": 100,
     "mason_work_radius": 1.6,
@@ -410,7 +410,7 @@
     "charge_bonus_permille_per_cell": 180,
     "charge_max_cells": 4.0,
     "anti_charge_permille": 3200,
-    "_note_4_design": "hp_permille_per_level=0，只涨伤害。实验验证见《数值设计与成本产出矩阵.md》——两个都涨(L²)会让克制关系随等级差呈平方衰减，只涨血量会让TTK随等级发散(威胁短episode)，只涨伤害两害皆免。 anti_charge_permille 从占位1800提到3200——实测验证发现1800不足以让『开阔地怕枪阵』成立（骑士自身冲锋倍率2.0x仍能压过枪阵1.8x反冲锋倍率），3200(3.2x)配合charge_bonus从250降到180后，开阔地满助跑枪阵明确获胜、巷战(无助跑)明确被骑兵反打，两个场景都验证通过。",
+    "_note_4_design": "**这条原写 `hp_permille_per_level=0，只涨伤害`，已被同日的一次测量推翻，见上面 `_note`。** 原论证（《数值设计与成本产出矩阵.md》§2）没有算错，但它假设了「每属性线性增长」——放开成 `血 = B^p` / `伤 = B^q` 之后，「克制比例衰减」只吃 p+q、「TTK」与「破墙时间」只吃 p−q，两者正交，于是 p=q=0.5 在战力曲线逐点不变的前提下把后两项修回 1.0。 anti_charge_permille 从占位 1800 提到 3200 那一条**不受影响、仍然成立**——实测 1800 不足以让『开阔地怕枪阵』成立（骑士自身冲锋 2.0x 压过枪阵 1.8x 反冲锋），3200 配合 charge_bonus 250→180 后开阔地满助跑枪阵明确获胜、巷战无助跑明确被反打。",
     "building_level_cap_divisor": 2
   },
   "_note_6_design": "数值设计 v1（ArLiangz，2026-08-30/31）：方法论与逐条验证见根目录《数值设计与成本产出矩阵.md》。绝对量级沿用本表原有占位值，只改比例关系与三处已发现的结构性问题（等级缩放选择、Ram速度与地图尺寸自洽、三种资源产出差异化）；改动前先与本表最新版逐字段 diff，凡无法追溯到已写明理由的差异一律撤回原值。"

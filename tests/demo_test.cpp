@@ -282,3 +282,90 @@ TEST_CASE("经济与补员的闭环：建金矿 → 攒够金 → 征兵 → 新
         });
     REQUIRE(found_new);
 }
+
+// 开局那三名弓手**真的站上了墙**，并且场景装配把「站在墙头」这件事说了出来。
+//
+// **这条测试补的是一处结构性空缺，不是某个函数的行为。** demo 的驻守目标原先写成
+// 「堡垒正东三格」这样的固定偏移，而实战地图换成随机池（`city_radius` 也随机）
+// 之后城墙离堡垒有远有近：指令落在空地上被 `apply_one` 直接丢掉，弓手也摆在
+// 空地上。症状是**演示里从来没有人站上墙**，而当时一条测试都不会红——
+// 「没人登墙」与「三个人都登上了」在原有断言下都说得通。
+//
+// 三段各自封一种回归：
+//   1. 指令落在真墙上（沿墙的走向取三格，不是照堡垒的偏移方向）
+//   2. 人真的登顶（`mount` 归零、位置落到墙格中心）
+//   3. `DrawItem::stand_on` 填的是**脚下那座建筑**的标识符——渲染侧据它算抬升，
+//      填错了画面上就是「人站在墙外」，而那正是这批改动要修的那个 bug
+TEST_CASE("驻守：开局的三名弓手登上真实的墙，并带上 stand_on", "[demo]") {
+    // **刻意不用 `demo_map()`（`demo_skirmish.json`）跑这一条。**
+    // 那张夹具图 `keep=(4,6)`、墙在 `i=7`，于是被换掉的那个固定偏移
+    // 「堡垒正东三格」**恰好命中真墙**——照它跑，这条测试对本次要修的 bug
+    // 永远是绿的（写完先破坏性验证了一次，第一版正是这样绿着过的）。
+    //
+    // 换成实战尺度的参考图（`keep=(36,36)`、最近的墙段在 `j=23`）：固定偏移在这里
+    // 落在空地上，于是「指令没落在墙上」这件事才会真的红。
+    // **这不是挑一张更难的图，是挑一张判据不退化的图。**
+    const game::MapData map = game::MapLoader::from_file(
+        std::string(GAME_DATA_DIR) + "/maps/reference_border_keep_01.json");
+    const rts::StatsTable stats = demo_stats();
+    game::DemoBattle d(map, stats, 7);
+
+    // 登墙延迟从数值表来（占位 30 tick），所以推进量按它算、不写死一个 tick 数。
+    const int mount = stats.global.garrison_mount_ticks;
+    d.update(mount + 20);
+
+    const rts::WorldView view = d.world().view(rts::Side::Defender);
+    const auto u_alive = view.unit_alive();
+    const auto u_type = view.unit_type();
+    const auto u_pos = view.unit_pos();
+    const auto u_garrison = view.unit_garrison();
+    const auto u_mount = view.unit_mount();
+
+    int on_wall = 0;
+    for (std::size_t k = 0; k < u_alive.size(); ++k) {
+        if (u_alive[k] == 0 || u_type[k] != rts::UnitType::Archer) continue;
+        if (u_garrison[k] == rts::kNoSlot) continue;
+        REQUIRE(u_mount[k] == 0);   // 延迟已走完
+        // 登顶即落位墙心（`tick_garrison`）。位置对不上就说明抬升的基准点是错的。
+        const rts::GridPos cell = rts::pos_of_slot(u_garrison[k], view.width());
+        const rts::Vec2 center = rts::center_of(cell);
+        REQUIRE(u_pos[k].x == center.x);
+        REQUIRE(u_pos[k].y == center.y);
+        // 那一格上真的有一段完工的墙或门（否则指令本该被丢掉，人不该在上面）。
+        bool wall_here = false;
+        for (std::size_t b = 0; b < view.bld_alive().size(); ++b) {
+            if (view.bld_alive()[b] == 0 || view.bld_built()[b] == 0) continue;
+            if (view.bld_pos()[b].i != cell.i || view.bld_pos()[b].j != cell.j) continue;
+            wall_here = view.bld_type()[b] == rts::BldType::Wall ||
+                        view.bld_type()[b] == rts::BldType::Gate;
+        }
+        REQUIRE(wall_here);
+        ++on_wall;
+    }
+    // **三个都要上去。** 只断言 ">= 1" 的话，「三格里只有一格是墙」那个 bug
+    // 照样绿——它当时的表现正是「只有中间那个人登上了」。
+    REQUIRE(on_wall == 3);
+
+    // 渲染契约那一半：登顶的单位带 `stand_on`，且它等于脚下那座建筑的标识符。
+    const std::vector<game::DrawItem> sorted =
+        game::BattleScene::sorted(map, view, d.world().now());
+    int with_stand = 0;
+    for (const game::DrawItem& it : sorted) {
+        if (!it.continuous || it.stand_on.empty()) continue;
+        ++with_stand;
+        REQUIRE((it.stand_on == "Wall" || it.stand_on == "Gate"));
+        // 与同一格上那座建筑的图对得上（demo 选中的那段含门楼，所以两种都会出现）。
+        bool matched = false;
+        for (const game::DrawItem& b : sorted) {
+            if (b.continuous || b.sprite != it.stand_on) continue;
+            if (b.pos.i == it.pos.i && b.pos.j == it.pos.j) matched = true;
+        }
+        REQUIRE(matched);
+    }
+    REQUIRE(with_stand == 3);
+    // 没登墙的单位不许带 `stand_on`——带了就会被抬到半空。
+    for (const game::DrawItem& it : sorted) {
+        if (it.continuous && it.stand_on.empty()) continue;
+        if (!it.continuous) REQUIRE(it.stand_on.empty());
+    }
+}
