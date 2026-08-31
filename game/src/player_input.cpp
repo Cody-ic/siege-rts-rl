@@ -204,16 +204,23 @@ bool can_repair_hint(const rts::WorldView& view, rts::GridPos cell) {
     return view.bld_hp()[idx] < view.bld_max_hp()[idx];
 }
 
-bool can_afford_repair(const rts::WorldView& view, rts::GridPos cell) {
+std::int64_t repair_wood_cost(const rts::WorldView& view, rts::GridPos cell) {
     const int k = bld_slot_at(view, cell);
-    if (k < 0) return false;
+    if (k < 0) return 0;
     const auto idx = static_cast<std::size_t>(k);
     const std::int64_t missing = view.bld_max_hp()[idx] - view.bld_hp()[idx];
-    if (missing <= 0) return true;   // 没有缺口，谈不上花不花钱
+    if (missing <= 0) return 0;   // 没有缺口，谈不上花不花钱
     // 与 `World` 的 `Repair` 解算逐字相同的公式（`rts_core/src/world.cpp`），
     // 抄一份而不是各自推导——两处算法分叉正是「绿框骗人」这类 bug 的成因。
-    const std::int64_t wood =
-        (missing * view.stats().global.repair_wood_per_1000hp + 999) / 1000;
+    return (missing * view.stats().global.repair_wood_per_1000hp + 999) / 1000;
+}
+
+bool can_afford_repair(const rts::WorldView& view, rts::GridPos cell) {
+    // 这一格没有建筑：`repair_wood_cost` 会返回 0，但那是「没有缺口」的
+    // 返回值，不能借这条路把「格子本身无效」悄悄判成「买得起」。
+    if (bld_slot_at(view, cell) < 0) return false;
+    const std::int64_t wood = repair_wood_cost(view, cell);
+    if (wood <= 0) return true;   // 没有缺口，谈不上花不花钱
     return view.stock()[static_cast<std::size_t>(rts::Resource::Wood)] >= wood;
 }
 

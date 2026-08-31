@@ -290,6 +290,13 @@ TEST_CASE("维修提示：只有完工、掉了血、且没在修的建筑可以
     REQUIRE_FALSE(game::can_repair_hint(v, rts::GridPos{4, 4}));   // 工地不「修」
     REQUIRE_FALSE(game::can_repair_hint(v, rts::GridPos{8, 1}));   // 空地
 
+    // 没有缺口（满血）与「格子上根本没建筑」都该是 0，但两者的成因不同——
+    // `repair_wood_cost` 对两者都返回 0，`can_afford_repair` 不能把后一种
+    // 也顺着 0 判成「买得起」（那等于把一个无效目标判成合法）。
+    REQUIRE(game::repair_wood_cost(v, rts::GridPos{4, 2}) == 0);
+    REQUIRE(game::repair_wood_cost(v, rts::GridPos{8, 1}) == 0);
+    REQUIRE_FALSE(game::can_afford_repair(v, rts::GridPos{8, 1}));
+
     // 下一条维修命令：木材扣掉、工时排上，于是这一格立刻变成不可再点
     // （已经在修了）——「点了两下扣两次木头」正是这条 hint 要防的。
     w.set_stock(rts::Resource::Wood, 1000);
@@ -369,6 +376,9 @@ TEST_CASE("造价提示：资源不够时红框，够了才绿（试玩报的 bu
     {
         const rts::WorldView v = w.view(rts::Side::Defender);
         REQUIRE(game::can_repair_hint(v, rts::GridPos{4, 3}));
+        // 弹窗把这个数印在「维修」后面（试玩报出来的 bug：原来只有两个字，
+        // 看不出要花多少木材）——钉住具体数值，不止钉「买不买得起」。
+        REQUIRE(game::repair_wood_cost(v, rts::GridPos{4, 3}) == 3);
         REQUIRE_FALSE(game::can_afford_repair(v, rts::GridPos{4, 3}));   // 2 < 3
         const rts::Command c = game::repair_command(rts::GridPos{4, 3}, 10);
         w.submit(rts::Side::Defender, &c, 1);

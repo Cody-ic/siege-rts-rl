@@ -133,6 +133,13 @@ bool can_repair_hint(const rts::WorldView& view, rts::GridPos cell);
 // 类 bug 的另一个来源，所以照抄，不重新推一遍）。
 bool can_afford_repair(const rts::WorldView& view, rts::GridPos cell);
 
+// 修这一格要花多少木材——`can_afford_repair` 内部就是算这个数再比大小，
+// 单独露出来是因为**弹窗要把价钱印在「维修」两个字后面**：光有红绿框，
+// 玩家看不出到底差多少（一次试玩报出来的：维修选项只有「维修」两个字，
+// 不知道要花什么）。这一层与建造/征兵的价钱标签同一个来源，理由见
+// `render/` 的弹窗代码。这一格无效或没有缺口时返回 0。
+std::int64_t repair_wood_cost(const rts::WorldView& view, rts::GridPos cell);
+
 rts::Command repair_command(rts::GridPos cell, int map_width);
 
 }  // namespace game

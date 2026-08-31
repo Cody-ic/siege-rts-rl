@@ -689,6 +689,17 @@ int run_game(const Options& opt) {
                                       legal, action, index});
         };
         char buf[96];
+        // 「维修」这一行在 `Train` 弹窗（插队）与 `Repair` 弹窗（独占）里都会
+        // 出现，标签格式抽成一份——两处各写一遍格式化字符串，正是「造价没
+        // 印出来」这类 bug 的同源问题（一次试玩报出来的：维修选项只有
+        // 「维修」两个字，看不出要花多少木材）。
+        const auto push_repair = [&]() {
+            const std::int64_t wood = game::repair_wood_cost(v, p.cell);
+            std::snprintf(buf, sizeof(buf), "维修 (木%d)", static_cast<int>(wood));
+            push(buf, game::can_repair_hint(v, p.cell) &&
+                         game::can_afford_repair(v, p.cell),
+                PopupKind::Repair, 0);
+        };
         switch (p.kind) {
             case PopupKind::Build:
                 for (std::size_t i = 0; i < buildable.size(); ++i) {
@@ -710,7 +721,7 @@ int run_game(const Options& opt) {
                 // 做成二选一（试玩报出来的 bug：受损后左键只弹维修，练兵
                 // 入口直接消失）。维修永远排在第 0 项。
                 if (game::can_repair_hint(v, p.cell)) {
-                    push("维修", game::can_afford_repair(v, p.cell), PopupKind::Repair, 0);
+                    push_repair();
                 }
                 for (std::size_t i = 0; i < trainable.size(); ++i) {
                     const rts::UnitType ut = trainable[i];
@@ -724,9 +735,7 @@ int run_game(const Options& opt) {
                 }
                 break;
             case PopupKind::Repair:
-                push("维修", game::can_repair_hint(v, p.cell) &&
-                                game::can_afford_repair(v, p.cell),
-                    PopupKind::Repair, 0);
+                push_repair();
                 break;
             case PopupKind::None:
                 break;
