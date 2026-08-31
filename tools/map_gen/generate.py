@@ -3,14 +3,31 @@
 
 §9 要的是**约束式生成，不是自由噪声**：
 
-- **固定**（配置给出）：走廊种类与集结点数量、城内资源点数量与种类、
-  走廊口宽度、地图尺寸
-- **随机**（按种子）：岩壁轮廓、森林斑块、外部资源点位置、初始缺口、墙的残血分布
+- **固定**（配置给出）：地图尺寸（`size`，理由见下）
+- **随机，且 2026-08-31 起范围扩大**（按种子，从 `thresholds.json` 的
+  `generator` 段的区间/候选域里抽）：走廊种类与集结点数量（`corridors` 候选域
+  + `corridor_count_range`）、城区半径（`city_radius_range`）、走廊口宽度
+  （`corridor_mouth_width_range`）、城内资源点数量（`inner_resources_range`，
+  三种各自独立抽，下界仍是 1）、外部资源簇数量（`outer_clusters_range`）、
+  岩壁轮廓、森林斑块、外部资源点位置、初始缺口、墙的残血分布
 - 每张生成结果跑第 8 节校验器，**不通过就丢弃重生成**
 - `map_id` 编码生成种子，使任何一局训练都可复现
 
-固定项若也随机，训练数据里就混入「这张图的走廊口特别窄」这类与策略无关的方差，
-波次课程的信号会被淹没。
+**这次扩大随机范围的动机**：实战对局不该总是同一张地图——玩家真正打开游戏时
+应当每次看到不一样的布局，只有"装饰性的随机"（森林斑块位置之类）不够，连一部分
+此前写死的**结构**参数（城区半径、走廊口宽度、走廊种类与数量、城内资源点配比）
+也要跟着变，否则每张图读起来还是"同一座城，换了几棵树"。§9 原有的「固定项若也
+随机，训练数据里会混入与策略无关的方差」这条顾虑，对**训练地图集**依然成立
+（课程学习需要控制变量），但已不适用于**默认对局用的地图池**——那批图的目的从
+「给 RL 一致的训练信号」变成「给玩家持久的可玩性」，取舍随之不同。两者共用同一个
+生成器，只是消费方式不同：训练侧若仍需要窄范围的一批图，可以用同一份
+`thresholds.json` 另开一档 profile 或临时收紧区间，本次不做那一半（当前只有对局
+默认地图池这一个消费者）。
+
+`size` 依然固定，理由见下面的 `_FINDING_size_vs_ram_speed`——它是唯一被生成器
+与校验器**批量实测过自洽性**的值（74 格起 60/60 全部因第 5 条被否），随它一起
+放开风险不对称：其余参数松开后不合法就重试即可，`size` 松开后可能在
+`max_attempts` 内都收敛不到一张合法图。
 
 ## 为什么需要一批而不是一张
 
@@ -42,6 +59,10 @@
 3. **城圈是切比雪夫方环**（正方形），所以走廊最多四条（每边一个口）。
    §2.2 的走廊候选清单正好四种，但 `spawn_count_max` 允许更多——
    真要更多得换城圈形状，生成器会在启动时报错而不是悄悄挤在一条边上。
+   **2026-08-31**：走廊数量与种类选择本身已经是随机项（`corridor_count_range`，
+   见 `_resolve()`），但这条上限没变——`thresholds.py` 在配置加载时就会拒绝
+   `corridor_count_range` 的上界超过候选域大小，本函数里那条
+   `len(corridors) > len(_SIDES)` 检查是运行期的第二道防线。
 """
 
 from __future__ import annotations
@@ -51,6 +72,7 @@ import random
 import sys
 from collections import Counter
 from pathlib import Path
+from types import SimpleNamespace
 
 import mapfile
 import thresholds as thmod
@@ -548,10 +570,57 @@ def place_obstacles(cv, cfg, rng):
 side_to_corridor = {}
 
 
+def _resolve(cfg, rng):
+    """把 `thresholds.json` 里的区间/候选域抽样成**这一次生成**要用的具体值。
+
+    **必须用调用方传入的、已经按种子播种的 `rng`**——`generate_one()` 用同一个
+    种子重建的 `rng` 会重放出完全相同的抽样序列，`map_id` 编码种子、同种子
+    逐字节复现这条不变量因此不受影响（`check_generator_is_deterministic` 钉住）。
+
+    返回的对象字段名与旧的固定式 `Generator` 完全一致（`city_radius`、
+    `corridor_mouth_width`、`outer_clusters`、`inner_resources`、`corridors`），
+    所以下面 `build_city_wall_ring` 等消费函数一行都不用改——它们本来就不知道
+    自己拿到的是"配置里唯一的值"还是"这次抽到的值"。
+    """
+    k_lo, k_hi = cfg.corridor_count_range
+    k = rng.randint(k_lo, min(k_hi, len(cfg.corridors)))
+    corridors = rng.sample(cfg.corridors, k)
+    rng.shuffle(corridors)   # 哪条边对应哪种走廊性质也随之变化，不止选哪几种
+
+    cr_lo, cr_hi = cfg.city_radius_range
+    city_radius = rng.randint(cr_lo, cr_hi)
+
+    cmw_lo, cmw_hi = cfg.corridor_mouth_width_range
+    corridor_mouth_width = rng.randint(cmw_lo, cmw_hi)
+
+    oc_lo, oc_hi = cfg.outer_clusters_range
+    outer_clusters = rng.randint(oc_lo, oc_hi)
+
+    inner_resources = {t: rng.randint(v[0], v[1])
+                        for t, v in cfg.inner_resources_range.items()}
+
+    return SimpleNamespace(
+        size=cfg.size,
+        city_radius=city_radius,
+        corridors=corridors,
+        corridor_mouth_width=corridor_mouth_width,
+        inner_resources=inner_resources,
+        outer_clusters=outer_clusters,
+        outer_cluster_size=cfg.outer_cluster_size,
+        initial_breaches=cfg.initial_breaches,
+        wall_hp_frac_range=cfg.wall_hp_frac_range,
+        forest_patches=cfg.forest_patches,
+        forest_patch_radius=cfg.forest_patch_radius,
+        obstacles=cfg.obstacles,
+        max_attempts=cfg.max_attempts,
+    )
+
+
 def generate_one(seed, cfg, th):
     """按种子生成一张图。返回 doc；不保证合法，合法性由调用方跑校验器判。"""
     global side_to_corridor
     rng = random.Random(seed)
+    cfg = _resolve(cfg, rng)
 
     corridors = list(cfg.corridors)
     if len(corridors) > len(_SIDES):
