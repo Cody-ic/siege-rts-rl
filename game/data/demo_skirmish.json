@@ -1,7 +1,7 @@
 {
-  "_note": "演示对局用的手写小图，不是 §9 的正式演示地图，也没有过 tools/map_gen 校验器（它不是训练地图）。一切坐标与 hp_frac 都是为了让 demo 好看：攻方要过桥、要面对一道带门的墙线、防空要护得住城心。按 CLAUDE.md「关于数值」这些都是占位。2026-08-31 重构：`spawns[].corridor` 字段已随「走廊」概念一起废除（本图经 mapfile 重序列化、content_hash 已重算）。",
+  "_note": "演示对局用的手写小图，不是 §9 的正式演示地图，也没有过 tools/map_gen 校验器（它不是训练地图）。一切坐标与 hp_frac 都是为了让 demo 好看：攻方要过桥、要面对一道带门的墙线、防空要护得住城心。按 CLAUDE.md「关于数值」这些都是占位。2026-08-31 重构：`spawns[].corridor` 字段已随「走廊」概念一起废除（本图经 mapfile 重序列化、content_hash 已重算）。 2026-08-31 试玩反馈：全部初始墙段改满血（原先有一段 0.55）——理由与 `reference_border_keep_01.json` 同一天的改动一致，见 `tools/map_gen/build_reference_map.py` 的注释。",
   "buildings": [],
-  "content_hash": "sha256:238f454132d08a53eeeba10003b32098136e281c88e951248ce6891dfd18c585",
+  "content_hash": "sha256:d6ecc9900d4b18d391375d87d513deb13808e7994d22d065c6f39ef1d0cf6ef7",
   "format": 1,
   "initial_walls": [
     {
@@ -13,7 +13,7 @@
       ]
     },
     {
-      "hp_frac": 0.55,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         7,

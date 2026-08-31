@@ -43,12 +43,16 @@ TEST_CASE("demo 对局是确定性的，且攻防真的发生了", "[demo]") {
     const int initial_defenders = a.world().live_unit_count(rts::Side::Defender);
     const int initial_blds = a.world().live_bld_count();
 
-    a.update(1200);   // 一分钟仿真时间
-    b.update(1200);
+    // 2026-08-31 血量翻倍 + 墙 +50% + 首波延后 10s 之后，1200 tick（一分钟）
+    // 里可能一次伤亡/拆除都还没发生（首波 t=360 才生波，双方又都更抗打）——
+    // 那会把这条测试的意图（demo 真的在打，不是两队人马对视）测成假阳性的
+    // 「通过」。3000 tick（2.5 分钟）实测足够跨过第 2 波，留出真实攻防的窗口。
+    a.update(3000);
+    b.update(3000);
 
     // 同一张图、同一份表、同一个种子 ⇒ 同一个世界。demo 若不确定，
     // 「答辩时演的和昨天录的不一样」就会成真。
-    REQUIRE(a.world().now() == 1200);
+    REQUIRE(a.world().now() == 3000);
     REQUIRE(a.world().state_hash() == b.world().state_hash());
 
     // 攻防发生过：守方有人阵亡，或有建筑被拆（两条都不成立说明脚本或机制哑了）。
@@ -67,7 +71,7 @@ TEST_CASE("波次循环：建造 → 生波 → 清波 → 下一波建造", "[d
     REQUIRE(a.world().phase() == rts::WavePhase::Build);
     REQUIRE(a.world().live_unit_count(rts::Side::Attacker) == 0);
 
-    a.update(200);   // 占位建造时长 160，越过它
+    a.update(400);   // 占位建造时长 360（首波），越过它
     REQUIRE(a.world().phase() == rts::WavePhase::Assault);
     REQUIRE(a.world().live_unit_count(rts::Side::Attacker) > 0);
 
@@ -75,9 +79,10 @@ TEST_CASE("波次循环：建造 → 生波 → 清波 → 下一波建造", "[d
     //   * 循环真的在走——守方至少清掉第一波、活着见到第二波
     //   * **最终必败**——demo 守方没有补员，攻方编成随波数涨，这不是数值
     //     碰巧，是结构（「胜率在必败的模式里没有定义，看中位存活波数」）。
-    // 占位表 + 种子 7 下实测：撑到波 4、Keep 于 t≈3700 陷落。断言取
-    // 「≥ 2 且必败」而不钉具体波数——数值表会动，形状不会。
-    a.update(6000);
+    // 断言取「≥ 2 且必败」而不钉具体波数与具体 tick 预算——数值表与波次
+    // 节奏都会动，形状不会。2026-08-31 守方血量翻倍 + 墙 +50% + 波次间隔
+    // 拉长后，实测撑到必败所需的 tick 数明显变长，预算相应放宽。
+    a.update(20000);
     REQUIRE(a.world().wave() >= 2);
     REQUIRE(a.defeated());
 }
@@ -92,7 +97,7 @@ TEST_CASE("波次强度由易到难：第 1 波没有 Ram/Shade", "[demo]") {
     const rts::StatsTable stats = demo_stats();
     game::DemoBattle a(map, stats, 7);
 
-    a.update(200);   // 占位建造时长 160，越过它触发第 1 波生波
+    a.update(400);   // 占位建造时长 360（首波），越过它触发第 1 波生波
     REQUIRE(a.world().wave() == 1);
     REQUIRE(a.world().live_unit_count(rts::Side::Attacker) > 0);
 

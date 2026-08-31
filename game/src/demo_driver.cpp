@@ -113,7 +113,14 @@ rts::WorldInit demo_init(const MapData& map, const rts::StatsTable& stats,
 // 建造阶段时长与编成曲线都是**占位**：正式形态里前者是待标定数值、
 // 后者由攻方宏观层按双预算决定（编成位线性封顶 / 兵力超线性）。
 // 这里只求循环的形状对：波数涨、编成随之变厚、等级随波缓涨。
-constexpr int kBuildTicksPlaceholder = 160;   // 8 秒 @ 20 Hz
+//
+// 2026-08-31 试玩反馈：波次节奏太紧，且第 1 波来得太快、玩家还没看清初始
+// 布局。原先两处（首波前的建造倒计时、清波后到下一波的建造倒计时）共用同
+// 一个 160 tick（8s），现在拆成两个常量分别调：波次间隔只需要「至少 +5s」，
+// 首波额外再退后 10s（不是「间隔 +5s 之后再退后 10s」，是各自独立地从原先
+// 那个 8s 起算）。
+constexpr int kBuildTicksPlaceholder = 260;        // 13 秒 @ 20 Hz（原 8s，波次间隔 +5s）
+constexpr int kFirstBuildTicksPlaceholder = 360;   // 18 秒 @ 20 Hz（原 8s，首波延后 10s）
 
 std::int32_t wave_level(int wave) {
     return 1 + (wave - 1) / 3;   // 占位：每三波涨一级
@@ -149,7 +156,7 @@ DemoBattle::DemoBattle(const MapData& map, const rts::StatsTable& stats,
     w_.set_stock(rts::Resource::Stone, 120);
     w_.set_stock(rts::Resource::Wood, 120);
     // 从建造阶段开始（World 的初始 phase 就是 Build）：倒计时走完才生波。
-    build_left_ = kBuildTicksPlaceholder;
+    build_left_ = kFirstBuildTicksPlaceholder;
     issue_actions();
 }
 

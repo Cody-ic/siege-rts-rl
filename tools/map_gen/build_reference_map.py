@@ -39,7 +39,14 @@ CFG = SimpleNamespace(
     outer_clusters_range=[4, 4],
     outer_cluster_size=[2, 3],
     initial_breaches=[1, 1],
-    wall_hp_frac_range=[0.35, 1.0],
+    wall_hp_frac_range=[1.0, 1.0],
+    # 2026-08-31 试玩反馈：这张手写演示图开局满血（原先 [0.35, 1.0] 撒残血，
+    # 叠加当时偏低的单位血量后开局手感过难）。**这不是对 2.3「初始墙段允许带
+    # 残血」那条通用设计原则的推翻**——`generate.py` 的训练地图集仍走
+    # `thresholds.json` 的 `wall_hp_frac_range`（保留残血，服务 RL 训练侧的
+    # 「修旧/建新/造兵」三方决策与残血墙多样性）；这里改的只是这一张演示地图
+    # 的具体取值。不影响「AI 是否利用已有缺口」评估指标——那条测的是
+    # `initial_breaches` 留出的完整缺口，与 `hp_frac` 是两个独立字段。
     forest_patches=[6, 9],
     forest_patch_size=[4, 8],
     rock_patches_range=[3, 5],
