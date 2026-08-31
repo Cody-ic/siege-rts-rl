@@ -31,7 +31,7 @@ const char* const kMinimal = R"({
   },
   "keep": [0, 0],
   "spawns": [{ "id": 0, "pos": [2, 1], "corridor": "open" }],
-  "resources": [{ "type": "stone", "pos": [1, 0], "tier": "inner" }],
+  "resources": [{ "type": "stone", "pos": [1, 0], "tier": "inner", "unlock_wave": 1 }],
   "initial_walls": [{ "kind": "Wall", "pos": [0, 1], "hp_frac": 1.0 }],
   "obstacles": [{ "type": "Stump", "pos": [2, 0] }]
 })";
@@ -178,6 +178,22 @@ TEST_CASE("格式不合法要抛，而不是读出一张看起来正常的图", 
         // 而不是一段血量为 0 的墙——后者会让渲染层画出一段看不见摸不着的墙。
         std::string s = kMinimal;
         s.replace(s.find("\"hp_frac\": 1.0"), 14, "\"hp_frac\": 0.0");
+        REQUIRE_THROWS_AS(MapLoader::from_string(s), MapFormatError);
+    }
+
+    SECTION("resources 缺 unlock_wave") {
+        // 必填——缺失与「刻意写 1」不可区分会让第 18 条校验（解禁波数序列按
+        // 距离单调）在少数图上悄悄少查一条，同 obstacles 必填的理由。
+        std::string s = kMinimal;
+        const std::string frag = ", \"unlock_wave\": 1";
+        s.replace(s.find(frag), frag.size(), "");
+        REQUIRE_THROWS_AS(MapLoader::from_string(s), MapFormatError);
+    }
+
+    SECTION("resources 的 unlock_wave 小于 1") {
+        // World::wave() 从 1 起，小于 1 没有意义（不存在「第 0 波之前」）。
+        std::string s = kMinimal;
+        s.replace(s.find("\"unlock_wave\": 1"), 16, "\"unlock_wave\": 0");
         REQUIRE_THROWS_AS(MapLoader::from_string(s), MapFormatError);
     }
 

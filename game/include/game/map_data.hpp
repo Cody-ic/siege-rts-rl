@@ -82,6 +82,10 @@ struct ResourceNode {
     ResourceType type = ResourceType::Stone;
     rts::GridPos pos{};
     ResourceTier tier = ResourceTier::Inner;
+    // **影响仿真，随 `make_world_init` 传进 `rts::ResourceSite::unlock_wave`**
+    // ——与 `tier` 不同，`tier` 到此为止（见 `world_builder.cpp` 的注释）。
+    // 地图文件里的字段名同名（`地图与场景设计.md` 6.2），必填、下界 1。
+    int unlock_wave = 1;
 };
 
 struct WallSegment {

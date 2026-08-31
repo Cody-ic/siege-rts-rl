@@ -127,9 +127,35 @@ class Canvas:
 
     # -- 组装 -------------------------------------------------------------
 
+    def _resource_unlock_waves(self):
+        """给每个资源点算 `unlock_wave`：`inner` 恒为 1；`outer` 按到 `keep`
+        的**实际**距离严格递增排名（第 2 起）——第 18 条查的正是这条单调性。
+
+        **按点排名，不按簇**：`outer` 点的候选格取自整条森林带（从簇心到地图
+        边界），同一簇内的点到 `keep` 的距离跨度可以很大、且能与另一簇重叠
+        （带子本身就伸到地图边界附近），所以"同一簇共享一个波"这个更好看的
+        版本**在当前的带子取点范围下站不住**——实测过，按簇心的名义距离分配
+        会在多数图上让某个近簇里"恰好取到带子远端"的点，比另一个远簇"恰好取到
+        带子近端"的点还远，第 18 条随之报违反，60 次重试全部耗尽。按点严格
+        排名不依赖这条假设，退化成"逐点单调"仍满足规范原句里"越晚解禁越远"
+        这条要求，只是粒度比"按簇"更细。
+        """
+        kx, ky = self.keep
+
+        def cheb(pos):
+            return max(abs(pos[0] - kx), abs(pos[1] - ky))
+
+        outer_idx = [i for i, r in enumerate(self.resources) if r[2] == "outer"]
+        outer_idx.sort(key=lambda i: cheb(self.resources[i][1]))
+        wave = {i: 1 for i, r in enumerate(self.resources) if r[2] == "inner"}
+        for rank, i in enumerate(outer_idx):
+            wave[i] = 2 + rank
+        return wave
+
     def to_doc(self, map_id, name):
         rows = ["".join(_TERRAIN_CHAR[c] for c in row) for row in self.terrain]
         nb = ["".join(str(v) for v in row) for row in self.no_build]
+        waves = self._resource_unlock_waves()
         doc = {
             "format": 1,
             "map_id": map_id,
@@ -142,8 +168,9 @@ class Canvas:
             "keep": list(self.keep),
             "spawns": [{"id": i, "pos": list(p), "corridor": c}
                        for i, (p, c) in enumerate(self.spawns)],
-            "resources": [{"type": t, "pos": list(p), "tier": tier}
-                          for t, p, tier in self.resources],
+            "resources": [{"type": t, "pos": list(p), "tier": tier,
+                          "unlock_wave": waves[i]}
+                          for i, (t, p, tier) in enumerate(self.resources)],
             "initial_walls": [{"kind": k, "pos": list(p), "hp_frac": round(h, 2)}
                               for k, p, h in self.walls],
             "obstacles": [{"type": t, "pos": list(p)} for t, p in self.obstacles],

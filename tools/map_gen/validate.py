@@ -498,6 +498,44 @@ def check_placement_conflicts(doc, grid):
 OBSTACLE_TYPES = frozenset({"Stump", "Sapling", "Rubble"})
 
 
+def check_resource_unlock_wave(doc, grid):
+    """第 18 条：`resources` 的解禁波数序列按距离单调——解禁越晚的簇，离 keep 越远。
+
+    **此前缺的是字段，不是判据**（6.2 新增 `resources[].unlock_wave` 之后，
+    本条与第 19 条走的是同一条路：机制/字段先落地，校验器才有东西可查）。
+
+    判据逐字对应 CLAUDE.md「资源点随波数解禁」那句「越晚解禁的越远」：任取两个
+    资源点 A、B，若 `unlock_wave[A] < unlock_wave[B]`，则 A 到 `keep` 的距离
+    不得大于 B 到 `keep` 的距离——反过来（解禁更早却离得更远）才是那句话字面
+    描述的反例。**允许同波、允许同距离**，只拦"更晚解禁反而更近"这一种组合。
+
+    距离取切比雪夫（`grid.chebyshev`）。**这条与第 14 条取它的理由不同**——
+    第 14 条是为了在圆/方视野两种未决读法下都保守，本条不涉及视野，纯粹是
+    不想在同一份校验器里为"距离"另开一种量法。**注意切比雪夫与欧氏在个别
+    布局下会给出不同的相对顺序**（例如 (5,0) 与 (4,4) 到原点：切比雪夫下前者
+    更远，欧氏下后者更远），所以这条判据的结论依赖度量选择——地图作者摆点时
+    如果沿对角线方向拉开距离，要按切比雪夫（斜向移动的实际代价）想，不要按
+    直觉的欧氏距离想。
+    """
+    keep = tuple(doc["keep"])
+    resources = doc["resources"]
+    problems = []
+    for i, a in enumerate(resources):
+        for j, b in enumerate(resources):
+            if i == j or a["unlock_wave"] >= b["unlock_wave"]:
+                continue
+            da = gridmod.chebyshev(keep, tuple(a["pos"]))
+            db = gridmod.chebyshev(keep, tuple(b["pos"]))
+            if da > db:
+                problems.append(
+                    f"resources[{i}]（{a['type']} {list(a['pos'])}，解禁波 "
+                    f"{a['unlock_wave']}）到 keep 的距离 {da} 大于 "
+                    f"resources[{j}]（{b['type']} {list(b['pos'])}，解禁波 "
+                    f"{b['unlock_wave']}）的距离 {db}，但前者解禁反而更早——"
+                    f"「越往后越要往外走」这条节奏失效，解禁退化成随机给钱")
+    return problems
+
+
 def check_obstacle_types(doc, grid):
     """第 19 条：`Forest` 与 `Rock` 不得出现在可破坏障碍列表里。
 
@@ -823,11 +861,8 @@ CHECKS = [
           check_entity_cells, IMPLEMENTED, ""),
     Check(17, "墙不在 Rock/Water 上、同格不叠墙、集结点不重合",
           check_placement_conflicts, IMPLEMENTED, ""),
-    Check(18, "resources 的解禁波数序列按距离单调", None, BLOCKED,
-          "**缺字段，不是缺判据**：6.2 的 `resources` 只有 type/pos/tier，"
-          "没有解禁波数，而它**不能混进 `tier`**（tier 只区分城内外且不影响仿真，"
-          "解禁波数影响仿真）。加它是一次跨模块契约变更，连带 `rts_core` 载入、"
-          "`mapfile.py` 读写与本条。见 `地图与场景设计.md` 第 10 节"),
+    Check(18, "resources 的解禁波数序列按距离单调", check_resource_unlock_wave,
+          IMPLEMENTED, ""),
     Check(19, "Forest 与 Rock 不得出现在可破坏障碍列表里",
           check_obstacle_types, IMPLEMENTED, ""),
     # 第 20 条**不在这张表里**：它已按 §8.1 自己写的那句移到生成器的批量报告去了

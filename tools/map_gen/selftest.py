@@ -292,7 +292,8 @@ def check_hash_invariance(c):
 
 def check_roundtrip(c):
     doc = make_doc(OBLONG, keep=[3, 3], name="王国边境",
-                   resources=[{"type": "gold", "pos": [1, 1], "tier": "inner"}],
+                   resources=[{"type": "gold", "pos": [1, 1], "tier": "inner",
+                              "unlock_wave": 1}],
                    walls=[{"kind": "Gate", "pos": [3, 0], "hp_frac": 0.45}])
     with tempfile.TemporaryDirectory() as d:
         p = os.path.join(d, "m.json")
@@ -361,7 +362,8 @@ def check_format_accepts(c):
     c.no_raise(
         lambda: mapfile.check_format(make_doc(
             OBLONG, keep=[3, 3], name="王国边境",
-            resources=[{"type": "stone", "pos": [0, 0], "tier": "outer"}],
+            resources=[{"type": "stone", "pos": [0, 0], "tier": "outer",
+                       "unlock_wave": 2}],
             walls=[{"kind": "Gate", "pos": [1, 1], "hp_frac": 1}])),
         "带中文名与整数 hp_frac 的地图不该被拒")
     c.no_raise(
@@ -461,6 +463,41 @@ def check_v6_inner_resources(c):
            "金币只在 outer 侧仍应报 —— 保底看的是 inner")
 
 
+def check_v18_resource_unlock_wave(c):
+    """第 18 条：`resources` 的解禁波数序列按距离单调——解禁越晚的簇，离 keep 越远。
+
+    OBLONG 是 7×5（x: 0..6, y: 0..4），keep 取 (3,3)：
+      * `near` = (4,3)，切比雪夫距离 1
+      * `far`  = (6,0)，切比雪夫距离 3
+      * `tied` = (0,3)，切比雪夫距离 3（与 far 相等，不等于 near）
+    """
+    near = {"type": "wood", "pos": [4, 3], "tier": "outer", "unlock_wave": 2}
+    far = {"type": "stone", "pos": [6, 0], "tier": "outer", "unlock_wave": 3}
+    doc, g = _gv(OBLONG, keep=[3, 3], resources=[far, near])
+    c.true(not validate.check_resource_unlock_wave(doc, g),
+           "远的点解禁更晚、近的点解禁更早，顺序正确，不该报")
+
+    # 颠倒过来：近的反而解禁更晚。
+    bad_near = {**near, "unlock_wave": 3}
+    bad_far = {**far, "unlock_wave": 2}
+    doc, g = _gv(OBLONG, keep=[3, 3], resources=[bad_far, bad_near])
+    got = validate.check_resource_unlock_wave(doc, g)
+    c.eq(len(got), 1, "近的点解禁反而更晚必须报")
+
+    # 同波不该报——本条只拦"更晚解禁却更近"这一种组合，不要求严格递增。
+    doc, g = _gv(OBLONG, keep=[3, 3],
+                resources=[{**near, "unlock_wave": 2}, {**far, "unlock_wave": 2}])
+    c.true(not validate.check_resource_unlock_wave(doc, g), "同波不该报")
+
+    # 距离相等、解禁波不同：谁先谁后都不该报，因为判据只问"更远的是否更晚"，
+    # 距离相等时没有"更远"这一方。
+    tied = {"type": "gold", "pos": [0, 3], "tier": "outer", "unlock_wave": 5}
+    doc, g = _gv(OBLONG, keep=[3, 3], resources=[tied, far])
+    c.true(not validate.check_resource_unlock_wave(doc, g),
+           "(0,3) 与 (6,0) 到 keep(3,3) 的切比雪夫距离都是 3，距离相等时"
+           "解禁波不同不该报")
+
+
 def _rows(w, h, forest=()):
     """w×h 全 `Plain`，再把 `forest` 里那些格改成 `Forest`。
 
@@ -501,9 +538,11 @@ def make_clean_doc():
         keep=[3, 3],
         spawns=[{"id": 0, "pos": [0, 0], "corridor": "open"},
                 {"id": 1, "pos": [6, 4], "corridor": "defile"}],
-        resources=[{"type": t, "pos": [i + 1, 2], "tier": "inner"}
+        resources=[{"type": t, "pos": [i + 1, 2], "tier": "inner",
+                   "unlock_wave": 1}
                    for i, t in enumerate(["stone", "wood", "gold"])]
-                  + [{"type": "wood", "pos": [5, 2], "tier": "outer"}])
+                  + [{"type": "wood", "pos": [5, 2], "tier": "outer",
+                     "unlock_wave": 2}])
 
 
 def check_v7_outer_unenclosable(c):
@@ -982,7 +1021,7 @@ def check_validator_on_clean_map(c):
                   if chk.status == validate.BLOCKED)
     n_pend = sum(1 for chk in validate.CHECKS
                  if chk.status == validate.PENDING)
-    c.eq((n_impl, n_block, n_pend), (19, 2, 0),
+    c.eq((n_impl, n_block, n_pend), (20, 1, 0),
          "条目状态计数变了：改动状态时要同步这条断言与 README 的进度表")
 
 
@@ -1531,6 +1570,7 @@ GROUPS = [
     ("第 15 条 content_hash", check_v15_hash),
     ("第 16 条 实体落在可建造格", check_v16_entity_cells),
     ("第 17 条 摆放冲突", check_v17_placement_conflicts),
+    ("第 18 条 resources 解禁波数按距离单调", check_v18_resource_unlock_wave),
     ("第 19 条 障碍类型不得是地形名", check_v19_obstacle_types),
     ("第 21 条 至少一个 outer 资源点", check_v21_has_outer),
     ("第 22 条 障碍摆放冲突", check_v22_obstacle_placement),
