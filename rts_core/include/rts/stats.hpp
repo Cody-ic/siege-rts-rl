@@ -57,8 +57,9 @@ namespace rts {
 // 驻守与高度优势，`GlobalStats` 扩四项）；Stats/3 → Stats/4（机制第四批：
 // 冲锋与齐射，`BldStats` 加 AOE 半径、`GlobalStats` 扩三项）；
 // Stats/4 → Stats/5（机制第五批：在途弹丸，`UnitStats` 与 `BldStats` 各加
-// 弹丸速度）。
-inline constexpr std::string_view kStatsShapeTag = "Stats/5";
+// 弹丸速度）；Stats/5 → Stats/6（AOE 溅射折扣：`UnitStats` 加
+// `splash_dmg_permille`，主目标满伤、圈内其余单位打折——见该字段注释）。
+inline constexpr std::string_view kStatsShapeTag = "Stats/6";
 
 // 每兵种一行。**结构性属性不在这里**（能否对空、能否破坏结构、三轴定位归
 // `rts/unit_behavior.hpp` 与 `rts/roster.hpp`）；这里只有会随标定变的数。
@@ -89,6 +90,17 @@ struct UnitStats {
     // 攻方单位这两项无意义（攻方无经济，编成走 `Composition` 预算），诚实地填 0。
     std::int64_t cost_gold = 0;       // 征兵造价（1 级；「越高越贵」的曲线待 §1.4）
     std::int32_t train_ticks = 0;     // 征兵耗时
+    // ——AOE 溅射折扣——
+    // 圈内**主目标**（承诺时锁定的那个）恒吃满伤害；圈内其余单位（不分敌我）
+    // 按这个千分比打折，1000 = 与主目标同倍率。**默认 1000 是诚实默认，不是
+    // 已标定值**——多数兵种 `aoe_radius == 0`，这个字段本就用不上；只有真的
+    // 开了 AOE 的兵种（目前只有 `Ram`）才该把它调低于 1000。
+    // **只管单位，不管建筑/障碍**——CLAUDE.md「结构破坏规则」原文对静止的
+    // 建筑要求「全额命中且可波及相邻墙段」，建筑侧的溅射不打折是设计而非
+    // 漏做；这里加字段前先确认过那句话没被这次改动波及。
+    // `StatsLoader` 拦一条不变量：`aoe_radius > 0` 时这个数必须 < 1000
+    // （不能等于 1000——"主目标和溅射伤害一样"正是这个字段要修的问题）。
+    std::int32_t splash_dmg_permille = 1000;
 };
 
 // 每建筑一行。只有 `Tower` / `Flak` 有攻击数值，其余那几列为 0——

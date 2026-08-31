@@ -89,7 +89,8 @@ rts::UnitStats read_unit(const json& v, const std::string& origin,
     reject_unknown_keys(v, origin, where,
                         {"max_hp", "damage", "range", "speed", "vision",
                          "windup_ticks", "cooldown_ticks", "vs_structure_permille",
-                         "aoe_radius", "proj_speed", "cost_gold", "train_ticks"});
+                         "aoe_radius", "proj_speed", "cost_gold", "train_ticks",
+                         "splash_dmg_permille"});
     rts::UnitStats s;
     s.max_hp = need_i64(need(v, "max_hp", origin, where), origin, where + ".max_hp");
     s.damage = need_i64(need(v, "damage", origin, where), origin, where + ".damage");
@@ -111,6 +112,9 @@ rts::UnitStats read_unit(const json& v, const std::string& origin,
         need_i64(need(v, "cost_gold", origin, where), origin, where + ".cost_gold");
     s.train_ticks = need_i32(need(v, "train_ticks", origin, where), origin,
                              where + ".train_ticks");
+    s.splash_dmg_permille =
+        need_i32(need(v, "splash_dmg_permille", origin, where), origin,
+                 where + ".splash_dmg_permille");
 
     if (s.max_hp < 1) fail(origin, where + ".max_hp 必须 >= 1");
     if (s.damage < 0) fail(origin, where + ".damage 不得为负");
@@ -126,6 +130,16 @@ rts::UnitStats read_unit(const json& v, const std::string& origin,
     }
     if (s.cost_gold < 0) fail(origin, where + ".cost_gold 不得为负");
     if (s.train_ticks < 0) fail(origin, where + ".train_ticks 不得为负");
+    if (s.splash_dmg_permille < 0) {
+        fail(origin, where + ".splash_dmg_permille 不得为负");
+    }
+    // 结构不变量，不是数值劝退：开了 AOE 就必须真的分主副，否则这个字段
+    // 形同没加——「主攻击的单位和溅射伤害不能是一样的」（2026-08-31 试玩
+    // 反馈，Ram 的 AOE 曾经就是这个坑）。
+    if (s.aoe_radius > 0.0f && s.splash_dmg_permille >= 1000) {
+        fail(origin, where + " 开了 aoe_radius 却 splash_dmg_permille >= 1000"
+                          "（主目标与溅射伤害不能相同）");
+    }
     return s;
 }
 
@@ -215,10 +229,12 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
     if (!schema_v.is_string()) fail(origin, "`schema` 必须是字符串");
     const std::string schema = schema_v.get<std::string>();
     // 与 `rts::kStatsShapeTag` 同步进格（stats/4 → stats/5：机制第五批加了
-    // 单位与建筑的弹丸速度）。刻意不做向后兼容——旧 schema 的表缺新字段，
-    // 静默补默认值正是「能跑但打不动」那种坑（这次的形态是「箭永远瞬时命中」）。
-    if (schema != "stats/5") {
-        fail(origin, "`schema` = \"" + schema + "\"，本程序只认 \"stats/5\"");
+    // 单位与建筑的弹丸速度；stats/5 → stats/6：单位加 `splash_dmg_permille`，
+    // AOE 主目标与溅射伤害分开算）。刻意不做向后兼容——旧 schema 的表缺新
+    // 字段，静默补默认值正是「能跑但打不动」那种坑（这次的形态是「箭永远
+    // 瞬时命中」/「溅射恒等于主伤害」）。
+    if (schema != "stats/6") {
+        fail(origin, "`schema` = \"" + schema + "\"，本程序只认 \"stats/6\"");
     }
 
     rts::StatsTable t;

@@ -298,11 +298,22 @@ void World::land_attack(std::size_t k) {
         if (atk_high || !on_high_wall(t)) return false;
         return static_cast<std::int64_t>(rng_.below(1000)) < hg_miss;
     };
+    // AOE 溅射折扣的「主目标」= 承诺时锁定的那个**单位**目标（若仍存活）。
+    // 只分主副单位——建筑/障碍侧「全额命中」不分主副（CLAUDE.md「结构破坏
+    // 规则」原文对建筑就是这么写的），下面建筑/障碍那两段循环不碰。
+    // 承诺目标是墙/门/障碍时没有主目标单位：圈内单位全部按溅射算，
+    // 因为对单位而言它们全部是「被波及的」，没有谁是「被瞄准的」。
+    const bool has_primary_unit =
+        kind == TgtKind::Unit && unit_pool_.alive(unit_from_raw(raw));
+    const std::size_t primary_unit_slot =
+        has_primary_unit ? static_cast<std::size_t>(raw >> 16) : 0;
+
     // 全部倍率在**同一次** apply_permille 里乘（截断只能发生一次，决定 ⑫）。
-    // 逐目标的两条：高度减伤（第三批）与反冲锋（第四批——关系由轴推导
-    // `counters_charge`，幅度随**目标的**动量线性放大，见 combat_math.hpp）。
+    // 逐目标的三条：高度减伤（第三批）、反冲锋（第四批——关系由轴推导
+    // `counters_charge`，幅度随**目标的**动量线性放大，见 combat_math.hpp）、
+    // AOE 溅射折扣（非主目标才吃，见上）。
     const auto dmg_vs_unit = [&](std::size_t t) {
-        std::int64_t mods[4] = {lvl, charge_pm, 0, 0};
+        std::int64_t mods[5] = {lvl, charge_pm, 0, 0, 0};
         std::size_t n = 2;
         if (!atk_high && on_high_wall(t)) mods[n++] = hg_dmg;
         if (beh.counters_charge() && behavior_of(u_type_[t]).charges() &&
@@ -311,12 +322,18 @@ void World::land_attack(std::size_t k) {
                                              stats_.global.charge_max_cells,
                                              stats_.global.anti_charge_permille);
         }
+        if (s.aoe_radius > 0.0f &&
+            !(has_primary_unit && t == primary_unit_slot)) {
+            mods[n++] = s.splash_dmg_permille;
+        }
         return apply_permille(s.damage, mods, n);
     };
 
     if (s.aoe_radius > 0.0f) {
         // AOE 砸**锁定的坐标**。圈内的单位不分敌我（「溅射单位被包夹时会误伤」
-        // 是 CLAUDE.md 列的机制性克制，不是 bug），但空中不挨砸（can_engage）。
+        // 是 CLAUDE.md 列的机制性克制，不是 bug），但分主副——主目标满伤、
+        // 其余按 `splash_dmg_permille` 打折（`dmg_vs_unit` 已经把折扣揉进去），
+        // 空中不挨砸（can_engage）。
         const float r2 = s.aoe_radius * s.aoe_radius;
         for (std::size_t t = 0; t < unit_pool_.slot_count(); ++t) {
             if (!unit_pool_.alive_at(static_cast<std::uint16_t>(t))) continue;

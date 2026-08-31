@@ -152,6 +152,13 @@ TEST_CASE("数值表指纹：值同则同，任一格变则变", "[stats]") {
         c.bld[4].proj_speed += 0.25f;
         REQUIRE(c.fingerprint() != a.fingerprint());
     }
+    // AOE 溅射折扣：改它而指纹不动，意味着「溅射打折后的表」能对上
+    // 「没打折前录的回放」——同 cost/proj_speed 那组的洞。
+    {
+        rts::StatsTable c = filled_table();
+        c.unit[5].splash_dmg_permille += 1;
+        REQUIRE(c.fingerprint() != a.fingerprint());
+    }
 }
 
 TEST_CASE("表变了，第 0 tick 的 state_hash 就分歧（早报）", "[stats]") {
@@ -253,7 +260,7 @@ TEST_CASE("载入器：手误不得静默落回默认值", "[stats]") {
 
     // 漏一个兵种：报错点名 `units.Ram`，不是「能跑但 Ram 打不动」。
     REQUIRE_THROWS_AS(game::StatsLoader::from_string(R"({
-        "schema": "stats/5",
+        "schema": "stats/6",
         "units": {}, "buildings": {}, "obstacles": {}, "global": {}
     })"),
                       game::StatsFormatError);
@@ -270,15 +277,18 @@ TEST_CASE("载入器：手误不得静默落回默认值", "[stats]") {
                       game::StatsFormatError);
     REQUIRE_THROWS_AS(game::StatsLoader::from_string(R"({"schema": "stats/4"})"),
                       game::StatsFormatError);
+    REQUIRE_THROWS_AS(game::StatsLoader::from_string(R"({"schema": "stats/5"})"),
+                      game::StatsFormatError);
 
     // 认不出的键（拼错）：`cooldown_tick` 少个 s。静默忽略的话它落回默认值 1。
     REQUIRE_THROWS_AS(
         game::StatsLoader::from_string(R"({
-        "schema": "stats/5",
+        "schema": "stats/6",
         "units": { "Archer": { "max_hp": 1, "damage": 0, "range": 0, "speed": 0,
                                "vision": 0, "windup_ticks": 0, "cooldown_tick": 5,
                                "vs_structure_permille": 0, "aoe_radius": 0, "proj_speed": 0,
-                               "cost_gold": 0, "train_ticks": 0 } },
+                               "cost_gold": 0, "train_ticks": 0,
+                               "splash_dmg_permille": 1000 } },
         "buildings": {}, "obstacles": {}, "global": {}
     })"),
         game::StatsFormatError);
@@ -287,11 +297,27 @@ TEST_CASE("载入器：手误不得静默落回默认值", "[stats]") {
     // （新字段要写全——否则先撞上的是「缺少字段」，测的就不是下界了。）
     REQUIRE_THROWS_AS(
         game::StatsLoader::from_string(R"({
-        "schema": "stats/5",
+        "schema": "stats/6",
         "units": { "Archer": { "max_hp": 0, "damage": 0, "range": 0, "speed": 0,
                                "vision": 0, "windup_ticks": 0, "cooldown_ticks": 1,
                                "vs_structure_permille": 0, "aoe_radius": 0, "proj_speed": 0,
-                               "cost_gold": 0, "train_ticks": 0 } },
+                               "cost_gold": 0, "train_ticks": 0,
+                               "splash_dmg_permille": 1000 } },
+        "buildings": {}, "obstacles": {}, "global": {}
+    })"),
+        game::StatsFormatError);
+
+    // 结构不变量：开了 aoe_radius 却把 splash_dmg_permille 留在 1000（=与主
+    // 目标同倍率）必须拦——那正是这个字段要修的坑（试玩反馈：Ram 的 AOE
+    // 圈内主目标和溅射单位吃同一份伤害）。
+    REQUIRE_THROWS_AS(
+        game::StatsLoader::from_string(R"({
+        "schema": "stats/6",
+        "units": { "Archer": { "max_hp": 1, "damage": 1, "range": 0, "speed": 0,
+                               "vision": 0, "windup_ticks": 0, "cooldown_ticks": 1,
+                               "vs_structure_permille": 0, "aoe_radius": 1.0, "proj_speed": 0,
+                               "cost_gold": 0, "train_ticks": 0,
+                               "splash_dmg_permille": 1000 } },
         "buildings": {}, "obstacles": {}, "global": {}
     })"),
         game::StatsFormatError);
