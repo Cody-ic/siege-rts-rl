@@ -1017,6 +1017,8 @@ void World::tick_economy() {
     // 即恰好推进一个周期之后）。采集建筑要**踩在对应资源点上**才产出——
     // 建造时查过一遍，这里再按同一条件付账，付账条件是唯一真相
     // （初始建筑不经 Build 命令，只有这里能拦住摆错位置的表）。
+    // **且那个点必须已经解禁**（`wave_ >= ResourceSite::unlock_wave`）——
+    // 两条都在同一处判，理由相同：付账条件只能有一份。
     const std::int32_t period = stats_.global.income_period_ticks;
     if (period > 0 && (tick_ + 1) % period == 0) {
         for (std::size_t k = 0; k < bld_pool_.slot_count(); ++k) {
@@ -1026,14 +1028,17 @@ void World::tick_economy() {
             const std::int64_t amount = stats_.of(bt).income_amount;
             if (amount <= 0) continue;
             if (is_gatherer(bt)) {
-                bool on_site = false;
+                bool unlocked = false;
                 for (const ResourceSite& r : resources_) {
                     if (r.pos == b_pos_[k] && r.kind == resource_of(bt)) {
-                        on_site = true;
+                        // 资源点随波数解禁（CLAUDE.md 同名一节）：还没到解禁波，
+                        // 建筑盖着也不入账——玩家可以早建，只是白等，不是白建
+                        // （占位不冲突，采集建筑的其余用途，比如挡路，仍然成立）。
+                        unlocked = wave_ >= r.unlock_wave;
                         break;
                     }
                 }
-                if (!on_site) continue;
+                if (!unlocked) continue;
                 stock_[static_cast<std::size_t>(resource_of(bt))] += amount;
             } else if (bt == BldType::Keep) {
                 // 兵力地板：`Keep` 恒产极少量金币（CLAUDE.md 单列一节的护栏，

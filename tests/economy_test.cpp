@@ -201,6 +201,30 @@ TEST_CASE("收入：采集建筑不踩点就一分不产（付账条件是唯一
     REQUIRE(stone(w) == 0);
 }
 
+TEST_CASE("收入：资源点随波数解禁——没到波不产，到了波才产", "[econ]") {
+    // CLAUDE.md「资源点随波数解禁」：外部资源点随波数逐批解禁。这条钉住
+    // `World` 那半——踩点、完工、周期都对，唯独还没到解禁波，一分不产；
+    // 到了波之后立刻恢复正常入账，不需要重新摆建筑或重新完工。
+    rts::WorldInit init = arena();
+    init.resources[0].unlock_wave = 3;   // 覆盖 arena() 默认的 1
+    rts::World w(init);
+    w.place_bld(rts::BldType::Quarry, rts::GridPos{5, 2}, 20, 20);
+
+    REQUIRE(w.wave() == 1);
+    w.advance(30);   // 三个入账周期，wave 仍是 1（没人推进波次）
+    REQUIRE(stone(w) == 0);
+
+    w.begin_next_wave(1);
+    REQUIRE(w.wave() == 2);
+    w.advance(10);
+    REQUIRE(stone(w) == 0);   // 2 仍小于解禁波 3
+
+    w.begin_next_wave(1);
+    REQUIRE(w.wave() == 3);
+    w.advance(10);
+    REQUIRE(stone(w) == 7);   // 解禁了，同一座建筑、不用重建
+}
+
 TEST_CASE("Repair：扣木排工时，工匠在场修满；不够木或满血都无操作", "[econ]") {
     rts::World w(arena());
     // 一段残破的墙（初始城圈是残破的，hp < max 直接摆进来）。

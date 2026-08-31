@@ -1,6 +1,6 @@
 {
   "_note": "临时测试夹具，不是 §9 的演示地图。这里的一切数值（尺寸、集结点数量、坐标、hp_frac）都是为了驱动 MapLoader 与 SceneModel 的测试而随手取的占位值，不构成任何设计结论，也不要被当作参照——按 CLAUDE.md「关于数值」，那些值一律待定。刻意做成 7x5 非方形：坐标约定写反（rows[x][y] 而非 rows[y][x]）在方形地图上不报错、只是整张图转置。**它同时是全仓唯一一张真地图文件，第 8 节校验器那 10 条已实现的检查在它身上全部通过，并由 ctest 条目 map_gen_validate_fixture 钉住。** x=5 那两格 Forest 与 outer 资源点的位置不是随手放的：2.1.1 要求每个 outer 资源点有一条 4 连通的全 Forest 路径通到地图边界（校验器第 7 条），而这张图在 7x5 下能同时满足第 7 与第 10 条的位置很少——改这三处之前先跑校验器。 另有三处 obstacles（随提案 §6 于 2026-08-29 通过）：一种一个，好让 harvest_of 的三条映射都被真的走一遍。三处都落在空闲的 Plain 格上——已占的是 keep、四个资源点、六段墙、两个集结点，7×5 上剩下的空格不多。",
-  "content_hash": "sha256:92330717de35f2a7f2bb53e8eb3675b4a8e3f8aa7c7a097ec9dae1b1926eadc1",
+  "content_hash": "sha256:8c8658f5014c2322032dc42b5dc635c74afe4b932a44b7b63d6761c31bf586f2",
   "format": 1,
   "initial_walls": [
     {
@@ -115,7 +115,8 @@
         3
       ],
       "tier": "inner",
-      "type": "stone"
+      "type": "stone",
+      "unlock_wave": 1
     },
     {
       "pos": [
@@ -123,7 +124,8 @@
         1
       ],
       "tier": "inner",
-      "type": "wood"
+      "type": "wood",
+      "unlock_wave": 1
     },
     {
       "pos": [
@@ -131,7 +133,8 @@
         2
       ],
       "tier": "inner",
-      "type": "gold"
+      "type": "gold",
+      "unlock_wave": 1
     },
     {
       "pos": [
@@ -139,7 +142,8 @@
         2
       ],
       "tier": "outer",
-      "type": "wood"
+      "type": "wood",
+      "unlock_wave": 2
     }
   ],
   "size": [

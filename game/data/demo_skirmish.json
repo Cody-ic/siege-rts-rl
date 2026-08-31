@@ -45,11 +45,11 @@
     { "id": 1, "pos": [18, 8], "corridor": "defile" }
   ],
   "resources": [
-    { "type": "stone", "pos": [3, 4], "tier": "inner" },
-    { "type": "wood",  "pos": [3, 8], "tier": "inner" },
-    { "type": "gold",  "pos": [2, 6], "tier": "inner" },
-    { "type": "wood",  "pos": [16, 2], "tier": "outer" },
-    { "type": "stone", "pos": [16, 8], "tier": "outer" }
+    { "type": "stone", "pos": [3, 4], "tier": "inner", "unlock_wave": 1 },
+    { "type": "wood",  "pos": [3, 8], "tier": "inner", "unlock_wave": 1 },
+    { "type": "gold",  "pos": [2, 6], "tier": "inner", "unlock_wave": 1 },
+    { "type": "wood",  "pos": [16, 2], "tier": "outer", "unlock_wave": 2 },
+    { "type": "stone", "pos": [16, 8], "tier": "outer", "unlock_wave": 2 }
   ],
   "initial_walls": [
     { "kind": "Wall", "pos": [7, 3], "hp_frac": 1.0 },

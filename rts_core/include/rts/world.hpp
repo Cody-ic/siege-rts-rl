@@ -301,6 +301,13 @@ struct SpawnSite {
 struct ResourceSite {
     GridPos pos{};
     Resource kind = Resource::Stone;
+    // **影响仿真**（CLAUDE.md「资源点随波数解禁」）：`World::wave()` 小于它时，
+    // 就算已经盖好采集建筑也不入账，见 `tick_economy`。默认 1——`World::wave_`
+    // 从 1 起，等于「从第一波就有」，城内保底资源点该给的正是这个默认值。
+    // 地图侧对应字段是 `resources[].unlock_wave`（`地图与场景设计.md` 6.2），
+    // **与 `tier` 是两个不相关的字段**：`tier` 是纯描述、不进这里（见
+    // `game::make_world_init` 的注释），解禁波数则必须进——这正是两者的分界。
+    int unlock_wave = 1;
 };
 
 // 一座初始建筑。

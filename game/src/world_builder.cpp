@@ -63,10 +63,14 @@ rts::WorldInit make_world_init(const MapData& map, const rts::StatsTable& stats,
 
     init.resources.reserve(map.resources().size());
     for (const ResourceNode& r : map.resources()) {
-        // `ResourceTier`（城内 / 墙外）同样不带：它是**描述**——哪些资源点在墙内
+        // `ResourceTier`（城内 / 墙外）不带：它是**描述**——哪些资源点在墙内
         // 取决于玩家把墙建在哪，而墙会变。仿真要判「这个点在墙内吗」得看当前墙况，
         // 不能看地图作者当初的标注。
-        init.resources.push_back(rts::ResourceSite{r.pos, r.type});
+        //
+        // `unlock_wave` 恰恰相反，**必须带**：它影响仿真本身（哪一波之后这个点
+        // 才产出），不是描述。两者的分界正是这一条——同一张表里一个字段留下、
+        // 一个字段划掉，理由都在这一句里。
+        init.resources.push_back(rts::ResourceSite{r.pos, r.type, r.unlock_wave});
     }
 
     // 领主堡垒。**地图文件里没有它**（`walls` 只有 `Wall` / `Gate`），

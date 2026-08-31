@@ -300,6 +300,13 @@ MapData MapLoader::from_string(std::string_view json_text, const std::string& or
                            need_string(need(r, "tier", origin, where), origin,
                                        where + ".tier"),
                            origin, where + ".tier");
+        node.unlock_wave =
+            need_int(need(r, "unlock_wave", origin, where), origin,
+                     where + ".unlock_wave");
+        if (node.unlock_wave < 1) {
+            fail(origin, where + ".unlock_wave 必须 ≥ 1（World::wave() 从 1 起，"
+                                 "小于 1 没有意义）");
+        }
         m.resources_.push_back(node);
     }
 
