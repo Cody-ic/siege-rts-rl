@@ -142,6 +142,26 @@ std::int64_t repair_wood_cost(const rts::WorldView& view, rts::GridPos cell);
 
 rts::Command repair_command(rts::GridPos cell, int map_width);
 
+// ——升级（建筑等级上限，守方升级轴第一个输出）——
+//
+// 这一格能不能升级:己方**完工**建筑、没有在建/在修/在升、没顶到
+// `WorldView::building_level_cap()`（`Keep` 本身不受这条上限约束——
+// 「堡垒等级本身不设上限」，CLAUDE.md）。**不查造价**，理由同
+// `can_repair_hint`。
+bool can_upgrade_hint(const rts::WorldView& view, rts::GridPos cell);
+
+// 升一级要花多少石/木——判定逻辑只在这里查一遍 `view.stats()`，不重新推
+// `rts_core/src/world.cpp` 的 `Upgrade` 解算（同 `repair_wood_cost` 的纪律：
+// 两处算法分叉是「绿框骗人」这类 bug 的来源）。这一格无效时返回 0。
+std::int64_t upgrade_cost_stone(const rts::WorldView& view, rts::GridPos cell);
+std::int64_t upgrade_cost_wood(const rts::WorldView& view, rts::GridPos cell);
+
+// 造价够不够（石 + 木都要够）。同 `can_afford_build`/`can_afford_repair`
+// 的理由：与 `can_upgrade_hint` 分开查，粒度不同。
+bool can_afford_upgrade(const rts::WorldView& view, rts::GridPos cell);
+
+rts::Command upgrade_command(rts::GridPos cell, int map_width);
+
 }  // namespace game
 
 #endif  // GAME_PLAYER_INPUT_HPP

@@ -635,16 +635,20 @@ TEST_CASE("哈希口径不同当场拦，报重录", "[replay]") {
     // 「状态是什么」的定义都不一样，比对本身没有意义——哈希碰巧相等
     // 也不构成证据，所以判决不该等分歧发生。
     //
-    // 「另一个口径」取 `World/X`——**不是数字**，所以永远不会与真口径撞车。
+    // 「另一个口径」取 `World/XX`——**不是数字**，所以永远不会与真口径撞车。
     // 它原来写的是 `World/9`，第六批进格到 9 的那天两个串相等、补丁失效，
     // 这条测试红了——上面「写死必然过期」的教训在同一段里又应验了一次，
     // 只是这回过期的是「别的版本号」而不是「当前版本号」。
+    // **`patch_ascii` 要求等长替换**（就地改字节，不挪动后面的偏移）：
+    // `kWorldHashTag` 从 `World/9`（7 字节）进到 `World/10`（8 字节）那天，
+    // 原来等长的 `World/X`（7 字节）跟着变短了一字节，这里也要跟着改——
+    // 同一件事：过期的不是版本号本身，是「与它等长」这条隐含前提。
     rts::World rec_world(demo_init());
     std::vector<unsigned char> b = record_session(rec_world).to_bytes();
-    patch_ascii(b, std::string(rts::kWorldHashTag), "World/X");
+    patch_ascii(b, std::string(rts::kWorldHashTag), "World/XX");
 
     const rts::Replay r = reload(b);
-    REQUIRE(r.hash_tag() == "World/X");
+    REQUIRE(r.hash_tag() == "World/XX");
 
     rts::World fresh(demo_init());
     const rts::ReplayResult res = rts::replay_verify(r, fresh);

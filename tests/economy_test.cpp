@@ -40,9 +40,18 @@ rts::StatsTable econ_stats() {
     auto bld = [&t](rts::BldType b) -> rts::BldStats& {
         return t.bld[static_cast<std::size_t>(b)];
     };
-    bld(rts::BldType::Keep) = {.max_hp = 100, .income_amount = 2};
-    bld(rts::BldType::Tower) = {
-        .max_hp = 40, .cost_stone = 25, .cost_wood = 10, .build_ticks = 4};
+    bld(rts::BldType::Keep) = {.max_hp = 100,
+                               .income_amount = 2,
+                               .upgrade_cost_stone = 50,
+                               .upgrade_cost_wood = 50,
+                               .upgrade_ticks = 2};
+    bld(rts::BldType::Tower) = {.max_hp = 40,
+                                .cost_stone = 25,
+                                .cost_wood = 10,
+                                .build_ticks = 4,
+                                .upgrade_cost_stone = 20,
+                                .upgrade_cost_wood = 10,
+                                .upgrade_ticks = 3};
     bld(rts::BldType::Wall) = {
         .max_hp = 30, .cost_stone = 10, .cost_wood = 5, .build_ticks = 3};
     bld(rts::BldType::Quarry) = {.max_hp = 20,
@@ -59,6 +68,7 @@ rts::StatsTable econ_stats() {
     t.global.repair_hp_per_work_tick = 5;
     t.global.repair_wood_per_1000hp = 100;   // 缺 20 血 ⇒ ceil(20×100/1000) = 2 木
     t.global.cancel_refund_permille = 600;
+    t.global.building_level_cap_divisor = 2;   // 与占位表同值：每 2 级堡垒开 1 级上限
     return t;
 }
 
@@ -102,6 +112,28 @@ rts::Command slot_cmd(rts::CommandKind k, rts::GridPos p, int width) {
 std::int64_t stone(const rts::World& w) { return w.stock(rts::Resource::Stone); }
 std::int64_t wood(const rts::World& w) { return w.stock(rts::Resource::Wood); }
 std::int64_t gold(const rts::World& w) { return w.stock(rts::Resource::Gold); }
+
+// 按类型找第一个存活的建筑槽位下标——Keep 全场恰好一座，测试建的目标建筑
+// 一次也只摆一座，所以「第一个」就是「那一个」。同「Build」既有用例扫
+// `bld_type()` 找槽位那条写法，不引入新的断言宏。
+std::size_t bld_slot(const rts::WorldView& v, rts::BldType bt) {
+    std::size_t site = 0;
+    for (std::size_t k = 0; k < v.bld_alive().size(); ++k) {
+        if (v.bld_alive()[k] && v.bld_type()[k] == bt) site = k;
+    }
+    return site;
+}
+
+// 把堡垒从 1 级升到 `target`（econ_stats 的 Keep 每级 2 工时）。调用方要先保
+// 证堡垒旁有工匠——升级同样是「工匠在场才推进」的工程，不是特例。
+void level_keep_to(rts::World& w, int target) {
+    const rts::Command upgrade_keep =
+        slot_cmd(rts::CommandKind::Upgrade, w.keep_pos(), w.width());
+    for (int lv = 1; lv < target; ++lv) {
+        w.submit(rts::Side::Defender, &upgrade_keep, 1);
+        w.advance(10);   // 远超 2 工时，确保这一级完工
+    }
+}
 
 }  // namespace
 
@@ -297,6 +329,117 @@ TEST_CASE("Cancel：撤工地按表比例退款，放弃维修不退；对完好
     w.submit(rts::Side::Defender, &cancel_wall, 1);
     w.advance(1);
     REQUIRE(w.alive(wall));
+}
+
+TEST_CASE("Upgrade：堡垒等级抬高其余建筑的上限，扣双资源、工匠在场才推进",
+          "[econ]") {
+    rts::World w(arena());
+    w.set_stock(rts::Resource::Stone, 1000);
+    w.set_stock(rts::Resource::Wood, 1000);
+    const rts::BldId tower =
+        w.place_bld(rts::BldType::Tower, rts::GridPos{4, 1}, 40, 40);
+    const rts::Command upgrade_tower =
+        slot_cmd(rts::CommandKind::Upgrade, rts::GridPos{4, 1}, w.width());
+
+    // 堡垒 1 级 ⇒ 上限 ceil(1/2)=1，Tower 已经是 1 级：升级被拒，一分不扣。
+    w.submit(rts::Side::Defender, &upgrade_tower, 1);
+    w.advance(1);
+    REQUIRE(w.bld_level(tower) == 1);
+    REQUIRE(stone(w) == 1000);
+    REQUIRE(wood(w) == 1000);
+
+    // 升堡垒到 3 级（上限变成 ceil(3/2)=2）：`Keep` 本身不受这条上限约束。
+    w.spawn_unit(rts::UnitType::Mason, rts::center_of(w.keep_pos()), 1, 10, 10);
+    level_keep_to(w, 3);
+    {
+        const rts::WorldView v = w.view(rts::Side::Defender);
+        REQUIRE(v.bld_level()[bld_slot(v, rts::BldType::Keep)] == 3);
+        REQUIRE(v.building_level_cap() == 2);
+    }
+    REQUIRE(stone(w) == 900);   // 1000 - 50 * 2 级
+    REQUIRE(wood(w) == 900);
+
+    // 现在上限是 2，Tower（1 级）可以升了：扣 20/10，没工匠不推进。
+    w.submit(rts::Side::Defender, &upgrade_tower, 1);
+    w.advance(1);
+    REQUIRE(stone(w) == 880);   // 900 - 20
+    REQUIRE(wood(w) == 890);    // 900 - 10
+    REQUIRE(w.bld_level(tower) == 1);
+    w.advance(10);
+    REQUIRE(w.bld_level(tower) == 1);   // 反复确认：真的是没工匠不动，不是巧合
+
+    w.spawn_unit(rts::UnitType::Mason, rts::center_of(rts::GridPos{4, 2}), 1, 10, 10);
+    w.advance(10);   // 远超 3 工时
+    REQUIRE(w.bld_level(tower) == 2);
+    REQUIRE(w.bld_upgrade_left(tower) == 0);
+}
+
+TEST_CASE("Upgrade 与 Repair 互斥：同一时刻只能有一件工程在推进", "[econ]") {
+    rts::World w(arena());
+    w.set_stock(rts::Resource::Stone, 1000);
+    w.set_stock(rts::Resource::Wood, 1000);
+    w.spawn_unit(rts::UnitType::Mason, rts::center_of(w.keep_pos()), 1, 10, 10);
+    level_keep_to(w, 3);   // 打开 Tower 的升级空间（上限变 2）
+
+    // 残破的 Tower：起维修（不给工匠，工时钉住方便摆布顺序）。
+    const rts::BldId tower =
+        w.place_bld(rts::BldType::Tower, rts::GridPos{4, 1}, 20, 40);
+    const rts::Command repair =
+        slot_cmd(rts::CommandKind::Repair, rts::GridPos{4, 1}, w.width());
+    const rts::Command upgrade_tower =
+        slot_cmd(rts::CommandKind::Upgrade, rts::GridPos{4, 1}, w.width());
+    const rts::Command cancel_tower =
+        slot_cmd(rts::CommandKind::Cancel, rts::GridPos{4, 1}, w.width());
+    w.submit(rts::Side::Defender, &repair, 1);
+    w.advance(1);
+    REQUIRE(w.bld_hp(tower) == 20);   // 没工匠，工时钉住不走
+
+    // 在修：Upgrade 被拒，一分钱不扣。
+    const std::int64_t stone_before = stone(w);
+    w.submit(rts::Side::Defender, &upgrade_tower, 1);
+    w.advance(1);
+    REQUIRE(stone(w) == stone_before);
+    REQUIRE(w.bld_upgrade_left(tower) == 0);
+
+    // 撤掉维修，改起升级（工匠仍不给，升级工时也钉住方便摆布）。
+    w.submit(rts::Side::Defender, &cancel_tower, 1);
+    w.advance(1);
+    w.submit(rts::Side::Defender, &upgrade_tower, 1);
+    w.advance(1);
+    REQUIRE(w.bld_upgrade_left(tower) > 0);
+
+    // 在升：Repair 被拒，一分木不扣。
+    const std::int64_t wood_before = wood(w);
+    w.submit(rts::Side::Defender, &repair, 1);
+    w.advance(1);
+    REQUIRE(wood(w) == wood_before);
+}
+
+TEST_CASE("Cancel 收掉在途升级，预付的石/木不退", "[econ]") {
+    rts::World w(arena());
+    w.set_stock(rts::Resource::Stone, 1000);
+    w.set_stock(rts::Resource::Wood, 1000);
+    w.spawn_unit(rts::UnitType::Mason, rts::center_of(w.keep_pos()), 1, 10, 10);
+    level_keep_to(w, 3);
+
+    const rts::BldId tower =
+        w.place_bld(rts::BldType::Tower, rts::GridPos{4, 1}, 40, 40);
+    const rts::Command upgrade_tower =
+        slot_cmd(rts::CommandKind::Upgrade, rts::GridPos{4, 1}, w.width());
+    const rts::Command cancel_tower =
+        slot_cmd(rts::CommandKind::Cancel, rts::GridPos{4, 1}, w.width());
+    w.submit(rts::Side::Defender, &upgrade_tower, 1);
+    w.advance(1);
+    const std::int64_t stone_spent = stone(w);
+    const std::int64_t wood_spent = wood(w);
+    REQUIRE(w.bld_upgrade_left(tower) > 0);
+
+    w.submit(rts::Side::Defender, &cancel_tower, 1);
+    w.advance(1);
+    REQUIRE(w.bld_upgrade_left(tower) == 0);
+    REQUIRE(w.bld_level(tower) == 1);   // 没升上去
+    REQUIRE(stone(w) == stone_spent);  // 预付的没退，同放弃维修那条理由
+    REQUIRE(wood(w) == wood_spent);
 }
 
 TEST_CASE("Train：扣金倒计时，在兵营邻格出兵并编入编队；忙时无操作", "[econ]") {
