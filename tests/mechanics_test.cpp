@@ -259,6 +259,40 @@ TEST_CASE("AOE 砸锁定坐标：散开真的能躲，相邻墙段与友军挨�
     REQUIRE(w.unit_hp(runner) == 18);
 }
 
+// ——AOE 溅射折扣：主目标满伤、圈内其余单位打折——
+//
+// 2026-08-31 试玩反馈：主目标与溅射到的其余单位此前吃同一份伤害，
+// 等于「点一个等于点一片」。上面那条用例的承诺目标是墙（`kind == Bld`），
+// 测不到「有主目标单位」这个分支——这条补上。
+
+TEST_CASE("AOE 主副有别：承诺目标满伤，圈内其余单位按 splash_dmg_permille 打折",
+          "[mech]") {
+    rts::WorldInit init = arena();
+    us(init.stats, rts::UnitType::Ram).splash_dmg_permille = 400;   // 4 折
+    rts::World w(std::move(init));
+    const rts::UnitId ram =
+        w.spawn_unit(rts::UnitType::Ram, rts::Vec2{5.0f, 5.0f}, 1, 60, 60);
+    // 主目标：离 Ram 1.0 格，是全场唯一在射程 1.5 内的敌方单位，AtkNear 必选它。
+    const rts::UnitId victim =
+        w.spawn_unit(rts::UnitType::Ranger, rts::Vec2{6.0f, 5.0f}, 1, 18, 18);
+    // 旁观者：离 Ram 1.9（射程外，不会被 AtkNear 选中），但离主目标的落点
+    // 只有 0.9（AOE 半径 1.5 内），会被溅射波及。
+    const rts::UnitId bystander =
+        w.spawn_unit(rts::UnitType::Ranger, rts::Vec2{6.9f, 5.0f}, 1, 18, 18);
+
+    act(w, rts::Side::Attacker, {rts::UnitAction::AtkNear});
+    act(w, rts::Side::Defender, {rts::UnitAction::Stop, rts::UnitAction::Stop});
+
+    w.advance(1);   // 承诺：victim 是唯一射程内目标，锁定它的坐标。
+    REQUIRE(w.unit_target_kind(ram) == rts::TgtKind::Unit);
+    w.advance(3);   // 落地（windup 3）。
+
+    // 主目标满伤：10 点，无折扣。
+    REQUIRE(w.unit_hp(victim) == 8);
+    // 旁观者按 400‰ 打折：10 × 0.4 = 4 点，不是满额的 10。
+    REQUIRE(w.unit_hp(bystander) == 14);
+}
+
 // ——建筑攻击：对空 / 对地是结构——
 
 TEST_CASE("Tower 只打地面，Flak 只打空中", "[mech]") {

@@ -23,6 +23,7 @@ std::uint64_t StatsTable::fingerprint() const noexcept {
         h.feed_f32(s.proj_speed);
         h.feed_pod(s.cost_gold);
         h.feed_pod(s.train_ticks);
+        h.feed_pod(s.splash_dmg_permille);
     }
     for (const BldStats& s : bld) {
         h.feed_pod(s.max_hp);

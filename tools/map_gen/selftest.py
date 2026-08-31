@@ -1021,7 +1021,7 @@ def check_validator_on_clean_map(c):
                   if chk.status == validate.BLOCKED)
     n_pend = sum(1 for chk in validate.CHECKS
                  if chk.status == validate.PENDING)
-    c.eq((n_impl, n_block, n_pend), (20, 1, 0),
+    c.eq((n_impl, n_block, n_pend), (21, 1, 0),
          "条目状态计数变了：改动状态时要同步这条断言与 README 的进度表")
 
 
@@ -1398,8 +1398,112 @@ def check_v14_spawn_buildable_distance(c):
     doc = _big_doc(size, spawn_at=list(spawn))
     doc["layers"]["no_build"]["rows"] = ["".join(r) for r in nb]
     mapfile.stamp_content_hash(doc)
+    ok_doc = doc      # 下面几条要复用这张「距离本身没问题」的图
     c.true(not validate.check_spawn_buildable_distance(doc, Grid(doc), th),
            f"集结点周围 {ring + 1} 格禁建后应当通过")
+
+    # ---- 上限必须与数值表一致，否则本条会**绿着失效** ----
+    #
+    # 这一段是两次破坏性验证的常驻形式。原先 `static_vision_radius_max` 是手写的
+    # 8 而表里 `Watch` 是 12，于是本条判定合法的图上一座瞭望塔照旧照亮集结区
+    # ——实测生成器默认产出的四个集结点到最近可建造格都是 10 格，`Watch(12)`
+    # 全部够得着，16/16。**没有任何东西会红**，因为本条只看它自己那个声明。
+    table_max, worst = thresholds.max_building_vision()
+    c.true(table_max > 0 and isinstance(worst, str),
+           "max_building_vision() 应当返回（最大值, 建筑名）")
+
+    import json as _json
+    raw = _json.loads(open(thresholds.DEFAULT_PATH, encoding="utf-8").read())
+    c.true(raw["profiles"]["strict"]["static_vision_radius_max"] >= table_max,
+           f"thresholds.json 的 strict 声明 "
+           f"{raw['profiles']['strict']['static_vision_radius_max']} 小于数值表里"
+           f"建筑视野的最大值 {table_max:g}（{worst}）—— 那让本条绿着失效")
+
+    # 破坏 A：声明比表里最大值小 ⇒ 即便距离本身够，也必须报「上限本身失效」。
+    low = _json.loads(_json.dumps(raw["profiles"]["strict"]))
+    low["static_vision_radius_max"] = int(table_max) - 1
+    th_low = thresholds.Profile("strict", low)
+    probs = validate.check_spawn_buildable_distance(ok_doc, Grid(ok_doc), th_low)
+    c.true(probs, "声明小于表里最大值时必须报——否则那是一次绿着的违反")
+    c.true(any("上限本身失效" in p for p in probs),
+           f"报的应当是「上限本身失效」而不只是距离不够，实际：{probs}")
+
+    # 破坏 B：声明更**大**是允许的（更保守），但那张原本刚好通过的图会因此不够。
+    # 这一条同时钉住「cap 取两者的较大值」，而不是「取声明」。
+    high = _json.loads(_json.dumps(raw["profiles"]["strict"]))
+    high["static_vision_radius_max"] = ring + 4
+    th_high = thresholds.Profile("strict", high)
+    probs = validate.check_spawn_buildable_distance(ok_doc, Grid(ok_doc), th_high)
+    c.true(probs and not any("上限本身失效" in p for p in probs),
+           "声明更大时不该报「上限失效」（更保守是允许的），"
+           f"但距离应当不够，实际：{probs}")
+
+    # 负数 = 本档显式弃用本条（只有 fixture 用）。**弃用的档不去核对声明**，
+    # 否则 fixture 会因为 -1 < 12 而红，而那条 -1 有它自己的理由
+    # （7×5 上「集结点远离一切可建造格」客观上无法满足）。
+    off = _json.loads(_json.dumps(raw["profiles"]["strict"]))
+    off["static_vision_radius_max"] = -1
+    th_off = thresholds.Profile("strict", off)
+    c.true(not validate.check_spawn_buildable_distance(
+               _big_doc(size), Grid(_big_doc(size)), th_off),
+           "负数上限应当让本条恒真（fixture 那一档靠它），且不核对声明")
+
+
+def check_v23_forest_cohesion(c):
+    """第 23 条：`Forest` 4 连通块不得碎成粉尘。
+
+    它守的是森林的**职责**（2.1.1 不可围 / §2.2 看不清来了什么 / 把杀伤区压成
+    薄带），而三项都依赖连片——同样的总面积，撒成散点与聚成几片完全不同。
+    """
+    th = thresholds.load().profile("strict")
+    thr = int(th.forest_min_component_cells)
+    size = th.size_min
+
+    def with_forest(cells):
+        doc = _big_doc(size)
+        pal = doc["layers"]["terrain"]["palette"]
+        fi = str(pal.index("Forest"))
+        rows = [list(r) for r in doc["layers"]["terrain"]["rows"]]
+        for x, y in cells:
+            rows[y][x] = fi
+        doc["layers"]["terrain"]["rows"] = ["".join(r) for r in rows]
+        mapfile.stamp_content_hash(doc)
+        return doc
+
+    # 一块够大的方形 ⇒ 通过。
+    big = [(20 + dx, 20 + dy) for dx in range(4) for dy in range(4)]
+    doc = with_forest(big)
+    c.true(not validate.check_forest_cohesion(doc, Grid(doc), th),
+           f"{len(big)} 格的一整片应当通过（阈值 {thr}）")
+
+    # 一格孤立的粉尘 ⇒ 必须报。**这就是本条存在的理由。**
+    doc = with_forest(big + [(40, 40)])
+    probs = validate.check_forest_cohesion(doc, Grid(doc), th)
+    c.true(probs, "一格孤立的 Forest 必须报——粉尘不承担森林的任何职责，"
+                  "却照样计入总面积")
+
+    # **1 格宽的长条必须通过。** 2.1.1 的森林带可以只有 1 格宽，
+    # 所以判据只能看「块格数」，不能看「块厚度」——写成厚度会把合法的带子判红。
+    band = [(30, 10 + i) for i in range(max(thr, 3) + 2)]
+    doc = with_forest(band)
+    c.true(not validate.check_forest_cohesion(doc, Grid(doc), th),
+           f"1 格宽、{len(band)} 格长的森林带必须通过（2.1.1 允许 1 格宽）")
+
+    # 只靠斜向相连的两格：4 连通下算两块 ⇒ 两块都不够 ⇒ 必须报。
+    # 取 4 连通落在保守那一侧（切得更碎 ⇒ 报得更多），与第 7 条同一个取法。
+    doc = with_forest([(50, 50), (51, 51)])
+    c.true(validate.check_forest_cohesion(doc, Grid(doc), th),
+           "只斜向相连的两格在 4 连通下是两块，都不够，必须报")
+
+    # 阈值 ≤1 = 本档弃用本条（`fixture` 靠它）。
+    import json as _json
+    raw = _json.loads(open(thresholds.DEFAULT_PATH, encoding="utf-8").read())
+    off = _json.loads(_json.dumps(raw["profiles"]["strict"]))
+    off["forest_min_component_cells"] = 1
+    th_off = thresholds.Profile("strict", off)
+    doc = with_forest(big + [(40, 40)])
+    c.true(not validate.check_forest_cohesion(doc, Grid(doc), th_off),
+           "阈值为 1 时本条应当恒真（fixture 那一档靠它）")
 
 
 def check_generator_produces_valid_maps(c):
@@ -1586,6 +1690,7 @@ GROUPS = [
     ("第 2 条 集结点数量与贴边", check_v2_spawn_count_and_edge),
     ("第 5 条 Ram 行军占比", check_v5_ram_march),
     ("第 14 条 集结点到可建造格的距离", check_v14_spawn_buildable_distance),
+    ("第 23 条 Forest 连通块不得碎成粉尘", check_v23_forest_cohesion),
     # —— 生成器（第 9 节）——
     ("生成器产出合法地图", check_generator_produces_valid_maps),
     ("生成器确定：同种子同图、异种子异图", check_generator_is_deterministic),
