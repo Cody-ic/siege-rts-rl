@@ -44,12 +44,34 @@ LOG=$LOG_DIR/gcc-$(printf '%s' "$CFG" | tr '[:upper:]' '[:lower:]').log
 # 于是它没有对应的口子——症状是构建在 configure 阶段就失败、
 # 报的是 `Build step for nlohmann_json_single failed`，
 # **看起来像依赖坏了，实际是这个脚本没跟上**。
+#
+# **它又踩了一次，这次是 pybind11**（`bindings/`，2026-08-30）：同样的症状、
+# 同样的误导——报的是 `Each download failed / Timeout was reached`，
+# 而真因是这张表没跟上。所以这句话现在有两个实例，别再让它有第三个。
 DEPS=(
     "CATCH2:${RTS_CATCH2_DIR:-$HOME/shared/deps/Catch2-3.7.1}"
     "NLOHMANN_JSON_SINGLE:${RTS_JSON_DIR:-$HOME/shared/deps/nlohmann_json-3.11.3}"
+    "PYBIND11:${RTS_PYBIND11_DIR:-$HOME/shared/deps/pybind11-v3.0.1}"
 )
 EXTRA=()
 DEP_NOTES=()
+
+# `RTS_BINDINGS=1` 时额外建 Python 绑定。**默认不建**，理由见顶层
+# `RTS_BUILD_BINDINGS` 那段：多数机器没有 `Python.h`。
+#
+# **这台机器上系统 `python3` 就没有**（3.12，无 Python.h），而
+# `/data0/am_data/miniforge3/bin/python`（同样 3.12）有，还自带
+# torch 2.8.0+cu128 与 numpy。所以要显式指路，否则 `find_package(Python3
+# COMPONENTS Development)` 会失败，而那句报错读起来像「没装 Python」。
+if [ "${RTS_BINDINGS:-0}" = "1" ]; then
+    PYEXE=${RTS_PYTHON:-/data0/am_data/miniforge3/bin/python}
+    if [ ! -x "$PYEXE" ]; then
+        echo "RTS_BINDINGS=1 但 $PYEXE 不可执行；用 RTS_PYTHON=... 指一个带开发头的 Python" >&2
+        exit 2
+    fi
+    EXTRA+=("-DRTS_BUILD_BINDINGS=ON" "-DPython3_EXECUTABLE=$PYEXE")
+    DEP_NOTES+=("bindings 开，Python = $PYEXE")
+fi
 for entry in "${DEPS[@]}"; do
     name=${entry%%:*}
     dir=${entry#*:}

@@ -477,8 +477,21 @@ ctest --test-dir build -C Release -R rts_tests_rng    # 按标签
   按**能不能在默认构建里被测**切，不按属于哪个模块切。
   并行那一条的风险不是并行而是**装配顺序**（按完成顺序装配会静默打乱样本与
   环境的对应，看起来像「学不动」），由「1 线程 vs N 线程逐字节相同」钉住。
-  **仍未做**：`bindings/`（pybind11）——张量已经能产出，缺把它递给 Python 那一步，
-  而那一步在服务器上**暂时编不了**（缺 `python3-dev`，装它要 sudo）
+  ~~**仍未做**：`bindings/`（pybind11）——张量已经能产出，缺把它递给 Python 那一步，
+  而那一步在服务器上暂时编不了（缺 `python3-dev`，装它要 sudo）~~
+  ✅ **已合入**（@Cody-ic，2026-08-30；@zhxxx233 2026-08-31 补一处 MSVC 编译问题后
+  合并，见下）：`python3-dev` 那个阻塞点被绕开了，不是被装上了——服务器上系统
+  `python3` 确实没有开发头，但 `/data0/am_data/miniforge3/bin/python`（同版本，
+  带开发头，还自带 torch 2.8.0+cu128）有，`bindings/CMakeLists.txt` 与
+  `tools/server/build.sh` 的 `RTS_BINDINGS=1` 口子都指向它。`train/smoke.py`
+  证明了端到端链路（Python 经 `rts_native` 驱动 `BatchedEnv`、拿张量、
+  量吞吐、对哈希）在服务器 Linux/GCC 上真的通。**合并时在本机 Windows/MSVC
+  上也验证了一遍**（python.org 3.13，带开发头）：编译零警告、`smoke.py` 跑出
+  107,065 tick/秒——过程中发现并修了一处 `bindings/` 独有的问题（缺
+  `rts_set_warnings()`，MSVC 中文 code page 下编不过，GCC 侧从未暴露），
+  详见 `train/README.md`。**默认仍不参与构建**（`RTS_BUILD_BINDINGS` 默认 OFF），
+  不影响任何人现有的构建流程。训练脚本本身（PPO 循环）还没开工，见
+  `train/README.md`「已知局限」
 - ~~flow field 要把等级量化成几档~~ ✅ **已定 3 档**（低 / 中 / 高，组内定夺，
   #57 2026-08-30；备选 1 / 2 / 3 / 动态四案的得失见该条评论）。档数是形状
   （`rts/flow.hpp` 的 `kFlowTierCount`），**档界是数值**（占位旋钮，刻意不进
