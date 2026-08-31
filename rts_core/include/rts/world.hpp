@@ -485,7 +485,10 @@ inline GridPos pos_of_slot(std::uint16_t slot, int width) noexcept {
 // 但相同输入的推演结果变了——不进格的话，旧录像会报 `Diverged`（读作
 // 「确定性坏了」，一次注定失败的排查），进格则报 `HashTagMismatch`
 // （读作「口径变了，重录」）。两种失效的诊断成本差一个下午。
-inline constexpr std::string_view kWorldHashTag = "World/9";
+// `World/9` → `World/10`：建筑等级上限（守方升级轴第一个输出）。新增
+// `b_level_` / `b_upgrade_left_` 两组建筑状态，喂入清单跟着长——布局变更，
+// 不是行为变更，与 `World/8→9` 那次不同类。
+inline constexpr std::string_view kWorldHashTag = "World/10";
 
 class WorldView;
 
@@ -648,6 +651,8 @@ public:
     // 维修复用 `b_work_`，一座在修的塔若因此被判「未完工」，就会停火、失明
     // ——抢修残血结构本该是波次中的正当操作，不是自废武功。
     bool bld_complete(BldId id) const;
+    std::int32_t bld_level(BldId id) const;
+    std::int32_t bld_upgrade_left(BldId id) const;
 
     // ——资源——
     std::int64_t stock(Resource r) const noexcept {
@@ -716,9 +721,16 @@ public:
     // `kCommandKindCount` 位，第 k 位 = `command_kind_at(k)` 是否合法。
     // 按 `is_legal_for` 与波次阶段判。**刻意不判「买得起买不起」**：命令掩码是
     // 每侧一个、不带槽位维度，而「买不起」是逐建筑种类的事——那属决策层的
-    // 因子化掩码（`守方AI与协同演化.md` 第 3 节），不是这 12 位能表达的。
-    // 「掩码里未定的位默认允许」在这里继续成立：错误地允许只浪费样本。
+    // 因子化掩码（`守方AI与协同演化.md` 第 3 节），不是这 `kCommandKindCount`
+    // 位能表达的。「掩码里未定的位默认允许」在这里继续成立：错误地允许只浪费样本。
     std::uint16_t command_mask(Side side) const noexcept;
+
+    // 当前允许升到的建筑等级上限（不含 `Keep` 自己——它不受这条约束）。
+    // `ceil(Keep 等级 / building_level_cap_divisor)`（`波次预算曲线与
+    // 堡垒等级曲线.md` §2）。**唯一算这个公式的地方**——`apply_one` 校验
+    // `Upgrade` 与 `WorldView` 给 UI 的提示都调用它，不各自重推一遍
+    // （同 `repair_wood_cost` 那条「两处算法分叉是绿框骗人的来源」的纪律）。
+    std::int32_t building_level_cap() const noexcept;
 
     // ——状态哈希——
     //
@@ -786,6 +798,10 @@ private:
     // 无地面单位站着的格。**顺序即规范**——征兵出兵与驻守下墙共用这一个，
     // 两处各扫一套就是两个会分叉的规范。
     bool find_free_ground_cell(GridPos at, GridPos& out) const;
+    // 建筑升级到账：等级 +1、按新等级重算 `max_hp`、满血（完工即「ding」，
+    // 不留半血尾巴）。`apply_one` 的 `Upgrade`（工期 <= 0，当场完工）与
+    // `tick_economy`（倒计时归零）共用这一个实现，避免两处各推一遍公式。
+    void finish_upgrade(std::size_t k);
 
     // ——机制第三批的内部阶段与助手（同在 src/mechanics.cpp）——
 
@@ -905,6 +921,12 @@ private:
     std::vector<std::uint8_t> b_train_type_;
     std::vector<std::int32_t> b_train_left_;
     std::vector<std::uint8_t> b_train_force_;   // 出兵后编入哪个编队
+    // ——建筑等级上限（守方升级轴第一个输出）——
+    // 1 起。`Keep` 不受 `building_level_cap()` 约束，其余建筑受它约束。
+    std::vector<std::int32_t> b_level_;
+    // 升级倒计时，0 = 没在升。与 `b_work_`（在建/在修）互斥——
+    // 同一时刻只能有一件工程在推进，见 `apply_one` 的 `Upgrade`/`Repair` 分支。
+    std::vector<std::int32_t> b_upgrade_left_;
 
     // ——中立可破坏障碍（第三组，决定 ⑤）——
     SlotPool<ObstacleTag> obstacle_pool_;

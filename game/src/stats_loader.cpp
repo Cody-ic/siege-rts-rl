@@ -148,7 +148,8 @@ rts::BldStats read_bld(const json& v, const std::string& origin,
     reject_unknown_keys(v, origin, where,
                         {"max_hp", "damage", "range", "vision", "windup_ticks",
                          "cooldown_ticks", "cost_stone", "cost_wood", "build_ticks",
-                         "income_amount", "aoe_radius", "proj_speed"});
+                         "income_amount", "aoe_radius", "proj_speed",
+                         "upgrade_cost_stone", "upgrade_cost_wood", "upgrade_ticks"});
     rts::BldStats s;
     s.max_hp = need_i64(need(v, "max_hp", origin, where), origin, where + ".max_hp");
     s.damage = need_i64(need(v, "damage", origin, where), origin, where + ".damage");
@@ -170,6 +171,12 @@ rts::BldStats read_bld(const json& v, const std::string& origin,
                             where + ".aoe_radius");
     s.proj_speed = need_f32(need(v, "proj_speed", origin, where), origin,
                             where + ".proj_speed");
+    s.upgrade_cost_stone = need_i64(need(v, "upgrade_cost_stone", origin, where),
+                                    origin, where + ".upgrade_cost_stone");
+    s.upgrade_cost_wood = need_i64(need(v, "upgrade_cost_wood", origin, where),
+                                   origin, where + ".upgrade_cost_wood");
+    s.upgrade_ticks = need_i32(need(v, "upgrade_ticks", origin, where), origin,
+                               where + ".upgrade_ticks");
 
     if (s.max_hp < 1) fail(origin, where + ".max_hp 必须 >= 1");
     if (s.damage < 0) fail(origin, where + ".damage 不得为负");
@@ -183,6 +190,10 @@ rts::BldStats read_bld(const json& v, const std::string& origin,
     if (s.income_amount < 0) fail(origin, where + ".income_amount 不得为负");
     if (s.aoe_radius < 0) fail(origin, where + ".aoe_radius 不得为负");
     if (s.proj_speed < 0) fail(origin, where + ".proj_speed 不得为负");
+    if (s.upgrade_cost_stone < 0 || s.upgrade_cost_wood < 0) {
+        fail(origin, where + " 的 upgrade_cost_stone / upgrade_cost_wood 不得为负");
+    }
+    if (s.upgrade_ticks < 0) fail(origin, where + ".upgrade_ticks 不得为负");
     return s;
 }
 
@@ -230,11 +241,12 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
     const std::string schema = schema_v.get<std::string>();
     // 与 `rts::kStatsShapeTag` 同步进格（stats/4 → stats/5：机制第五批加了
     // 单位与建筑的弹丸速度；stats/5 → stats/6：单位加 `splash_dmg_permille`，
-    // AOE 主目标与溅射伤害分开算）。刻意不做向后兼容——旧 schema 的表缺新
-    // 字段，静默补默认值正是「能跑但打不动」那种坑（这次的形态是「箭永远
-    // 瞬时命中」/「溅射恒等于主伤害」）。
-    if (schema != "stats/6") {
-        fail(origin, "`schema` = \"" + schema + "\"，本程序只认 \"stats/6\"");
+    // AOE 主目标与溅射伤害分开算；stats/6 → stats/7：建筑加三个升级字段，
+    // `global` 加 `building_level_cap_divisor`）。刻意不做向后兼容——旧
+    // schema 的表缺新字段，静默补默认值正是「能跑但打不动」那种坑（这次
+    // 的形态是「箭永远瞬时命中」/「溅射恒等于主伤害」/「建筑永远升不了级」）。
+    if (schema != "stats/7") {
+        fail(origin, "`schema` = \"" + schema + "\"，本程序只认 \"stats/7\"");
     }
 
     rts::StatsTable t;
@@ -288,7 +300,8 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
             "cancel_refund_permille", "garrison_mount_ticks",
             "high_ground_miss_permille", "high_ground_dmg_permille",
             "high_ground_range_bonus", "charge_bonus_permille_per_cell",
-            "charge_max_cells", "anti_charge_permille"});
+            "charge_max_cells", "anti_charge_permille",
+            "building_level_cap_divisor"});
     t.global.hp_permille_per_level =
         need_i32(need(global, "hp_permille_per_level", origin, "`global`"), origin,
                  "`global.hp_permille_per_level`");
@@ -331,6 +344,9 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
     t.global.anti_charge_permille =
         need_i32(need(global, "anti_charge_permille", origin, "`global`"), origin,
                  "`global.anti_charge_permille`");
+    t.global.building_level_cap_divisor =
+        need_i32(need(global, "building_level_cap_divisor", origin, "`global`"),
+                 origin, "`global.building_level_cap_divisor`");
     if (t.global.hp_permille_per_level < 0 || t.global.dmg_permille_per_level < 0) {
         fail(origin, "`global` 的等级缩放系数不得为负");
     }
@@ -378,6 +394,10 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
     // 那不是标定出一个小数，是把克制方向写反（同 high_ground 两条的上界）。
     if (t.global.anti_charge_permille < 1000) {
         fail(origin, "`global.anti_charge_permille` 必须 >= 1000（恒等即无克制）");
+    }
+    // 下界 1 是结构性的：0 会在 `World::building_level_cap()` 的除法里炸。
+    if (t.global.building_level_cap_divisor < 1) {
+        fail(origin, "`global.building_level_cap_divisor` 必须 >= 1");
     }
 
     return t;

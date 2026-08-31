@@ -79,11 +79,14 @@ enum class CommandKind : std::uint8_t {
 
     // ——守方：清野。**它按分组本该排在 `Cancel` 旁边，放在这里是被迫的**，见下——
     Clear,        // slot = 格线性下标；清掉该格的可破坏障碍
+
+    // ——守方：建筑升级。**同理该排在 `Repair` 旁边，追加在末尾是同一条纪律**——
+    Upgrade,      // slot = 槽位；`Keep` 不受 `building_level_cap()` 约束
 };
 
-inline constexpr int kCommandKindCount = 12;
+inline constexpr int kCommandKindCount = 13;
 
-static_assert(static_cast<int>(CommandKind::Clear) == kCommandKindCount - 1);
+static_assert(static_cast<int>(CommandKind::Upgrade) == kCommandKindCount - 1);
 
 // **枚举值就是回放的线路编码，所以新增一律追加在末尾，不按语义分组插入。**
 //
@@ -186,6 +189,7 @@ constexpr Side owner_of(CommandKind k) noexcept {
         case CommandKind::MoveForce:
         case CommandKind::Garrison:
         case CommandKind::Clear:
+        case CommandKind::Upgrade:
             return Side::Defender;
     }
     return Side::Defender;
@@ -211,6 +215,7 @@ constexpr std::string_view ident_of(CommandKind k) noexcept {
         case CommandKind::Composition: return "Composition";
         case CommandKind::PickSpawn:   return "PickSpawn";
         case CommandKind::Clear:       return "Clear";
+        case CommandKind::Upgrade:     return "Upgrade";
     }
     return {};
 }

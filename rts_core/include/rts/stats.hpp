@@ -58,8 +58,10 @@ namespace rts {
 // 冲锋与齐射，`BldStats` 加 AOE 半径、`GlobalStats` 扩三项）；
 // Stats/4 → Stats/5（机制第五批：在途弹丸，`UnitStats` 与 `BldStats` 各加
 // 弹丸速度）；Stats/5 → Stats/6（AOE 溅射折扣：`UnitStats` 加
-// `splash_dmg_permille`，主目标满伤、圈内其余单位打折——见该字段注释）。
-inline constexpr std::string_view kStatsShapeTag = "Stats/6";
+// `splash_dmg_permille`，主目标满伤、圈内其余单位打折——见该字段注释）；
+// Stats/6 → Stats/7（建筑等级上限：`BldStats` 加三个升级字段，`GlobalStats`
+// 加 `building_level_cap_divisor`）。
+inline constexpr std::string_view kStatsShapeTag = "Stats/7";
 
 // 每兵种一行。**结构性属性不在这里**（能否对空、能否破坏结构、三轴定位归
 // `rts/unit_behavior.hpp` 与 `rts/roster.hpp`）；这里只有会随标定变的数。
@@ -132,6 +134,14 @@ struct BldStats {
     // 同 `UnitStats::proj_speed`（<= 0 = 瞬时命中）。建筑不会近战，
     // 开火即弹丸——`Tower` 的齐射箭雨与 `Flak` 的狙击弩矢都真的在飞。
     float proj_speed = 0.0f;
+    // ——建筑等级上限（守方升级轴的第一个输出）——
+    // 升一级要花多少石/木、耗多少工时；`upgrade_ticks <= 0` 当场完工，
+    // 同 `build_ticks` 的先例。等级本身存在 `World::b_level_`（不在这里，
+    // 那是会变的状态，不是标定值）；上限由 `World::building_level_cap()`
+    // 从 `Keep` 的等级推导，`Keep` 自己不受这个上限约束。
+    std::int64_t upgrade_cost_stone = 0;
+    std::int64_t upgrade_cost_wood = 0;
+    std::int32_t upgrade_ticks = 0;
 };
 
 // 每障碍一行。产出**种类**是结构（`harvest_of()`，`rts/roster.hpp`），
@@ -172,6 +182,11 @@ struct GlobalStats {
     std::int32_t charge_bonus_permille_per_cell = 0;  // 每格助跑的伤害加成（千分比）
     float charge_max_cells = 0.0f;                    // 助跑封顶（格）
     std::int32_t anti_charge_permille = 1000;         // 枪阵对满动量冲锋的克制幅度
+    // ——建筑等级上限——
+    // `建筑等级上限 = ceil(堡垒等级 / 这个数)`（`波次预算曲线与堡垒等级曲线.md`
+    // §2）。默认 1 是诚实默认：公式退化成「上限 = 堡垒等级」，合法但显然
+    // 不是标定值。**`StatsLoader` 拦 < 1**——0 会在除法里炸。
+    std::int32_t building_level_cap_divisor = 1;
 };
 
 // 四组分法来自 `rts_core 接口契约.md` §1.1.2 的三条形状决定。

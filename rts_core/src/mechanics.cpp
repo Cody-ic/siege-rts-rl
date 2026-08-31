@@ -746,7 +746,11 @@ void World::land_bld_attack(std::size_t k) {
     p.side = Side::Defender;
     p.src_bld = static_cast<std::uint8_t>(b_type_[k]);
     p.from_high = 1;   // 塔上放箭，居高是结构（这一位只管**免掉**高度惩罚）
-    p.dmg = s.damage;  // 倍率恒等（lvl_pm 默认 1000）：建筑没有等级轴（第五批时点）
+    p.dmg = s.damage;
+    // 等级倍率（建筑等级上限落地后）：与单位同一条规则——基础值不动，
+    // 倍率随弹丸走、命中那一刻在 `impact_projectile` 里与高度惩罚一次乘完
+    // （截断只发生一次，决定 ⑫）。1 级恒为 1000（no-op），旧行为不变。
+    p.lvl_pm = level_permille(b_level_[k], stats_.global.dmg_permille_per_level);
 
     // 齐射：AOE 砸锁定落点，圈内不分敌我（「溅射误伤」是机制不是 bug——
     // 别站在自家箭楼的齐射区里）、空中不挨砸（箭雨对地，展开在命中路径）。
@@ -1018,6 +1022,17 @@ void World::tick_economy() {
         if (b_work_[k] == 0) b_built_[k] = 1;
     }
 
+    // 建筑升级：与施工/维修同一条纪律——工匠在场才推进，点杀维匠一样能
+    // 拖慢它。倒计时归零即完工，逻辑收在 `finish_upgrade`（与 `apply_one`
+    // 的「工期 <= 0 当场完工」共用同一个实现）。
+    for (std::size_t k = 0; k < bld_pool_.slot_count(); ++k) {
+        if (!bld_pool_.alive_at(static_cast<std::uint16_t>(k))) continue;
+        if (b_upgrade_left_[k] <= 0) continue;
+        if (!mason_near(b_pos_[k])) continue;
+        --b_upgrade_left_[k];
+        if (b_upgrade_left_[k] == 0) finish_upgrade(k);
+    }
+
     // 征兵：倒计时归零后出兵。邻格全被占就滞留（不消单、不退钱），
     // 下 tick 再试——征兵出口被自己人堵住是玩家该解的局面，不是机制该变的魔法。
     for (std::size_t k = 0; k < bld_pool_.slot_count(); ++k) {
@@ -1068,6 +1083,23 @@ void World::tick_economy() {
             // 表不能把瞭望塔配成印钞机。
         }
     }
+}
+
+// 建筑升级到账：等级 +1、按新等级从**表里的基础值**重算 `max_hp`
+// （不是从当前 `b_max_hp_` 累乘——那会把上一级的缩放误差复利，累乘出来的数
+// 与「直接从 1 级基础值算 N 级」不再是同一个数），完工即满血。
+// `apply_one`（工期 <= 0，当场完工）与 `tick_economy`（倒计时归零）
+// 共用这一个实现，理由同 `repair_wood_cost` 那条「两处算法分叉是绿框骗人
+// 的来源」的纪律——升级公式也只该有一处。
+void World::finish_upgrade(std::size_t k) {
+    const std::int32_t new_level = b_level_[k] + 1;
+    const std::int64_t new_max = apply_permille(
+        stats_.of(b_type_[k]).max_hp,
+        {level_permille(new_level, stats_.global.hp_permille_per_level)});
+    b_level_[k] = new_level;
+    b_max_hp_[k] = new_max;
+    b_hp_[k] = new_max;   // 完工即满血的「ding」时刻，不留半血尾巴
+    b_upgrade_left_[k] = 0;
 }
 
 // ——阶段 8：视野——
