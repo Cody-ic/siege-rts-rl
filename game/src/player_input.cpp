@@ -228,4 +228,43 @@ rts::Command repair_command(rts::GridPos cell, int map_width) {
     return make(rts::CommandKind::Repair, cell, map_width);
 }
 
+bool can_upgrade_hint(const rts::WorldView& view, rts::GridPos cell) {
+    if (!in_map(view, cell)) return false;
+    const int k = bld_slot_at(view, cell);
+    if (k < 0) return false;
+    const auto idx = static_cast<std::size_t>(k);
+    if (view.bld_built()[idx] == 0) return false;       // 工地不能升级
+    if (view.bld_work_left()[idx] > 0) return false;    // 在建/在修
+    if (view.bld_upgrade_left()[idx] > 0) return false; // 已经在升
+    // `Keep` 不受等级上限约束，其余建筑受 `building_level_cap()` 约束——
+    // 判据只在这里查一遍 `view.building_level_cap()`，不重新推
+    // `rts_core/src/world.cpp` 那条公式（同 `repair_wood_cost` 的纪律）。
+    if (view.bld_type()[idx] == rts::BldType::Keep) return true;
+    return view.bld_level()[idx] < view.building_level_cap();
+}
+
+std::int64_t upgrade_cost_stone(const rts::WorldView& view, rts::GridPos cell) {
+    const int k = bld_slot_at(view, cell);
+    if (k < 0) return 0;
+    return view.stats().of(view.bld_type()[static_cast<std::size_t>(k)]).upgrade_cost_stone;
+}
+
+std::int64_t upgrade_cost_wood(const rts::WorldView& view, rts::GridPos cell) {
+    const int k = bld_slot_at(view, cell);
+    if (k < 0) return 0;
+    return view.stats().of(view.bld_type()[static_cast<std::size_t>(k)]).upgrade_cost_wood;
+}
+
+bool can_afford_upgrade(const rts::WorldView& view, rts::GridPos cell) {
+    if (bld_slot_at(view, cell) < 0) return false;
+    return view.stock()[static_cast<std::size_t>(rts::Resource::Stone)] >=
+               upgrade_cost_stone(view, cell) &&
+           view.stock()[static_cast<std::size_t>(rts::Resource::Wood)] >=
+               upgrade_cost_wood(view, cell);
+}
+
+rts::Command upgrade_command(rts::GridPos cell, int map_width) {
+    return make(rts::CommandKind::Upgrade, cell, map_width);
+}
+
 }  // namespace game

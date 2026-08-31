@@ -131,6 +131,17 @@ public:
     std::span<const std::int32_t> bld_train_left() const noexcept {
         return sp(w_->b_train_left_);
     }
+    // 建筑等级上限（守方升级轴第一个输出）。`Keep` 自己（`bld_level()[k]`）
+    // 不受它约束，其余建筑受它约束——这条不等式在 `World::apply_one` 里查。
+    std::span<const std::int32_t> bld_level() const noexcept {
+        return sp(w_->b_level_);
+    }
+    std::span<const std::int32_t> bld_upgrade_left() const noexcept {
+        return sp(w_->b_upgrade_left_);
+    }
+    std::int32_t building_level_cap() const noexcept {
+        return w_->building_level_cap();
+    }
     std::span<const std::uint8_t> bld_alive() const noexcept {
         return std::span<const std::uint8_t>(w_->bld_pool_.alive_bytes(),
                                              w_->bld_pool_.slot_count());

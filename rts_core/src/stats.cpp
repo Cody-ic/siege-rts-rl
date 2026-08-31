@@ -38,6 +38,9 @@ std::uint64_t StatsTable::fingerprint() const noexcept {
         h.feed_pod(s.income_amount);
         h.feed_f32(s.aoe_radius);
         h.feed_f32(s.proj_speed);
+        h.feed_pod(s.upgrade_cost_stone);
+        h.feed_pod(s.upgrade_cost_wood);
+        h.feed_pod(s.upgrade_ticks);
     }
     for (const ObstacleStats& s : obstacle) {
         h.feed_pod(s.max_hp);
@@ -57,6 +60,7 @@ std::uint64_t StatsTable::fingerprint() const noexcept {
     h.feed_pod(global.charge_bonus_permille_per_cell);
     h.feed_f32(global.charge_max_cells);
     h.feed_pod(global.anti_charge_permille);
+    h.feed_pod(global.building_level_cap_divisor);
 
     return h.value();
 }

@@ -293,6 +293,51 @@ TEST_CASE("AOE 主副有别：承诺目标满伤，圈内其余单位按 splash_
     REQUIRE(w.unit_hp(bystander) == 14);
 }
 
+// ——建筑等级上限：升级后伤害按 dmg_permille_per_level 缩放——
+//
+// `land_bld_attack` 那一行改动的唯一断言点：`p.lvl_pm` 不再恒等于 1000。
+
+TEST_CASE("建筑等级：Tower 升级后伤害按等级系数缩放", "[mech]") {
+    rts::WorldInit init = arena();
+    init.buildings.push_back(rts::BldInit{rts::BldType::Tower, rts::GridPos{4, 4}, 50, 50});
+    rts::World w(std::move(init));
+
+    // 落地前先升到 2 级——`test_stats()` 没配升级造价/工期（都是诚实默认
+    // 0），指令一提交就当场完工，同 `Build` 工期为 0 的先例。这一刻 Tower
+    // 还没有任何目标（Ghoul 还没生成），不会牵动战斗阶段。
+    //
+    // **先升堡垒，再升 Tower**：`building_level_cap_divisor` 在这份占位表
+    // 里没配（诚实默认 1），堡垒还在 1 级时上限是 ceil(1/1)=1——Tower 本身
+    // 也是 1 级，`1 >= 1` 会被结构性拒绝。升堡垒到 2 级把上限抬到 2，
+    // Tower 才升得上去。
+    rts::Command upgrade_keep;
+    upgrade_keep.kind = rts::CommandKind::Upgrade;
+    upgrade_keep.side = rts::Side::Defender;
+    upgrade_keep.slot = rts::slot_of(w.keep_pos(), w.width());
+    w.submit(rts::Side::Defender, &upgrade_keep, 1);
+    w.advance(1);
+
+    rts::Command upgrade_tower;
+    upgrade_tower.kind = rts::CommandKind::Upgrade;
+    upgrade_tower.side = rts::Side::Defender;
+    upgrade_tower.slot = rts::slot_of(rts::GridPos{4, 4}, w.width());
+    w.submit(rts::Side::Defender, &upgrade_tower, 1);
+    w.advance(1);
+
+    const rts::UnitId ghoul =
+        w.spawn_unit(rts::UnitType::Ghoul, rts::Vec2{4.5f, 6.5f}, 1, 30, 30);
+    act(w, rts::Side::Attacker, {rts::UnitAction::Stop});
+
+    // Tower 前摇 1：第 1 tick 承诺，第 2 tick 落地。伤害走与单位同一对
+    // combat_math 函数现算，不手抄一个数（同「等级只乘数值」那条纪律）。
+    w.advance(1);
+    REQUIRE(w.unit_hp(ghoul) == 30);
+    w.advance(1);
+    const std::int64_t expect =
+        30 - rts::apply_permille(7, {rts::level_permille(2, 100)});
+    REQUIRE(w.unit_hp(ghoul) == expect);
+}
+
 // ——建筑攻击：对空 / 对地是结构——
 
 TEST_CASE("Tower 只打地面，Flak 只打空中", "[mech]") {
