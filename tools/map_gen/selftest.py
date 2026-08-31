@@ -13,6 +13,7 @@
 """
 import io
 import os
+import random
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -1627,6 +1628,58 @@ def check_generator_wall_seals_ring(c):
                  f"不该被 carve_corridor 的加宽误判成走廊本体")
 
 
+def check_generator_forest_avoids_mouth(c):
+    """`scatter_corridor_forest` 不得把 `Forest` 撒到墙/门的格子上或紧贴它
+    （2026-08-31 试玩发现的第二个真 bug，与「墙两侧免费缺口」同一次报告里）。
+
+    该函数自己的 docstring 早就说「墙与集结点都定好之后撒，这样才知道该
+    避开哪里」，但原来的排除条件只做了「避开集结点」那一半——`mouth`
+    参数确实传进来了，却没被用来排除任何格子。第一簇的圆心在 `t=2`
+    （口外两格）、半径最多到 2，覆盖范围能一直回卷到 `t=0`（口本身），
+    而 `cv.at(px,py) != "Plain"` 挡不住墙/门所在的格——墙是实体、不改
+    地形，那些格的 terrain 本来就还是 `Plain`。
+
+    后果不是「墙不存在」（`initial_walls` 里照样有它，仍会解算防御），是
+    **视觉上找不到它**：树冠把整段人工墙糊成一团，连唯一的既定缺口也被
+    遮住，「侦查这段城墙是不是有洞」这条设计意图打了折；更深一层，墙被
+    拆毁后原地重建会撞上「`Forest` 不可建造」——一处本该只是「结构上的
+    既定薄弱点」的位置，一旦破就再也补不回去。
+
+    这条跟上一条（`check_generator_wall_seals_ring`）一样，第 8 节校验器
+    管不到它——检查 #17 的判据字面上只查 `Rock`/`Water`，`Forest` 落在
+    墙的格子上不违反它（且那条判据故意不扩大，见该检查的 docstring）。
+    只有直接测生成器自己的中间产物才能钉住这个不变量。
+    """
+    cfg = SimpleNamespace(size=72, city_radius=13, corridor_mouth_width=5,
+                          forest_patch_radius=[1, 3])
+    sides = ("north", "east", "south", "west")
+    generate.side_to_corridor = dict.fromkeys(sides, "forest")
+
+    cv = generate.Canvas(cfg.size)
+    rng = random.Random(1012000)
+    mouths = generate.build_city_wall_ring(cv, cfg, rng, sides)
+    for side in sides:
+        generate.carve_corridor(cv, cfg, rng, side, "forest", mouths[side])
+
+    for side in sides:
+        mouth = mouths[side]
+        mx = sum(p[0] for p in mouth) // len(mouth)
+        my = sum(p[1] for p in mouth) // len(mouth)
+        dx, dy = generate._outward(side)
+        # 摆一个远得不会被「离集结点两格以内不放」误伤的假集结点。
+        spawn_pos = (mx + dx * 20, my + dy * 20)
+        generate.scatter_corridor_forest(cv, cfg, rng, side, mouth, spawn_pos)
+        for wx, wy in mouth:
+            for oy in (-1, 0, 1):
+                for ox in (-1, 0, 1):
+                    px, py = wx + ox, wy + oy
+                    if not cv.inside(px, py):
+                        continue
+                    c.true(cv.at(px, py) != "Forest",
+                           f"{side} 走廊：墙格 {(wx, wy)} 附近的 {(px, py)} "
+                           f"被撒上了 Forest——墙/门会被树冠糊住看不见")
+
+
 def check_generator_is_deterministic(c):
     """同种子同结果，不同种子不同图。§9：`map_id` 编码种子使训练可复现。"""
     all_th = thresholds.load()
@@ -1762,6 +1815,7 @@ GROUPS = [
     # —— 生成器（第 9 节）——
     ("生成器产出合法地图", check_generator_produces_valid_maps),
     ("生成器不得在墙两侧多切出免费缺口", check_generator_wall_seals_ring),
+    ("生成器不得把森林撒到墙/门的格子上", check_generator_forest_avoids_mouth),
     ("生成器确定：同种子同图、异种子异图", check_generator_is_deterministic),
     ("生成器的丢弃与否决计数真的工作", check_generator_discard_reporting_works),
     ("生成器的 ASCII 预览", check_generator_preview_renders),
