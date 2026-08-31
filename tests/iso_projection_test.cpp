@@ -166,3 +166,28 @@ TEST_CASE("grid_bounds 覆盖整张地图的格心", "[iso]") {
         REQUIRE(b.height >= 0.0f);
     }
 }
+
+// 竖直换算。**这条测试的对象不是公式对不对，而是「有没有人拿 tile_h 当它用」**
+// ——那个错误在静态画面上只表现为「站得不太对」，实际发生过一次：驻守单位用
+// `0.75 * tile_h()` 抬升，脚落在墙高的 37% 处，看着像站在墙外的地面上。
+TEST_CASE("tile_z 是竖直方向的换算，不是菱形半高", "[iso]") {
+    const game::IsoProjection proj(kPx);
+
+    // 期望值独立算一遍：`sin(CAM_PITCH) / √2`，两个常量都取自
+    // `tools/sprite_gen/blender_render.py`（CAM_PITCH = 60°、TILE_SIDE = 1/√2）。
+    // **刻意不引用 `kVerticalPerTileSide`**——拿被测常量当期望值，这条就只是
+    // 在断言「它等于它自己」。
+    const float expect = static_cast<float>(std::sin(60.0 * 3.14159265358979323846 / 180.0) /
+                                            std::sqrt(2.0)) *
+                         static_cast<float>(kPx);
+    REQUIRE(std::fabs(proj.tile_z() - expect) < 0.05f);
+
+    // 三条关系，各自封一种混用：
+    //   * 竖直**大于**菱形半高（把 tile_h 当竖直用 ⇒ 抬升偏小 22%）
+    //   * 竖直**小于**菱形宽（把 tile_w 当竖直用 ⇒ 抬升偏大 63%）
+    //   * 与 px_per_tile 成正比（换 px_per_tile 时抬升要跟着走，不能是常数）
+    REQUIRE(proj.tile_z() > static_cast<float>(proj.tile_h()));
+    REQUIRE(proj.tile_z() < static_cast<float>(proj.tile_w()));
+    const game::IsoProjection half(kPx / 2);
+    REQUIRE(std::fabs(half.tile_z() * 2.0f - proj.tile_z()) < 0.05f);
+}
