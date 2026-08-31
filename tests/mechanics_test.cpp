@@ -223,7 +223,12 @@ TEST_CASE("清野产出归守方；攻方拆障碍不产任何东西", "[mech]")
     }
 }
 
-// ——Ram 的 AOE：落点在前摇开始那一刻锁定——
+// ——AOE：落点在前摇开始那一刻锁定——
+//
+// 用本文件自带的占位表给 Ram 配了非零 aoe_radius 来验证这条**通用**机制
+// （不读 game/data/stats_placeholder.json，见文件头说明）。生产数值表里
+// Ram 已于 2026-08-31 改为单体伤害（aoe_radius=0），不再是这条机制的
+// 生产示例——机制本身仍然存在，Tower 齐射走的是同一条路径。
 
 TEST_CASE("AOE 砸锁定坐标：散开真的能躲，相邻墙段与友军挨溅射", "[mech]") {
     rts::WorldInit init = arena();

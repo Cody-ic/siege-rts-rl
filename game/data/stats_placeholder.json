@@ -157,11 +157,12 @@
       "windup_ticks": 30,
       "cooldown_ticks": 60,
       "vs_structure_permille": 4000,
-      "aoe_radius": 1.3,
+      "aoe_radius": 0.0,
       "proj_speed": 0.0,
       "cost_gold": 0,
       "train_ticks": 0,
-      "_note": "速度刻意保持慢速（笨重感 + 全场最慢单位定义地图行军时间上限），不去凑地图规范§3假设的1.5-2格/s——地图边长应按这个速度反推，见《数值设计与成本产出矩阵.md》『Ram速度与地图尺寸的自洽』一节"
+      "_note": "速度刻意保持慢速（笨重感 + 全场最慢单位定义地图行军时间上限），不去凑地图规范§3假设的1.5-2格/s——地图边长应按这个速度反推，见《数值设计与成本产出矩阵.md》『Ram速度与地图尺寸的自洽』一节。",
+      "_note_2": "aoe_radius 1.3->0.0：改为单体伤害，不再是范围伤害（2026-08-31，ArLiangz）。mechanics.cpp 的 land_attack 里 aoe_radius<=0 会自动落到已有的单体直击分支（switch(kind)，同 Ghoul/Knight 等近战单位），零代码改动。CLAUDE.md「结构破坏规则」与「游戏设计要点」两节原有的 AOE 论述已同步改写，别再抄旧版描述"
     }
   },
   "buildings": {
