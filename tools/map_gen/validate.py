@@ -677,6 +677,23 @@ def _ram_speed():
     return _ram_speed_cache
 
 
+# 建筑视野的最大值同理缓存。**它与 `Ram` 速度是同一类东西**：判据在这里，
+# 数值在 `game/data/stats_placeholder.json`，本文件刻意不抄一份。
+_max_bld_vision_cache = None
+
+
+def reset_max_bld_vision_cache():
+    global _max_bld_vision_cache
+    _max_bld_vision_cache = None
+
+
+def _max_bld_vision():
+    global _max_bld_vision_cache
+    if _max_bld_vision_cache is None:
+        _max_bld_vision_cache = thmod.max_building_vision()
+    return _max_bld_vision_cache
+
+
 def check_size_range(doc, grid, th):
     """第 1 条：`size` 的两条边都落在给定区间。
 
@@ -807,23 +824,57 @@ def check_spawn_buildable_distance(doc, grid, th):
 
     查的是**可建造格**而不是「已有建筑」：地图上现在没建筑不代表玩家不能在那儿
     建，而这条约束要挡住的正是「玩家造一座瞭望塔就永久照亮集结区」。
+
+    ## 上限从**数值表**推导，`static_vision_radius_max` 只是一条声明
+
+    那个键曾是手写的 8，而 `game/data/stats_placeholder.json` 里 `Watch` 是 12。
+    于是本条判定合法的图上，一座瞭望塔仍然照亮集结区——**结构约束被违反，
+    而没有任何东西会红**。实测：生成器默认产出的四个集结点到最近可建造格都是
+    10 格，`Watch(12)` 全部够得着，16/16。那不是边界情形，是默认产出。
+
+    所以权威值改由 `thresholds.max_building_vision()` 从表里取最大值
+    （同第 5 条取 `Ram` 速度那条先例——数值进仿真只有那一条路，
+    抄一份就是第二个真相来源）。手写的那个键留着，但它现在的唯一作用是
+    **被核对**：声明比表里的最大值小，就是上面那种「绿着的违反」，本条直接报。
+
+    声明**大于**表里最大值是允许的（更保守），代价由生成器自己承担——禁建环
+    跟着变宽，图更难生成，那是看得见的。
     """
     problems = []
     buildable = [c for c in grid.all_cells() if grid.is_buildable(*c)]
     if not buildable:
         return []      # 一格都不能建的图有别的问题，不在本条管
+
+    declared = th.static_vision_radius_max
+    if declared < 0:
+        # 负数 = 本档显式弃用本条（只有 `fixture` 用，理由见 thresholds.json）。
+        # **弃用的档不去核对声明**——没有声明可核对，而 -1 有它自己的理由。
+        return []
+
+    table_max, worst_bld = _max_bld_vision()
+    if declared < table_max:
+        problems.append(
+            f"profile {th.name} 声明的 static_vision_radius_max = {declared}，"
+            f"小于数值表里建筑视野的最大值 {table_max:g}（{worst_bld}）—— "
+            f"**本条的上限本身失效**：一座 {worst_bld} 就能照亮集结区，"
+            f"而按声明的上限查会全部通过。两处二选一改齐："
+            f"抬高 tools/map_gen/thresholds.json 的声明（禁建环跟着变宽），"
+            f"或压低 game/data/stats_placeholder.json 里 {worst_bld} 的视野")
+    cap = max(declared, table_max)
+
     for pos, s in sorted(grid.spawns.items()):
         best, where = None, None
         for c in buildable:
             d = gridmod.chebyshev(pos, c)
             if best is None or d < best:
                 best, where = d, c
-        if best <= th.static_vision_radius_max:
+        if best <= cap:
             problems.append(
                 f"集结点 {list(pos)}（{s['corridor']}）到最近可建造格 "
                 f"{list(where)} 的切比雪夫距离只有 {best}，"
-                f"不大于静态建筑视野半径上限 {th.static_vision_radius_max}"
-                f"（profile {th.name}）—— 一座永久建筑就能照亮集结区，"
+                f"不大于静态建筑视野半径上限 {cap:g}"
+                f"（profile {th.name}；表里最大的是 {worst_bld} 的 {table_max:g}）"
+                f"—— 一座永久建筑就能照亮集结区，"
                 f"「这波要不要花钱侦查」被一次性买断，整条侦查博弈失效")
     return problems
 

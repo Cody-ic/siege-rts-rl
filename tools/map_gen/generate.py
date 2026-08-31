@@ -339,7 +339,11 @@ def place_spawns(cv, cfg, th, rng, sides, mouths):
     `Scout`、`Wraith` 屏蔽、佯攻诱饵会一起失效（CLAUDE.md「集结区」）。
     """
     margin = min(2, th.spawn_edge_distance_max)
-    ring = int(th.static_vision_radius_max) + 1
+    # 环宽取**校验器实际会用的那个上限**，而不是 thresholds.json 里手写的声明。
+    # 第 14 条的上限从数值表推导（`Watch` 的视野），声明只是被核对的一方——
+    # 这里若还读声明，就会出现「生成器按 8 铺环、校验器按 12 查」，每张图都被否决。
+    table_max, _ = thmod.max_building_vision()
+    ring = int(max(th.static_vision_radius_max, table_max)) + 1
     for side in sides:
         mouth = mouths[side]
         mx = sum(c[0] for c in mouth) // len(mouth)

@@ -2,8 +2,9 @@
 
 **为什么单独一个模块而不是在 validate.py 里 `json.load`：**
 
-这份配置有两个消费者（校验器与生成器）与一个外部依赖（`Ram` 速度在
-`game/data/stats_placeholder.json`）。摊在两处读就会出现两套「缺键怎么办」的答案，
+这份配置有两个消费者（校验器与生成器）与**两个**外部依赖，两个都在
+`game/data/stats_placeholder.json`：`Ram` 速度（第 5 条）与**建筑视野的最大值**
+（第 14 条）。摊在两处读就会出现两套「缺键怎么办」的答案，
 而这个仓库里那种分歧的症状一律是「能跑但结果不对」。
 
 **严格性照 `game::StatsLoader` 那条纪律办：手误不得静默落回默认值。**
@@ -15,6 +16,12 @@
 `game/data/stats_placeholder.json` → `StatsLoader` → `WorldInit::stats` 这一条路；
 在这里抄一份就是第二个真相来源，而两份数值迟早分叉——那时第 5 条会拿一个
 仿真里根本不存在的速度算行军时间，且没有任何东西会红。
+
+**建筑视野的最大值是同一条理由的第二例，而它已经真的分叉过一次。**
+`static_vision_radius_max` 曾是手写的 8，而表里 `Watch` 是 12；于是校验器判定
+合法的图上一座瞭望塔仍然照亮集结区，第 14 条那条**结构**约束被违反而全绿。
+所以那个键现在只是一条**声明**，权威值由 `max_building_vision()` 从表里推导，
+两者不一致时第 14 条自己会红——见 `validate.py` 该条。
 """
 
 from __future__ import annotations
@@ -239,3 +246,42 @@ def ram_speed_cells_per_tick(path=None):
     if not isinstance(v, (int, float)) or isinstance(v, bool) or v <= 0:
         raise ThresholdError(f"{path}：units.Ram.speed = {v!r}，应当是正数")
     return float(v)
+
+
+def max_building_vision(path=None):
+    """从数值表读**所有建筑视野的最大值**。走 `Ram` 速度那条先例，理由逐字相同。
+
+    第 14 条要守「任何静态建筑的视野都不得覆盖集结区」，而它的可校验形式
+    （集结点到最近可建造格的距离 > 上限）里那个「上限」**就是这个最大值**。
+    此前 `static_vision_radius_max` 是手写的 8，而表里 `Watch` 是 12——
+    于是校验器判定合法的图上，一座瞭望塔仍然照亮集结区，**而没有任何东西会红**。
+
+    实测过：用仓库的 `generate.py` 生成的图，四个集结点到最近可建造格都是 10 格，
+    `Watch(12)` 全部够得着（16/16）。这不是假想的边界情形，是生成器的默认产出。
+
+    所以这里**不给默认值、读不到就抛**：拿一个猜的上限算出一个「通过」，
+    正是第 14 条要防的那种一次性买断。
+    """
+    path = path or STATS_PATH
+    with open(path, encoding="utf-8") as f:
+        raw = json.load(f)
+    blds = raw.get("buildings")
+    if not isinstance(blds, dict):
+        raise ThresholdError(
+            f"{path}：读不到 buildings。\n"
+            f"  第 14 条拿建筑视野的最大值当上限；"
+            f"它是数值进仿真的唯一路径，本工具刻意不另存一份")
+    # `_note` 一类的说明键在同一层，按类型筛而不是按前缀——前缀约定改了这里就漏。
+    got = {}
+    for name, b in blds.items():
+        if not isinstance(b, dict):
+            continue
+        v = b.get("vision")
+        if not isinstance(v, (int, float)) or isinstance(v, bool):
+            raise ThresholdError(
+                f"{path}：buildings.{name}.vision = {v!r}，应当是数")
+        got[name] = float(v)
+    if not got:
+        raise ThresholdError(
+            f"{path}：buildings 里一座都没有 vision——第 14 条的上限无从推导")
+    return max(got.values()), max(got, key=lambda k: got[k])
