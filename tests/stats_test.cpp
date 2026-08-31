@@ -283,7 +283,7 @@ TEST_CASE("载入器：手误不得静默落回默认值", "[stats]") {
 
     // 漏一个兵种：报错点名 `units.Ram`，不是「能跑但 Ram 打不动」。
     REQUIRE_THROWS_AS(game::StatsLoader::from_string(R"({
-        "schema": "stats/7",
+        "schema": "stats/8",
         "units": {}, "buildings": {}, "obstacles": {}, "global": {}
     })"),
                       game::StatsFormatError);
@@ -304,11 +304,17 @@ TEST_CASE("载入器：手误不得静默落回默认值", "[stats]") {
                       game::StatsFormatError);
     REQUIRE_THROWS_AS(game::StatsLoader::from_string(R"({"schema": "stats/6"})"),
                       game::StatsFormatError);
+    // stats/7 与它前面那些不同：**它的字段与 stats/8 一模一样**，差别只在
+    // 等级缩放的语义（线性 → 各开一份平方根）。所以一张 stats/7 的表在新
+    // 公式下每个数都还合法，它会**载入成功并算出一整局不同的仗**——版本号
+    // 是唯一能把这件事变成一句报错的地方，这条断言就是钉住那一点的。
+    REQUIRE_THROWS_AS(game::StatsLoader::from_string(R"({"schema": "stats/7"})"),
+                      game::StatsFormatError);
 
     // 认不出的键（拼错）：`cooldown_tick` 少个 s。静默忽略的话它落回默认值 1。
     REQUIRE_THROWS_AS(
         game::StatsLoader::from_string(R"({
-        "schema": "stats/7",
+        "schema": "stats/8",
         "units": { "Archer": { "max_hp": 1, "damage": 0, "range": 0, "speed": 0,
                                "vision": 0, "windup_ticks": 0, "cooldown_tick": 5,
                                "vs_structure_permille": 0, "aoe_radius": 0, "proj_speed": 0,
@@ -322,7 +328,7 @@ TEST_CASE("载入器：手误不得静默落回默认值", "[stats]") {
     // （新字段要写全——否则先撞上的是「缺少字段」，测的就不是下界了。）
     REQUIRE_THROWS_AS(
         game::StatsLoader::from_string(R"({
-        "schema": "stats/7",
+        "schema": "stats/8",
         "units": { "Archer": { "max_hp": 0, "damage": 0, "range": 0, "speed": 0,
                                "vision": 0, "windup_ticks": 0, "cooldown_ticks": 1,
                                "vs_structure_permille": 0, "aoe_radius": 0, "proj_speed": 0,
@@ -332,12 +338,26 @@ TEST_CASE("载入器：手误不得静默落回默认值", "[stats]") {
     })"),
         game::StatsFormatError);
 
+    // 结构不变量：两个等级系数不相等必须拦。它们是 `√(1 + k(L−1))` 里那个 k
+    // （`combat_math.hpp` 的 `level_permille`），相等 ⇒ 血量与伤害各开一份
+    // 平方根 ⇒ TTK 与破墙时间都不随等级漂移，那是 §1.4 定死的那一半
+    // （`p − q = 0` 是**结构约束**，不是旋钮）。填成不相等不会让任何仿真报错，
+    // 只会让 TTK 悄悄发散、破墙时间趋于 0 或 ∞——同 `splash_dmg_permille`
+    // 那条先例（下一条）。**这是本次唯一新增的载入不变量。**
+    REQUIRE_THROWS_AS(
+        game::StatsLoader::from_string(R"({
+        "schema": "stats/8",
+        "units": {}, "buildings": {}, "obstacles": {},
+        "global": { "hp_permille_per_level": 220, "dmg_permille_per_level": 150 }
+    })"),
+        game::StatsFormatError);
+
     // 结构不变量：开了 aoe_radius 却把 splash_dmg_permille 留在 1000（=与主
     // 目标同倍率）必须拦——那正是这个字段要修的坑（试玩反馈：Ram 的 AOE
     // 圈内主目标和溅射单位吃同一份伤害）。
     REQUIRE_THROWS_AS(
         game::StatsLoader::from_string(R"({
-        "schema": "stats/7",
+        "schema": "stats/8",
         "units": { "Archer": { "max_hp": 1, "damage": 1, "range": 0, "speed": 0,
                                "vision": 0, "windup_ticks": 0, "cooldown_ticks": 1,
                                "vs_structure_permille": 0, "aoe_radius": 1.0, "proj_speed": 0,

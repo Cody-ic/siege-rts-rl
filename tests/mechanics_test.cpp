@@ -86,9 +86,32 @@ TEST_CASE("apply_permille：一次除法、四舍五入、钳到正", "[mech]") 
     // 结果必须为正：0 伤害凭空造出一种免疫。
     REQUIRE(rts::apply_permille(1, {100}) == 1);
     REQUIRE(rts::apply_permille(0, {}) == 1);
-    // 等级 1 不缩放。
+    // 等级 1 不缩放——`isqrt(1000 × 1000)` 精确等于 1000，不靠舍入。
     REQUIRE(rts::level_permille(1, 150) == 1000);
-    REQUIRE(rts::level_permille(3, 150) == 1300);
+    REQUIRE(rts::level_permille(1, 0) == 1000);
+    REQUIRE(rts::level_permille(1, 999) == 1000);
+    // **§1.4：血量与伤害各开一份平方根**（原来这里是线性的 1300）。
+    // 3 级、系数 150 ⇒ 开方前 1000 + 150×2 = 1300‰，单边 √1.3 ≈ 1140‰。
+    REQUIRE(rts::level_permille(3, 150) == 1140);
+
+    // 而这两条才是那个决定的实质，改公式时必须一起看：
+    //
+    // ① **两边乘起来回到开方前的线性底** ⇒ 战力曲线与 #96 那版「只涨伤害」
+    //    逐点相同（那一版唯一在意的判据一分没让）。差值只来自 isqrt 的 floor。
+    const std::int64_t p3 = rts::level_permille(3, 150);
+    REQUIRE(p3 * p3 <= 1300 * 1000);
+    REQUIRE(p3 * p3 > 1300 * 1000 - 2 * p3);   // floor 误差上界
+    // ② **血量与伤害用同一个函数、同一个系数 ⇒ 比值恒为 1**，于是 TTK 与
+    //    破墙时间不随等级漂移。那是 `p − q = 0` 这条结构约束的全部内容，
+    //    而它在这里是**由构造成立**的（同一个 `level_permille`）——
+    //    真正会破坏它的是给两个系数填不同的数，那条由 `StatsLoader` 拦。
+    for (const std::int32_t lv : {1, 2, 5, 20, 40}) {
+        REQUIRE(rts::level_permille(lv, 220) == rts::level_permille(lv, 220));
+    }
+    // 单调、且 40 级的战力落在文档记的 9.58x 上（`CLAUDE.md` §1.4 那张表）。
+    REQUIRE(rts::level_permille(40, 220) > rts::level_permille(20, 220));
+    const std::int64_t p40 = rts::level_permille(40, 220);
+    REQUIRE(p40 * p40 / 1000 == 9579);   // 9.579x，表里记的 9.58
 }
 
 // ——承诺 / 落地两拍——

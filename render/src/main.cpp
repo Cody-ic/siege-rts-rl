@@ -635,7 +635,12 @@ int run_game(const Options& opt) {
     // 兵营/堡垒同时能修也能练兵，两者不互斥（试玩报出来的 bug：旧版按
     // 「维修 > 征兵」优先级二选一，受损后练兵入口直接消失）。`Train` 弹窗
     // 因此可能在练兵清单前面多插一行「维修」，见 `popup_options`。
-    enum class PopupKind : int { None = 0, Build, Train, Repair };
+    //
+    // 「升级」按同一条道理办：它与维修、练兵**都不互斥**（一座掉血的兵营
+    // 三件事全都能做），所以它也是一个可插队的行，而不是一个把别的入口顶
+    // 掉的模式。`Upgrade` 作为独占弹窗只服务「点一座满血的墙/塔」——那种
+    // 格子在加它之前左键点下去什么都不弹。
+    enum class PopupKind : int { None = 0, Build, Train, Repair, Upgrade };
     struct Popup {
         PopupKind kind = PopupKind::None;
         rts::GridPos cell{};       // 建造的落点 / 兵营或堡垒 / 受损建筑
@@ -711,6 +716,44 @@ int run_game(const Options& opt) {
                          game::can_afford_repair(v, p.cell),
                 PopupKind::Repair, 0);
         };
+        // 「升级」这一行与维修同构，但**显示条件比维修宽**：维修行只在掉血
+        // 时出现，而这一行对己方任何完工建筑都出现，即使当前升不了。
+        //
+        // 理由是两者「为什么不能做」的可见性不同：满血 → 不用修，血条上看
+        // 得见；而「顶到等级上限」在画面上一个字都没有。占位系数
+        // `building_level_cap_divisor = 2` 下 1 级堡垒的上限就是 1 级，于是
+        // **开局每一座建筑都升不了**——那一行若干脆不出现，玩家既不知道有
+        // 升级这件事，也不知道该先去升堡垒。所以它照常出现、灰着，并把
+        // 原因印在标签里（`game::upgrade_block` 就是为这句文案存在的）。
+        const auto push_upgrade = [&]() {
+            const game::UpgradeBlock why = game::upgrade_block(v, p.cell);
+            if (why == game::UpgradeBlock::NoBuilding ||
+                why == game::UpgradeBlock::Unbuilt) {
+                return;   // 空地与工地上不谈升级
+            }
+            const int lv = static_cast<int>(game::bld_level_at(v, p.cell));
+            switch (why) {
+                case game::UpgradeBlock::LevelCap:
+                    std::snprintf(buf, sizeof(buf), "升级 Lv%d (上限%d，先升堡垒)",
+                                 lv, static_cast<int>(v.building_level_cap()));
+                    break;
+                case game::UpgradeBlock::Busy:
+                    std::snprintf(buf, sizeof(buf), "升级 Lv%d (有工程在进行)", lv);
+                    break;
+                default:
+                    // 箭头用 ASCII `->` 而不是 `→`：后者是一个要额外登记的
+                    // 码点（见 `render/src/text.cpp` 的 ui_strings()），而它
+                    // 在这个字号下也不比两个 ASCII 字符清楚。
+                    std::snprintf(buf, sizeof(buf), "升级 Lv%d->%d (石%d 木%d)", lv,
+                                 lv + 1,
+                                 static_cast<int>(game::upgrade_cost_stone(v, p.cell)),
+                                 static_cast<int>(game::upgrade_cost_wood(v, p.cell)));
+                    break;
+            }
+            push(buf, why == game::UpgradeBlock::None &&
+                         game::can_afford_upgrade(v, p.cell),
+                PopupKind::Upgrade, 0);
+        };
         switch (p.kind) {
             case PopupKind::Build:
                 for (std::size_t i = 0; i < buildable.size(); ++i) {
@@ -730,10 +773,13 @@ int run_game(const Options& opt) {
             case PopupKind::Train:
                 // 维修与练兵不互斥：掉血的兵营/堡垒既能修也能练兵，别把两者
                 // 做成二选一（试玩报出来的 bug：受损后左键只弹维修，练兵
-                // 入口直接消失）。维修永远排在第 0 项。
+                // 入口直接消失）。维修永远排在第 0 项，升级紧随其后——
+                // 升级同样不与另两者互斥（升 `Keep` 是抬高全城上限的唯一
+                // 途径，而 `Keep` 恰好也是个能练兵的建筑）。
                 if (game::can_repair_hint(v, p.cell)) {
                     push_repair();
                 }
+                push_upgrade();
                 for (std::size_t i = 0; i < trainable.size(); ++i) {
                     const rts::UnitType ut = trainable[i];
                     const rts::UnitStats& s = stats.of(ut);
@@ -747,6 +793,19 @@ int run_game(const Options& opt) {
                 break;
             case PopupKind::Repair:
                 push_repair();
+                push_upgrade();
+                break;
+            case PopupKind::Upgrade:
+                // 点一座满血的墙/塔落到这里。维修行照 `can_repair_hint` 判，
+                // 通常不出现（满血），但写上它是为了一件事：这三种弹窗里
+                // 「一座建筑能做哪些事」的清单只由 `can_*_hint` 决定，不由
+                // 「玩家点出来的是哪一种弹窗」决定。少了这一行，一座刚掉血
+                // 的塔会因为拾取顺序落进 Upgrade 弹窗而看不到维修入口——
+                // 正是「受损后练兵入口消失」那个 bug 的同一个形状。
+                if (game::can_repair_hint(v, p.cell)) {
+                    push_repair();
+                }
+                push_upgrade();
                 break;
             case PopupKind::None:
                 break;
@@ -996,6 +1055,9 @@ int run_game(const Options& opt) {
                             case PopupKind::Repair:
                                 c = game::repair_command(popup.cell, map.width());
                                 break;
+                            case PopupKind::Upgrade:
+                                c = game::upgrade_command(popup.cell, map.width());
+                                break;
                             case PopupKind::None:
                                 have = false;
                                 break;
@@ -1054,6 +1116,19 @@ int run_game(const Options& opt) {
                         popup = Popup{PopupKind::Train, cell, mouse};
                     } else if (game::can_repair_hint(view, cell)) {
                         popup = Popup{PopupKind::Repair, cell, mouse};
+                    } else if (const game::UpgradeBlock why =
+                                   game::upgrade_block(view, cell);
+                               why != game::UpgradeBlock::NoBuilding &&
+                               why != game::UpgradeBlock::Unbuilt) {
+                        // 满血的墙 / 塔 / 采集建筑落到这里——加它之前这种格子
+                        // 左键点下去只会清空选中集，于是升级这件事对玩家不存在。
+                        //
+                        // **条件刻意不是 `can_upgrade_hint`**：那个在顶到等级
+                        // 上限时是 false，而 `divisor = 2` 下开局每座建筑都顶
+                        // 着上限，用它做拾取判据等于让菜单在最需要解释的时候
+                        // 恰好不出现。这里只问「这一格有没有一座己方完工建筑」，
+                        // 能不能升由那一行自己灰着说明（见 `push_upgrade`）。
+                        popup = Popup{PopupKind::Upgrade, cell, mouse};
                     } else if (tile_is_open_for_building(view, cell)) {
                         popup = Popup{PopupKind::Build, cell, mouse};
                     } else {
