@@ -32,6 +32,10 @@ bool is_bridge_cell(const MapData& map, int x, int y) noexcept {
     return map.in_bounds(x, y) && map.terrain_at(x, y) == Terrain::Bridge;
 }
 
+bool is_water_cell(const MapData& map, int x, int y) noexcept {
+    return map.in_bounds(x, y) && map.terrain_at(x, y) == Terrain::Water;
+}
+
 bool is_wall_cell(const MapData& map, int x, int y) noexcept {
     return map.in_bounds(x, y) && map.wall_at(x, y) != nullptr;
 }
@@ -81,11 +85,35 @@ Facing SceneModel::run_direction(const MapData& map, rts::GridPos p,
                                  RunKind kind) noexcept {
     const int x = p.i;
     const int y = p.j;
-    const bool along_i =
-        (kind == RunKind::Wall)
-            ? (is_wall_cell(map, x - 1, y) || is_wall_cell(map, x + 1, y))
-            : (is_bridge_cell(map, x - 1, y) || is_bridge_cell(map, x + 1, y));
-    return along_i ? Facing::SW : Facing::NW;
+    bool along_i = false;
+    if (kind == RunKind::Wall) {
+        along_i = is_wall_cell(map, x - 1, y) || is_wall_cell(map, x + 1, y);
+        // 墙板：沿 gi 用 SW、沿 gj 用 SE（实测，见头文件那张表）。
+        return along_i ? Facing::SW : Facing::SE;
+    }
+    {
+        // **桥的走向是「过河的方向」，不是「相邻桥格的方向」。**
+        //
+        // 一条一格宽的河上并排两格桥（demo 就是这样：河沿 gj，桥在 (13,5) 与
+        // (13,6)），按相邻同类推出来的走向是**沿着河**的，于是桥板顺着水流铺，
+        // 读作「河里漂着两块板」而不是「一座桥」。
+        //
+        // 所以先问水：河沿哪个轴，桥就沿另一个轴。相邻的**水**格给出河的走向
+        // （相邻的桥格不算——它们是并排的另一条车道，正是上面那个陷阱的来源）。
+        const bool river_along_i = is_water_cell(map, x - 1, y) || is_water_cell(map, x + 1, y);
+        const bool river_along_j = is_water_cell(map, x, y - 1) || is_water_cell(map, x, y + 1);
+        if (river_along_i != river_along_j) {
+            along_i = river_along_j;   // 河沿 gj ⇒ 桥沿 gi
+        } else {
+            // 问不出河的走向（桥两头都不挨水，或四面都是水）：回落到相邻桥格。
+            along_i = is_bridge_cell(map, x - 1, y) || is_bridge_cell(map, x + 1, y);
+        }
+    }
+    // **桥板与墙板的表是反的**，因为两个模型的长轴本来就不是同一个轴
+    // （`wall-narrow.glb` vs `bridge-draw.glb`）。这不是笔误——
+    // `tools/sprite_gen/README.md` 那节自己写着「这取决于模型自身的长轴朝向」，
+    // 所以这张表只能逐模型实测，不能全局共用一份。
+    return along_i ? Facing::SE : Facing::SW;
 }
 
 DrawLists SceneModel::build(const MapData& map) {

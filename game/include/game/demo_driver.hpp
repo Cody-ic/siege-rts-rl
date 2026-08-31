@@ -16,6 +16,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <vector>
 
 #include "game/defender_script.hpp"
@@ -48,6 +49,13 @@ public:
     // 波次机就会在下一 tick 生波——倒计时与提前召唤殊途同归。
     void submit_defender(const rts::Command* cmds, std::size_t count) {
         w_.submit(rts::Side::Defender, cmds, count);
+    }
+
+    // 框选之后的临时开拔指令：转给执行层脚本，**不进 `World`**——理由见
+    // `DefenderScript::issue_move_order`（框选只影响这批单位，不改变编队
+    // 归属，因此不能走 `force_target_` 那条持久记账的路）。
+    void issue_move_order(std::span<const rts::UnitId> ids, rts::GridPos target) {
+        script_.issue_move_order(ids, target);
     }
 
 private:

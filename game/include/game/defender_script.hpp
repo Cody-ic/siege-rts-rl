@@ -44,6 +44,7 @@
 #define GAME_DEFENDER_SCRIPT_HPP
 
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -55,6 +56,22 @@
 
 namespace game {
 
+// 框选 + 右键下达的临时移动指令（#57 重开：框选只影响这次选中的单位，
+// 不改变编队归属，见 CLAUDE.md「框选决定」）。**只有「开拔」这一种**——
+// 驻守（登墙）与清野（破坏）的实际生效在 `rts_core` 里天生按编队/全局记账
+// （`tick_garrison` 按 `u_force_` 挑人、`Clear` 标记是全局的），绕不开
+// `World::submit`，所以那两种命令仍然走 `Command` 路径（见
+// `game/player_input.hpp` 的 `distinct_forces()`），不需要这里的临时状态。
+struct ManualOrder {
+    bool active = false;
+    rts::GridPos target{};
+    // 配 `UnitId::generation()`：槎位被复用（旧单位死、新单位占了同一个
+    // 下标）时旧指令必须视为失效，否则新单位会莫名其妙走向一个没人告诉过
+    // 它的目标——`Handle` 的 tag/generation 机制原是防「拿地址/下标当 key」
+    // 那类 bug，这里是它第一次被 `game/` 自己的每单位状态复用，同一条纪律。
+    std::uint16_t generation = 0;
+};
+
 // 微操参数。**数值全部占位**（CLAUDE.md「关于数值」）；「一族」脚本 =
 // 把它们在一个范围内随机化后各造一个实例（domain randomization，
 // `守方AI与协同演化.md` 2.5 那张表的「可调 / 可控」列）。
@@ -64,6 +81,18 @@ struct ScriptParams {
     std::int32_t reaction_decisions = 0;  // 占位：威胁持续几拍才响应（生疏度）
     float avoid_knight_cells = 3.0f;    // 占位：游骑对骑士的保持距离
     float arrive_cells = 1.5f;          // 占位：距编队目标多近算「到了」
+    // 连续几拍「什么指令都没有」才真的挪去集结点，1 = 容忍 1 拍再动手。
+    //
+    // **这条不是可有可无的调优参数，是修一个真 bug 用的**：`World::submit`
+    // 只入队，指令要到下一次 `advance()` 才落地（`rts_core 接口契约.md`
+    // 的既有设计，不是 bug）。如果一个编队从「从没收到过指令」的状态
+    // 刚被下了一条指令，中间恰好有一拍 `decide()` 先于 `advance()` 跑到、
+    // 看到的还是「没有指令」——这一拍必须原地不动，不能真的挪向集结点，
+    // 否则那一步会把单位带偏，而下一拍「指令生效」时的「最近选哪段墙/
+    // 走哪条路」是按**那时的位置**算的，偏出去的那一步可能真的改变结果
+    // （已被一条驻守测试的破坏性验证抓到过：两名弓手本该各奔一段墙，
+    // 少了这条容忍就会一起挤向同一段）。
+    std::int32_t muster_delay_decisions = 1;
 };
 
 class DefenderScript {
@@ -76,20 +105,44 @@ public:
     void decide(const rts::WorldView& view, std::span<const rts::UnitId> ids,
                 std::vector<rts::UnitAction>& out);
 
+    // 给这批单位（必须是活着的守方单位）下一条临时开拔指令：只影响它们，
+    // 不写 `force_target_`——同一编队里没被选中的单位不受影响，这是它与
+    // `MoveForce` 的分界。优先级高于编队的持久指令（`follow_orders` 最前面
+    // 查它）。到达目标格后自动清空，退回编队级默认值（或没有的话，退回
+    // 集结点默认值）。
+    void issue_move_order(std::span<const rts::UnitId> ids, rts::GridPos target);
+
 private:
     rts::UnitAction decide_unit(const rts::WorldView& view, rts::UnitId id);
-    rts::UnitAction follow_orders(const rts::WorldView& view, std::size_t slot,
-                                  std::uint16_t mask);
+    // 返回 `nullopt` 表示这个单位**没有任何指令**（编队没有持久目标、
+    // 也没有框选临时指令）——调用方据此决定要不要用类型自带的兜底
+    // （`Ranger` 摸攻城锤 / `Mason` 找活干）或最终的集结点默认值。
+    // 返回具体动作（哪怕是 `Stop`）表示「有指令，这就是它现在该做的事」
+    // ——`Stop` 常见的含义是「已到达 / 正贴墙等着被拉上去」，这两种都不该
+    // 被后面的兜底覆盖，所以不能靠「是不是 Stop」来判断有没有指令。
+    std::optional<rts::UnitAction> follow_orders(const rts::WorldView& view,
+                                                 rts::UnitId id, std::uint16_t mask);
     // 朝目标格走：flow field（按 (目标, 兵种, 档) 在一拍内缓存），
     // 不可达退回贪心。穿城门出城靠 field——贪心会怼在自家墙上。
     rts::UnitAction move_towards(const rts::WorldView& view, std::size_t slot,
                                  rts::GridPos goal, std::uint16_t mask);
     rts::UnitAction flee_from(const rts::WorldView& view, std::size_t slot,
                               rts::Vec2 threat, std::uint16_t mask);
+    // 什么指令都没有时的最后一档：走向堡垒附近按编队错开的集结点，
+    // 到了就停。**不要在还有类型自带兜底可试时调用它**（`Ranger`/`Mason`
+    // 各自的兜底要排在它前面，见 `decide_unit`）。
+    rts::UnitAction muster_fallback(const rts::WorldView& view, std::size_t slot,
+                                    std::uint16_t mask);
+    static rts::GridPos muster_point_for(std::uint8_t force, rts::GridPos keep) noexcept;
 
     ScriptParams p_;
     rts::Rng rng_;
     std::vector<std::int32_t> threat_streak_;   // 按槽位：威胁已持续的决策拍数
+    std::vector<ManualOrder> manual_order_;      // 按槽位：框选下达的临时开拔指令
+    // 按槽位：连续多少拍「没有任何指令」（`follow_orders` 返回 `nullopt`）。
+    // 只用来给 `muster_fallback` 挡掉刚提交、还没落地那一拍的假阴性，见
+    // `ScriptParams::muster_delay_decisions` 的注释。
+    std::vector<std::int32_t> no_order_streak_;
 
     // 一拍内的缓存与预扫描（decide 开头重建）。
     struct CachedField {
