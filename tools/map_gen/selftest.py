@@ -1021,7 +1021,7 @@ def check_validator_on_clean_map(c):
                   if chk.status == validate.BLOCKED)
     n_pend = sum(1 for chk in validate.CHECKS
                  if chk.status == validate.PENDING)
-    c.eq((n_impl, n_block, n_pend), (20, 1, 0),
+    c.eq((n_impl, n_block, n_pend), (21, 1, 0),
          "条目状态计数变了：改动状态时要同步这条断言与 README 的进度表")
 
 
@@ -1449,6 +1449,63 @@ def check_v14_spawn_buildable_distance(c):
            "负数上限应当让本条恒真（fixture 那一档靠它），且不核对声明")
 
 
+def check_v23_forest_cohesion(c):
+    """第 23 条：`Forest` 4 连通块不得碎成粉尘。
+
+    它守的是森林的**职责**（2.1.1 不可围 / §2.2 看不清来了什么 / 把杀伤区压成
+    薄带），而三项都依赖连片——同样的总面积，撒成散点与聚成几片完全不同。
+    """
+    th = thresholds.load().profile("strict")
+    thr = int(th.forest_min_component_cells)
+    size = th.size_min
+
+    def with_forest(cells):
+        doc = _big_doc(size)
+        pal = doc["layers"]["terrain"]["palette"]
+        fi = str(pal.index("Forest"))
+        rows = [list(r) for r in doc["layers"]["terrain"]["rows"]]
+        for x, y in cells:
+            rows[y][x] = fi
+        doc["layers"]["terrain"]["rows"] = ["".join(r) for r in rows]
+        mapfile.stamp_content_hash(doc)
+        return doc
+
+    # 一块够大的方形 ⇒ 通过。
+    big = [(20 + dx, 20 + dy) for dx in range(4) for dy in range(4)]
+    doc = with_forest(big)
+    c.true(not validate.check_forest_cohesion(doc, Grid(doc), th),
+           f"{len(big)} 格的一整片应当通过（阈值 {thr}）")
+
+    # 一格孤立的粉尘 ⇒ 必须报。**这就是本条存在的理由。**
+    doc = with_forest(big + [(40, 40)])
+    probs = validate.check_forest_cohesion(doc, Grid(doc), th)
+    c.true(probs, "一格孤立的 Forest 必须报——粉尘不承担森林的任何职责，"
+                  "却照样计入总面积")
+
+    # **1 格宽的长条必须通过。** 2.1.1 的森林带可以只有 1 格宽，
+    # 所以判据只能看「块格数」，不能看「块厚度」——写成厚度会把合法的带子判红。
+    band = [(30, 10 + i) for i in range(max(thr, 3) + 2)]
+    doc = with_forest(band)
+    c.true(not validate.check_forest_cohesion(doc, Grid(doc), th),
+           f"1 格宽、{len(band)} 格长的森林带必须通过（2.1.1 允许 1 格宽）")
+
+    # 只靠斜向相连的两格：4 连通下算两块 ⇒ 两块都不够 ⇒ 必须报。
+    # 取 4 连通落在保守那一侧（切得更碎 ⇒ 报得更多），与第 7 条同一个取法。
+    doc = with_forest([(50, 50), (51, 51)])
+    c.true(validate.check_forest_cohesion(doc, Grid(doc), th),
+           "只斜向相连的两格在 4 连通下是两块，都不够，必须报")
+
+    # 阈值 ≤1 = 本档弃用本条（`fixture` 靠它）。
+    import json as _json
+    raw = _json.loads(open(thresholds.DEFAULT_PATH, encoding="utf-8").read())
+    off = _json.loads(_json.dumps(raw["profiles"]["strict"]))
+    off["forest_min_component_cells"] = 1
+    th_off = thresholds.Profile("strict", off)
+    doc = with_forest(big + [(40, 40)])
+    c.true(not validate.check_forest_cohesion(doc, Grid(doc), th_off),
+           "阈值为 1 时本条应当恒真（fixture 那一档靠它）")
+
+
 def check_generator_produces_valid_maps(c):
     """生成器产出的图必须通过**全部**检查（§9：不通过就丢弃重生成）。"""
     all_th = thresholds.load()
@@ -1633,6 +1690,7 @@ GROUPS = [
     ("第 2 条 集结点数量与贴边", check_v2_spawn_count_and_edge),
     ("第 5 条 Ram 行军占比", check_v5_ram_march),
     ("第 14 条 集结点到可建造格的距离", check_v14_spawn_buildable_distance),
+    ("第 23 条 Forest 连通块不得碎成粉尘", check_v23_forest_cohesion),
     # —— 生成器（第 9 节）——
     ("生成器产出合法地图", check_generator_produces_valid_maps),
     ("生成器确定：同种子同图、异种子异图", check_generator_is_deterministic),

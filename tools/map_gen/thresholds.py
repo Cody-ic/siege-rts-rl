@@ -47,6 +47,7 @@ PROFILE_KEYS = frozenset({
     "episode_ticks_min", "episode_ticks_max",
     "ram_march_fraction_min", "ram_march_fraction_max",
     "front_length_min", "front_length_max",
+    "forest_min_component_cells",
 })
 
 GENERATOR_KEYS = frozenset({

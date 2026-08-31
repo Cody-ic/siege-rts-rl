@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""地图校验器 —— `地图与场景设计.md` 第 8 节那 22 条的可执行形式。
+"""地图校验器 —— `地图与场景设计.md` 第 8 节那 23 条的可执行形式。
 
 第 8 节开头写「`tools/map_gen/` 的校验器是地图规范的可执行部分。手写地图与
 生成地图都必须通过」。本文件就是那一句。
@@ -19,10 +19,10 @@
 
 ## 阈值从哪来：`thresholds.json`，且分 profile
 
-第 1、2、5、14 条要的阈值全部待标定。**待定的是值，不是归口**——
+第 1、2、5、14、23 条要的阈值全部待标定。**待定的是值，不是归口**——
 `地图与场景设计.md` §10 明写「一切阈值……应集中在一份配置里，不要硬编码」，
 那份配置就是 `thresholds.json`，读取层是 `thresholds.py`。有了归口，
-这四条就能实现，占位值随时改而代码不动。
+这几条就能实现，占位值随时改而代码不动。
 
 阈值分 `strict` 与 `fixture` 两档，**profile 只改数值、不改「哪些条目跑」**。
 `fixture` 存在的唯一理由是 `game/testdata/fixture_min.json` 是一张 7×5 的
@@ -37,12 +37,12 @@
 落点是 `generate.py` 的批量报告（丢弃率 + 每条检查的否决计数）。
 
 **它是移走，不是删掉**：`MOVED_TO_GENERATOR` 显式记着它，
-而 `selftest.py` 断言「CHECKS 的编号 + 移走的编号 = 规范的 1..22」。
+而 `selftest.py` 断言「CHECKS 的编号 + 移走的编号 = 规范的 1..23」。
 直接删会让这一条从此无声消失，而那正是白名单漏登记那类错误的样子。
 
 ## 一条防漂移的断言
 
-`CHECKS` 表加上 `MOVED_TO_GENERATOR` 必须正好覆盖 1..22、不重不漏，
+`CHECKS` 表加上 `MOVED_TO_GENERATOR` 必须正好覆盖 1..23、不重不漏，
 由 `selftest.py` 钉住。第 8 节将来若加条目（例如 #26 的 A5 若通过，要加一条
 「§2 必须配 §3」的检查），这条断言会立刻变红提醒同步 —— 白名单漏登记抓不到，
 是 `tests/CMakeLists.txt` 里已经踩过的坑。
@@ -75,7 +75,7 @@ Check.__new__.__defaults__ = (False,)
 
 # 第 8 节要求的总条目数。写成常量而不是 len(CHECKS)，这样「漏写一条」会被
 # selftest 抓到 —— 用 len() 去校验 CHECKS 自己，等于用它证明它自己。
-SPEC_CHECK_COUNT = 22
+SPEC_CHECK_COUNT = 23
 
 # 从 CHECKS 移走的条目：编号 -> 去哪了。见模块 docstring。
 MOVED_TO_GENERATOR = {
@@ -653,7 +653,7 @@ def check_has_outer_resource(doc, grid):
 # --------------------------------------------------------------------------
 
 # --------------------------------------------------------------------------
-# 需要阈值的四条（第 1、2、5、14 条）。签名多一个 `th`（一档 Profile）。
+# 需要阈值的那几条（第 1、2、5、14、23 条）。签名多一个 `th`（一档 Profile）。
 #
 # 它们此前标着「待阈值」，而**缺的从来不是判据，是阈值的归口**。
 # `地图与场景设计.md` §10 早就写了「应集中在一份配置里，不要硬编码」，
@@ -879,6 +879,63 @@ def check_spawn_buildable_distance(doc, grid, th):
     return problems
 
 
+def check_forest_cohesion(doc, grid, th):
+    """第 23 条：每个 `Forest` 4 连通块的格数必须 ≥ 阈值。
+
+    ## 它守的是森林的**职责**，而职责要的是连片、不是总面积
+
+    `Forest` 在设计里干三件事：2.1.1 的森林带（结构性地让外部资源簇围不起来）、
+    §2.2 林地走廊的「看不清来了什么」、以及把杀伤区压成一条薄带
+    （2.1.2 那段论证）。**三件都依赖连片**——同样 100 格森林，撒成 50 对散点
+    与聚成几片，遮蔽效果完全不同，而**总面积一模一样**。
+
+    所以「森林够不够」此前没有任何检查在管：第 7 条只要森林带**连通到边界**
+    （它对一条 1 格宽的带子成立），第 10 条反过来禁止**过度**连通
+    （不得构成连续遮蔽通道）。两条都是在管连通的**上界与路径**，
+    没有一条管「一片林子会不会碎成粉尘」。
+
+    ## 现在这条会平凡通过，那不是理由不加
+
+    实测（6 张生成图，33 个 4 连通块）：最小块 4 格，大小 ≤2 的粉尘块 **0 个**
+    ——因为生成器画的是半径 1–3 的圆盘（`forest_patch_radius`）。
+
+    但那是**生成策略**保证的，不是约束保证的。同第 10 条那句「这不等于第 10 条
+    无用——它保护的是手写地图，以及将来允许森林进集结点的更激进策略」：
+    §9 那张手写演示地图还没做，而它正是最可能撒出粉尘的地方
+    （手画时很容易点几格森林当装饰）。
+
+    ## 取 4 连通、取「块格数」而不是「块厚度」
+
+    - **4 连通**：与第 7 条同一个取法。这里它同时落在保守那一侧——4 连通把块
+      切得更碎，于是**报得更多**，而本条是一条下界约束，多报是安全的那侧。
+    - **块格数，不是厚度。** 这一条很容易写错：2.1.1 的森林带**可以只有 1 格宽**
+      （它只需要连通到边界），所以任何「厚度 ≥ 2」的判据都会把合法的森林带判红。
+      而一条 1 格宽、20 格长的带子，格数是 20，本条照样通过。
+    """
+    thr = th.forest_min_component_cells
+    if thr <= 1:
+        return []      # ≤1 = 本档弃用本条（一格也算一片，判据恒真）
+
+    def is_forest(x, y):
+        return grid.terrain_at(x, y) == "Forest"
+
+    seen = set()
+    problems = []
+    for cell in grid.all_cells():
+        if cell in seen or not is_forest(*cell):
+            continue
+        comp = grid.flood([cell], is_forest, diagonal=False)
+        seen |= comp
+        if len(comp) < thr:
+            where = sorted(comp)
+            problems.append(
+                f"Forest 连通块 {where} 只有 {len(comp)} 格，少于 {thr}"
+                f"（profile {th.name}，4 连通）—— 森林的三项职责"
+                f"（2.1.1 的不可围、§2.2 的「看不清来了什么」、把杀伤区压成薄带）"
+                f"都依赖连片，而碎成粉尘时总面积不变、遮蔽效果没了")
+    return problems
+
+
 CHECKS = [
     Check(1, "size 落在给定区间", check_size_range, IMPLEMENTED, "",
           True),
@@ -923,6 +980,8 @@ CHECKS = [
           check_has_outer_resource, IMPLEMENTED, ""),
     Check(22, "obstacles 的摆放冲突",
           check_obstacle_placement, IMPLEMENTED, ""),
+    Check(23, "Forest 连通块不得碎成粉尘", check_forest_cohesion,
+          IMPLEMENTED, "", True),
 ]
 
 
