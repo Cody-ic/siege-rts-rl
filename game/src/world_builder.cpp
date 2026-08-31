@@ -55,9 +55,8 @@ rts::WorldInit make_world_init(const MapData& map, const rts::StatsTable& stats,
 
     init.spawns.reserve(map.spawns().size());
     for (const SpawnPoint& s : map.spawns()) {
-        // **走廊种类刻意不带过去**，理由见 `rts::SpawnSite` 的注释：
-        // 「每个集结点对应一条性质不同的走廊」是对**地图**的结构约束，
-        // 仿真不消费它；带过去会诱使有人按走廊种类写分支。
+        // 集结点不携带任何性质标签（2026-08-31：走廊概念已取缔，
+        // `spawns[].corridor` 字段随之一并删除）。
         init.spawns.push_back(rts::SpawnSite{s.pos});
     }
 
@@ -87,6 +86,13 @@ rts::WorldInit make_world_init(const MapData& map, const rts::StatsTable& stats,
         const std::int64_t max_hp = stats.of(type).max_hp;
         init.buildings.push_back(
             rts::BldInit{type, w.pos, scale_hp(w.hp_frac, max_hp), max_hp});
+    }
+
+    // 玩家开局已拥有的其余建筑（6.2 的 `buildings`，2026-08-31 新增）。
+    // **满血进场**，同障碍——没有设计要求说它们开局就该带伤。
+    for (const BuildingNode& b : map.buildings()) {
+        const std::int64_t max_hp = stats.of(b.type).max_hp;
+        init.buildings.push_back(rts::BldInit{b.type, b.pos, max_hp, max_hp});
     }
 
     // 可破坏障碍。**满血进场**——`ObstacleNode` 不带残血比例，理由见它的注释

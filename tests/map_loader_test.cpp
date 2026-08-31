@@ -30,10 +30,11 @@ const char* const kMinimal = R"({
     "no_build": { "rows": ["000", "010"] }
   },
   "keep": [0, 0],
-  "spawns": [{ "id": 0, "pos": [2, 1], "corridor": "open" }],
+  "spawns": [{ "id": 0, "pos": [2, 1] }],
   "resources": [{ "type": "stone", "pos": [1, 0], "tier": "inner", "unlock_wave": 1 }],
   "initial_walls": [{ "kind": "Wall", "pos": [0, 1], "hp_frac": 1.0 }],
-  "obstacles": [{ "type": "Stump", "pos": [2, 0] }]
+  "obstacles": [{ "type": "Stump", "pos": [2, 0] }],
+  "buildings": []
 })";
 
 }  // namespace
@@ -87,8 +88,11 @@ TEST_CASE("点位实体解析", "[map]") {
     REQUIRE(m.keep().i == 1);
     REQUIRE(m.keep().j == 1);
 
-    REQUIRE(m.spawns()[0].corridor == game::CorridorKind::Open);
-    REQUIRE(m.spawns()[1].corridor == game::CorridorKind::Defile);
+    // 2026-08-31：`corridor` 字段已随「走廊」概念一起废除，
+    // 集结点只剩 id 与 pos。
+    REQUIRE(m.spawns().size() == 2);
+    REQUIRE(m.spawns()[0].id == 0);
+    REQUIRE(m.spawns()[0].pos == rts::GridPos{0, 0});
 
     REQUIRE(m.resources()[0].type == game::ResourceType::Stone);
     REQUIRE(m.resources()[0].tier == game::ResourceTier::Inner);
@@ -167,9 +171,11 @@ TEST_CASE("格式不合法要抛，而不是读出一张看起来正常的图", 
         REQUIRE_THROWS_AS(MapLoader::from_string(s), MapFormatError);
     }
 
-    SECTION("corridor 不是枚举里的值") {
+    SECTION("spawns 缺 pos") {
+        // 2026-08-31：`corridor` 字段废除后，spawn 的必填项只剩 id 与 pos；
+        // 原来的「corridor 不是枚举里的值」SECTION 随枚举一起删除。
         std::string s = kMinimal;
-        s.replace(s.find("\"open\""), 6, "\"opne\"");
+        s.replace(s.find("\"pos\": [2, 1]"), 14, "\"ops\": [2, 1]");
         REQUIRE_THROWS_AS(MapLoader::from_string(s), MapFormatError);
     }
 

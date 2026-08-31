@@ -52,10 +52,8 @@ static_assert(kTerrainCount <= 10,
 // `inner` 在城内、是保底收入；`outer` 在墙外、要派兵争夺（CLAUDE.md「资源分布形态」）。
 enum class ResourceTier : std::uint8_t { Inner, Outer };
 
-// 走廊种类。**这是拼写检查用的枚举，不是「必须四种都有」**——2.2 明写走廊清单是候选
-// 而非定数，把它当定数正是 #17 订正过的那类错误。
-enum class CorridorKind : std::uint8_t { Open, Defile, Forest, Economy };
-
+// 2026-08-31：`CorridorKind` 已随「走廊」概念一起删除（组长拍板取缔，
+// `spawns[].corridor` 字段一并废除）。集结点是固定边缘候选点，不带性质标签。
 enum class WallKind : std::uint8_t { Wall, Gate };
 
 // 各枚举的取值个数。存在的理由是**要能机械地遍历一个枚举**：
@@ -69,13 +67,11 @@ enum class WallKind : std::uint8_t { Wall, Gate };
 // 未登记的字符直接抛并指名是哪个字。所以这个洞的兜底在渲染侧，不在这里。
 inline constexpr int kResourceTypeCount = rts::kResourceCount;
 inline constexpr int kResourceTierCount = 2;
-inline constexpr int kCorridorKindCount = 4;
 inline constexpr int kWallKindCount = 2;
 
 struct SpawnPoint {
     int id = 0;
     rts::GridPos pos{};
-    CorridorKind corridor = CorridorKind::Open;
 };
 
 struct ResourceNode {
@@ -109,6 +105,23 @@ struct ObstacleNode {
     rts::GridPos pos{};
 };
 
+// 玩家开局已拥有的**其余**建筑（`地图与场景设计.md` 6.2 的 `buildings`，
+// 2026-08-31 新增，随大地图重设计一起补的空白）。
+//
+// `Keep` 与 `Wall`/`Gate` 不走这里——`Keep` 恒一座、有专门的 `keep` 字段；
+// `Wall`/`Gate` 带残血比例、有专门的 `initial_walls` 字段（2.3 的"城圈必须
+// 残破"是只对城圈成立的独立要求）。这份列表管的是箭塔、兵营、伐木场、
+// 采石场一类——此前地图 schema 完全没有承载它们的地方，`demo_driver.cpp`
+// 里"玩家开局有什么"是纯代码写死的占位编成，没有一张地图能表达"这里预先
+// 摆了一座兵营"。
+//
+// **不带残血比例**，同 `ObstacleNode`：满血进场，没有设计要求说玩家的
+// 初始建筑开局就该带伤。
+struct BuildingNode {
+    rts::BldType type = rts::BldType::Tower;
+    rts::GridPos pos{};
+};
+
 // 一张地图。**只能由 `MapLoader` 构造**——它的不变量（terrain 与 no_build 的长度
 // 都等于 w×h、全部坐标在界内、走廊种类不重复）在载入时建立，之后不再变。
 // 把构造权收在一处，是为了让「一个 MapData 存在」就等价于「它是合法的」。
@@ -135,6 +148,7 @@ public:
     const std::vector<ResourceNode>& resources() const noexcept { return resources_; }
     const std::vector<WallSegment>& walls() const noexcept { return walls_; }
     const std::vector<ObstacleNode>& obstacles() const noexcept { return obstacles_; }
+    const std::vector<BuildingNode>& buildings() const noexcept { return buildings_; }
 
     // 某格上有没有墙段。`SceneModel` 推导墙的**走向**要用它（4.2.1.1）。
     // 线性查找：初始墙段量级在数百，而这条只在装配场景时走一遍，
@@ -157,6 +171,7 @@ private:
     std::vector<ResourceNode> resources_;
     std::vector<WallSegment> walls_;
     std::vector<ObstacleNode> obstacles_;
+    std::vector<BuildingNode> buildings_;
 };
 
 }  // namespace game

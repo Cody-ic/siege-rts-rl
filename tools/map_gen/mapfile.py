@@ -78,11 +78,17 @@ RESOURCE_TYPES = {"stone", "wood", "gold"}
 RESOURCE_TIERS = {"inner", "outer"}
 WALL_KINDS = {"Wall", "Gate"}
 
-# 6.2 的 corridor 是枚举而非自由字符串（校验器第 3 条要查每种恰好一次）。
-# 取值来自 2.2 的走廊候选清单。**清单本身是候选、不是定数**（2.2 明写），
-# 所以这里只用于拼写检查，不用于「必须四种都有」——那条属校验器第 3 条，
-# 且它查的是「种类数 = 集结点数」，不是「等于 4」。
-CORRIDOR_KINDS = {"open", "defile", "forest", "economy"}
+# 地图可预置的**非 Keep / Wall / Gate** 建筑（2026-08-31 新增，随本次地图重设计）。
+# `Keep` 走专门的 `keep` 字段（World 要求恰好一座），`Wall`/`Gate` 走 `initial_walls`
+# （带 `hp_frac` 残血，2.3 的设计要求），两者都不进这份列表——重复表达同一件事
+# 只会制造「两个字段互相不一致」的新洞。这份列表管的是"开局时玩家已经拥有的其余建筑"
+# （箭塔、兵营、伐木场、采石场……），此前地图 schema 完全没有承载它的地方。
+# 键取花名册标识符原样大小写，同 `WALL_KINDS`/`kObstacleTypes` 的风格
+# （这两张表的键是实体标识符，不是类别名）。
+BUILDING_TYPES = {"Tower", "Flak", "Watch", "Barrack", "Fence", "Quarry", "Lumber", "Mine"}
+
+# 2026-08-31：`CORRIDOR_KINDS` 已随「走廊」概念一起删除（组长拍板取缔，
+# 校验器第 3 条废除、`spawns[].corridor` 字段一并删除）。
 
 
 class MapFormatError(ValueError):
@@ -279,11 +285,9 @@ def check_format(doc):
             raise MapFormatError(f"{where} 的 id={sid} 与前面的重复")
         seen_ids.add(sid)
         _need_pos(_need(s, "pos", list, where=where), f"{where}.pos", size)
-        corridor = _need(s, "corridor", str, where=where)
-        if corridor not in CORRIDOR_KINDS:
-            raise MapFormatError(
-                f"{where}.corridor = {corridor!r} 不在候选清单 "
-                f"{sorted(CORRIDOR_KINDS)} 里")
+        # 2026-08-31：`spawns[].corridor` 字段已随「走廊」概念一起废除。
+        # 本层**不拒未知键**（只有 layers 走白名单），所以旧文件仍读得进来——
+        # 兼容性免费；新写的地图不要再带这个字段。
 
     resources = _need(doc, "resources", list)
     for i, r in enumerate(resources):
@@ -322,6 +326,25 @@ def check_format(doc):
             raise MapFormatError(
                 f"{where}.hp_frac = {hp!r} 应落在 (0, 1]；"
                 f"0 表示墙已经没了，那种情况应当直接不写这条")
+
+    # 玩家开局已拥有的其余建筑（2026-08-31 新增）。**必填，空数组也要写出来**——
+    # 与 `obstacles` 同一条纪律：缺失与刻意为空不可区分，会让新的摆放冲突检查
+    # （第 24 条）在"这张图没有这个字段"的情况下无法区分"没有初始建筑"与
+    # "写图的人不知道有这个字段"。**不带血量字段**：满血进场，同 `ObstacleNode`
+    # ——没有任何设计要求说玩家的初始建筑开局就该带伤（与 2.3 只约束 `initial_walls`
+    # 残破不同，那是"城圈必须残破"这一条独立要求，不延伸到其余建筑）。
+    buildings = _need(doc, "buildings", list)
+    for i, b in enumerate(buildings):
+        where = f"`buildings[{i}]`"
+        if not isinstance(b, dict):
+            raise MapFormatError(f"{where} 应是对象")
+        btype = _need(b, "type", str, where=where)
+        if btype not in BUILDING_TYPES:
+            raise MapFormatError(
+                f"{where}.type = {btype!r} 不是 {sorted(BUILDING_TYPES)} 之一"
+                f"（`Keep` 走 `keep` 字段、`Wall`/`Gate` 走 `initial_walls`，"
+                f"不出现在这里）")
+        _need_pos(_need(b, "pos", list, where=where), f"{where}.pos", size)
 
     if HASH_FIELD in doc:
         v = doc[HASH_FIELD]

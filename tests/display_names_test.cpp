@@ -89,13 +89,7 @@ TEST_CASE("每个枚举值都有非空且互异的中文名", "[names]") {
         }
         check(v);
     }
-    SECTION("CorridorKind") {
-        std::vector<std::string_view> v;
-        for (int i = 0; i < game::kCorridorKindCount; ++i) {
-            v.push_back(game::display_name(static_cast<game::CorridorKind>(i)));
-        }
-        check(v);
-    }
+    // 2026-08-31：CorridorKind 已随「走廊」概念一起删除，SECTION 同删。
     SECTION("WallKind") {
         std::vector<std::string_view> v;
         for (int i = 0; i < game::kWallKindCount; ++i) {
@@ -217,10 +211,12 @@ TEST_CASE("describe_cell 说出这一格上真正有的东西", "[names]") {
 
         const std::string s0 = game::describe_cell(map, at(0, 0));
         REQUIRE(contains(s0, "集结点 0"));
-        REQUIRE(contains(s0, "开阔平原走廊"));
+        // 2026-08-31：`corridor` 字段已废除，集结点不再带走廊性质标签，
+        // 原来的「开阔平原走廊」「隘口走廊」两条断言随之删除。
+        REQUIRE_FALSE(contains(s0, "走廊"));
         const std::string s1 = game::describe_cell(map, at(6, 4));
         REQUIRE(contains(s1, "集结点 1"));
-        REQUIRE(contains(s1, "隘口走廊"));
+        REQUIRE_FALSE(contains(s1, "走廊"));
     }
 
     SECTION("普通空地只说地形，不堆废话") {

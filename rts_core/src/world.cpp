@@ -193,10 +193,12 @@ void World::validate(Side side, const Command& c) const {
             [[fallthrough]];
         case CommandKind::Repair:
         case CommandKind::Cancel:
-        // `Clear` 与它们同一条校验：都只要一个合法的格下标。
-        // **这里刻意不查「那一格上真的有障碍」**——那要遍历障碍数组，属机制（1c），
+        // `Clear`/`Upgrade` 与它们同一条校验：都只要一个合法的格下标。
+        // **这里刻意不查「那一格上真的有障碍/建筑/顶没顶到等级上限」**——
+        // 那要遍历建筑数组、算 `building_level_cap()`，属机制（1c），
         // 而本层只做字节校验。同 `Build` 不查「买不买得起」。
         case CommandKind::Clear:
+        case CommandKind::Upgrade:
             if (c.slot == kNoSlot || static_cast<std::size_t>(c.slot) >= cells) {
                 throw ContractError("槽位越界（编码是格线性下标 y*w+x）");
             }
@@ -360,8 +362,9 @@ void World::apply_one(Side side, const Command& c) {
             const std::size_t cell = static_cast<std::size_t>(c.slot);
             if (bld_at_[cell] == 0) break;
             const std::size_t k = static_cast<std::size_t>(bld_at_[cell] - 1);
-            if (!b_built_[k]) break;      // 工地不「修」，工地是往前盖
-            if (b_work_[k] > 0) break;    // 已经在修了
+            if (!b_built_[k]) break;              // 工地不「修」，工地是往前盖
+            if (b_work_[k] > 0) break;             // 已经在修了
+            if (b_upgrade_left_[k] > 0) break;     // 在升级：两件工程不能同时推进
             const std::int64_t missing = b_max_hp_[k] - b_hp_[k];
             if (missing <= 0) break;
             const GlobalStats& g = stats_.global;
@@ -396,6 +399,39 @@ void World::apply_one(Side side, const Command& c) {
                 // 放弃维修：预付的木材不退。占位决定——若标定时把维修改成
                 // 按进度结算，这一行跟着改。
                 b_work_[k] = 0;
+            } else if (b_upgrade_left_[k] > 0) {
+                // 放弃升级：预付的石/木同样不退，与放弃维修同一条理由。
+                b_upgrade_left_[k] = 0;
+            }
+            break;
+        }
+        case CommandKind::Upgrade: {
+            const std::size_t cell = static_cast<std::size_t>(c.slot);
+            if (bld_at_[cell] == 0) break;
+            const std::size_t k = static_cast<std::size_t>(bld_at_[cell] - 1);
+            if (!b_built_[k]) break;              // 工地不能升级，先盖完
+            if (b_work_[k] > 0) break;             // 在建/在修：两件工程不能同时推进
+            if (b_upgrade_left_[k] > 0) break;     // 已经在升了
+            // `Keep` 本身不受等级上限约束（「堡垒等级本身不设上限」），
+            // 其余建筑受 `building_level_cap()` 约束——它由 `Keep` 的等级推导。
+            if (b_type_[k] != BldType::Keep &&
+                b_level_[k] >= building_level_cap()) {
+                break;
+            }
+            const BldStats& s = stats_.of(b_type_[k]);
+            if (stock_[static_cast<std::size_t>(Resource::Stone)] < s.upgrade_cost_stone ||
+                stock_[static_cast<std::size_t>(Resource::Wood)] < s.upgrade_cost_wood) {
+                break;
+            }
+            stock_[static_cast<std::size_t>(Resource::Stone)] -= s.upgrade_cost_stone;
+            stock_[static_cast<std::size_t>(Resource::Wood)] -= s.upgrade_cost_wood;
+            // 工期 <= 0（未标定表的诚实默认）当场完工——与 `Build` 同一条先例。
+            // 完工逻辑与 `tick_economy` 里工时归零那一刻的分支逐字相同，
+            // 这里直接调用，不留一个「倒计时为 0 但还没结算」的中间态。
+            if (s.upgrade_ticks > 0) {
+                b_upgrade_left_[k] = s.upgrade_ticks;
+            } else {
+                finish_upgrade(k);
             }
             break;
         }
@@ -574,6 +610,8 @@ BldId World::place_bld(BldType type, GridPos pos, std::int64_t hp, std::int64_t 
         b_train_type_.resize(n);
         b_train_left_.resize(n);
         b_train_force_.resize(n);
+        b_level_.resize(n);
+        b_upgrade_left_.resize(n);
     }
     b_type_[k] = type;
     b_pos_[k] = pos;
@@ -590,6 +628,8 @@ BldId World::place_bld(BldType type, GridPos pos, std::int64_t hp, std::int64_t 
     b_train_type_[k] = kNoTrain;
     b_train_left_[k] = 0;
     b_train_force_[k] = kNoForce;
+    b_level_[k] = 1;
+    b_upgrade_left_[k] = 0;
     bld_at_[static_cast<std::size_t>(pos.j) * static_cast<std::size_t>(width()) +
             static_cast<std::size_t>(pos.i)] = static_cast<std::uint16_t>(k + 1);
     return bld_pool_.id_at(k);
@@ -684,6 +724,8 @@ void World::destroy_bld(BldId id) {
     b_train_type_[k] = kNoTrain;
     b_train_left_[k] = 0;
     b_train_force_[k] = kNoForce;
+    b_level_[k] = 1;
+    b_upgrade_left_[k] = 0;
     bld_pool_.release(static_cast<std::uint16_t>(k));
 }
 
@@ -764,6 +806,10 @@ BldType World::bld_type(BldId id) const { return b_type_[require(id)]; }
 GridPos World::bld_pos(BldId id) const { return b_pos_[require(id)]; }
 std::int64_t World::bld_hp(BldId id) const { return b_hp_[require(id)]; }
 bool World::bld_complete(BldId id) const { return b_built_[require(id)] != 0; }
+std::int32_t World::bld_level(BldId id) const { return b_level_[require(id)]; }
+std::int32_t World::bld_upgrade_left(BldId id) const {
+    return b_upgrade_left_[require(id)];
+}
 
 bool World::obstacle_clear_ordered(ObstacleId id) const {
     return o_clear_ordered_[require(id)] != 0;
@@ -842,6 +888,17 @@ std::uint16_t World::command_mask(Side side) const noexcept {
         mask = static_cast<std::uint16_t>(mask | bit_of(kind));
     }
     return mask;
+}
+
+std::int32_t World::building_level_cap() const noexcept {
+    const std::size_t cell =
+        static_cast<std::size_t>(keep_.j) * static_cast<std::size_t>(width()) +
+        static_cast<std::size_t>(keep_.i);
+    // `keep_` 处恰有一座 `Keep`（构造即校验），所以这个下标必然有效——
+    // World 存活期内 Keep 不会被拆（丢失即败，游戏在那之前已经结束）。
+    const std::size_t k = static_cast<std::size_t>(bld_at_[cell] - 1);
+    const std::int32_t divisor = stats_.global.building_level_cap_divisor;
+    return (b_level_[k] + divisor - 1) / divisor;
 }
 
 // ——状态哈希——
@@ -933,6 +990,8 @@ std::uint64_t World::state_hash() const noexcept {
     h.feed(b_train_type_.data(), b_train_type_.size());
     h.feed(b_train_left_.data(), b_train_left_.size() * sizeof(std::int32_t));
     h.feed(b_train_force_.data(), b_train_force_.size());
+    h.feed(b_level_.data(), b_level_.size() * sizeof(std::int32_t));
+    h.feed(b_upgrade_left_.data(), b_upgrade_left_.size() * sizeof(std::int32_t));
 
     obstacle_pool_.feed_hash(h);
     h.feed(o_type_.data(), o_type_.size() * sizeof(ObstacleType));
