@@ -60,8 +60,15 @@ namespace rts {
 // 弹丸速度）；Stats/5 → Stats/6（AOE 溅射折扣：`UnitStats` 加
 // `splash_dmg_permille`，主目标满伤、圈内其余单位打折——见该字段注释）；
 // Stats/6 → Stats/7（建筑等级上限：`BldStats` 加三个升级字段，`GlobalStats`
-// 加 `building_level_cap_divisor`）。
-inline constexpr std::string_view kStatsShapeTag = "Stats/7";
+// 加 `building_level_cap_divisor`）；Stats/7 → Stats/8（**§1.4 落地：等级缩放
+// 从线性改成各开一份平方根**，见 `rts/combat_math.hpp` 的 `level_permille`）。
+//
+// **最后那一格是本文件唯一一次「形状没变而必须进格」，理由要留着。** 那次
+// 改的是 `level_permille` 怎么用这两个系数（语义），字段一个没加减。若不进格，
+// `fingerprint()` 算出来一模一样，于是旧回放**不报 `StatsMismatch` 而静默算出
+// 不同的结果**——那是本仓库通篇最防的一类失效（「布局改了」与「跑歪了」不可
+// 区分）。**下一个只改语义不改字段的人照此办理。**
+inline constexpr std::string_view kStatsShapeTag = "Stats/8";
 
 // 每兵种一行。**结构性属性不在这里**（能否对空、能否破坏结构、三轴定位归
 // `rts/unit_behavior.hpp` 与 `rts/roster.hpp`）；这里只有会随标定变的数。
@@ -154,8 +161,15 @@ struct ObstacleStats {
 // 全局参数。等级缩放的两个系数**都在**（千分比 / 每级）：
 // `§1.4` 定成「只涨一个」时把另一个归零即可，形状不动。
 struct GlobalStats {
-    std::int32_t hp_permille_per_level = 0;    // 等级每 +1，血量 +x‰（相对 1 级）
-    std::int32_t dmg_permille_per_level = 0;   // 同上，伤害
+    // 等级缩放系数。**语义是「开方前」的线性系数**（`√(1 + k(L−1))`，见
+    // `combat_math.hpp` 的 `level_permille`），不是「每级 +x‰」。
+    //
+    // **两者必须相等**——那是 `p − q = 0` 这条结构约束的落地形式（TTK 与破墙
+    // 时间两条不变量都只看 p−q）。`StatsLoader` 载入时拒绝不相等的表，所以它
+    // 是结构而不是「靠人记得填一样的数」。留成两个字段而不合并成一个，是为了
+    // 不动形状之外再动一次形状；**若哪天真要 p ≠ q，先去改那两条不变量的论证**。
+    std::int32_t hp_permille_per_level = 0;
+    std::int32_t dmg_permille_per_level = 0;
     // ——机制第二批：经济节律与维修——
     // 默认值仍守「一眼看出没标定」的纪律，但两个被除数除外：0 会除零，
     // 取 1 是「最小的合法值」而不是「看起来合理的值」。

@@ -242,11 +242,17 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
     // 与 `rts::kStatsShapeTag` 同步进格（stats/4 → stats/5：机制第五批加了
     // 单位与建筑的弹丸速度；stats/5 → stats/6：单位加 `splash_dmg_permille`，
     // AOE 主目标与溅射伤害分开算；stats/6 → stats/7：建筑加三个升级字段，
-    // `global` 加 `building_level_cap_divisor`）。刻意不做向后兼容——旧
+    // `global` 加 `building_level_cap_divisor`；**stats/7 → stats/8：字段一个
+    // 没变，变的是等级缩放的语义**——线性改成各开一份平方根，见
+    // `combat_math.hpp` 的 `level_permille`）。刻意不做向后兼容——旧
     // schema 的表缺新字段，静默补默认值正是「能跑但打不动」那种坑（这次
     // 的形态是「箭永远瞬时命中」/「溅射恒等于主伤害」/「建筑永远升不了级」）。
-    if (schema != "stats/7") {
-        fail(origin, "`schema` = \"" + schema + "\"，本程序只认 \"stats/7\"");
+    //
+    // **最后那一格是这里唯一一次「字段没变而必须进格」**：一张 stats/7 的表
+    // 在新公式下每个数都还合法，于是它会**载入成功并算出一整局不同的仗**。
+    // 版本号是唯一能把这件事变成一句报错的地方（同 `kStatsShapeTag` 那条）。
+    if (schema != "stats/8") {
+        fail(origin, "`schema` = \"" + schema + "\"，本程序只认 \"stats/8\"");
     }
 
     rts::StatsTable t;
@@ -349,6 +355,17 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
                  origin, "`global.building_level_cap_divisor`");
     if (t.global.hp_permille_per_level < 0 || t.global.dmg_permille_per_level < 0) {
         fail(origin, "`global` 的等级缩放系数不得为负");
+    }
+    // **`p − q = 0` 是结构约束，所以在这里拒绝、不靠人记得填一样的数。**
+    // 两个系数是 `√(1 + k(L−1))` 里那个 k（`combat_math.hpp` 的
+    // `level_permille`）：相等 ⇒ 血量与伤害各开一份平方根 ⇒ TTK 与破墙时间
+    // 都不随等级漂移，那正是 §1.4 定死的那一半。填成不相等不会让任何仿真
+    // 报错，只会让 TTK 悄悄发散、破墙时间趋于 0 或 ∞——同
+    // `splash_dmg_permille` 那条先例（开了 AOE 却把折扣留在 1000 直接拒绝）。
+    if (t.global.hp_permille_per_level != t.global.dmg_permille_per_level) {
+        fail(origin,
+             "`global.hp_permille_per_level` 与 `dmg_permille_per_level` 必须相等"
+             "（§1.4：血量与伤害各开一份平方根，`p − q = 0` 是结构约束而非旋钮）");
     }
     if (t.global.income_period_ticks < 1) {
         fail(origin, "`global.income_period_ticks` 必须 >= 1");

@@ -56,13 +56,56 @@ inline std::int64_t apply_permille(std::int64_t base,
     return apply_permille(base, permille.begin(), permille.size());
 }
 
-// 等级 → 千分比。`1000 + 系数 × (L − 1)`：1 级恒为 1000（不缩放），
-// 系数来自 `GlobalStats`（§1.4 未定，所以血量与伤害各有一个、可独立归零）。
+// 整数平方根（floor），牛顿法。**刻意不用 `std::sqrt`**：浮点开方的结果在
+// 两套工具链上可以差一个最低位，而这个函数的返回值直接进 `state_hash` 与回放
+// ——「同平台同编译器可复现」那条底线管不住一个会在 Windows/Linux 之间飘的
+// 中间量（CLAUDE.md「确定性要求」）。整数牛顿法逐位确定。
+inline std::int64_t isqrt_permille(std::int64_t n) noexcept {
+    assert(n >= 0);
+    if (n <= 0) return 0;
+    std::int64_t x = n;
+    std::int64_t y = (x + 1) / 2;
+    while (y < x) {
+        x = y;
+        y = (x + n / x) / 2;
+    }
+    return x;
+}
+
+// 等级 → 千分比。**`√(1 + 系数 × (L − 1))`，血量与伤害各开一份平方根。**
+//
+// 1 级恒为 1000（不缩放）：`isqrt(1000 × 1000) = 1000`，精确、不靠舍入。
+//
+// ## 为什么是平方根，而不是「只涨伤害」
+//
+// 这一条 #96 定过一次（只涨伤害、`hp` 系数归零），随后被一次测量重开
+// （`CLAUDE.md` §1.4）。原论证的隐含假设是「每属性线性增长」，写成
+// `血 = B(L)^p` / `伤 = B(L)^q`（`B(L) = 1 + k(L−1)`）之后，三条判据各吃一个
+// **互相正交**的组合：
+//
+//   * 克制比例在等级差下的衰减 → `1/(血×伤) = B^-(p+q)`，**只看 p+q**
+//   * TTK 稳不稳（短 episode 那条训练前提） → `血/伤 = B^(p−q)`，**只看 p−q**
+//   * 破墙时间（「结构破坏规则」那条区间不变量） → 也只看 p−q
+//
+// p、q 限在 {0,1} 时 p+q 与 p−q 被锁死在一起，于是「保住克制关系」与
+// 「TTK 别乱跑」看起来必须二选一。放开之后它们不冲突：**p = q = 0.5 与
+// 「只涨伤害」的战力曲线逐点相同**（k = 220 下 1.22 / 1.44 / 1.88 / 2.98 /
+// 5.18 / 9.58），而 TTK 从 ×0.19 回到 ×1.00、破墙时间从 ×0.20 回到 ×1.03。
+// **没有一项更差**，所以这不是权衡、是纯粹的改进。
+//
+// 落地上因此拆成两半：**`p − q = 0` 是结构约束**（由 TTK 与破墙两条不变量定，
+// 与标定无关），它由「两个系数必须相等」在 `StatsLoader` 里强制；
+// **`p + q` 是数值**（管「一级值多少战力」），它就是这里的 `per_level`，
+// 要与波次预算、堡垒等级两条曲线一起标。
 inline std::int64_t level_permille(std::int32_t level,
                                    std::int32_t per_level) noexcept {
     assert(level >= 1);
-    return kPermilleOne +
-           static_cast<std::int64_t>(per_level) * (static_cast<std::int64_t>(level) - 1);
+    const std::int64_t linear =
+        kPermilleOne +
+        static_cast<std::int64_t>(per_level) * (static_cast<std::int64_t>(level) - 1);
+    // 千分比下的开方：`√(x/1000) × 1000 = √(1000·x)`。先乘再开，不先除——
+    // 先除会把 1440‰ 这类值截成 1，整条曲线塌掉。
+    return isqrt_permille(kPermilleOne * linear);
 }
 
 // 冲锋动量 → 千分比。`1000 + 每格加成 × min(动量, 封顶)`，1000 = 没有动量。

@@ -34,7 +34,18 @@ rts::UnitStats& us(rts::StatsTable& t, rts::UnitType u) {
 }
 
 // 数值只求可手算：Ghoul 4 tick/格、一发 10 tick（前摇 2 + 冷却 8）、
-// 对结构全额；dmg_permille_per_level = 1000 让档间差一眼可见（4 级 = 4 倍）。
+// 对结构全额；等级系数 5000 让档间差一眼可见（4 级 = 4 倍伤害）。
+//
+// **为什么是 5000 而不是 4 倍所需的 1000**：§1.4 之后等级缩放是
+// `√(1 + k(L−1))`（`combat_math.hpp`），系数是**开方前**的。要 4 级拿到
+// 4 倍伤害就得 `√(1 + 5000‰ × 3) = √16 = 4`，即 k = 5000。这条注释原来写
+// 「1000 让 4 级 = 4 倍」，那是线性时代的算法——改成开方之后 1000 只给 2 倍，
+// 于是「高档就近破墙」不再成立（破墙 20 tick、直穿 52 > 绕缺口 49.9，
+// field 改选绕路），下面那条 42.0 的断言当场变红。**想要 N 倍，系数给 N² 量级。**
+//
+// 两个系数取同一个值不是巧合：`p − q = 0` 是结构约束（`StatsLoader` 对真表
+// 强制相等）。这里是测试自己构造的表、不经载入器，但没有理由在测试里造一张
+// 结构上非法的表。
 rts::StatsTable flow_stats() {
     rts::StatsTable t;
     for (rts::UnitStats& u : t.unit) {
@@ -49,8 +60,8 @@ rts::StatsTable flow_stats() {
     t.bld[static_cast<std::size_t>(rts::BldType::Keep)].max_hp = 200;
     t.bld[static_cast<std::size_t>(rts::BldType::Wall)].max_hp = 40;
     t.bld[static_cast<std::size_t>(rts::BldType::Gate)].max_hp = 20;
-    t.global.hp_permille_per_level = 100;
-    t.global.dmg_permille_per_level = 1000;
+    t.global.hp_permille_per_level = 5000;
+    t.global.dmg_permille_per_level = 5000;
     return t;
 }
 

@@ -3,6 +3,7 @@
 用途：在没有 C++ 构建环境的情况下，用真实引擎公式验证/迭代数值设计。
 所有函数签名与舍入行为都对照 agent 报告里摘录的原始代码逐行核对。
 """
+import math
 from dataclasses import dataclass, field
 from typing import List
 
@@ -21,8 +22,18 @@ def apply_permille(base: int, permilles: List[int]) -> int:
 
 
 def level_permille(level: int, per_level: int) -> int:
-    """combat_math.hpp:61-66 —— 对等级线性，1级恒为1000。"""
-    return PERMILLE_ONE + per_level * (level - 1)
+    """combat_math.hpp 的 level_permille —— 血量与伤害**各开一份平方根**。
+
+    `√(1 + k(L-1))`，1 级恒为 1000。`per_level` 是**开方前**的线性系数 k，
+    血量与伤害共用同一个值（`p - q = 0` 是结构约束，StatsLoader 强制相等）。
+
+    这里原先是线性（`1000 + k(L-1)`），随 §1.4 一起改。**用 math.isqrt 而不是
+    `sqrt` 再取整**：C++ 侧走整数牛顿法（浮点开方的最低位会在两套工具链之间
+    飘，而那个值进 state_hash），两边必须逐位相同，否则这个工具算出来的交换比
+    与仿真里真实发生的不是一回事。
+    """
+    linear = PERMILLE_ONE + per_level * (level - 1)
+    return math.isqrt(PERMILLE_ONE * linear)
 
 
 def charge_permille(run_cells: float, max_cells: float, per_cell_permille: int) -> int:

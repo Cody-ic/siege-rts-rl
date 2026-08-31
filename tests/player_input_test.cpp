@@ -307,6 +307,124 @@ TEST_CASE("维修提示：只有完工、掉了血、且没在修的建筑可以
     REQUIRE_FALSE(game::can_repair_hint(w.view(rts::Side::Defender), rts::GridPos{4, 3}));
 }
 
+// ——升级——
+//
+// `upgrade_block` 比一个 bool 多担一件事：弹窗要把「为什么灰着」印出来。
+// 五档里 `LevelCap` 那一档**在默认表上就是开局的常态**——
+// `building_level_cap_divisor` 默认 1、堡垒 1 级 ⇒ 上限 1 级，而新建筑就是
+// 1 级。所以这条用例顺带钉住一件很容易被当成 bug 修掉的事：
+// **开局一座建筑都升不动是设计，先升堡垒**（占位表里 divisor = 2，比这里
+// 的默认值更紧）。
+TEST_CASE("升级提示：四档理由各一例，Keep 不受上限约束", "[input]") {
+    rts::World w(iarena());
+    w.place_bld(rts::BldType::Wall, rts::GridPos{4, 2}, 40, 40);   // 完工、满血
+    w.place_bld(rts::BldType::Wall, rts::GridPos{4, 4}, 40, 40, /*work_left=*/10);
+    const rts::WorldView v = w.view(rts::Side::Defender);
+
+    REQUIRE(game::upgrade_block(v, rts::GridPos{8, 1}) ==
+            game::UpgradeBlock::NoBuilding);   // 空地
+    REQUIRE(game::upgrade_block(v, rts::GridPos{4, 4}) ==
+            game::UpgradeBlock::Unbuilt);      // 工地往前盖，不谈升级
+    REQUIRE(v.building_level_cap() == 1);
+    REQUIRE(game::upgrade_block(v, rts::GridPos{4, 2}) ==
+            game::UpgradeBlock::LevelCap);     // 1 级建筑顶着 1 级上限
+    // 堡垒自己不受这条上限约束——「堡垒等级本身不设上限」（CLAUDE.md）。
+    // 若这一条反了，玩家就再也抬不高上限，整条轴当场死锁。
+    REQUIRE(game::upgrade_block(v, w.keep_pos()) == game::UpgradeBlock::None);
+
+    // `can_upgrade_hint` 是 `== None` 的别名，不是第二份判定（两处分叉
+    // 正是「绿框骗人」这类 bug 的成因）。
+    REQUIRE_FALSE(game::can_upgrade_hint(v, rts::GridPos{4, 2}));
+    REQUIRE(game::can_upgrade_hint(v, w.keep_pos()));
+
+    // 弹窗要印 `Lv1 → 2`，所以等级也得能查；空地是 0 而不是 1。
+    REQUIRE(game::bld_level_at(v, rts::GridPos{4, 2}) == 1);
+    REQUIRE(game::bld_level_at(v, rts::GridPos{8, 1}) == 0);
+}
+
+TEST_CASE("升级提示：升堡垒抬高上限；在途升级与在途维修都归 Busy", "[input]") {
+    rts::WorldInit init = iarena();
+    // 给非零工期与维修单价：默认全 0 会让「在途」这个状态根本不存在
+    // （提交即当场完工），下面两条 Busy 断言就会因为**错误的理由**通过。
+    init.stats.bld[static_cast<std::size_t>(rts::BldType::Wall)].upgrade_ticks = 20;
+    init.stats.global.repair_wood_per_1000hp = 100;
+    rts::World w(init);
+    w.set_stock(rts::Resource::Wood, 1000);
+    w.place_bld(rts::BldType::Wall, rts::GridPos{4, 2}, 40, 40);   // 满血
+    w.place_bld(rts::BldType::Wall, rts::GridPos{4, 3}, 10, 40);   // 残血
+
+    const rts::GridPos wall{4, 2};
+    REQUIRE(game::upgrade_block(w.view(rts::Side::Defender), wall) ==
+            game::UpgradeBlock::LevelCap);
+    // 升一级堡垒（默认表里造价与工期都是 0 ⇒ 当场完工），上限从 1 到 2。
+    const rts::Command up_keep = game::upgrade_command(w.keep_pos(), 10);
+    REQUIRE_NOTHROW(w.submit(rts::Side::Defender, &up_keep, 1));
+    w.advance(1);
+    REQUIRE(w.view(rts::Side::Defender).building_level_cap() == 2);
+    REQUIRE(game::can_upgrade_hint(w.view(rts::Side::Defender), wall));
+
+    // 在途升级 ⇒ Busy。工期 20 而 `iarena()` 里没有工匠，所以它不会自己
+    // 推完（工匠在场才推进，同施工与维修）。
+    const rts::Command up_wall = game::upgrade_command(wall, 10);
+    REQUIRE_NOTHROW(w.submit(rts::Side::Defender, &up_wall, 1));
+    w.advance(1);
+    REQUIRE(game::upgrade_block(w.view(rts::Side::Defender), wall) ==
+            game::UpgradeBlock::Busy);
+
+    // 在途维修归同一档：同一时刻只能有一件工程在推进（机制侧的互斥）。
+    const rts::Command rep = game::repair_command(rts::GridPos{4, 3}, 10);
+    REQUIRE_NOTHROW(w.submit(rts::Side::Defender, &rep, 1));
+    w.advance(1);
+    REQUIRE(game::upgrade_block(w.view(rts::Side::Defender), rts::GridPos{4, 3}) ==
+            game::UpgradeBlock::Busy);
+}
+
+TEST_CASE("升级造价：石与木都要够（同「绿框骗人」那一类）", "[input]") {
+    rts::WorldInit init = iarena();
+    rts::BldStats& ws = init.stats.bld[static_cast<std::size_t>(rts::BldType::Wall)];
+    ws.upgrade_cost_stone = 30;
+    ws.upgrade_cost_wood = 10;
+    rts::World w(init);
+    w.place_bld(rts::BldType::Wall, rts::GridPos{4, 2}, 40, 40);
+    // 先把上限抬起来，否则下面测到的是 LevelCap 而不是造价。
+    const rts::Command up_keep = game::upgrade_command(w.keep_pos(), 10);
+    REQUIRE_NOTHROW(w.submit(rts::Side::Defender, &up_keep, 1));
+    w.advance(1);
+
+    const rts::GridPos wall{4, 2};
+    const rts::WorldView v0 = w.view(rts::Side::Defender);
+    REQUIRE(game::upgrade_cost_stone(v0, wall) == 30);
+    REQUIRE(game::upgrade_cost_wood(v0, wall) == 10);
+    // 空地：两个造价都是 0，但那不等于「买得起」——同 `can_afford_repair`
+    // 那条，不能顺着 0 把一个无效目标判成合法。
+    REQUIRE(game::upgrade_cost_stone(v0, rts::GridPos{8, 1}) == 0);
+    REQUIRE_FALSE(game::can_afford_upgrade(v0, rts::GridPos{8, 1}));
+
+    SECTION("石够木不够：结构合法但买不起") {
+        w.set_stock(rts::Resource::Stone, 100);
+        w.set_stock(rts::Resource::Wood, 5);
+        const rts::WorldView v = w.view(rts::Side::Defender);
+        REQUIRE(game::can_upgrade_hint(v, wall));            // 结构那一半过
+        REQUIRE_FALSE(game::can_afford_upgrade(v, wall));    // 造价那一半不过
+    }
+    SECTION("木够石不够：另一种资源同样要拦") {
+        w.set_stock(rts::Resource::Stone, 10);
+        w.set_stock(rts::Resource::Wood, 100);
+        REQUIRE_FALSE(game::can_afford_upgrade(w.view(rts::Side::Defender), wall));
+    }
+    SECTION("两样都够：命令被受理，等级真的涨、两种资源都真的扣") {
+        w.set_stock(rts::Resource::Stone, 100);
+        w.set_stock(rts::Resource::Wood, 100);
+        REQUIRE(game::can_afford_upgrade(w.view(rts::Side::Defender), wall));
+        const rts::Command c = game::upgrade_command(wall, 10);
+        REQUIRE_NOTHROW(w.submit(rts::Side::Defender, &c, 1));
+        w.advance(1);   // Wall 的 upgrade_ticks 是默认 0 ⇒ 当场完工
+        REQUIRE(game::bld_level_at(w.view(rts::Side::Defender), wall) == 2);
+        REQUIRE(w.stock(rts::Resource::Stone) == 70);
+        REQUIRE(w.stock(rts::Resource::Wood) == 90);
+    }
+}
+
 // 一次试玩报出来的 bug：招兵 / 建筑 / 维修的弹窗只查了位置合法性
 // （`can_place_hint` / `can_train_hint` / `can_repair_hint`），没查资源够
 // 不够——资源不足时弹窗仍然亮绿框，点了却被 `World` **静默**拒绝
