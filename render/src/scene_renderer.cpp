@@ -1,5 +1,6 @@
 #include "render/scene_renderer.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <set>
 #include <string>
@@ -63,13 +64,32 @@ void SceneRenderer::place(const game::DrawItem& item) {
 
     // 血条：满血不画（画面干净，且「谁在挨打」一眼可见）。
     //
-    // **尺寸按屏幕算，不随镜头缩放**（`set_screen_scale` 的注释讲了为什么）：
-    // 下面几个数字是**屏幕像素**，乘 `ui_scale_` 换成世界像素。
+    // ## 尺寸：以**世界**像素为主，但屏幕上不小于一个下限
+    //
+    // 这里原先是「纯屏幕尺寸、完全不随镜头缩放」（42×7 屏幕像素）。那个写法修的
+    // 是一个真问题——拉远到整张图入画时 zoom 很小，跟着缩放的血条会变成一根两
+    // 像素高的短横线，「谁在挨打」读不出来。**但它两头都不对**，一次试玩反馈点
+    // 出来的：`px_per_tile = 256`，整张 72 格图入画时一格在屏幕上只有约 11 px，
+    // 而血条含描边 45 px 宽——**比整格宽四倍**，几条血条就能盖住它们标示的建筑，
+    // 单位一多糊成一片；反过来拉近到 zoom≈1 时一格 256 px，同一条血条只占六分
+    // 之一格，细得像根线。
+    //
+    // 现在的形状按世界像素给（于是血条与单位的**相对**大小恒定，拉近拉远都像是
+    // 场景里的东西），再对屏幕尺寸取下限。**下限只作用在拉远那一侧**，所以原来
+    // 那个「两像素高读不出」的担心仍然被挡住——`kMinScreenW` 比它点名的 14 px
+    // 宽出一半有余。
+    //
+    // **统一乘一个 `k` 而不是对宽高各自 clamp**：各自 clamp 会让宽高比在过渡区
+    // 变形，血条会先变扁再变宽，比"稍微小一点"难看得多。
     if (item.hp_frac >= 0.0f && item.hp_frac < 1.0f) {
-        const float w = 42.0f * ui_scale_;
-        const float h = 7.0f * ui_scale_;
-        const float border = 1.5f * ui_scale_;
-        const float gap = 5.0f * ui_scale_;
+        const float kW = 112.0f;        // 世界像素，≈ 0.44 格
+        const float kH = 16.0f;
+        const float kMinScreenW = 22.0f;   // 屏幕像素下限
+        const float k = std::max(kW, kMinScreenW * ui_scale_) / kW;
+        const float w = kW * k;
+        const float h = kH * k;
+        const float border = 2.5f * k;
+        const float gap = 12.0f * k;
         const float x = c.x - w * 0.5f;
         // 竖直位置仍按**精灵**算（贴在它头顶），所以这一项不缩放——
         // 缩放它会让血条在拉近时飘到天上去。
