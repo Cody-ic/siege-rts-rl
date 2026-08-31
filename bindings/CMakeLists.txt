@@ -40,9 +40,15 @@ pybind11_add_module(rts_native src/module.cpp)
 # `game` 在默认构建里，所以这条依赖不把任何新东西拖进 GCC 编译面。
 target_link_libraries(rts_native PRIVATE rts_core game)
 
-# 第三方生成的代码不吃我们的 `-Werror`（同 `render/` 对 raylib 的处理）。
-# 我们自己那一个 .cpp 仍然吃——它在 `target_sources` 里，警告设置由
-# `rts_core` 的 INTERFACE 传下来。
+# **这里原以为警告设置会由 `rts_core` 的 INTERFACE 传下来，是错的**：
+# `rts_set_warnings()` 用 `target_compile_options(... PRIVATE ...)`（见
+# `cmake/CompilerWarnings.cmake`），`PRIVATE` 按定义不通过 `target_link_libraries`
+# 传播。缺这一行的实测后果不是"警告变少"，是**编译直接失败**——本文件里的
+# `/utf-8` 从未生效，MSVC 在中文 code page（936）下把本仓库头文件的中文注释
+# 当 GBK 解析，字节错位到语法都不成立（`rts/types.hpp` 报一串 C4430/C2059）。
+# GCC 侧从来没暴露这个问题，因为 Linux 的 UTF-8 环境不存在"code page"这个概念——
+# 这正是"两套工具链的分歧尽早在本地暴露"那条设计要防的事，结果它自己漏了一次。
+rts_set_warnings(rts_native)
 set_target_properties(rts_native PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bindings")
 
