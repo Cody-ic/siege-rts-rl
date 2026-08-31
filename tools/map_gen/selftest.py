@@ -15,6 +15,7 @@ import io
 import os
 import sys
 import tempfile
+from types import SimpleNamespace
 
 import mapfile
 from mapfile import MapFormatError
@@ -1568,6 +1569,64 @@ def check_generator_produces_valid_maps(c):
                "这不会让任何检查变红，只有看产出才发现")
 
 
+def check_generator_wall_seals_ring(c):
+    """`carve_corridor` 不得在墙两侧多切出免费缺口（2026-08-31 试玩发现的真 bug）。
+
+    症状：实战试玩报告「城墙老是漏缝，攻方开局就能直接走进来」——不是
+    `initial_breaches` 那个**受控**的缺口，是**每一条**非 `defile` 走廊
+    （`open`/`forest`/`economy`）的人工墙两侧各多出一格永久可通行、永远没有
+    墙/门实体的缝。
+
+    根因：`carve_corridor` 的走廊比 `mouth`（真正摆墙的那段）宽 1 格
+    （注释「走廊比口略宽一点，免得口两侧的 Rock 把走廊夹成死胡同」），
+    但旧判据 `d >= R` 在 t=0（城圈本身那一环）上对整个加宽后的 span 成立
+    （因为 `d == R` 对 span 里的每一格都成立，不只是 `mouth` 里那些），
+    于是把 `build_city_wall_ring` 刚设成 `Rock` 的两侧格重新冲回 `Plain`，
+    而 `place_initial_walls` 只在 `mouth`（未加宽的那段）里摆实体——两侧格
+    因此变成一个**不受任何随机项控制、每张图必然存在**的免费缺口。
+    改为 `d > R` 后，加宽只从 t=1（环外一格）起生效，t=0 只有真正的
+    `mouth` 格会被强制置 `Plain`，这正是「防止口两侧的 Rock 把走廊夹成
+    死胡同」这条原意图想要的效果，且不再波及环本身。
+
+    这条测试直接调生成器内部函数（不经 `generate_valid`），因为**没有任何
+    现有的第 8 节校验器条目会给这个 bug 判红**——第 8 条只要求「存在至少
+    一个缺口」，两侧那两格的存在与否都满足它；城区无法从 map 格式反推
+    （第 9 条的既有阻塞），所以在格式层加一条通用检查代价很高。直接测
+    生成器自己的中间产物（`Canvas.terrain`）更精确，也更便宜。
+    """
+    cfg = SimpleNamespace(size=72, city_radius=13, corridor_mouth_width=5)
+    sides = generate._SIDES
+    corridors = ["open", "defile", "forest", "economy"]
+    generate.side_to_corridor = dict(zip(sides, corridors))
+
+    cv = generate.Canvas(cfg.size)
+    mouths = generate.build_city_wall_ring(cv, cfg, None, sides)
+    for side in sides:
+        generate.carve_corridor(cv, cfg, None, side, generate.side_to_corridor[side],
+                                mouths[side])
+
+    half = cfg.corridor_mouth_width // 2
+    for side in sides:
+        corridor = generate.side_to_corridor[side]
+        mouth = mouths[side]
+        mx = sum(p[0] for p in mouth) // len(mouth)
+        my = sum(p[1] for p in mouth) // len(mouth)
+        dx, dy = generate._outward(side)
+        for w in (-(half + 1), half + 1):
+            px = mx + (w if dx == 0 else 0)
+            py = my + (w if dy == 0 else 0)
+            if not cv.inside(px, py):
+                continue
+            # defile 的走廊比 mouth **窄**（见 `carve_corridor`），所以这两格
+            # 对它而言本来就在 mouth 之外一层，不是这个 bug 要盯的对象——
+            # 只对 open/forest/economy（走廊比 mouth **宽**）断言。
+            if corridor == "defile":
+                continue
+            c.eq(cv.at(px, py), "Rock",
+                 f"{side}/{corridor} 走廊口外侧 {(px, py)} 必须仍是 Rock——"
+                 f"不该被 carve_corridor 的加宽误判成走廊本体")
+
+
 def check_generator_is_deterministic(c):
     """同种子同结果，不同种子不同图。§9：`map_id` 编码种子使训练可复现。"""
     all_th = thresholds.load()
@@ -1702,6 +1761,7 @@ GROUPS = [
     ("第 23 条 Forest 连通块不得碎成粉尘", check_v23_forest_cohesion),
     # —— 生成器（第 9 节）——
     ("生成器产出合法地图", check_generator_produces_valid_maps),
+    ("生成器不得在墙两侧多切出免费缺口", check_generator_wall_seals_ring),
     ("生成器确定：同种子同图、异种子异图", check_generator_is_deterministic),
     ("生成器的丢弃与否决计数真的工作", check_generator_discard_reporting_works),
     ("生成器的 ASCII 预览", check_generator_preview_renders),

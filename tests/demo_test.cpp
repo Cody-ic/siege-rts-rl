@@ -82,6 +82,40 @@ TEST_CASE("波次循环：建造 → 生波 → 清波 → 下一波建造", "[d
     REQUIRE(a.defeated());
 }
 
+TEST_CASE("波次强度由易到难：第 1 波没有 Ram/Shade", "[demo]") {
+    // 2026-08-31 试玩反馈：「不同波次刷新的攻方精灵应该由易到难，不能刚开局
+    // 就刷 Ram 这样的高强度精灵」——原曲线里 `Shade`（中程压制）与 `Ram`
+    // （攻城，本作单件威胁最高）都从第 1 波（`wave/2`、`wave/3` 在 wave=1 时
+    // 已经不是 0）就出场，玩家开局就要同时应付压制与破墙。`spawn_wave()`
+    // 改成先把它们各自的出场波数往后推，这条测试把「第 1 波只有 Ghoul」钉住。
+    const game::MapData map = demo_map();
+    const rts::StatsTable stats = demo_stats();
+    game::DemoBattle a(map, stats, 7);
+
+    a.update(200);   // 占位建造时长 160，越过它触发第 1 波生波
+    REQUIRE(a.world().wave() == 1);
+    REQUIRE(a.world().live_unit_count(rts::Side::Attacker) > 0);
+
+    const rts::WorldView v = a.world().view(rts::Side::Attacker);
+    int ghouls = 0, shades = 0, rams = 0, knights = 0, phoenixes = 0;
+    for (std::size_t k = 0; k < v.unit_type().size(); ++k) {
+        if (!v.unit_alive()[k]) continue;
+        switch (v.unit_type()[k]) {
+            case rts::UnitType::Ghoul: ++ghouls; break;
+            case rts::UnitType::Shade: ++shades; break;
+            case rts::UnitType::Ram: ++rams; break;
+            case rts::UnitType::Knight: ++knights; break;
+            case rts::UnitType::Phoenix: ++phoenixes; break;
+            default: break;
+        }
+    }
+    REQUIRE(ghouls > 0);
+    REQUIRE(shades == 0);
+    REQUIRE(rams == 0);
+    REQUIRE(knights == 0);
+    REQUIRE(phoenixes == 0);
+}
+
 TEST_CASE("提前召唤：建造阶段一条 Summon，倒计时直接作废开打", "[demo]") {
     // CLAUDE.md：「必须提供『提前召唤下一波』」。生波挂在「进攻阶段的第一拍」
     // 而不是「倒计时走完」上，Summon 与倒计时两条路在那里汇合——这条测的
