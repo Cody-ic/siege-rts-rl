@@ -97,8 +97,10 @@ def make_doc(rows, no_build=None, keep=None, spawns=None,
             "no_build": {"rows": list(no_build)},
         },
         "keep": list(keep or [w // 2, h // 2]),
+        # 2026-08-31：spawns 不再携带 corridor（字段已废除）；
+        # 既有用例里残留的 corridor 键被 check_format 静默忽略，无碍。
         "spawns": spawns if spawns is not None else [
-            {"id": 0, "pos": [w // 2, 0], "corridor": "open"},
+            {"id": 0, "pos": [w // 2, 0]},
         ],
         "resources": resources if resources is not None else [],
         "initial_walls": walls if walls is not None else [],
@@ -341,7 +343,9 @@ def check_format_rejects(c):
         {"id": 0, "pos": [0, 0], "corridor": "open"},
         {"id": 0, "pos": [1, 0], "corridor": "defile"}]), "spawn id 重复")
     rej(lambda d: d.update(spawns=[
-        {"id": 0, "pos": [0, 0], "corridor": "swamp"}]), "corridor 不在候选清单里")
+        {"id": 0, "corridor": "open"}]), "spawn 缺 pos")
+    # 2026-08-31：原「corridor 不在候选清单里」case 随字段废除一起删除——
+    # spawn 现在只剩 id 与 pos 两个必填项。
     rej(lambda d: d.update(resources=[
         {"type": "iron", "pos": [1, 1], "tier": "inner"}]), "资源类型不认识")
     rej(lambda d: d.update(resources=[
@@ -388,25 +392,33 @@ def _gv(rows, **kw):
 
 
 def check_registry_covers_spec(c):
-    """注册表必须正好覆盖第 8 节的 1..15，不重不漏。
+    """注册表必须正好覆盖第 8 节的全部条目，不重不漏。
 
     这一条防的是「白名单漏登记」——`tests/CMakeLists.txt` 里 ctest 标签清单
-    已经踩过一次：写错抓得到，**没写进清单抓不到**。第 8 节将来加条目
-    （例如 #26 的 A5 若通过要加「§2 必须配 §3」），这里会立刻红。
+    已经踩过一次：写错抓得到，**没写进清单抓不到**。第 8 节将来加条目，
+    这里会立刻红。
     """
     nos = [chk.no for chk in validate.CHECKS]
     moved = sorted(validate.MOVED_TO_GENERATOR)
-    # **表内 + 已移出 = 规范全部条目。** 第 20 条按 §8.1 自己写的那句移到了
-    # 生成器的批量报告去（丢弃率与逐条否决计数），但它**不是被删掉**——
-    # 直接删会让一条规范条目无声消失，而那与「白名单漏登记」是同一类错误。
-    c.eq(sorted(nos + moved), list(range(1, validate.SPEC_CHECK_COUNT + 1)),
-         "CHECKS + MOVED_TO_GENERATOR 必须正好覆盖第 8 节的全部条目")
+    removed = sorted(validate.REMOVED)
+    # **表内 + 已移出 + 已废除 = 规范全部条目。** 第 20 条移到了生成器的批量
+    # 报告去（丢弃率与逐条否决计数）、第 3 条随走廊概念废除（编号留空）——
+    # 两者都**不是被删掉**：直接删会让一条规范条目无声消失，
+    # 而那与「白名单漏登记」是同一类错误。
+    c.eq(sorted(nos + moved + removed),
+         list(range(1, validate.SPEC_CHECK_COUNT + 1)),
+         "CHECKS + MOVED_TO_GENERATOR + REMOVED 必须正好覆盖第 8 节的全部条目")
     c.eq(len(set(nos)), len(nos), "条目编号不得重复")
     c.true(not (set(nos) & set(moved)),
            "一条既在表内又标为已移出，说明移出时忘了删表里那一行")
+    c.true(not (set(nos) & set(removed)),
+           "一条既在表内又标为已废除，说明废除时忘了删表里那一行")
     for no in moved:
         c.true(bool(validate.MOVED_TO_GENERATOR[no]),
                f"第 {no} 条标为已移出，必须写明去哪了")
+    for no in removed:
+        c.true(bool(validate.REMOVED[no]),
+               f"第 {no} 条标为已废除，必须写明为什么")
 
     for chk in validate.CHECKS:
         if chk.status == validate.IMPLEMENTED:
@@ -419,16 +431,8 @@ def check_registry_covers_spec(c):
                    f"第 {chk.no} 条未实现，必须写明原因（否则会慢慢变成默认跳过）")
 
 
-def check_v3_corridors(c):
-    two = [{"id": 0, "pos": [0, 0], "corridor": "open"},
-           {"id": 1, "pos": [6, 0], "corridor": "open"}]
-    doc, g = _gv(OBLONG, keep=[3, 3], spawns=two)
-    c.true(validate.check_corridor_kinds(doc, g), "重复的 corridor 应当报")
-
-    two[1]["corridor"] = "defile"
-    doc, g = _gv(OBLONG, keep=[3, 3], spawns=two)
-    c.true(not validate.check_corridor_kinds(doc, g),
-           "各不相同的 corridor 不该报")
+# check_v3_corridors 已随「走廊」概念一起删除（2026-08-31）：
+# 第 3 条废除、编号留空，`validate.REMOVED` 里有据可查。
 
 
 def check_v4_reachable(c):
@@ -1009,6 +1013,49 @@ def check_v24_building_placement(c):
     c.eq(len(got), 1, "Tower（非采集建筑）踩在资源点上必须报")
 
 
+def check_v25_outer_gold(c):
+    """第 25 条：outer 资源里金矿 ≥ 阈值（2026-08-31 实测查出城外可零金矿）。
+
+    用 strict 档（阈值 2）与「弃用档」（阈值 0，fixture 同款手法）各验一次。
+    """
+    th = thresholds.load().profile("strict")
+    d = make_clean_doc()
+    d["resources"] = [
+        {"type": "wood", "pos": [0, 0], "tier": "outer", "unlock_wave": 2},
+        {"type": "stone", "pos": [1, 0], "tier": "outer", "unlock_wave": 3},
+    ]
+    c.true(validate.check_outer_gold(d, Grid(d), th),
+           "城外零金矿必须报（strict 阈值 2）")
+
+    d["resources"].append(
+        {"type": "gold", "pos": [2, 0], "tier": "outer", "unlock_wave": 4})
+    c.true(validate.check_outer_gold(d, Grid(d), th),
+           "城外 1 个金矿仍低于阈值 2，必须报")
+
+    d["resources"].append(
+        {"type": "gold", "pos": [3, 0], "tier": "outer", "unlock_wave": 5})
+    c.true(not validate.check_outer_gold(d, Grid(d), th),
+           "城外 2 个金矿应当通过")
+
+    off = thresholds.Profile("strict", {"size_min": 4, "size_max": 96,
+                                        "spawn_count_min": 1, "spawn_count_max": 6,
+                                        "spawn_edge_distance_max": 4,
+                                        "static_vision_radius_max": -1,
+                                        "episode_ticks_min": 1200,
+                                        "episode_ticks_max": 2400,
+                                        "ram_march_fraction_min": 0.0,
+                                        "ram_march_fraction_max": 1.0,
+                                        "forest_min_component_cells": 1,
+                                        "front_length_min": 1,
+                                        "front_length_max": 4096,
+                                        "outer_gold_min": 0})
+    d2 = make_clean_doc()
+    d2["resources"] = [
+        {"type": "stone", "pos": [0, 0], "tier": "outer", "unlock_wave": 2}]
+    c.true(not validate.check_outer_gold(d2, Grid(d2), off),
+           "阈值为 0 时本条应恒真（fixture 那一档靠它）")
+
+
 def check_v22_obstacle_placement(c):
     """第 22 条：`obstacles` 的摆放冲突。
 
@@ -1300,10 +1347,11 @@ def check_thresholds_loader(c):
     bad["generator"]["size"] = base["profiles"]["strict"]["size_max"] + 8
     reject(bad, "generator.size 越出 strict 的 size 区间")
 
-    # 走廊重复 = 两个集结点等价，§2.2 的信号消失。
+    # 2026-08-31：原「corridors 有重复项」case 随走廊概念一起删除；
+    # 替代它的结构检查是「集结点数上界不得超过方环的四条边」。
     bad = _json.loads(_json.dumps(base))
-    bad["generator"]["corridors"] = ["open", "open"]
-    reject(bad, "corridors 有重复项")
+    bad["generator"]["spawn_count_range"] = [5, 5]
+    reject(bad, "spawn_count_range 上界超过 4 条边")
 
     # inner 三种缺一（第 6 条要求各 ≥ 1）。
     bad = _json.loads(_json.dumps(base))
@@ -1411,9 +1459,10 @@ def check_v2_spawn_count_and_edge(c):
 
     # 数量：区间而不是等于某个数。集结点数量是待定数值，而地图规范曾把它
     # 写成「定为 4」——那是把平衡旋钮当成结构结论。
+    # （2026-08-31：spawns 不再带 corridor，直接按数量铺。）
     doc = _big_doc(size)
-    doc["spawns"] = [{"id": i, "pos": [2 + i * 3, 2], "corridor": k}
-                     for i, k in enumerate(sorted(mapfile.CORRIDOR_KINDS))]
+    doc["spawns"] = [{"id": i, "pos": [2 + i * 3, 2]}
+                     for i in range(th.spawn_count_min)]
     mapfile.stamp_content_hash(doc)
     c.true(not validate.check_spawn_count_and_edge(doc, Grid(doc), th),
            f"{len(doc['spawns'])} 个集结点应当落在 "
@@ -1614,157 +1663,284 @@ def check_generator_produces_valid_maps(c):
     c.true("1" in doc["map_id"] and doc["map_id"].startswith("gen_"),
            f"map_id 必须编码种子，实际是 {doc['map_id']!r}")
 
-    # 走廊性质必须**真的体现在地形上**，否则「选集结点」没有可学的信号。
-    # 这一条盯的是两个真实 bug：林地走廊一株森林都没撒、`defile` 的夹壁
-    # 起点错了一个半径 —— 两者都不会让任何检查变红。
+    # —— 2026-08-31 重构后的 doc 层结构断言（组长拍板的设计语言）——
+    # 这些不变量没有任何第 8 节条目在查（校验器无从得知设计半径 R），
+    # 所以钉在这里——`check_generator_wall_seals_ring` 那条先例的延续：
+    # 结构性质只靠看产出才能发现，而「看产出」被做成断言就不会漏。
     names = generate._terrain_names(doc)
     counts = {}
     for row in names:
         for cell in row:
             counts[cell] = counts.get(cell, 0) + 1
-    c.true(counts.get("Forest", 0) > 0, "生成的图必须有 Forest（森林带 + 林地走廊）")
-    c.true(counts.get("Rock", 0) > 0, "生成的图必须有 Rock（城圈岩壁 + 隘口夹壁）")
+    c.true(counts.get("Forest", 0) > 0, "生成的图必须有 Forest（城内森林 + 城外散布）")
+    c.true(counts.get("Rock", 0) > 0, "生成的图必须有 Rock（城外散布团块）")
 
-    # **corridors 现在只是候选域，不再是"每次都全取"**（2026-08-31，
-    # `corridor_count_range` 让每次生成随机选 3 或 4 种）——所以这里只能查
-    # 「实际用到的走廊种类都在候选域里、且种类数等于集结点数」，不能再要求
-    # 与候选域完全相等。
-    corridors = {s["corridor"] for s in doc["spawns"]}
-    c.true(corridors <= set(cfg.corridors),
-           f"生成的集结点走廊种类 {corridors} 必须都在候选域 {cfg.corridors} 里")
-    c.eq(len(corridors), len(doc["spawns"]),
-         "走廊种类数必须等于集结点数（§2.2：数量 = 种类数，不该有重复种类）")
+    for s in doc["spawns"]:
+        c.true("corridor" not in s,
+               f"spawns 不得再携带 corridor 字段（已废除），实际有 {s!r}")
 
-    # 林地走廊附近真的有森林 —— 且**不是连成一条通到墙的**（第 10 条已经查了
-    # 后半句，这里查前半句：它不能一株都没有）。
-    # **按这张图实际选中的走廊判断，不是候选域**——"forest" 在候选域里恒真，
-    # 但这次生成未必选中它。
-    if "forest" in corridors:
-        fpos = next(tuple(s["pos"]) for s in doc["spawns"]
-                    if s["corridor"] == "forest")
-        keep = tuple(doc["keep"])
-        near = 0
-        for y, row in enumerate(names):
-            for x, cell in enumerate(row):
-                if cell != "Forest":
-                    continue
-                # 落在集结点与 keep 之间那条带上
-                if min(fpos[0], keep[0]) - 4 <= x <= max(fpos[0], keep[0]) + 4 \
-                        and min(fpos[1], keep[1]) <= y <= max(fpos[1], keep[1]):
-                    near += 1
-        c.true(near > 0,
-               "林地走廊沿途一株森林都没有 —— §2.2 那条性质就只是个标签了。"
-               "这不会让任何检查变红，只有看产出才发现")
+    # 城圈完整性：每一段墙/门都恰在 cheb == R 的环上，数量 = 8R − 2 门 − 缺口。
+    # 这个 doc 层的可断言性正是「城圈改城墙实体」带来的——旧 Rock 环时代
+    # 只能 Canvas 直测（见已删除的 check_generator_wall_seals_ring）。
+    kx, ky = doc["keep"]
+    # 环半径从墙的坐标反推（doc 里没有设计半径字段）：环上必有墙，
+    # 取墙格到 keep 的最大切比雪夫距离。
+    wall_pos = [tuple(w["pos"]) for w in doc["initial_walls"]]
+    r_ring = max(max(abs(x - kx), abs(y - ky)) for x, y in wall_pos)
+    c.true(r_ring >= 8, f"环半径反推为 {r_ring}，太小，不像城圈")
+    gates = [p for w in doc["initial_walls"] if w["kind"] == "Gate"
+             for p in [tuple(w["pos"])]]
+    c.eq(len(gates), 2, "恰好两座城门（一对相对方向）")
+    c.true(gates[0][0] == gates[1][0] or gates[0][1] == gates[1][1],
+           f"两座城门必须落在同一行或同一列（相对方向），实际 {gates}")
+    c.true(abs(gates[0][0] - gates[1][0]) + abs(gates[0][1] - gates[1][1])
+           == 2 * r_ring,
+           f"两座城门必须恰为环上一对相对格，实际 {gates}（环半径 {r_ring}）")
+    on_ring = [p for p in wall_pos if max(abs(p[0] - kx), abs(p[1] - ky)) == r_ring]
+    c.eq(len(on_ring), len(wall_pos),
+         f"每一段墙/门都必须落在 cheb == {r_ring} 的环上，"
+         f"实际 {len(wall_pos) - len(on_ring)} 段不在")
+    n_breach = 8 * r_ring - len(wall_pos)
+    c.true(1 <= n_breach <= 2,
+           f"缺口数 = 8R − 墙门总数 = {n_breach}，"
+           f"应当落在 initial_breaches [1,2] 内")
+    # 墙格的 terrain 必须是 Plain（墙是实体、不改地形——第 17 条的互补一半，
+    # 也防「城门/缺口被地形盖住」那类糊墙回归）。
+    for x, y in wall_pos:
+        c.eq(names[y][x], "Plain",
+             f"墙/门格 {(x, y)} 的 terrain 应是 Plain，实际 {names[y][x]}")
+    # 城门恒满血（结构薄弱点由「木质、破坏速率更高」承担，残破留给 Wall）。
+    for w in doc["initial_walls"]:
+        if w["kind"] == "Gate":
+            c.eq(w["hp_frac"], 1.0, f"城门应恒满血，实际 {w['hp_frac']}")
+
+    # 城外金矿 ≥ 2（thresholds 里 outer_gold_min 同值——生成器侧的结构保证
+    # 由前两簇强制 gold 承担，这里钉 doc 层）。
+    outer_gold = sum(1 for r in doc["resources"]
+                     if r["tier"] == "outer" and r["type"] == "gold")
+    c.true(outer_gold >= 2, f"城外金矿 {outer_gold} 个，必须 ≥ 2（2026-08-31 试玩查出）")
+    # 城内构成：2 石 + 2 金 + 1–2 木。
+    inner = sorted(r["type"] for r in doc["resources"] if r["tier"] == "inner")
+    c.eq(inner.count("gold"), 2, f"城内金矿必须恒 2，实际 inner 构成 {inner}")
+    c.eq(inner.count("stone"), 2, f"城内石矿必须恒 2，实际 inner 构成 {inner}")
+    c.true(1 <= inner.count("wood") <= 2, f"城内木材 1–2，实际 inner 构成 {inner}")
 
 
-def check_generator_wall_seals_ring(c):
-    """`carve_corridor` 不得在墙两侧多切出免费缺口（2026-08-31 试玩发现的真 bug）。
+def _ref_cfg(**over):
+    """一组全钉死的生成配置（参考图同款形状），给直测生成器中间产物的
+    新用例用。区间全取单值 ⇒ `_resolve` 抽出来就是这个数，rng 消费序列
+    因此可预测。"""
+    base = SimpleNamespace(
+        size=72, city_radius_range=[12, 12],
+        spawn_count_range=[3, 3],
+        inner_resources_range={"stone": [2, 2], "wood": [1, 2], "gold": [2, 2]},
+        outer_clusters_range=[3, 3],
+        outer_cluster_size=[2, 3],
+        initial_breaches=[1, 1],
+        wall_hp_frac_range=[0.5, 0.5],
+        forest_patches=[6, 6],
+        forest_patch_size=[4, 8],
+        rock_patches_range=[3, 3],
+        rock_patch_size=[4, 10],
+        towers_range=[2, 2],
+        barracks_range=[1, 1],
+        obstacles=[0, 0],
+        max_attempts=1,
+    )
+    for k, v in over.items():
+        setattr(base, k, v)
+    return base
 
-    症状：实战试玩报告「城墙老是漏缝，攻方开局就能直接走进来」——不是
-    `initial_breaches` 那个**受控**的缺口，是**每一条**非 `defile` 走廊
-    （`open`/`forest`/`economy`）的人工墙两侧各多出一格永久可通行、永远没有
-    墙/门实体的缝。
 
-    根因：`carve_corridor` 的走廊比 `mouth`（真正摆墙的那段）宽 1 格
-    （注释「走廊比口略宽一点，免得口两侧的 Rock 把走廊夹成死胡同」），
-    但旧判据 `d >= R` 在 t=0（城圈本身那一环）上对整个加宽后的 span 成立
-    （因为 `d == R` 对 span 里的每一格都成立，不只是 `mouth` 里那些），
-    于是把 `build_city_wall_ring` 刚设成 `Rock` 的两侧格重新冲回 `Plain`，
-    而 `place_initial_walls` 只在 `mouth`（未加宽的那段）里摆实体——两侧格
-    因此变成一个**不受任何随机项控制、每张图必然存在**的免费缺口。
-    改为 `d > R` 后，加宽只从 t=1（环外一格）起生效，t=0 只有真正的
-    `mouth` 格会被强制置 `Plain`，这正是「防止口两侧的 Rock 把走廊夹成
-    死胡同」这条原意图想要的效果，且不再波及环本身。
-
-    这条测试直接调生成器内部函数（不经 `generate_valid`），因为**没有任何
-    现有的第 8 节校验器条目会给这个 bug 判红**——第 8 条只要求「存在至少
-    一个缺口」，两侧那两格的存在与否都满足它；城区无法从 map 格式反推
-    （第 9 条的既有阻塞），所以在格式层加一条通用检查代价很高。直接测
-    生成器自己的中间产物（`Canvas.terrain`）更精确，也更便宜。
-    """
-    cfg = SimpleNamespace(size=72, city_radius=13, corridor_mouth_width=5)
-    sides = generate._SIDES
-    corridors = ["open", "defile", "forest", "economy"]
-    generate.side_to_corridor = dict(zip(sides, corridors))
-
+def _painted(cfg, seed=1012000):
+    """跑一遍 `paint`，返回 (cv, resolved_cfg)。用真实 strict 档（place_spawns
+    要读它），所以 no_build 环是真实宽度。"""
+    th = thresholds.load().profile("strict")
     cv = generate.Canvas(cfg.size)
-    mouths = generate.build_city_wall_ring(cv, cfg, None, sides)
-    for side in sides:
-        generate.carve_corridor(cv, cfg, None, side, generate.side_to_corridor[side],
-                                mouths[side])
-
-    half = cfg.corridor_mouth_width // 2
-    for side in sides:
-        corridor = generate.side_to_corridor[side]
-        mouth = mouths[side]
-        mx = sum(p[0] for p in mouth) // len(mouth)
-        my = sum(p[1] for p in mouth) // len(mouth)
-        dx, dy = generate._outward(side)
-        for w in (-(half + 1), half + 1):
-            px = mx + (w if dx == 0 else 0)
-            py = my + (w if dy == 0 else 0)
-            if not cv.inside(px, py):
-                continue
-            # defile 的走廊比 mouth **窄**（见 `carve_corridor`），所以这两格
-            # 对它而言本来就在 mouth 之外一层，不是这个 bug 要盯的对象——
-            # 只对 open/forest/economy（走廊比 mouth **宽**）断言。
-            if corridor == "defile":
-                continue
-            c.eq(cv.at(px, py), "Rock",
-                 f"{side}/{corridor} 走廊口外侧 {(px, py)} 必须仍是 Rock——"
-                 f"不该被 carve_corridor 的加宽误判成走廊本体")
+    rng = random.Random(seed)
+    r = generate.paint(cv, cfg, th, rng)
+    return cv, r
 
 
-def check_generator_forest_avoids_mouth(c):
-    """`scatter_corridor_forest` 不得把 `Forest` 撒到墙/门的格子上或紧贴它
-    （2026-08-31 试玩发现的第二个真 bug，与「墙两侧免费缺口」同一次报告里）。
+def check_generator_scatter_avoids(c):
+    """`scatter_wild_terrain` 不得把 Forest/Rock 撒到墙/门与集结点的邻域。
 
-    该函数自己的 docstring 早就说「墙与集结点都定好之后撒，这样才知道该
-    避开哪里」，但原来的排除条件只做了「避开集结点」那一半——`mouth`
-    参数确实传进来了，却没被用来排除任何格子。第一簇的圆心在 `t=2`
-    （口外两格）、半径最多到 2，覆盖范围能一直回卷到 `t=0`（口本身），
-    而 `cv.at(px,py) != "Plain"` 挡不住墙/门所在的格——墙是实体、不改
-    地形，那些格的 terrain 本来就还是 `Plain`。
-
-    后果不是「墙不存在」（`initial_walls` 里照样有它，仍会解算防御），是
-    **视觉上找不到它**：树冠把整段人工墙糊成一团，连唯一的既定缺口也被
-    遮住，「侦查这段城墙是不是有洞」这条设计意图打了折；更深一层，墙被
-    拆毁后原地重建会撞上「`Forest` 不可建造」——一处本该只是「结构上的
-    既定薄弱点」的位置，一旦破就再也补不回去。
-
-    这条跟上一条（`check_generator_wall_seals_ring`）一样，第 8 节校验器
-    管不到它——检查 #17 的判据字面上只查 `Rock`/`Water`，`Forest` 落在
-    墙的格子上不违反它（且那条判据故意不扩大，见该检查的 docstring）。
-    只有直接测生成器自己的中间产物才能钉住这个不变量。
+    这是 2026-08-31 试玩那两个真 bug 的守卫在重构后的形态：旧的
+    `check_generator_wall_seals_ring`（走廊口两侧免费缺口）随 `carve_corridor`
+    一起删除、其职责由 doc 层的城圈完整性断言取代（见
+    `check_generator_produces_valid_maps`）；旧的
+    `check_generator_forest_avoids_mouth`（森林糊住墙/门）改写为本条——
+    城外散布沿用同一条纪律：墙/门一格缓冲、集结点八邻不放。
     """
-    cfg = SimpleNamespace(size=72, city_radius=13, corridor_mouth_width=5,
-                          forest_patch_radius=[1, 3])
-    sides = ("north", "east", "south", "west")
-    generate.side_to_corridor = dict.fromkeys(sides, "forest")
+    cv, _ = _painted(_ref_cfg(rock_patches_range=[5, 5], forest_patches=[8, 8]))
+    walls = {(x, y) for _, (x, y), _ in cv.walls}
+    spawns = set(cv.spawns)
 
+    def zone(points, r):
+        out = set()
+        for px, py in points:
+            for oy in range(-r, r + 1):
+                for ox in range(-r, r + 1):
+                    out.add((px + ox, py + oy))
+        return out
+
+    forbidden = zone(walls, 1) | zone(spawns, 1)
+    for y in range(cv.size):
+        for x in range(cv.size):
+            if cv.at(x, y) in ("Forest", "Rock") and (x, y) in forbidden:
+                c.failures.append(
+                    f"[生成器] 散布地形压到了 {(x, y)}（{cv.at(x, y)}）——"
+                    f"墙/门一格缓冲与集结点八邻必须干净")
+                c.count += 1
+                return
+    c.count += 1
+    # 环内侧（cheb < R）不该有散布的地形——城内内容只有两片 L 森林，
+    # 野外散布的域是 cheb ≥ R+2（scatter_wild_terrain 的 valid() 明写）。
+    kx, ky = cv.keep
+    for y in range(cv.size):
+        for x in range(cv.size):
+            if cv.at(x, y) == "Rock" and max(abs(x - kx), abs(y - ky)) < 12:
+                c.failures.append(
+                    f"[生成器] Rock 团块落进了环内 {(x, y)}——散布域不该进城")
+                c.count += 1
+                return
+    c.count += 1
+
+
+def check_generator_cluster_invariants(c):
+    """`place_outer_clusters` 的三条硬保证（2026-08-31 试玩查出）：
+    簇内点两两切比雪夫距离 ≥2（防「一整块石头」）、每簇 ≥2 种类型
+    （防全石簇）、全局城外金 ≥2（前两个成功落地的簇各强制一个）。
+
+    簇级断言直接吃 `place_outer_clusters` 的**返回值**（簇记录：kinds /
+    points / dist）——这是为可测性留的接口，`paint` 消费方忽略它。
+    簇成员关系不用任何「近似」，因为簇记录是函数自己报的。
+    """
+    cfg = _ref_cfg(outer_clusters_range=[4, 4])
+    th = thresholds.load().profile("strict")
     cv = generate.Canvas(cfg.size)
-    rng = random.Random(1012000)
-    mouths = generate.build_city_wall_ring(cv, cfg, rng, sides)
-    for side in sides:
-        generate.carve_corridor(cv, cfg, rng, side, "forest", mouths[side])
+    rng = random.Random(424242)
+    r = generate._resolve(cfg, rng)
+    sides = rng.sample(list(generate._SIDES), r.spawn_count)
+    generate.place_ring_walls(cv, r, rng)
+    generate.place_spawns(cv, r, th, rng, sides)
+    generate.place_inner_content(cv, r, rng)
+    clusters = generate.place_outer_clusters(cv, r, rng)
 
-    for side in sides:
-        mouth = mouths[side]
-        mx = sum(p[0] for p in mouth) // len(mouth)
-        my = sum(p[1] for p in mouth) // len(mouth)
-        dx, dy = generate._outward(side)
-        # 摆一个远得不会被「离集结点两格以内不放」误伤的假集结点。
-        spawn_pos = (mx + dx * 20, my + dy * 20)
-        generate.scatter_corridor_forest(cv, cfg, rng, side, mouth, spawn_pos)
-        for wx, wy in mouth:
-            for oy in (-1, 0, 1):
-                for ox in (-1, 0, 1):
-                    px, py = wx + ox, wy + oy
-                    if not cv.inside(px, py):
-                        continue
-                    c.true(cv.at(px, py) != "Forest",
-                           f"{side} 走廊：墙格 {(wx, wy)} 附近的 {(px, py)} "
-                           f"被撒上了 Forest——墙/门会被树冠糊住看不见")
+    c.true(len(clusters) >= 2, f"落地的簇 {len(clusters)} 个，至少 2 个")
+
+    # 全局城外金 ≥ 2：前两个成功落地的簇各强制一个（结构性保证的落点）。
+    outer = [(t, (x, y)) for t, (x, y), tier in cv.resources if tier == "outer"]
+    gold = sum(1 for t, _ in outer if t == "gold")
+    c.true(gold >= 2, f"城外金矿 {gold} 个，必须 ≥ 2")
+    forced = sum(kinds.count("gold") for cl in clusters
+                 for kinds in [cl["kinds"]])
+    c.true(forced >= 2, f"簇记录里金矿 {forced} 个，必须 ≥ 2（强制机制在跑）")
+
+    # 每簇 ≥ 2 种类型（防全石簇——2026-08-31 试玩「一整块石头」的根源）。
+    for cl in clusters:
+        c.true(len(set(cl["kinds"])) >= 2,
+               f"簇 {cl['points']} 只有 {sorted(set(cl['kinds']))} —— "
+               f"单种类簇必须不存在")
+
+    # 簇内点两两切比雪夫距离 ≥ 2（防贴成一坨）。
+    for cl in clusters:
+        pts = cl["points"]
+        for i, (ax, ay) in enumerate(pts):
+            for bx, by in pts[i + 1:]:
+                c.true(max(abs(ax - bx), abs(ay - by)) >= 2,
+                       f"簇内 {(ax, ay)} 与 {(bx, by)} 贴邻（切比雪夫距离 1）")
+
+    # 簇距随离城距离递增（参考图设计语言：越远越散、越少）。
+    dists = [cl["dist"] for cl in clusters]
+    c.eq(dists, sorted(dists),
+         f"簇距 {dists} 必须随簇序（= 距带序号）递增")
+
+
+def check_generator_inner_content(c):
+    """`place_inner_content`：两片 3 格 L 形森林（4 连通、不贴墙）、
+    资源构成 2 石/2 金/1–2 木、**堡垒周围 3 格净空**（demo_init 会在
+    keep+(1,±2) 预置 Tower/Flak、keep+(2,·) 撒 7 个单位，地图内容不得
+    与它们撞车）。
+    """
+    cv, r = _painted(_ref_cfg())
+    kx, ky = cv.keep
+
+    # 净空区：cheb ≤ 3 内除 keep 自身外，不得有资源/森林/建筑格。
+    for y in range(cv.size):
+        for x in range(cv.size):
+            if max(abs(x - kx), abs(y - ky)) > 3 or (x, y) == (kx, ky):
+                continue
+            if cv.at(x, y) != "Plain":
+                c.failures.append(
+                    f"[生成器] 净空区 {(x, y)} 被 {cv.at(x, y)} 占用——"
+                    f"demo_init 的预置内容会撞上它")
+                c.count += 1
+                return
+            if (x, y) in cv.occupied():
+                c.failures.append(
+                    f"[生成器] 净空区 {(x, y)} 被实体占用——同上")
+                c.count += 1
+                return
+    c.count += 1
+
+    # 城内森林：恰好两片 L 形（每片 3 格、4 连通）。
+    inner_forest = [(x, y) for y in range(cv.size) for x in range(cv.size)
+                    if cv.at(x, y) == "Forest"
+                    and max(abs(x - kx), abs(y - ky)) < r.city_radius]
+    c.eq(len(inner_forest), 6, f"城内森林应为两片 3 格 L 形，实际 {len(inner_forest)} 格")
+    # 4 连通块计数：两片。
+    seen = set()
+    comps = 0
+    for cell in inner_forest:
+        if cell in seen:
+            continue
+        comps += 1
+        stack = [cell]
+        seen.add(cell)
+        while stack:
+            x, y = stack.pop()
+            for ox, oy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                nb = (x + ox, y + oy)
+                if nb in inner_forest and nb not in seen:
+                    seen.add(nb)
+                    stack.append(nb)
+    c.eq(comps, 2, f"城内森林应恰为两片 4 连通块，实际 {comps} 片")
+
+    # 构成：2 石 + 2 金 + 1–2 木。
+    inner = sorted(t for t, _, tier in cv.resources if tier == "inner")
+    c.eq(inner.count("stone"), 2, f"inner 石应恒 2，实际 {inner}")
+    c.eq(inner.count("gold"), 2, f"inner 金应恒 2，实际 {inner}")
+    c.true(1 <= inner.count("wood") <= 2, f"inner 木 1–2，实际 {inner}")
+
+
+def check_generator_buildings_legal(c):
+    """预置建筑（微随机化）：塔贴城门/缺口内侧、兵营在净空区外、伐木场/
+    采石场**精确踩**对应资源点（第 24 条 GATHERER_MATCH 豁免的摆法）。"""
+    cv, r = _painted(_ref_cfg())
+    bld = {t: [p for bt, p in cv.buildings if bt == t]
+           for t in ("Tower", "Barrack", "Lumber", "Quarry")}
+    c.eq(len(bld["Tower"]), 2, f"塔应恒 2（配置钉死），实际 {len(bld['Tower'])}")
+    c.eq(len(bld["Barrack"]), 1, "兵营应恒 1（配置钉死）")
+    c.eq(len(bld["Lumber"]), 1, "伐木场应恒 1")
+    c.eq(len(bld["Quarry"]), 1, "采石场应恒 1")
+
+    anchors = set(cv.gates) | set(cv.breaches)
+    for p in bld["Tower"]:
+        c.true(any(max(abs(p[0] - a[0]), abs(p[1] - a[1])) <= 2 for a in anchors),
+               f"箭塔 {p} 不贴任何城门/缺口（切比雪夫 ≤ 2）")
+    kx, ky = cv.keep
+    for p in bld["Barrack"]:
+        c.true(max(abs(p[0] - kx), abs(p[1] - ky)) >= 4,
+               f"兵营 {p} 落进了堡垒净空区（cheb < 4）")
+    wood = [(x, y) for t, (x, y), tier in cv.resources
+            if t == "wood" and tier == "inner"]
+    stone = [(x, y) for t, (x, y), tier in cv.resources
+             if t == "stone" and tier == "inner"]
+    c.true(bld["Lumber"][0] in wood,
+           f"伐木场 {bld['Lumber'][0]} 必须精确踩在木点上（第 24 条豁免）")
+    c.true(bld["Quarry"][0] in stone,
+           f"采石场 {bld['Quarry'][0]} 必须精确踩在石点上（第 24 条豁免）")
 
 
 def check_generator_is_deterministic(c):
@@ -1869,7 +2045,7 @@ GROUPS = [
     ("格式层：应当拒绝", check_format_rejects),
     ("格式层：应当接受", check_format_accepts),
     ("第 8 节：注册表覆盖性", check_registry_covers_spec),
-    ("第 3 条 corridor", check_v3_corridors),
+    # 第 3 条已废除（走廊概念取缔），其 selftest 组随之一并删除。
     ("第 4 条 集结点可达", check_v4_reachable),
     ("第 6 条 inner 三种资源", check_v6_inner_resources),
     ("第 7 条 外部资源点不可围", check_v7_outer_unenclosable),
@@ -1900,10 +2076,13 @@ GROUPS = [
     ("第 14 条 集结点到可建造格的距离", check_v14_spawn_buildable_distance),
     ("第 23 条 Forest 连通块不得碎成粉尘", check_v23_forest_cohesion),
     ("第 24 条 建筑摆放冲突", check_v24_building_placement),
+    ("第 25 条 城外金矿下限", check_v25_outer_gold),
     # —— 生成器（第 9 节）——
-    ("生成器产出合法地图", check_generator_produces_valid_maps),
-    ("生成器不得在墙两侧多切出免费缺口", check_generator_wall_seals_ring),
-    ("生成器不得把森林撒到墙/门的格子上", check_generator_forest_avoids_mouth),
+    ("生成器产出合法地图 + 城圈完整性", check_generator_produces_valid_maps),
+    ("生成器散布不得压墙/门与集结点邻域", check_generator_scatter_avoids),
+    ("生成器资源簇不变量（间距/种类/金矿/距递增）", check_generator_cluster_invariants),
+    ("生成器城内内容（净空区/森林/构成）", check_generator_inner_content),
+    ("生成器预置建筑合法", check_generator_buildings_legal),
     ("生成器确定：同种子同图、异种子异图", check_generator_is_deterministic),
     ("生成器的丢弃与否决计数真的工作", check_generator_discard_reporting_works),
     ("生成器的 ASCII 预览", check_generator_preview_renders),

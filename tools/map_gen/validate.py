@@ -37,15 +37,23 @@
 落点是 `generate.py` 的批量报告（丢弃率 + 每条检查的否决计数）。
 
 **它是移走，不是删掉**：`MOVED_TO_GENERATOR` 显式记着它，
-而 `selftest.py` 断言「CHECKS 的编号 + 移走的编号 = 规范的 1..23」。
-直接删会让这一条从此无声消失，而那正是白名单漏登记那类错误的样子。
+而 `selftest.py` 断言「CHECKS 的编号 + 移走的编号 + 废除的编号
+= 规范的 1..25」。直接删会让这一条从此无声消失，而那正是白名单漏登记
+那类错误的样子。
+
+## 废除的条目留号空表（第 3 条，2026-08-31）
+
+组长拍板取缔「走廊」概念，第 3 条（每种 corridor 恰好一次）随
+`spawns[].corridor` 字段一起废除。**编号留空不顺延**：顺延会把第 4–25 条
+全部重编号，波及 selftest 四十多处断言与两份文档，纯 churn 无收益。
+`REMOVED` 显式记着它，理由与 `MOVED_TO_GENERATOR` 同一条纪律。
 
 ## 一条防漂移的断言
 
-`CHECKS` 表加上 `MOVED_TO_GENERATOR` 必须正好覆盖 1..23、不重不漏，
-由 `selftest.py` 钉住。第 8 节将来若加条目（例如 #26 的 A5 若通过，要加一条
-「§2 必须配 §3」的检查），这条断言会立刻变红提醒同步 —— 白名单漏登记抓不到，
-是 `tests/CMakeLists.txt` 里已经踩过的坑。
+`CHECKS` 表加上 `MOVED_TO_GENERATOR` 与 `REMOVED` 必须正好覆盖
+1..SPEC_CHECK_COUNT、不重不漏，由 `selftest.py` 钉住。第 8 节将来若加条目，
+这条断言会立刻变红提醒同步 —— 白名单漏登记抓不到，是 `tests/CMakeLists.txt`
+里已经踩过的坑。
 
 用法:
     py validate.py <地图文件或目录> [更多...]
@@ -75,13 +83,22 @@ Check.__new__.__defaults__ = (False,)
 
 # 第 8 节要求的总条目数。写成常量而不是 len(CHECKS)，这样「漏写一条」会被
 # selftest 抓到 —— 用 len() 去校验 CHECKS 自己，等于用它证明它自己。
-SPEC_CHECK_COUNT = 24
+SPEC_CHECK_COUNT = 25
 
 # 从 CHECKS 移走的条目：编号 -> 去哪了。见模块 docstring。
 MOVED_TO_GENERATOR = {
     20: "第 7 与第 10 条的联合可满足性 —— §8.1 明写它的产出是**诊断信息**"
         "（丢弃率、哪一条更常否决），而那只有跑一批生成才有。逐图看它没有新东西"
         "可查：两条各自已在第 7、10 条里跑了。落点是 `generate.py` 的批量报告",
+}
+
+# 从规范废除的条目：编号 -> 为什么。**编号留空不顺延**——顺延会把第 4–24 条
+# 全部重编号，波及 selftest 四十多处断言与两份文档，纯 churn 无收益；
+# 第 9 条阻塞留号的先例证明「表里有洞」是被接受的形态（有注释说明即可）。
+REMOVED = {
+    3: "每种 corridor 恰好出现一次 —— 2026-08-31 组长拍板取缔「走廊」概念"
+       "（城外地形完全随机散布，AoE4 式），`spawns[].corridor` 字段随 6.2"
+       "一并删除；集结点仍是固定边缘候选点，只是不再携带性质标签",
 }
 
 
@@ -93,26 +110,6 @@ MOVED_TO_GENERATOR = {
 # 「第 4 条不通过」对着一张 96×96 的图没有任何指导意义。
 # --------------------------------------------------------------------------
 
-def check_corridor_kinds(doc, grid):
-    """第 3 条：每种 corridor 恰好出现一次，且种类数 = 集结点数。
-
-    「恰好一次」蕴含「种类数 = 集结点数」，所以只需查重复。
-    2.2 的走廊候选清单是**候选不是定数**，所以这里不查「必须四种都有」——
-    那会把一个待定数值（集结点数量）当成结构结论，`#17` 正是为此开的。
-    """
-    corridors = [s["corridor"] for s in doc["spawns"]]
-    problems = []
-    for kind in sorted(set(corridors)):
-        n = corridors.count(kind)
-        if n > 1:
-            where = [s["pos"] for s in doc["spawns"] if s["corridor"] == kind]
-            problems.append(
-                f"走廊性质 {kind!r} 出现了 {n} 次（集结点 {where}）；"
-                f"2.2 要求每个集结点对应一条**性质不同**的走廊，"
-                f"否则 AI 选哪个都一样，「选集结点」没有可学的信号")
-    return problems
-
-
 def check_spawn_reachable(doc, grid):
     """第 4 条：每个集结点到 keep 有通路（墙按高代价可通行）。
 
@@ -121,7 +118,7 @@ def check_spawn_reachable(doc, grid):
     """
     reach = grid.flood([grid.keep], grid.ground_passable)
     return [
-        f"集结点 {list(pos)}（{s['corridor']}）到 keep {list(grid.keep)} 不通 —— "
+        f"集结点 {list(pos)} 到 keep {list(grid.keep)} 不通 —— "
         f"注意这里墙已经按可通行算，所以不通只可能是 Rock/Water 封死"
         for pos, s in sorted(grid.spawns.items()) if pos not in reach
     ]
@@ -260,7 +257,7 @@ def check_forest_corridor(doc, grid):
     """第 10 条：`Forest` 不得构成任一集结点直达城墙的连续遮蔽通道。
 
     4.1：森林若能连成从集结点直达城墙的连续遮蔽通道，AI 会学到永远走林地潜行，
-    其余走廊全部作废。
+    城外地形博弈（「看不清来了什么」要靠侦查花钱买）作废。
 
     「直达城墙」按「触到任一墙段的八邻」判定。地图没有 initial_walls 时这条
     自动通过 —— 没有墙就谈不上「直达城墙」，而 2.3 要求的初始城圈由第 8 条管。
@@ -296,9 +293,9 @@ def check_forest_corridor(doc, grid):
         hit = sorted(reach & near_wall)
         if hit:
             problems.append(
-                f"集结点 {list(pos)}（{s['corridor']}）存在一条全程 Forest 的"
+                f"集结点 {list(pos)} 存在一条全程 Forest 的"
                 f"遮蔽通道直达城墙附近 {list(hit[0])} —— AI 会学到永远走它，"
-                f"其余走廊作废（4.1）")
+                f"城外地形博弈作废（4.1）")
     return problems
 
 
@@ -356,7 +353,10 @@ def check_plain_islands(doc, grid):
 
 
 def check_water_cuts_corridor(doc, grid):
-    """第 12 条：`Water` 不得在无桥的情况下完全切断任一走廊。
+    """第 12 条：`Water` 不得在无桥的情况下完全切断任一集结点到 keep 的通路。
+
+    **2026-08-31 重构**：走廊概念取缔，本条改语义为「集结点到 keep 的通路」——
+    判据一行未动（本来就是「归因」式可达性：正常通行 vs 把 Water 当可通行）。
 
     判据是「归因」而不只是「不通」：先算正常通行下的可达集，再算把 `Water`
     也当可通行时的可达集。**只在后者通、前者不通时**才判定是水切断的 ——
@@ -371,8 +371,8 @@ def check_water_cuts_corridor(doc, grid):
 
     with_water = grid.flood([grid.keep], passable_or_water)
     return [
-        f"集结点 {list(pos)}（{s['corridor']}）的走廊被水完全切断且没有桥 —— "
-        f"那条走廊等于不存在（4.1）"
+        f"集结点 {list(pos)} 到 keep 的通路被水完全切断且没有桥 —— "
+        f"这条通路等于不存在（4.1）"
         for pos, s in sorted(grid.spawns.items())
         if pos not in normal and pos in with_water
     ]
@@ -488,8 +488,8 @@ def check_placement_conflicts(doc, grid):
         if pos in seen_spawn:
             problems.append(
                 f"集结点 id={s['id']} 与 id={seen_spawn[pos]} 同在 {list(pos)} —— "
-                f"格式层只查了 id 不重复。两个集结点重合会让第 3 条要求的"
-                f"「每条走廊性质不同」在几何上不成立：同一个位置没有两条走廊")
+                f"格式层只查了 id 不重复。两个集结点重合让「分兵佯攻」在几何上"
+                f"不成立：同一个位置只有一路兵")
         else:
             seen_spawn[pos] = s["id"]
     return problems
@@ -731,6 +731,29 @@ def check_has_outer_resource(doc, grid):
             "通过全部检查"]
 
 
+def check_outer_gold(doc, grid, th):
+    """第 25 条：`outer` 资源点里金矿的数量 ≥ 阈值。
+
+    **2026-08-31 实测查出**（`gen_01006000` 城外零金矿、多张图城外只有 1 个
+    金点）：此前城外资源簇的种类是纯随机抽签，金矿可以整个缺席。「攻其必救」
+    要成立，攻方在城外必须有值得打的三种资源——金矿断供的图把「打哪一种」
+    的纹理削掉一条，且与「城内金矿被点掉更疼」的设计意图叠加后，
+    玩家对金矿的经济焦虑完全消失。
+
+    与第 21 条同源（那条保「≥1 个 outer 点」的存在性，本条保金矿**种类**的
+    存在性）；放进校验器而非只靠生成器，是为了保护手写地图。
+    **生成器侧的保证落在 `place_outer_clusters`（前两个成功落地的簇各强制
+    一个 gold）**，校验器是最终裁决——簇全失败时本条会否掉整张图。
+    """
+    n = sum(1 for r in doc["resources"]
+            if r["tier"] == "outer" and r["type"] == "gold")
+    if n >= th.outer_gold_min:
+        return []
+    return [f"outer 资源里只有 {n} 个金矿，少于 {th.outer_gold_min}"
+            f"（profile {th.name}）—— 攻其必救在城外少一条轴，"
+            f"「打哪一种资源」的纹理被削掉（2026-08-31 试玩查出）"]
+
+
 # --------------------------------------------------------------------------
 # 注册表
 # --------------------------------------------------------------------------
@@ -781,7 +804,7 @@ def check_size_range(doc, grid, th):
     """第 1 条：`size` 的两条边都落在给定区间。
 
     **两条边分别查，不查面积**：一张 4×2000 的图面积正常而形状荒谬，
-    而走廊、城区半径、行军距离全部按边长推。
+    而城区半径、行军距离全部按边长推。
     """
     problems = []
     for name, v in (("宽", doc["size"][0]), ("高", doc["size"][1])):
@@ -800,8 +823,8 @@ def check_spawn_count_and_edge(doc, grid, th):
     「关于数值」），而地图规范曾把它写成「定为 4」——那是把平衡旋钮当成结构
     结论，是那条规则记下的唯一一次违反。区间表达「还没定」。
 
-    结构约束「集结点数 = 走廊种类数」不在这里，它由第 3 条查（那一条不需要阈值，
-    所以也不该等阈值）。
+    **2026-08-31 重构**：走廊概念取缔，「集结点数 = 走廊种类数」那条结构约束
+    作废（校验器第 3 条废除、编号留空），集结点不再携带性质标签。
 
     「贴近边缘」查的是到四条边的最小距离：§2.2 的集结区在地图边缘，
     集结点跑到地图中间意味着攻方在城边上凭空出现。
@@ -817,7 +840,7 @@ def check_spawn_count_and_edge(doc, grid, th):
         d = min(x, y, grid.width - 1 - x, grid.height - 1 - y)
         if d > th.spawn_edge_distance_max:
             problems.append(
-                f"集结点 {[x, y]}（{s['corridor']}）距最近的地图边界 {d} 格，"
+                f"集结点 {[x, y]} 距最近的地图边界 {d} 格，"
                 f"超过 {th.spawn_edge_distance_max} —— §2.2 的集结区在地图边缘，"
                 f"否则攻方等于在城边上凭空出现，侦查与行军时间窗口一起失效")
     return problems
@@ -868,7 +891,7 @@ def check_ram_march_fraction(doc, grid, th):
         reach = [dist[w] for w in walls if w in dist]
         if not reach:
             problems.append(
-                f"集结点 {list(pos)}（{s['corridor']}）走不到任何墙段 —— "
+                f"集结点 {list(pos)} 走不到任何墙段 —— "
                 f"第 4 条查的是到 `keep` 的通路，而「到墙」是另一件事："
                 f"墙是高代价可通行，所以第 4 条可能靠**穿墙**通过")
             continue
@@ -878,7 +901,7 @@ def check_ram_march_fraction(doc, grid, th):
         hi = march_ticks / th.episode_ticks_min
         if hi < th.ram_march_fraction_min or lo > th.ram_march_fraction_max:
             problems.append(
-                f"集结点 {list(pos)}（{s['corridor']}）到最近墙段 {steps} 格，"
+                f"集结点 {list(pos)} 到最近墙段 {steps} 格，"
                 f"`Ram` 速度 {speed} 格/tick ⇒ 行军 {march_ticks:.0f} tick，"
                 f"占 episode（{th.episode_ticks_min}–{th.episode_ticks_max} tick）"
                 f"的 {lo:.1%}–{hi:.1%}，与目标区间 "
@@ -953,7 +976,7 @@ def check_spawn_buildable_distance(doc, grid, th):
                 best, where = d, c
         if best <= cap:
             problems.append(
-                f"集结点 {list(pos)}（{s['corridor']}）到最近可建造格 "
+                f"集结点 {list(pos)} 到最近可建造格 "
                 f"{list(where)} 的切比雪夫距离只有 {best}，"
                 f"不大于静态建筑视野半径上限 {cap:g}"
                 f"（profile {th.name}；表里最大的是 {worst_bld} 的 {table_max:g}）"
@@ -968,9 +991,10 @@ def check_forest_cohesion(doc, grid, th):
     ## 它守的是森林的**职责**，而职责要的是连片、不是总面积
 
     `Forest` 在设计里干三件事：2.1.1 的森林带（结构性地让外部资源簇围不起来）、
-    §2.2 林地走廊的「看不清来了什么」、以及把杀伤区压成一条薄带
-    （2.1.2 那段论证）。**三件都依赖连片**——同样 100 格森林，撒成 50 对散点
-    与聚成几片，遮蔽效果完全不同，而**总面积一模一样**。
+    城外散布森林的「看不清来了什么」（2026-08-31 前由林地走廊承载）、
+    以及把杀伤区压成一条薄带（2.1.2 那段论证）。**三件都依赖连片**——
+    同样 100 格森林，撒成 50 对散点与聚成几片，遮蔽效果完全不同，
+    而**总面积一模一样**。
 
     所以「森林够不够」此前没有任何检查在管：第 7 条只要森林带**连通到边界**
     （它对一条 1 格宽的带子成立），第 10 条反过来禁止**过度**连通
@@ -980,7 +1004,8 @@ def check_forest_cohesion(doc, grid, th):
     ## 现在这条会平凡通过，那不是理由不加
 
     实测（6 张生成图，33 个 4 连通块）：最小块 4 格，大小 ≤2 的粉尘块 **0 个**
-    ——因为生成器画的是半径 1–3 的圆盘（`forest_patch_radius`）。
+    ——因为生成器画的是连通团块（2026-08-31 重构后为随机游走集，此前是
+    半径 1–3 的圆盘）。
 
     但那是**生成策略**保证的，不是约束保证的。同第 10 条那句「这不等于第 10 条
     无用——它保护的是手写地图，以及将来允许森林进集结点的更激进策略」：
@@ -1024,7 +1049,7 @@ CHECKS = [
           True),
     Check(2, "集结点数量与距边界格数", check_spawn_count_and_edge,
           IMPLEMENTED, "", True),
-    Check(3, "每种 corridor 恰好出现一次", check_corridor_kinds, IMPLEMENTED, ""),
+    # 第 3 条已废除（2026-08-31，走廊概念取缔，`REMOVED`），编号留空。
     Check(4, "每个集结点到 keep 有通路", check_spawn_reachable, IMPLEMENTED, ""),
     Check(5, "Ram 行军时间占 episode 的比例", check_ram_march_fraction,
           IMPLEMENTED, "", True),
@@ -1042,7 +1067,8 @@ CHECKS = [
           "**都不再需要城区**，所以本条与它们都不同源"),
     Check(10, "Forest 不构成连续遮蔽通道", check_forest_corridor, IMPLEMENTED, ""),
     Check(11, "无不可达的 Plain 孤岛", check_plain_islands, IMPLEMENTED, ""),
-    Check(12, "Water 不得无桥切断走廊", check_water_cuts_corridor, IMPLEMENTED, ""),
+    Check(12, "Water 不得无桥切断集结点通路", check_water_cuts_corridor,
+          IMPLEMENTED, ""),
     Check(13, "Bridge 四邻至少一格 Water", check_bridge_on_water, IMPLEMENTED, ""),
     Check(14, "集结点到最近可建造格的距离", check_spawn_buildable_distance,
           IMPLEMENTED, "", True),
@@ -1066,6 +1092,10 @@ CHECKS = [
     Check(23, "Forest 连通块不得碎成粉尘", check_forest_cohesion,
           IMPLEMENTED, "", True),
     Check(24, "buildings 的摆放冲突", check_building_placement, IMPLEMENTED, ""),
+    Check(25, "outer 资源里金矿不少于阈值", check_outer_gold,
+          IMPLEMENTED, "", True),
+    # 第 3 条**不在这张表里**：2026-08-31 组长拍板取缔「走廊」概念，该条随
+    # `spawns[].corridor` 字段一起废除、编号留空（`REMOVED`，理由见模块 docstring）。
 ]
 
 
@@ -1185,8 +1215,14 @@ def cmd_list():
         for no, why in sorted(MOVED_TO_GENERATOR.items()):
             print(f"  [{no:2}] {why}")
         print()
+    # 废除的条目同理：留号空表，读者要知道那个编号为什么不在（2026-08-31）。
+    if REMOVED:
+        print(f"已废除（{len(REMOVED)} 条，编号留空）:")
+        for no, why in sorted(REMOVED.items()):
+            print(f"  [{no:2}] {why}")
+        print()
     print(f"规范（第 8 节）共 {SPEC_CHECK_COUNT} 条 = 表内 {len(CHECKS)} "
-          f"+ 已移出 {len(MOVED_TO_GENERATOR)}")
+          f"+ 已移出 {len(MOVED_TO_GENERATOR)} + 已废除 {len(REMOVED)}")
     return 0
 
 
@@ -1252,7 +1288,7 @@ def main():
     print(f"\n{len(maps)} 张地图（阈值档 {th.name}）；条目状态："
           f"{n_impl} 已实现 / {n_block} 阻塞 / {n_pend} 待阈值"
           f"（表内 {len(CHECKS)} + 已移出 {len(MOVED_TO_GENERATOR)} "
-          f"= 规范 {SPEC_CHECK_COUNT}）")
+          f"+ 已废除 {len(REMOVED)} = 规范 {SPEC_CHECK_COUNT}）")
     if total_failed:
         print(f"失败：{total_failed} 条检查不通过")
         return 1

@@ -40,7 +40,6 @@ namespace game {
 std::string_view display_name(Terrain t) noexcept;
 std::string_view display_name(ResourceType t) noexcept;
 std::string_view display_name(ResourceTier t) noexcept;
-std::string_view display_name(CorridorKind k) noexcept;
 std::string_view display_name(WallKind k) noexcept;
 
 // 花名册的展示名。**枚举在 `rts_core`，中文在这里**——这正是命名纪律的分工：
