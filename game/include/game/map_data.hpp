@@ -109,6 +109,23 @@ struct ObstacleNode {
     rts::GridPos pos{};
 };
 
+// 玩家开局已拥有的**其余**建筑（`地图与场景设计.md` 6.2 的 `buildings`，
+// 2026-08-31 新增，随大地图重设计一起补的空白）。
+//
+// `Keep` 与 `Wall`/`Gate` 不走这里——`Keep` 恒一座、有专门的 `keep` 字段；
+// `Wall`/`Gate` 带残血比例、有专门的 `initial_walls` 字段（2.3 的"城圈必须
+// 残破"是只对城圈成立的独立要求）。这份列表管的是箭塔、兵营、伐木场、
+// 采石场一类——此前地图 schema 完全没有承载它们的地方，`demo_driver.cpp`
+// 里"玩家开局有什么"是纯代码写死的占位编成，没有一张地图能表达"这里预先
+// 摆了一座兵营"。
+//
+// **不带残血比例**，同 `ObstacleNode`：满血进场，没有设计要求说玩家的
+// 初始建筑开局就该带伤。
+struct BuildingNode {
+    rts::BldType type = rts::BldType::Tower;
+    rts::GridPos pos{};
+};
+
 // 一张地图。**只能由 `MapLoader` 构造**——它的不变量（terrain 与 no_build 的长度
 // 都等于 w×h、全部坐标在界内、走廊种类不重复）在载入时建立，之后不再变。
 // 把构造权收在一处，是为了让「一个 MapData 存在」就等价于「它是合法的」。
@@ -135,6 +152,7 @@ public:
     const std::vector<ResourceNode>& resources() const noexcept { return resources_; }
     const std::vector<WallSegment>& walls() const noexcept { return walls_; }
     const std::vector<ObstacleNode>& obstacles() const noexcept { return obstacles_; }
+    const std::vector<BuildingNode>& buildings() const noexcept { return buildings_; }
 
     // 某格上有没有墙段。`SceneModel` 推导墙的**走向**要用它（4.2.1.1）。
     // 线性查找：初始墙段量级在数百，而这条只在装配场景时走一遍，
@@ -157,6 +175,7 @@ private:
     std::vector<ResourceNode> resources_;
     std::vector<WallSegment> walls_;
     std::vector<ObstacleNode> obstacles_;
+    std::vector<BuildingNode> buildings_;
 };
 
 }  // namespace game

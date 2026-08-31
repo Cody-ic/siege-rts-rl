@@ -89,6 +89,13 @@ rts::WorldInit make_world_init(const MapData& map, const rts::StatsTable& stats,
             rts::BldInit{type, w.pos, scale_hp(w.hp_frac, max_hp), max_hp});
     }
 
+    // 玩家开局已拥有的其余建筑（6.2 的 `buildings`，2026-08-31 新增）。
+    // **满血进场**，同障碍——没有设计要求说它们开局就该带伤。
+    for (const BuildingNode& b : map.buildings()) {
+        const std::int64_t max_hp = stats.of(b.type).max_hp;
+        init.buildings.push_back(rts::BldInit{b.type, b.pos, max_hp, max_hp});
+    }
+
     // 可破坏障碍。**满血进场**——`ObstacleNode` 不带残血比例，理由见它的注释
     // （城墙的残血来自 2.3 的设计要求，障碍没有对应的要求）。
     init.obstacles.reserve(map.obstacles().size());

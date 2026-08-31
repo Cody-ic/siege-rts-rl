@@ -196,6 +196,10 @@ class Canvas:
             "initial_walls": [{"kind": k, "pos": list(p), "hp_frac": round(h, 2)}
                               for k, p, h in self.walls],
             "obstacles": [{"type": t, "pos": list(p)} for t, p in self.obstacles],
+            # 生成器不摆放"玩家开局已拥有的其余建筑"（2026-08-31 新增字段）——
+            # 那是手写演示地图的事，训练地图集不需要它。空数组仍要写出来，
+            # 同 `obstacles` 那条纪律：缺失与刻意为空不可区分。
+            "buildings": [],
         }
         return mapfile.stamp_content_hash(doc)
 
