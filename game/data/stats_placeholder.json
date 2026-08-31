@@ -1,6 +1,6 @@
 {
   "schema": "stats/5",
-  "_note": "全部数值为占位值，一个都没有标定过（CLAUDE.md「关于数值」：等机制框架跑通后用成本产出矩阵统一倒推）。占位的量级只求 demo 里看得出胜负与节奏，不构成任何平衡承诺。",
+  "_note": "本文件名仍叫 stats_placeholder.json，但这句话本身已经滞后过一次：这里原写「全部数值为占位值，一个都没有标定过」，实际是 @ArLiangz 已于 2026-08-30/31 做完 v1 标定（《数值设计与成本产出矩阵.md》），参考 AoE4/TAB 的比例关系、用 rts_core 战斗公式的 Python 复现版逐条验证过 CLAUDE.md「克制二部图」点名的关键克制关系（工具在 tools/balance/，闭式 1v1 近似而非批量仿真，见该目录 README「已知局限」）。这仍不是长期方案的终点——CLAUDE.md「关于数值」要的批量仿真 + 自动标定要等 bindings/+train/ 长出真正的训练循环（现在只有冒烟脚本，见 train/README.md）才能做，届时应换成黑箱优化 + 协同演化两步法复核。少数字段仍是纯占位、没有随 v1 一起复核——见各自局部的 _note（例如 global 的 cancel_refund_permille）。",
   "_note_2": "结构性的零不在这里承载：Scout/Mason/Wraith 打不了任何东西是 is_combat()（结构），Phoenix 对墙为 0 是 can_break_structure()（结构）。这里的 damage: 0 只是与结构一致的诚实默认。",
   "_note_3": "时间单位是 tick（20/秒），距离与速度单位是格。speed 0.10 = 每秒 2 格。",
   "_note_4": "cost_gold/train_ticks 只对守方单位有意义（金币管人力）；攻方无经济，编成走 Composition 预算，那两列诚实地填 0。建筑造价「同时耗石与木、配比不同」是设计（墙偏石、门楼偏木），收入种类是结构（采集建筑走 resource_of、Keep 恒产金币），income_amount 只是数额。",
