@@ -185,6 +185,20 @@ const std::map<std::string, rts::ObstacleType> kObstacleTypes{
     {"Stump", rts::ObstacleType::Stump},
 };
 
+// `buildings`（2026-08-31 新增）允许的类型：花名册里**非** Keep/Wall/Gate 的
+// 全部建筑。那三个走各自专门的字段（见 `game::BuildingNode` 的注释），
+// 不在这张白名单里——重复表达同一件事只会制造「两个字段互相不一致」的新洞。
+const std::map<std::string, rts::BldType> kBuildingTypes{
+    {"Barrack", rts::BldType::Barrack},
+    {"Fence", rts::BldType::Fence},
+    {"Flak", rts::BldType::Flak},
+    {"Lumber", rts::BldType::Lumber},
+    {"Mine", rts::BldType::Mine},
+    {"Quarry", rts::BldType::Quarry},
+    {"Tower", rts::BldType::Tower},
+    {"Watch", rts::BldType::Watch},
+};
+
 }  // namespace
 
 MapData MapLoader::from_file(const std::string& path) {
@@ -356,6 +370,28 @@ MapData MapLoader::from_string(std::string_view json_text, const std::string& or
         node.pos = need_pos(need(o, "pos", origin, where), origin, where + ".pos",
                             m.width_, m.height_);
         m.obstacles_.push_back(node);
+    }
+
+    // 玩家开局已拥有的其余建筑（6.2 的 `buildings`，2026-08-31 新增）。
+    //
+    // **必填，空数组也要写出来**，同 `obstacles` 那条纪律：缺失与刻意为空
+    // 不可区分，会让第 24 条摆放冲突检查在"这张图没有这个字段"时无法区分
+    // "没有初始建筑"与"写图的人不知道有这个字段"。
+    //
+    // **不带血量字段**：满血进场，同 `ObstacleNode`。
+    const json& buildings = need(doc, "buildings", origin, "顶层");
+    if (!buildings.is_array()) fail(origin, "`buildings` 必须是数组");
+    for (std::size_t k = 0; k < buildings.size(); ++k) {
+        const std::string where = "`buildings[" + std::to_string(k) + "]`";
+        const json& b = buildings[k];
+        BuildingNode node;
+        node.type = lookup(kBuildingTypes,
+                           need_string(need(b, "type", origin, where), origin,
+                                       where + ".type"),
+                           origin, where + ".type");
+        node.pos = need_pos(need(b, "pos", origin, where), origin, where + ".pos",
+                            m.width_, m.height_);
+        m.buildings_.push_back(node);
     }
 
     return m;

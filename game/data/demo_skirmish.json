@@ -1,28 +1,71 @@
 {
   "_note": "演示对局用的手写小图，不是 §9 的正式演示地图，也没有过 tools/map_gen 校验器（它不是训练地图）。一切坐标与 hp_frac 都是为了让 demo 好看：攻方要过桥、要面对一道带门的墙线、防空要护得住城心。按 CLAUDE.md「关于数值」这些都是占位。",
+  "buildings": [],
+  "content_hash": "sha256:a991c8d899efe17e55b3d596779eaf43f389a7b9135e8dbf3216e03c06696aca",
   "format": 1,
-  "map_id": "demo_skirmish",
-  "name": "演示前哨",
-  "size": [20, 12],
-  "keep": [4, 6],
-  "layers": {
-    "terrain": {
-      "palette": ["Plain", "Rock", "Forest", "Water", "Bridge"],
-      "rows": [
-        "11000000000003000000",
-        "00000000000003022000",
-        "00000000000003000000",
-        "00000000000003000000",
-        "00000000000003000000",
-        "00000000000004000000",
-        "00000000000004000000",
-        "00000000000003000000",
-        "00000000000003000000",
-        "00000000000003002200",
-        "00000000000003022200",
-        "10000000000003000000"
+  "initial_walls": [
+    {
+      "hp_frac": 1.0,
+      "kind": "Wall",
+      "pos": [
+        7,
+        3
       ]
     },
+    {
+      "hp_frac": 0.55,
+      "kind": "Wall",
+      "pos": [
+        7,
+        4
+      ]
+    },
+    {
+      "hp_frac": 1.0,
+      "kind": "Wall",
+      "pos": [
+        7,
+        5
+      ]
+    },
+    {
+      "hp_frac": 1.0,
+      "kind": "Gate",
+      "pos": [
+        7,
+        6
+      ]
+    },
+    {
+      "hp_frac": 1.0,
+      "kind": "Wall",
+      "pos": [
+        7,
+        7
+      ]
+    },
+    {
+      "hp_frac": 1.0,
+      "kind": "Wall",
+      "pos": [
+        7,
+        8
+      ]
+    },
+    {
+      "hp_frac": 1.0,
+      "kind": "Wall",
+      "pos": [
+        7,
+        9
+      ]
+    }
+  ],
+  "keep": [
+    4,
+    6
+  ],
+  "layers": {
     "no_build": {
       "rows": [
         "00000000000000000000",
@@ -38,31 +81,123 @@
         "00000000000000000000",
         "00000000000000000000"
       ]
+    },
+    "terrain": {
+      "palette": [
+        "Plain",
+        "Rock",
+        "Forest",
+        "Water",
+        "Bridge"
+      ],
+      "rows": [
+        "11000000000003000000",
+        "00000000000003022000",
+        "00000000000003000000",
+        "00000000000003000000",
+        "00000000000003000000",
+        "00000000000004000000",
+        "00000000000004000000",
+        "00000000000003000000",
+        "00000000000003000000",
+        "00000000000003002200",
+        "00000000000003022200",
+        "10000000000003000000"
+      ]
     }
   },
-  "spawns": [
-    { "id": 0, "pos": [18, 4], "corridor": "open" },
-    { "id": 1, "pos": [18, 8], "corridor": "defile" }
+  "map_id": "demo_skirmish",
+  "name": "演示前哨",
+  "obstacles": [
+    {
+      "pos": [
+        9,
+        7
+      ],
+      "type": "Stump"
+    },
+    {
+      "pos": [
+        10,
+        4
+      ],
+      "type": "Sapling"
+    },
+    {
+      "pos": [
+        11,
+        8
+      ],
+      "type": "Rubble"
+    }
   ],
   "resources": [
-    { "type": "stone", "pos": [3, 4], "tier": "inner", "unlock_wave": 1 },
-    { "type": "wood",  "pos": [3, 8], "tier": "inner", "unlock_wave": 1 },
-    { "type": "gold",  "pos": [2, 6], "tier": "inner", "unlock_wave": 1 },
-    { "type": "wood",  "pos": [16, 2], "tier": "outer", "unlock_wave": 2 },
-    { "type": "stone", "pos": [16, 8], "tier": "outer", "unlock_wave": 2 }
+    {
+      "pos": [
+        3,
+        4
+      ],
+      "tier": "inner",
+      "type": "stone",
+      "unlock_wave": 1
+    },
+    {
+      "pos": [
+        3,
+        8
+      ],
+      "tier": "inner",
+      "type": "wood",
+      "unlock_wave": 1
+    },
+    {
+      "pos": [
+        2,
+        6
+      ],
+      "tier": "inner",
+      "type": "gold",
+      "unlock_wave": 1
+    },
+    {
+      "pos": [
+        16,
+        2
+      ],
+      "tier": "outer",
+      "type": "wood",
+      "unlock_wave": 2
+    },
+    {
+      "pos": [
+        16,
+        8
+      ],
+      "tier": "outer",
+      "type": "stone",
+      "unlock_wave": 2
+    }
   ],
-  "initial_walls": [
-    { "kind": "Wall", "pos": [7, 3], "hp_frac": 1.0 },
-    { "kind": "Wall", "pos": [7, 4], "hp_frac": 0.55 },
-    { "kind": "Wall", "pos": [7, 5], "hp_frac": 1.0 },
-    { "kind": "Gate", "pos": [7, 6], "hp_frac": 1.0 },
-    { "kind": "Wall", "pos": [7, 7], "hp_frac": 1.0 },
-    { "kind": "Wall", "pos": [7, 8], "hp_frac": 1.0 },
-    { "kind": "Wall", "pos": [7, 9], "hp_frac": 1.0 }
+  "size": [
+    20,
+    12
   ],
-  "obstacles": [
-    { "type": "Stump",   "pos": [9, 7] },
-    { "type": "Sapling", "pos": [10, 4] },
-    { "type": "Rubble",  "pos": [11, 8] }
+  "spawns": [
+    {
+      "corridor": "open",
+      "id": 0,
+      "pos": [
+        18,
+        4
+      ]
+    },
+    {
+      "corridor": "defile",
+      "id": 1,
+      "pos": [
+        18,
+        8
+      ]
+    }
   ]
 }

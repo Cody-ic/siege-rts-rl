@@ -1,5 +1,6 @@
 {
-  "content_hash": "sha256:e1af55c96c1ad9450361fd97d29672d32397933c1f29b47edbd62c3d20319f9f",
+  "buildings": [],
+  "content_hash": "sha256:0f612ec7474a910db1a875485d191e108533e4072b9ae838e6477149cb01a49d",
   "format": 1,
   "initial_walls": [
     {

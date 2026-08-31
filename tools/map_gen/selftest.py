@@ -77,7 +77,8 @@ class Checks:
 # --------------------------------------------------------------------------
 
 def make_doc(rows, no_build=None, keep=None, spawns=None,
-             resources=None, walls=None, obstacles=None, name="测试图"):
+             resources=None, walls=None, obstacles=None, buildings=None,
+             name="测试图"):
     """从 terrain 行构造一份最小的合法 doc。
 
     行的字符就是 palette 下标：0=Plain 1=Rock 2=Forest 3=Water 4=Bridge。
@@ -105,6 +106,8 @@ def make_doc(rows, no_build=None, keep=None, spawns=None,
         # 所以默认给空数组而不是省掉这个键 —— 省掉会让第 19、22 条抛 KeyError，
         # 而那表现为「这一组自身抛了异常」，不是一条有用的失败。
         "obstacles": obstacles if obstacles is not None else [],
+        # 6.2 的 `buildings`（2026-08-31 新增）同样必填，同一条纪律。
+        "buildings": buildings if buildings is not None else [],
     }
 
 
@@ -923,6 +926,89 @@ def check_v19_obstacle_types(c):
          "三种合法类型一个都不该报")
 
 
+def check_v24_building_placement(c):
+    """第 24 条：`buildings`（玩家开局已拥有的其余建筑）的摆放冲突。
+
+    五类各验一次，前四类与第 22 条对 `obstacles` 的验法逐条对应；多的一类
+    （摆在不可建造格上）是因为建筑要真的"盖得上去"，同第 16 条对
+    `resources`/`keep` 的验法。
+    """
+    doc = make_clean_doc()
+    c.eq(validate.check_building_placement(doc, Grid(doc)), [],
+         "干净地图（buildings 为空）不该报")
+
+    # (1) 摆在不可建造格上（no_build=1）。make_clean_doc 的 no_build 全 0，
+    #     所以先造一格出来。
+    d = make_clean_doc()
+    d["layers"]["no_build"]["rows"][4] = "0100000"    # (1,4) 变不可建造
+    d["buildings"] = [{"type": "Tower", "pos": [1, 4]}]
+    got = validate.check_building_placement(d, Grid(d))
+    c.eq(len(got), 1, "建筑摆在 no_build 格上必须报")
+
+    # (2) 摆在天然屏障上（Water）。
+    d = make_clean_doc()
+    d["layers"]["terrain"]["rows"][4] = "0003000"     # (3,4) 变 Water
+    d["buildings"] = [{"type": "Barrack", "pos": [3, 4]}]
+    got = validate.check_building_placement(d, Grid(d))
+    c.eq(len(got), 1, "建筑摆在 Water 上必须报")
+
+    # (3) 同格两座建筑。
+    d = make_clean_doc()
+    d["buildings"] = [{"type": "Tower", "pos": [0, 4]},
+                      {"type": "Barrack", "pos": [0, 4]}]
+    got = validate.check_building_placement(d, Grid(d))
+    c.eq(len(got), 1, "同一格两座建筑必须报")
+
+    # (4) 与别的点位实体同格。四种各验一次。
+    d0 = make_clean_doc()
+    for what, pos in (("keep", list(d0["keep"])),
+                      ("资源点", list(d0["resources"][0]["pos"])),
+                      ("集结点", list(d0["spawns"][0]["pos"]))):
+        d = make_clean_doc()
+        d["buildings"] = [{"type": "Tower", "pos": pos}]
+        got = validate.check_building_placement(d, Grid(d))
+        c.true(len(got) >= 1, f"建筑与{what}同格必须报，实际：{got}")
+
+    d = make_clean_doc()
+    d["initial_walls"] = [{"kind": "Wall", "pos": [0, 4], "hp_frac": 1.0}]
+    d["buildings"] = [{"type": "Tower", "pos": [0, 4]}]
+    got = validate.check_building_placement(d, Grid(d))
+    c.true(len(got) >= 1, f"建筑与墙段同格必须报，实际：{got}")
+
+    d = make_clean_doc()
+    d["obstacles"] = [{"type": "Stump", "pos": [0, 4]}]
+    d["buildings"] = [{"type": "Tower", "pos": [0, 4]}]
+    got = validate.check_building_placement(d, Grid(d))
+    c.true(len(got) >= 1, f"建筑与障碍同格必须报，实际：{got}")
+
+    # 合法摆放不该报：空闲的 Plain 格。
+    d = make_clean_doc()
+    d["buildings"] = [{"type": "Tower", "pos": [0, 4]},
+                      {"type": "Barrack", "pos": [1, 4]}]
+    c.eq(validate.check_building_placement(d, Grid(d)), [],
+         "空闲的可建造格上摆建筑不该报")
+
+    # (5) 采集建筑踩在**匹配**的资源点上——不是冲突，是它唯一的生效摆法。
+    d = make_clean_doc()
+    stone_pos = list(d["resources"][0]["pos"])   # make_clean_doc 的第 0 个是 stone
+    d["buildings"] = [{"type": "Quarry", "pos": stone_pos}]
+    c.eq(validate.check_building_placement(d, Grid(d)), [],
+         "Quarry 踩在 stone 资源点上不该报——那是它生效的唯一摆法")
+
+    # (6) 采集建筑踩在**不匹配**的资源点上——类型不对，仍要报。
+    d = make_clean_doc()
+    wood_pos = list(d["resources"][1]["pos"])    # 第 1 个是 wood
+    d["buildings"] = [{"type": "Quarry", "pos": wood_pos}]
+    got = validate.check_building_placement(d, Grid(d))
+    c.eq(len(got), 1, "Quarry 踩在 wood 资源点上（类型不匹配）必须报")
+
+    # (7) 非采集建筑踩在资源点上——同 (4) 的"与资源点同格"分支，仍要报。
+    d = make_clean_doc()
+    d["buildings"] = [{"type": "Tower", "pos": stone_pos}]
+    got = validate.check_building_placement(d, Grid(d))
+    c.eq(len(got), 1, "Tower（非采集建筑）踩在资源点上必须报")
+
+
 def check_v22_obstacle_placement(c):
     """第 22 条：`obstacles` 的摆放冲突。
 
@@ -1023,7 +1109,7 @@ def check_validator_on_clean_map(c):
                   if chk.status == validate.BLOCKED)
     n_pend = sum(1 for chk in validate.CHECKS
                  if chk.status == validate.PENDING)
-    c.eq((n_impl, n_block, n_pend), (21, 1, 0),
+    c.eq((n_impl, n_block, n_pend), (22, 1, 0),
          "条目状态计数变了：改动状态时要同步这条断言与 README 的进度表")
 
 
@@ -1300,6 +1386,7 @@ def _big_doc(size=64, spawn_at=None, walls_at=None):
         "initial_walls": [{"kind": "Wall", "pos": list(p), "hp_frac": 1.0}
                           for p in (walls_at or [])],
         "obstacles": [],
+        "buildings": [],
     }
     return mapfile.stamp_content_hash(doc)
 
@@ -1812,6 +1899,7 @@ GROUPS = [
     ("第 5 条 Ram 行军占比", check_v5_ram_march),
     ("第 14 条 集结点到可建造格的距离", check_v14_spawn_buildable_distance),
     ("第 23 条 Forest 连通块不得碎成粉尘", check_v23_forest_cohesion),
+    ("第 24 条 建筑摆放冲突", check_v24_building_placement),
     # —— 生成器（第 9 节）——
     ("生成器产出合法地图", check_generator_produces_valid_maps),
     ("生成器不得在墙两侧多切出免费缺口", check_generator_wall_seals_ring),

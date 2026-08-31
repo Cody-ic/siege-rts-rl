@@ -75,7 +75,7 @@ Check.__new__.__defaults__ = (False,)
 
 # 第 8 节要求的总条目数。写成常量而不是 len(CHECKS)，这样「漏写一条」会被
 # selftest 抓到 —— 用 len() 去校验 CHECKS 自己，等于用它证明它自己。
-SPEC_CHECK_COUNT = 23
+SPEC_CHECK_COUNT = 24
 
 # 从 CHECKS 移走的条目：编号 -> 去哪了。见模块 docstring。
 MOVED_TO_GENERATOR = {
@@ -624,6 +624,89 @@ def check_obstacle_placement(doc, grid):
     return problems
 
 
+
+# 采集建筑必须踩在对应资源点上才产出（`mechanics.cpp` 的 `tick_economy`：
+# `is_gatherer(bt)` 时要求"需在资源点上"）——这不是摆放冲突，是这三座建筑
+# 唯一能生效的摆法。与 `rts::gatherer_of()` 逐字对应，改动请同步两处。
+GATHERER_MATCH = {"Quarry": "stone", "Lumber": "wood", "Mine": "gold"}
+
+
+def check_building_placement(doc, grid):
+    """第 24 条：`buildings`（玩家开局已拥有的其余建筑）的摆放冲突。
+
+    **2026-08-31 随 6.2 新增 `buildings` 字段一起补的检查**，性质与第 16、17、22
+    条完全相同——新增一类点位实体就新增一片摆放冲突面，此前没有任何检查覆盖它。
+
+    **刻意不并进第 16/22 条**，理由同 §8.1 那段：已实现、已有测试的检查不该
+    被新实体类别悄悄扩大职责。
+
+    五类冲突（比第 22 条多一类，因为建筑要真的"盖得上去"，同第 16 条对
+    `resources`/`keep` 的要求——障碍是原生景物、不需要这条）：
+
+      * **不落在可通行且可建造的格上**（同第 16 条）—— 一座箭塔盖在岩壁上，
+        地图渲出来正常，直到 `rts_core` 发现它盖不上去
+      * 落在 `Rock` / `Water` 上 —— 上一条的具体成因之一，单独列出方便定位
+      * 同格两处建筑 —— 载入时后写的覆盖先写的，文件里两座建筑、实际只留一座
+      * 与 `keep` / `initial_walls` / `obstacles` 同格 —— 那一格上有两个点位
+        实体，谁先生效取决于遍历顺序
+      * 与 `spawns` 同格 —— 攻方在自己的集结点里刷出来就撞上一座箭塔
+
+    **与 `resources` 同格不算冲突**——`Quarry`/`Lumber`/`Mine` 就该踩在
+    对应资源点上（见 `GATHERER_MATCH`），那是这三座建筑生效的唯一摆法。
+    只有"建筑与资源类型不匹配"（例如 `Tower` 摆在金矿上）才报。
+    """
+    problems = []
+
+    def bad_ground(x, y):
+        return not (grid.is_passable(x, y) and grid.is_buildable(x, y))
+
+    resource_at = {tuple(r["pos"]): (i, r["type"])
+                   for i, r in enumerate(doc["resources"])}
+
+    occupied = {tuple(doc["keep"]): "keep"}
+    for i, w in enumerate(doc["initial_walls"]):
+        occupied.setdefault(tuple(w["pos"]), f"initial_walls[{i}]")
+    for i, o in enumerate(doc["obstacles"]):
+        occupied.setdefault(tuple(o["pos"]), f"obstacles[{i}]")
+    for sp in doc["spawns"]:
+        occupied.setdefault(tuple(sp["pos"]), f"spawns id={sp['id']}")
+
+    seen = {}
+    for i, b in enumerate(doc["buildings"]):
+        pos = tuple(b["pos"])
+        x, y = pos
+        btype = b["type"]
+        if bad_ground(x, y):
+            t = grid.terrain_at(x, y)
+            problems.append(
+                f"buildings[{i}]（{btype}）落在 {t} 上 {list(pos)} "
+                f"（no_build={grid.no_build[y][x]}）—— 盖不上去，而地图渲出来"
+                f"看不出任何异常")
+        if pos in seen:
+            problems.append(
+                f"buildings[{i}] 与 [{seen[pos]}] 同在 {list(pos)} —— 同一格两座"
+                f"建筑。载入时后写的覆盖先写的，文件里两座、实际生效只有一座")
+        else:
+            seen[pos] = i
+        if pos in occupied:
+            problems.append(
+                f"buildings[{i}]（{btype}）与 {occupied[pos]} 同在 {list(pos)} "
+                f"—— 一格上有两个点位实体，谁先生效取决于遍历顺序")
+        if pos in resource_at:
+            ridx, rtype = resource_at[pos]
+            want = GATHERER_MATCH.get(btype)
+            if want is None:
+                problems.append(
+                    f"buildings[{i}]（{btype}）与 resources[{ridx}]（{rtype}）同在 "
+                    f"{list(pos)} —— {btype} 不是采集建筑，不该踩在资源点上")
+            elif want != rtype:
+                problems.append(
+                    f"buildings[{i}]（{btype}）踩在 resources[{ridx}]（{rtype}）"
+                    f"上 {list(pos)}，但 {btype} 该配 {want}——类型不匹配，"
+                    f"这座建筑在这个点上产不出资源")
+    return problems
+
+
 def check_has_outer_resource(doc, grid):
     """第 21 条：至少要有一个 `outer` 资源点。
 
@@ -982,6 +1065,7 @@ CHECKS = [
           check_obstacle_placement, IMPLEMENTED, ""),
     Check(23, "Forest 连通块不得碎成粉尘", check_forest_cohesion,
           IMPLEMENTED, "", True),
+    Check(24, "buildings 的摆放冲突", check_building_placement, IMPLEMENTED, ""),
 ]
 
 

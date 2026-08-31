@@ -33,7 +33,8 @@ const char* const kMinimal = R"({
   "spawns": [{ "id": 0, "pos": [2, 1], "corridor": "open" }],
   "resources": [{ "type": "stone", "pos": [1, 0], "tier": "inner", "unlock_wave": 1 }],
   "initial_walls": [{ "kind": "Wall", "pos": [0, 1], "hp_frac": 1.0 }],
-  "obstacles": [{ "type": "Stump", "pos": [2, 0] }]
+  "obstacles": [{ "type": "Stump", "pos": [2, 0] }],
+  "buildings": []
 })";
 
 }  // namespace
