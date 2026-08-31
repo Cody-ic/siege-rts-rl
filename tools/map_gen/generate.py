@@ -334,13 +334,27 @@ def scatter_corridor_forest(cv, cfg, rng, side, mouth, spawn_pos):
     ——两者只能靠「斑块」而非「连续走廊」共存。这是生成器最容易被否决的地方。
 
     **集结点八邻不放森林**（见模块 docstring 的留白 2），所以从 `spawn` 起算
-    留出两格。
+    留出两格。**口两侧（`mouth` 一格缓冲）也不放**（2026-08-31 试玩发现）：
+    调用方注释早就写了「墙与集结点都定好之后撒，这样才知道该避开哪里」，
+    但原来的排除条件只做了后一半——只避开集结点，没避开墙。第一簇的圆心在
+    `t=2`（口外两格），半径最多到 2，覆盖范围能一直回卷到 `t=0`（口本身）；
+    `cv.at(px,py) != "Plain"` 挡不住墙/门所在的格，因为墙是实体、不改地形，
+    那些格的 `terrain` 本来就还是 `Plain`。结果森林斑块经常直接盖在墙/门
+    的格子上——不是「墙不存在」（它仍在 `initial_walls` 里、仍会解算防御），
+    是**视觉上找不到它**：茂密的树冠把整段人工墙糊成一团，唯一的既定缺口
+    也被树遮住，「侦查这段城墙是不是有洞」这条设计意图因此打了折；
+    往深一层想，墙被拆毁后原地重建也会撞上「`Forest` 不可建造」——
+    一处本该只是「结构上的既定薄弱点」的位置，一旦破就再也补不回去。
     """
     dx, dy = _outward(side)
     mx = sum(c[0] for c in mouth) // len(mouth)
     my = sum(c[1] for c in mouth) // len(mouth)
     lo, hi = cfg.forest_patch_radius
     placed = 0
+
+    def near_mouth(px, py):
+        return any(max(abs(px - wx), abs(py - wy)) <= 1 for wx, wy in mouth)
+
     # 从走廊口外两格起，到集结点前三格止；每隔 3..4 格放一簇，簇间留 Plain。
     #
     # **`t` 是「离走廊口多远」，不是「离 keep 多远」** —— `mx, my` 已经在城圈上。
@@ -360,6 +374,9 @@ def scatter_corridor_forest(cv, cfg, rng, side, mouth, spawn_pos):
                     continue
                 # 离集结点两格以内不放
                 if max(abs(px - spawn_pos[0]), abs(py - spawn_pos[1])) <= 2:
+                    continue
+                # 离墙/门一格以内不放——见上面 docstring 那条真 bug
+                if near_mouth(px, py):
                     continue
                 cv.set_terrain(px, py, "Forest")
                 placed += 1
