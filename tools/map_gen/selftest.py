@@ -1219,8 +1219,9 @@ def check_thresholds_loader(c):
 
     # inner 三种缺一（第 6 条要求各 ≥ 1）。
     bad = _json.loads(_json.dumps(base))
-    bad["generator"]["inner_resources"] = {"stone": 1, "wood": 1, "gold": 0}
-    reject(bad, "inner_resources 缺 gold")
+    bad["generator"]["inner_resources_range"] = {"stone": [1, 1], "wood": [1, 1],
+                                                  "gold": [0, 0]}
+    reject(bad, "inner_resources_range 的 gold 下界为 0")
 
     # 缺 strict 档本身。
     bad = _json.loads(_json.dumps(base))
@@ -1535,13 +1536,21 @@ def check_generator_produces_valid_maps(c):
     c.true(counts.get("Forest", 0) > 0, "生成的图必须有 Forest（森林带 + 林地走廊）")
     c.true(counts.get("Rock", 0) > 0, "生成的图必须有 Rock（城圈岩壁 + 隘口夹壁）")
 
+    # **corridors 现在只是候选域，不再是"每次都全取"**（2026-08-31，
+    # `corridor_count_range` 让每次生成随机选 3 或 4 种）——所以这里只能查
+    # 「实际用到的走廊种类都在候选域里、且种类数等于集结点数」，不能再要求
+    # 与候选域完全相等。
     corridors = {s["corridor"] for s in doc["spawns"]}
-    c.eq(sorted(corridors), sorted(cfg.corridors),
-         "生成的集结点必须正好覆盖配置里那几种走廊（§2.2：数量 = 种类数）")
+    c.true(corridors <= set(cfg.corridors),
+           f"生成的集结点走廊种类 {corridors} 必须都在候选域 {cfg.corridors} 里")
+    c.eq(len(corridors), len(doc["spawns"]),
+         "走廊种类数必须等于集结点数（§2.2：数量 = 种类数，不该有重复种类）")
 
     # 林地走廊附近真的有森林 —— 且**不是连成一条通到墙的**（第 10 条已经查了
     # 后半句，这里查前半句：它不能一株都没有）。
-    if "forest" in cfg.corridors:
+    # **按这张图实际选中的走廊判断，不是候选域**——"forest" 在候选域里恒真，
+    # 但这次生成未必选中它。
+    if "forest" in corridors:
         fpos = next(tuple(s["pos"]) for s in doc["spawns"]
                     if s["corridor"] == "forest")
         keep = tuple(doc["keep"])

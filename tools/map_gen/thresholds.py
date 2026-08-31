@@ -51,9 +51,9 @@ PROFILE_KEYS = frozenset({
 })
 
 GENERATOR_KEYS = frozenset({
-    "size", "city_radius", "corridors", "corridor_mouth_width",
-    "inner_resources", "outer_clusters", "outer_cluster_size",
-    "initial_breaches", "wall_hp_frac_range", "forest_patches",
+    "size", "city_radius_range", "corridors", "corridor_count_range",
+    "corridor_mouth_width_range", "inner_resources_range", "outer_clusters_range",
+    "outer_cluster_size", "initial_breaches", "wall_hp_frac_range", "forest_patches",
     "forest_patch_radius", "obstacles", "max_attempts",
 })
 
@@ -122,7 +122,18 @@ class Profile:
 
 
 class Generator:
-    """§9 的固定项。"""
+    """§9 的固定项 + 2026-08-31 松开的随机项（见下）。
+
+    **哪些留固定、哪些松开是一次刻意的取舍，不是"能松就松"**：`size` 依然固定
+    （见 `_note_size`/`_FINDING_size_vs_ram_speed` 的历史，它是唯一被生成器+
+    校验器批量实测过自洽性的值，松开等于把已解决的矛盾重新引进来）；
+    `corridors` 仍是候选域，不是每次都全取——具体取几种、哪几种由
+    `corridor_count_range` 与生成时的 `rng` 决定（见 `generate.py` 的
+    `_resolve()`）。其余原来固定的标量（`city_radius`、`corridor_mouth_width`、
+    `outer_clusters`、`inner_resources` 的三个数）改成了区间/候选形式，
+    字段名相应加了 `_range` 后缀，与本来就是区间的那几项（`outer_cluster_size`
+    等）统一到同一套 `[下界, 上界]` 校验逻辑里。
+    """
 
     __slots__ = tuple(sorted(GENERATOR_KEYS))
 
@@ -132,9 +143,6 @@ class Generator:
         _require_keys(d, GENERATOR_KEYS, where)
 
         self.size = _num(d, "size", where, kind=(int,))
-        self.city_radius = _num(d, "city_radius", where, kind=(int,))
-        self.corridor_mouth_width = _num(d, "corridor_mouth_width", where, kind=(int,))
-        self.outer_clusters = _num(d, "outer_clusters", where, kind=(int,))
         self.max_attempts = _num(d, "max_attempts", where, kind=(int,))
 
         self.corridors = list(d["corridors"])
@@ -146,15 +154,23 @@ class Generator:
                 f"  §2.2 要求每个集结点对应一条**性质不同**的走廊，"
                 f"重复等于让两个集结点等价（第 3 条会红，但在这里就该拦住）")
 
-        self.inner_resources = dict(d["inner_resources"])
-        for t in ("stone", "wood", "gold"):
-            if self.inner_resources.get(t, 0) < 1:
-                raise ThresholdError(
-                    f"{where}.inner_resources 的 {t} 少于 1——"
-                    f"第 6 条要求 inner 侧三种各 ≥ 1（4.4）")
+        cc = d["corridor_count_range"]
+        if (not isinstance(cc, list) or len(cc) != 2
+                or not all(isinstance(x, int) and not isinstance(x, bool) for x in cc)
+                or cc[0] < 1 or cc[0] > cc[1]):
+            raise ThresholdError(
+                f"{where}.corridor_count_range 应当是 [下界, 上界] 两个 ≥1 的整数且"
+                f"下界 ≤ 上界，实际是 {cc!r}")
+        if cc[1] > len(self.corridors):
+            raise ThresholdError(
+                f"{where}.corridor_count_range 上界 {cc[1]} 超过 corridors 候选域"
+                f"大小 {len(self.corridors)}——选不出那么多种")
+        self.corridor_count_range = list(cc)
 
-        for k in ("outer_cluster_size", "initial_breaches", "wall_hp_frac_range",
-                  "forest_patches", "forest_patch_radius", "obstacles"):
+        for k in ("city_radius_range", "corridor_mouth_width_range",
+                  "outer_clusters_range", "outer_cluster_size", "initial_breaches",
+                  "wall_hp_frac_range", "forest_patches", "forest_patch_radius",
+                  "obstacles"):
             v = d[k]
             if (not isinstance(v, list) or len(v) != 2
                     or not all(isinstance(x, (int, float))
@@ -164,6 +180,22 @@ class Generator:
                     f"{where}.{k} 应当是 [下界, 上界] 两个数且下界 ≤ 上界，"
                     f"实际是 {v!r}")
             setattr(self, k, list(v))
+
+        raw_inner = d["inner_resources_range"]
+        if not isinstance(raw_inner, dict):
+            raise ThresholdError(f"{where}.inner_resources_range 应当是一个对象")
+        self.inner_resources_range = {}
+        for t in ("stone", "wood", "gold"):
+            v = raw_inner.get(t)
+            if (not isinstance(v, list) or len(v) != 2
+                    or not all(isinstance(x, int) and not isinstance(x, bool)
+                               for x in v)
+                    or v[0] < 1 or v[0] > v[1]):
+                raise ThresholdError(
+                    f"{where}.inner_resources_range 的 {t} 应当是 [下界, 上界] 两个"
+                    f"整数且下界 ≥ 1（第 6 条要求 inner 侧三种各 ≥ 1，见 4.4），"
+                    f"实际是 {v!r}")
+            self.inner_resources_range[t] = list(v)
 
         # **生成器的 size 必须落在校验器的 size 区间内。**
         # 不查的话，生成器会兴致勃勃地生成一批第 1 条必然否决的图，
@@ -178,10 +210,12 @@ class Generator:
 
         # 城区必须装进地图，且四周要留得下走廊。留 4 格是最低限度
         # （集结点自己 + 距边界的余量），真实余量由 spawn_edge_distance_max 管。
-        if self.city_radius * 2 + 8 > self.size:
+        # **按区间的上界检查**（最坏情形）——city_radius 现在是随机的，配置本身
+        # 必须在它能抽到的最大值下仍然成立，否则某些种子会在运行时才炸。
+        if self.city_radius_range[1] * 2 + 8 > self.size:
             raise ThresholdError(
-                f"generator：city_radius {self.city_radius} 对 size {self.size} "
-                f"太大，城区外没有走廊的空间")
+                f"generator：city_radius_range 上界 {self.city_radius_range[1]} 对 "
+                f"size {self.size} 太大，城区外没有走廊的空间")
 
 
 class Thresholds:

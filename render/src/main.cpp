@@ -27,6 +27,7 @@
 // `game::discover_assets()` 补齐（找标记文件、逐级向上），失败时报出**它试过
 // 哪些目录**——而不是打一句「--map 是必需的」了事。
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstdint>
@@ -116,11 +117,11 @@ void print_usage(const char* argv0) {
         "  --ticks <N>           与 --screenshot 连用：先推进 N 个 tick 再拍（20 tick = 1 秒）\n"
         "\n"
         "上面三条路径不给时，会从「工作目录」与「exe 所在目录」逐级向上找仓库根，\n"
-        "用 %s 与 %s。\n"
+        "地图从 %s 随机选一张，数值表用 %s。\n"
         "\n"
         "游戏里的按键以 `game::help_entries()` 为准（游戏内「操作说明」那一屏就是它），\n"
         "**这里刻意不抄一份**——两处各写一份必然漂移。\n",
-        argv0, std::string(game::kDefaultMapRel).c_str(),
+        argv0, std::string(game::kMapPoolDirRel).c_str(),
         std::string(game::kDefaultSpritesRel).c_str());
 }
 
@@ -228,15 +229,25 @@ bool resolve_paths(Options& opt, const std::string& argv0, bool need_map,
     std::vector<std::string> starts;
     starts.push_back(game::current_dir());
     starts.push_back(game::parent_dir_of(argv0));
-    const std::optional<game::AssetPaths> found = game::discover_assets(starts);
+
+    // **本进程唯一的真随机源**：只用来决定这一局从地图池里抽哪一张，发生在
+    // `World` 构造之前，不进回放、不影响仿真确定性。`game::discover_assets()`
+    // 本身不含随机源（可用固定种子测试），挂钟只在这一行出现——`render/` 不在
+    // `tools/check_determinism_bans.py` 的扫描范围内（它只扫 `rts_core/` 与
+    // `game/`），这正是把它放在这里而不是 `game/` 里的理由。
+    const auto now = std::chrono::system_clock::now().time_since_epoch().count();
+    rts::Rng map_pick_rng(static_cast<std::uint64_t>(now));
+
+    const std::optional<game::AssetPaths> found =
+        game::discover_assets(starts, map_pick_rng);
     if (!found) {
-        err = "找不到游戏用的地图 / 数值表 / 精灵。\n"
+        err = "找不到游戏用的地图池 / 数值表 / 精灵。\n"
               "  自动发现的做法是从下面这些目录逐级向上找仓库根（最多 8 级）：\n";
         for (const std::string& s : starts) {
             err += "    - " + (s.empty() ? std::string("（取不到）") : s) + "\n";
         }
         err += "  判据是这三样同时存在：\n";
-        err += "    " + std::string(game::kDefaultMapRel) + "\n";
+        err += "    " + std::string(game::kMapPoolDirRel) + "/（至少一张 .json）\n";
         err += "    " + std::string(game::kDefaultStatsRel) + "\n";
         err += "    " + std::string(game::kDefaultSpritesRel) + "/" +
                std::string(game::kSpriteMetaName) + "\n";
