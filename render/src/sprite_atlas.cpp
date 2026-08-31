@@ -232,6 +232,41 @@ bool SpriteAtlas::is_projectile(std::string_view ident) const noexcept {
     return i->second.begin()->second.is_projectile;
 }
 
+std::size_t SpriteAtlas::verify_stand_geometry() const {
+    // 能站人的建筑就是「墙段」那两种（`World::tick_garrison` 的判据是 Wall‖Gate）。
+    // 写在这里的是**标识符**、不是枚举——`render/` 不依赖 `rts::BldType`，
+    // 而 `rts_core` 的花名册与元数据之间的一致性已由 `verify_roster_covered()` 管。
+    static constexpr std::string_view kGarrisonable[] = {"Wall", "Gate"};
+    std::vector<std::string> bad;
+    std::size_t checked = 0;
+    for (std::string_view ident : kGarrisonable) {
+        const StateMeta& sm = state_meta(ident, "idle");
+        const float lift = stand_lift_px(ident, "idle");
+        const float top = sm.ground_anchor.y;
+        ++checked;
+        if (lift <= top * 0.5f || lift >= top) {
+            bad.push_back(std::string(ident) + "：抬升 " + std::to_string(lift) +
+                          " px 不在 (" + std::to_string(top * 0.5f) + ", " +
+                          std::to_string(top) + ") 内");
+        }
+    }
+    if (!bad.empty()) {
+        std::string msg = "驻守抬升不在合理区间内（见 SpriteAtlas::kStandFrac）：";
+        for (const std::string& b : bad) msg += "\n    " + b;
+        msg += "\n    抬太少人会陷进墙体、抬太多会飘在垛口上方，两种都要目视重标。";
+        throw AssetError(msg);
+    }
+    return checked;
+}
+
+float SpriteAtlas::stand_lift_px(std::string_view ident,
+                                 std::string_view state) const {
+    // `state_meta` 找不到就抛（同本类其余读取点）：驻守单位脚下那座建筑的精灵
+    // 一定已经画在同一帧里，取不到说明标识符错了，不该退化成「贴地画」——
+    // 那会把「建筑标识符写错」变成一个要盯着画面才看得出的问题。
+    return state_meta(ident, state).ground_anchor.y * kStandFrac;
+}
+
 std::string SpriteAtlas::file_name(std::string_view ident, std::string_view state,
                                    std::string_view facing, int frame) const {
     const StateMeta& sm = state_meta(ident, state);
