@@ -8,9 +8,10 @@
   "_note_5": "proj_speed 只对真放弹丸的生效（结构：单位侧 Ranged × 非空中 = Archer/Shade，建筑侧凡开火皆弹丸 = Tower/Flak；Ram 前摇撞击、Phoenix 俯冲直击，配了也不放）。<= 0 = 瞬时命中。0.45 格/tick = 每秒 9 格，5 格射程约飞 0.55 秒——占位，只求肉眼看得见箭在飞。",
   "_note_6": "schema stats/5 -> stats/6：单位新增 splash_dmg_permille（2026-08-31 试玩反馈：Ram 的 AOE 圈内主目标和溅射单位吃的是同一份伤害，等于『点一个等于点一片』，太离谱）。1000 = 与主目标同倍率（对 aoe_radius=0 的单位这个字段用不上，诚实填 1000）；aoe_radius>0 时 StatsLoader 会拦 splash_dmg_permille>=1000（主目标必须比溅射打得更重）。目前只有 Ram 需要真的调它，见该条目局部 _note。",
   "_note_7": "schema stats/6 -> stats/7：建筑等级上限落地（CLAUDE.md『守方的一条升级轴：堡垒等级』三个输出里的第一个——征兵选级/批量升级/人口上限那两个输出仍未做）。三条新增：`global.building_level_cap_divisor`（建筑等级上限 = ceil(Keep 等级 / 这个数），2 对应《波次预算曲线与堡垒等级曲线.md》§2『每 2 级堡垒开 1 级建筑上限』）；每座建筑新增 upgrade_cost_stone/_wood/upgrade_ticks。**Wall/Gate/Watch/Barrack/Fence/Quarry/Lumber/Mine/Tower/Flak 十座的数直接抄各自的 cost_stone/cost_wood/build_ticks**——『升一级约等于再建一次』只是能自洽的起点，不是标定值；Keep 自己的 cost 都是 0（不可再建，结构），照抄会让升级免费，改用一组单独占位（全场最贵最慢，匹配核心投资定位）。**已知空转，不阻塞落地**：hp_permille_per_level 现在是 0（§1.4 待表决），意味着任何建筑靠升级涨的血量在数值上是 0；升 Keep 本身仍有实质效果（抬高其他建筑上限），Tower/Flak 的伤害缩放吃 dmg_permille_per_level=220（非零），立刻见效——血量那一半等 §1.4 表决后再补数字，机制先按正确的形状落地。",
+  "_note_8": "2026-08-31 试玩反馈第二轮（数值不改 schema，仍是 stats/7）：守方移动单位血量普遍偏低、城墙也偏脆，配合当时偏紧的波次节奏，开局手感过差。两处调整：`Archer`/`Spear`/`Ranger`/`Scout`/`Mason` 的 `max_hp` 翻倍（100→200 / 180→360 / 130→260 / 50→100 / 60→120——`Scout`/`Mason` 本零战力，翻倍只延长其被杀所需时间，`is_combat()` 仍为假，结构不变）；`Wall.max_hp` +50%（800→1200）。**`Gate` 未同步调整，仍是 520**——用户原话点名的是「城墙」，花名册里 `Wall`/`Gate` 是两个独立条目，这次按字面只改 `Wall`；副作用是 `Gate`/`Wall` 的血量比从 0.65 被动拉到约 0.43，城门相对更脆（既定薄弱点这条设计意图没被削弱，只是被动加深了）——CLAUDE.md「可升级，只加血量，与 Wall 同倍率」那条管的是 `Upgrade` 命令按等级涨的量，不管这次的基线值调整，两者不冲突；若这个副作用不是预期效果，需团队另外决定是否让 `Gate` 同步 +50%。这批改动会连带变动 `StatsTable::fingerprint()`，既有回放需要重录，是设计的、不是坏了（见 `rts/stats.hpp`）。波次节奏改动见 `game/src/demo_driver.cpp` 的 `kBuildTicksPlaceholder`/`kFirstBuildTicksPlaceholder`；「所有城墙初始满血」只改了两张手写地图（`demo_skirmish.json`、`reference_border_keep_01.json`），训练地图集 `thresholds.json` 的 `wall_hp_frac_range` 残血生成未动——理由见 `tools/map_gen/build_reference_map.py` 同一天的注释：训练侧的残血墙多样性是独立于这次演示手感调整的既有设计。",
   "units": {
     "Archer": {
-      "max_hp": 100,
+      "max_hp": 200,
       "damage": 12,
       "range": 5.0,
       "speed": 0.09,
@@ -25,7 +26,7 @@
       "splash_dmg_permille": 1000
     },
     "Spear": {
-      "max_hp": 180,
+      "max_hp": 360,
       "damage": 14,
       "range": 1.2,
       "speed": 0.07,
@@ -40,7 +41,7 @@
       "splash_dmg_permille": 1000
     },
     "Ranger": {
-      "max_hp": 130,
+      "max_hp": 260,
       "damage": 16,
       "range": 1.2,
       "speed": 0.16,
@@ -55,7 +56,7 @@
       "splash_dmg_permille": 1000
     },
     "Scout": {
-      "max_hp": 50,
+      "max_hp": 100,
       "damage": 0,
       "range": 0.0,
       "speed": 0.2,
@@ -70,7 +71,7 @@
       "splash_dmg_permille": 1000
     },
     "Mason": {
-      "max_hp": 60,
+      "max_hp": 120,
       "damage": 0,
       "range": 0.0,
       "speed": 0.08,
@@ -202,7 +203,7 @@
       "upgrade_ticks": 400
     },
     "Wall": {
-      "max_hp": 800,
+      "max_hp": 1200,
       "damage": 0,
       "range": 0.0,
       "vision": 2.0,

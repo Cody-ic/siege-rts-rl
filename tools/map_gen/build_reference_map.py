@@ -66,15 +66,17 @@ def build():
     # 缺口：东墙中段留一处（2.3 要求初始城圈至少一处缺口，不写墙段即缺口）
     breach = {(CX + R, CY - 2), (CX + R, CY - 1)}
 
-    hp_cycle = [1.0, 0.85, 0.7, 0.55, 0.4, 0.6, 0.9, 0.75]
-    i = 0
+    # 2026-08-31 试玩反馈：这张手写演示图开局满血（原先靠 hp_cycle 撒出 0.4-1.0
+    # 的残血，叠加当时偏低的单位血量后开局手感过难）。**这不是对 2.3「初始墙段
+    # 允许带残血」那条通用设计原则的推翻**——`generate.py` 的训练地图集仍走
+    # `thresholds.json` 的 `wall_hp_frac_range`（保留残血，服务 RL 训练侧的
+    # 「修旧/建新/造兵」三方决策与残血墙多样性）；这里改的只是这一张演示地图
+    # 的具体取值。
     for pos in ring:
         if pos in breach:
             continue
         kind = "Gate" if pos in (gate_n, gate_s) else "Wall"
-        hp = 1.0 if kind == "Gate" else hp_cycle[i % len(hp_cycle)]
-        walls.append((kind, pos, round(hp, 2)))
-        i += 1
+        walls.append((kind, pos, 1.0))
 
     wall_cells = {p for _, p, _ in walls}
 

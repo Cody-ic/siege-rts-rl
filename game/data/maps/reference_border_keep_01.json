@@ -36,7 +36,7 @@
       "type": "Barrack"
     }
   ],
-  "content_hash": "sha256:57b3e3f4be203bbef0cd704270179cc491c4006ea3320bab1f2902b1d1804cc5",
+  "content_hash": "sha256:ff988dbfd468ce755f2ecdbfc607facf06be21c7b4ce97059d48e7f8a84f718c",
   "format": 1,
   "initial_walls": [
     {
@@ -48,7 +48,7 @@
       ]
     },
     {
-      "hp_frac": 0.85,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         20,
@@ -56,7 +56,7 @@
       ]
     },
     {
-      "hp_frac": 0.7,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         20,
@@ -64,7 +64,7 @@
       ]
     },
     {
-      "hp_frac": 0.55,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         20,
@@ -72,7 +72,7 @@
       ]
     },
     {
-      "hp_frac": 0.4,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         20,
@@ -80,7 +80,7 @@
       ]
     },
     {
-      "hp_frac": 0.6,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         20,
@@ -88,7 +88,7 @@
       ]
     },
     {
-      "hp_frac": 0.9,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         20,
@@ -96,7 +96,7 @@
       ]
     },
     {
-      "hp_frac": 0.75,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         20,
@@ -112,7 +112,7 @@
       ]
     },
     {
-      "hp_frac": 0.85,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         20,
@@ -120,7 +120,7 @@
       ]
     },
     {
-      "hp_frac": 0.7,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         20,
@@ -128,7 +128,7 @@
       ]
     },
     {
-      "hp_frac": 0.55,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         20,
@@ -136,7 +136,7 @@
       ]
     },
     {
-      "hp_frac": 0.4,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         20,
@@ -144,7 +144,7 @@
       ]
     },
     {
-      "hp_frac": 0.6,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         20,
@@ -152,7 +152,7 @@
       ]
     },
     {
-      "hp_frac": 0.9,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         20,
@@ -160,7 +160,7 @@
       ]
     },
     {
-      "hp_frac": 0.75,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         20,
@@ -176,7 +176,7 @@
       ]
     },
     {
-      "hp_frac": 0.85,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         21,
@@ -184,7 +184,7 @@
       ]
     },
     {
-      "hp_frac": 0.7,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         21,
@@ -192,7 +192,7 @@
       ]
     },
     {
-      "hp_frac": 0.55,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         22,
@@ -200,7 +200,7 @@
       ]
     },
     {
-      "hp_frac": 0.4,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         22,
@@ -208,7 +208,7 @@
       ]
     },
     {
-      "hp_frac": 0.6,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         23,
@@ -216,7 +216,7 @@
       ]
     },
     {
-      "hp_frac": 0.9,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         23,
@@ -224,7 +224,7 @@
       ]
     },
     {
-      "hp_frac": 0.75,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         24,
@@ -240,7 +240,7 @@
       ]
     },
     {
-      "hp_frac": 0.85,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         25,
@@ -248,7 +248,7 @@
       ]
     },
     {
-      "hp_frac": 0.7,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         25,
@@ -256,7 +256,7 @@
       ]
     },
     {
-      "hp_frac": 0.55,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         26,
@@ -264,7 +264,7 @@
       ]
     },
     {
-      "hp_frac": 0.4,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         26,
@@ -272,7 +272,7 @@
       ]
     },
     {
-      "hp_frac": 0.6,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         27,
@@ -280,7 +280,7 @@
       ]
     },
     {
-      "hp_frac": 0.9,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         27,
@@ -304,7 +304,7 @@
       ]
     },
     {
-      "hp_frac": 0.85,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         29,
@@ -312,7 +312,7 @@
       ]
     },
     {
-      "hp_frac": 0.7,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         29,
@@ -320,7 +320,7 @@
       ]
     },
     {
-      "hp_frac": 0.55,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         30,
@@ -328,7 +328,7 @@
       ]
     },
     {
-      "hp_frac": 0.4,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         30,
@@ -336,7 +336,7 @@
       ]
     },
     {
-      "hp_frac": 0.6,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         31,
@@ -344,7 +344,7 @@
       ]
     },
     {
-      "hp_frac": 0.9,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         31,
@@ -352,7 +352,7 @@
       ]
     },
     {
-      "hp_frac": 0.75,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         32,
@@ -368,7 +368,7 @@
       ]
     },
     {
-      "hp_frac": 0.85,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         33,
@@ -376,7 +376,7 @@
       ]
     },
     {
-      "hp_frac": 0.7,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         33,
@@ -384,7 +384,7 @@
       ]
     },
     {
-      "hp_frac": 0.55,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         34,
@@ -392,7 +392,7 @@
       ]
     },
     {
-      "hp_frac": 0.4,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         34,
@@ -400,7 +400,7 @@
       ]
     },
     {
-      "hp_frac": 0.6,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         35,
@@ -408,7 +408,7 @@
       ]
     },
     {
-      "hp_frac": 0.9,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         35,
@@ -416,7 +416,7 @@
       ]
     },
     {
-      "hp_frac": 0.75,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         36,
@@ -432,7 +432,7 @@
       ]
     },
     {
-      "hp_frac": 0.85,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         36,
@@ -440,7 +440,7 @@
       ]
     },
     {
-      "hp_frac": 0.7,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         36,
@@ -448,7 +448,7 @@
       ]
     },
     {
-      "hp_frac": 0.55,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         36,
@@ -456,7 +456,7 @@
       ]
     },
     {
-      "hp_frac": 0.4,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         36,
@@ -464,7 +464,7 @@
       ]
     },
     {
-      "hp_frac": 0.6,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         36,
@@ -472,7 +472,7 @@
       ]
     },
     {
-      "hp_frac": 0.9,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         36,
@@ -480,7 +480,7 @@
       ]
     },
     {
-      "hp_frac": 0.75,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         36,
@@ -496,7 +496,7 @@
       ]
     },
     {
-      "hp_frac": 0.85,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         36,
@@ -504,7 +504,7 @@
       ]
     },
     {
-      "hp_frac": 0.7,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         36,
@@ -512,7 +512,7 @@
       ]
     },
     {
-      "hp_frac": 0.55,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         36,
@@ -520,7 +520,7 @@
       ]
     },
     {
-      "hp_frac": 0.4,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         36,
@@ -528,7 +528,7 @@
       ]
     },
     {
-      "hp_frac": 0.6,
+      "hp_frac": 1.0,
       "kind": "Wall",
       "pos": [
         36,
