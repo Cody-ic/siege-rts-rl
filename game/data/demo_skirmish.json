@@ -1,7 +1,7 @@
 {
-  "_note": "演示对局用的手写小图，不是 §9 的正式演示地图，也没有过 tools/map_gen 校验器（它不是训练地图）。一切坐标与 hp_frac 都是为了让 demo 好看：攻方要过桥、要面对一道带门的墙线、防空要护得住城心。按 CLAUDE.md「关于数值」这些都是占位。",
+  "_note": "演示对局用的手写小图，不是 §9 的正式演示地图，也没有过 tools/map_gen 校验器（它不是训练地图）。一切坐标与 hp_frac 都是为了让 demo 好看：攻方要过桥、要面对一道带门的墙线、防空要护得住城心。按 CLAUDE.md「关于数值」这些都是占位。2026-08-31 重构：`spawns[].corridor` 字段已随「走廊」概念一起废除（本图经 mapfile 重序列化、content_hash 已重算）。",
   "buildings": [],
-  "content_hash": "sha256:a991c8d899efe17e55b3d596779eaf43f389a7b9135e8dbf3216e03c06696aca",
+  "content_hash": "sha256:238f454132d08a53eeeba10003b32098136e281c88e951248ce6891dfd18c585",
   "format": 1,
   "initial_walls": [
     {
@@ -184,7 +184,6 @@
   ],
   "spawns": [
     {
-      "corridor": "open",
       "id": 0,
       "pos": [
         18,
@@ -192,7 +191,6 @@
       ]
     },
     {
-      "corridor": "defile",
       "id": 1,
       "pos": [
         18,
