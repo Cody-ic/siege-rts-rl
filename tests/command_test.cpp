@@ -32,7 +32,9 @@ TEST_CASE("Command 无填充字节，可整体喂进状态哈希", "[command]") 
     const rts::Command c{};
     h.feed_pod(c);   // 编译过就是结论
     REQUIRE(h.value() != rts::StateHash::kOffsetBasis);
-    REQUIRE(sizeof(rts::Command) == 6);
+    // 6 → 8：兵种等级上限加了 `level`，凑零填充又加了 `_reserved0`
+    // （两个 uint8 一起进，让总字节数留在 2 的整数倍，不靠编译器插填充）。
+    REQUIRE(sizeof(rts::Command) == 8);
 }
 
 TEST_CASE("两条值相同的命令哈希相同", "[command][determinism]") {

@@ -52,6 +52,8 @@ void put_command(std::vector<unsigned char>& b, const Command& c) {
     put_u8(b, static_cast<std::uint8_t>(c.side));
     put_u8(b, c.what);
     put_u8(b, c.force);
+    put_u8(b, c.level);   // format v3：兵种等级上限落地时追加。`_reserved0`
+                          // 只在内存布局里存在（防编译器填充），不写进文件。
 }
 
 // 读游标。**一旦 `ok` 变 false 就不再前进**，于是所有后续读取返回 0
@@ -389,6 +391,7 @@ bool Replay::from_bytes(const unsigned char* data, std::size_t size, Replay* out
         const std::uint8_t side = c.u8();
         cmd.what = c.u8();
         cmd.force = c.u8();
+        cmd.level = c.u8();   // format v3
         if (kind >= kCommandKindCount) {
             *err = with_u64("回放里有非法的 CommandKind ", kind);
             return false;

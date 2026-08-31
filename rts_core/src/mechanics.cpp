@@ -990,17 +990,54 @@ bool World::try_train_spawn(std::size_t k) {
 
     const UnitType ut = static_cast<UnitType>(b_train_type_[k]);
     const UnitStats& s = stats_.of(ut);
-    // 一律 1 级（apply_one 的 Train 那条注释）。等级缩放照走公式，
-    // 1 级时它就是基础值——这样升级轴落地时这里一行都不用改。
+    // 出兵等级是 `apply_one` 的 `Train` 分支选定、存在 `b_train_level_[k]`
+    // 里的那个（兵种等级上限落地——此前这里恒用 `kMinUnitLevel`）。
+    // 等级缩放照走公式，1 级时它就是基础值，所以这次落地这一行才只改了
+    // 「读哪个变量」，没改公式本身。
+    const std::int32_t lvl = b_train_level_[k];
     const std::int64_t hp = apply_permille(
-        s.max_hp,
-        {level_permille(kMinUnitLevel, stats_.global.hp_permille_per_level)});
-    const UnitId id = spawn_unit(ut, center_of(cell), kMinUnitLevel, hp, hp);
+        s.max_hp, {level_permille(lvl, stats_.global.hp_permille_per_level)});
+    const UnitId id = spawn_unit(ut, center_of(cell), lvl, hp, hp);
     u_force_[id.index()] = b_train_force_[k];
     b_train_type_[k] = kNoTrain;
     b_train_left_[k] = 0;
     b_train_force_[k] = kNoForce;
+    b_train_level_[k] = kMinUnitLevel;
     return true;
+}
+
+// `mason_near` 的反过来版本：给定坐标附近是否有己方**完工**的 `Barrack`
+// 或 `Keep`（半径查 `unit_upgrade_radius`）。已有部队批量升级靠它判
+// 「须在 Barrack/Keep」。
+bool World::barrack_near(Vec2 pos) const {
+    const float r = stats_.global.unit_upgrade_radius;
+    if (r <= 0.0f) return false;
+    const float r2 = r * r;
+    for (std::size_t k = 0; k < bld_pool_.slot_count(); ++k) {
+        if (!bld_pool_.alive_at(static_cast<std::uint16_t>(k))) continue;
+        if (!b_built_[k]) continue;
+        if (b_type_[k] != BldType::Barrack && b_type_[k] != BldType::Keep) continue;
+        if (dist2(center_of(b_pos_[k]), pos) <= r2) return true;
+    }
+    return false;
+}
+
+// 单位升级到账。**按比例换算血量，不补满**——与建筑版 `finish_upgrade`
+// 刻意不同：那边"完工即满血"是有记录的副作用（升级顺带一次免费维修，
+// 团队还没就它是否合意表态），这里若照抄同一条，会让一个正在被追杀的
+// 半血单位靠"正好在升级"变成免费回满，而升级要等更长的工期与更多的钱，
+// 比维修更容易被拿来当无痛回血用——那是一个比建筑那边更隐蔽、更容易被
+// 滥用的副作用，不值得为了复用同一段逻辑而引入。
+void World::finish_unit_upgrade(std::size_t k) {
+    const std::int32_t new_level = u_level_[k] + 1;
+    const std::int64_t new_max = apply_permille(
+        stats_.of(u_type_[k]).max_hp,
+        {level_permille(new_level, stats_.global.hp_permille_per_level)});
+    u_hp_[k] = (u_hp_[k] * new_max + u_max_hp_[k] / 2) / u_max_hp_[k];
+    if (u_hp_[k] < 1) u_hp_[k] = 1;
+    u_max_hp_[k] = new_max;
+    u_level_[k] = new_level;
+    u_upgrade_left_[k] = 0;
 }
 
 void World::tick_economy() {
@@ -1031,6 +1068,17 @@ void World::tick_economy() {
         if (!mason_near(b_pos_[k])) continue;
         --b_upgrade_left_[k];
         if (b_upgrade_left_[k] == 0) finish_upgrade(k);
+    }
+
+    // 已有部队批量升级（兵种等级上限，守方升级轴第三个输出）：与建筑升级
+    // 同一条纪律，但"在场"判的是单位自己有没有留在 Barrack/Keep 附近
+    // （`barrack_near`）——离场就停，回来接着推进，不倒退、不清零。
+    for (std::size_t k = 0; k < unit_pool_.slot_count(); ++k) {
+        if (!unit_pool_.alive_at(static_cast<std::uint16_t>(k))) continue;
+        if (u_upgrade_left_[k] <= 0) continue;
+        if (!barrack_near(u_pos_[k])) continue;
+        --u_upgrade_left_[k];
+        if (u_upgrade_left_[k] == 0) finish_unit_upgrade(k);
     }
 
     // 征兵：倒计时归零后出兵。邻格全被占就滞留（不消单、不退钱），

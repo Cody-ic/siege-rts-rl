@@ -487,7 +487,11 @@ inline GridPos pos_of_slot(std::uint16_t slot, int width) noexcept {
 // `World/9` → `World/10`：建筑等级上限（守方升级轴第一个输出）。新增
 // `b_level_` / `b_upgrade_left_` 两组建筑状态，喂入清单跟着长——布局变更，
 // 不是行为变更，与 `World/8→9` 那次不同类。
-inline constexpr std::string_view kWorldHashTag = "World/10";
+// `World/10` → `World/11`：兵种等级上限（守方升级轴第三个输出）。新增
+// `u_upgrade_left_`（单位升级倒计时）与 `b_train_level_`（在训单位的目标
+// 等级，`Train` 命令选级之后要记住选了哪个，出兵那一刻才用得上），都进哈希
+// ——布局变更，不是行为变更。
+inline constexpr std::string_view kWorldHashTag = "World/11";
 
 class WorldView;
 
@@ -731,6 +735,20 @@ public:
     // （同 `repair_wood_cost` 那条「两处算法分叉是绿框骗人的来源」的纪律）。
     std::int32_t building_level_cap() const noexcept;
 
+    // 当前允许的兵种等级上限——**直接等于堡垒等级，没有除数**（`波次预算曲线与
+    // 堡垒等级曲线.md` §2：这条与 `building_level_cap()` 的公式来源本来就
+    // 不同，不是漏抄）。`apply_one` 校验 `Train`/`UpgradeForce`、`WorldView`
+    // 给 UI 的提示都调它。
+    std::int32_t unit_level_cap() const noexcept;
+
+    // 造价/耗时曲线：`Train`（初次征兵）与 `UpgradeForce`（已有部队补差价）
+    // 共用同一对公式，**这是唯一算它们的地方**（同 `building_level_cap()`
+    // 那条「两处算法分叉是绿框骗人的来源」的纪律）。`cost_gold(L) = base × L`
+    // 是纯线性；`train_ticks(L)` 走千分比系数，语义与实现见
+    // `stats.hpp` 的 `train_ticks_permille_per_level`。
+    std::int64_t train_cost_gold(UnitType ut, std::int32_t level) const noexcept;
+    std::int32_t train_ticks_at(UnitType ut, std::int32_t level) const noexcept;
+
     // ——状态哈希——
     //
     // 回放比对的基元。**喂入顺序固定**，见 `src/world.cpp` 里那段清单。
@@ -801,6 +819,21 @@ private:
     // 不留半血尾巴）。`apply_one` 的 `Upgrade`（工期 <= 0，当场完工）与
     // `tick_economy`（倒计时归零）共用这一个实现，避免两处各推一遍公式。
     void finish_upgrade(std::size_t k);
+
+    // ——兵种等级上限（守方升级轴第三个输出）——
+
+    // `mason_near` 的反过来版本：给定坐标附近是否有己方**完工**的
+    // `Barrack` 或 `Keep`（半径查 `unit_upgrade_radius`）。已有部队批量升级
+    // 靠它判「须在 Barrack/Keep」——命令提交时判一次（`slot` 必须是这样一座
+    // 建筑），`tick_economy` 每 tick 再判一次（离场就停，同工匠离场停工）。
+    bool barrack_near(Vec2 pos) const;
+
+    // 单位升级到账：等级 +1、按新等级重算 `max_hp`、**按比例换算血量**——
+    // 与 `finish_upgrade`（建筑，补满）刻意不同：一个正在被追杀的半血单位
+    // 不该靠「正好在升级」变成免费回满，见 `mechanics.cpp` 该函数实现处的
+    // 完整理由。`apply_one` 的 `UpgradeForce`（工期 <= 0，当场完工）与
+    // `tick_economy`（倒计时归零）共用这一个实现。
+    void finish_unit_upgrade(std::size_t k);
 
     // ——机制第三批的内部阶段与助手（同在 src/mechanics.cpp）——
 
@@ -901,6 +934,10 @@ private:
     std::vector<TgtKind> u_tgt_kind_;         // 已承诺攻击的目标种类，None = 空闲
     std::vector<std::uint32_t> u_tgt_raw_;    // 目标句柄的 raw()，种类由上一条判别
     std::vector<Vec2> u_aim_;                 // 锁定落点（承诺那一刻定死）
+    // ——兵种等级上限（守方升级轴第三个输出）——
+    // 升级倒计时，0 = 没在升。与建筑那边的 `b_upgrade_left_` 同一条形状，
+    // 但没有互斥字段要查——单位没有"在建/在修"的概念，不需要额外判断。
+    std::vector<std::int32_t> u_upgrade_left_;
 
     // ——建筑（全部属守方，见 `rts/roster.hpp`：不存 side）——
     SlotPool<BldTag> bld_pool_;
@@ -920,6 +957,7 @@ private:
     std::vector<std::uint8_t> b_train_type_;
     std::vector<std::int32_t> b_train_left_;
     std::vector<std::uint8_t> b_train_force_;   // 出兵后编入哪个编队
+    std::vector<std::int32_t> b_train_level_;   // 出兵等级（`Train` 命令的 c.level）
     // ——建筑等级上限（守方升级轴第一个输出）——
     // 1 起。`Keep` 不受 `building_level_cap()` 约束，其余建筑受它约束。
     std::vector<std::int32_t> b_level_;

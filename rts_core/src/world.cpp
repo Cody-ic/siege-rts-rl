@@ -3,6 +3,7 @@
 #include <string>
 #include <utility>
 
+#include "rts/combat_math.hpp"
 #include "rts/world_view.hpp"
 
 namespace rts {
@@ -211,12 +212,20 @@ void World::validate(Side side, const Command& c) const {
             if (c.slot == kNoSlot || static_cast<std::size_t>(c.slot) >= cells) {
                 throw ContractError("Train 的兵营槽位越界");
             }
+            // **只查格式，不查 `unit_level_cap()`**——同 `Upgrade` 那条纪律：
+            // 顶没顶到上限是状态依赖的检查，属机制（`apply_one`），这里只挡
+            // 「等级字段本身就没编码出一个合法值」（0 不是任何单位会有的等级，
+            // `kMinUnitLevel == 1`）。
+            if (c.level < kMinUnitLevel) {
+                throw ContractError("Train 的 level 字段不得小于 kMinUnitLevel");
+            }
             break;
         case CommandKind::SelectForce:
             if (c.force == kNoForce) throw ContractError("SelectForce 未指定编队");
             break;
         case CommandKind::MoveForce:
         case CommandKind::Garrison:
+        case CommandKind::UpgradeForce:
             if (c.force == kNoForce) throw ContractError("未指定编队");
             if (c.slot == kNoSlot || static_cast<std::size_t>(c.slot) >= cells) {
                 throw ContractError("目标槽位越界");
@@ -445,15 +454,59 @@ void World::apply_one(Side side, const Command& c) {
             if (bt != BldType::Barrack && bt != BldType::Keep) break;
             if (!b_built_[k]) break;
             if (b_train_type_[k] != kNoTrain) break;   // 一次一名
-            const UnitStats& s = stats_.of(static_cast<UnitType>(c.what));
-            if (stock_[static_cast<std::size_t>(Resource::Gold)] < s.cost_gold) break;
-            stock_[static_cast<std::size_t>(Resource::Gold)] -= s.cost_gold;
-            // 一律 1 级。「征兵时选等级（1..上限，越高越贵）」连着堡垒等级上限，
-            // 归升级轴那一批——且 `Command` 还没有等级字段，到时一并加
-            // （追加字段不动既有字节，`rts/command.hpp` 的追加纪律）。
+            // 兵种等级上限（守方升级轴第三个输出）：`validate()` 只挡了
+            // 「level 字段本身不合法」，顶没顶到 `unit_level_cap()` 是状态
+            // 依赖的检查，落在这里——同 `Upgrade` 对 `building_level_cap()`
+            // 的既定纪律。
+            if (c.level > unit_level_cap()) break;
+            const UnitType ut = static_cast<UnitType>(c.what);
+            const std::int64_t cost = train_cost_gold(ut, c.level);
+            if (stock_[static_cast<std::size_t>(Resource::Gold)] < cost) break;
+            stock_[static_cast<std::size_t>(Resource::Gold)] -= cost;
             b_train_type_[k] = c.what;
-            b_train_left_[k] = s.train_ticks;
+            b_train_left_[k] = train_ticks_at(ut, c.level);
             b_train_force_[k] = c.force;
+            b_train_level_[k] = c.level;
+            break;
+        }
+        case CommandKind::UpgradeForce: {
+            // 已有部队批量升级（守方升级轴第三个输出的另一半）。`slot` 只
+            // 校验"这是一座真的 Barrack/Keep"——具体谁够格升级，逐单位判，
+            // 见下面的循环。
+            const std::size_t cell = static_cast<std::size_t>(c.slot);
+            if (bld_at_[cell] == 0) break;
+            const std::size_t bk = static_cast<std::size_t>(bld_at_[cell] - 1);
+            if (b_type_[bk] != BldType::Keep && b_type_[bk] != BldType::Barrack) break;
+            if (!b_built_[bk]) break;
+            const std::int32_t cap = unit_level_cap();
+            // **按槙位下标升序**（与 `enumerate_units` 同一个规范顺序，
+            // `rts/world.hpp:585` 那条纪律）：钱不够全部升级时，谁先被处理
+            // 决定谁先升，这必须确定，不能是遍历顺序的副产品。
+            for (std::size_t k = 0; k < unit_pool_.slot_count(); ++k) {
+                if (!unit_pool_.alive_at(static_cast<std::uint16_t>(k))) continue;
+                if (u_force_[k] != c.force) continue;
+                if (u_level_[k] >= cap) continue;        // 已顶上限，跳过
+                if (u_upgrade_left_[k] > 0) continue;    // 已经在升，跳过
+                if (!barrack_near(u_pos_[k])) continue;  // 须在 Barrack/Keep 附近
+                const UnitType ut = u_type_[k];
+                const std::int32_t lvl = u_level_[k];
+                const std::int64_t price =
+                    train_cost_gold(ut, lvl + 1) - train_cost_gold(ut, lvl);
+                if (stock_[static_cast<std::size_t>(Resource::Gold)] < price) {
+                    // **买不起就跳过这一名，不让整条命令失败**——同 `Train`
+                    // 「征兵出口被自己人堵住是玩家该解的局面」那条纪律：
+                    // 这里是「这一批钱不够就先升前面几个」，不是整批作废。
+                    continue;
+                }
+                stock_[static_cast<std::size_t>(Resource::Gold)] -= price;
+                const std::int32_t ticks =
+                    train_ticks_at(ut, lvl + 1) - train_ticks_at(ut, lvl);
+                if (ticks > 0) {
+                    u_upgrade_left_[k] = ticks;
+                } else {
+                    finish_unit_upgrade(k);
+                }
+            }
             break;
         }
         case CommandKind::MoveForce:
@@ -566,6 +619,7 @@ UnitId World::spawn_unit(UnitType type, Vec2 pos, std::int32_t level, std::int64
         u_tgt_kind_.resize(n);
         u_tgt_raw_.resize(n);
         u_aim_.resize(n);
+        u_upgrade_left_.resize(n);
     }
     u_type_[k] = type;
     u_level_[k] = level;
@@ -584,6 +638,7 @@ UnitId World::spawn_unit(UnitType type, Vec2 pos, std::int32_t level, std::int64
     u_tgt_kind_[k] = TgtKind::None;
     u_tgt_raw_[k] = 0;
     u_aim_[k] = Vec2{};
+    u_upgrade_left_[k] = 0;
     return unit_pool_.id_at(k);
 }
 
@@ -610,6 +665,7 @@ BldId World::place_bld(BldType type, GridPos pos, std::int64_t hp, std::int64_t 
         b_train_type_.resize(n);
         b_train_left_.resize(n);
         b_train_force_.resize(n);
+        b_train_level_.resize(n);
         b_level_.resize(n);
         b_upgrade_left_.resize(n);
     }
@@ -628,6 +684,7 @@ BldId World::place_bld(BldType type, GridPos pos, std::int64_t hp, std::int64_t 
     b_train_type_[k] = kNoTrain;
     b_train_left_[k] = 0;
     b_train_force_[k] = kNoForce;
+    b_train_level_[k] = kMinUnitLevel;
     b_level_[k] = 1;
     b_upgrade_left_[k] = 0;
     bld_at_[static_cast<std::size_t>(pos.j) * static_cast<std::size_t>(width()) +
@@ -684,6 +741,7 @@ void World::kill_unit(UnitId id) {
     u_tgt_kind_[k] = TgtKind::None;
     u_tgt_raw_[k] = 0;
     u_aim_[k] = Vec2{};
+    u_upgrade_left_[k] = 0;
     unit_pool_.release(static_cast<std::uint16_t>(k));
 }
 
@@ -724,6 +782,7 @@ void World::destroy_bld(BldId id) {
     b_train_type_[k] = kNoTrain;
     b_train_left_[k] = 0;
     b_train_force_[k] = kNoForce;
+    b_train_level_[k] = kMinUnitLevel;
     b_level_[k] = 1;
     b_upgrade_left_[k] = 0;
     bld_pool_.release(static_cast<std::uint16_t>(k));
@@ -901,6 +960,31 @@ std::int32_t World::building_level_cap() const noexcept {
     return (b_level_[k] + divisor - 1) / divisor;
 }
 
+std::int32_t World::unit_level_cap() const noexcept {
+    // 同 `building_level_cap()` 的 Keep 槙位定位，公式不同：`兵种等级上限(K)
+    // = K`（`波次预算曲线与堡垒等级曲线.md` §2），没有除数。
+    const std::size_t cell =
+        static_cast<std::size_t>(keep_.j) * static_cast<std::size_t>(width()) +
+        static_cast<std::size_t>(keep_.i);
+    const std::size_t k = static_cast<std::size_t>(bld_at_[cell] - 1);
+    return b_level_[k];
+}
+
+std::int64_t World::train_cost_gold(UnitType ut, std::int32_t level) const noexcept {
+    // 纯线性，不走 `apply_permille`——那个函数钳到 >= 1 且四舍五入，两者对
+    // 「基础造价 × 整数等级」这种精确乘法没有必要，直接乘更诚实。
+    return stats_.of(ut).cost_gold * static_cast<std::int64_t>(level);
+}
+
+std::int32_t World::train_ticks_at(UnitType ut, std::int32_t level) const noexcept {
+    const std::int64_t linear =
+        kPermilleOne + static_cast<std::int64_t>(stats_.global.train_ticks_permille_per_level) *
+                           (static_cast<std::int64_t>(level) - 1);
+    const std::int64_t ticks =
+        (stats_.of(ut).train_ticks * linear + kPermilleOne / 2) / kPermilleOne;
+    return static_cast<std::int32_t>(ticks);
+}
+
 // ——状态哈希——
 //
 // **喂入顺序就是下面这个顺序，改它等于让所有已录回放失效。**
@@ -972,6 +1056,7 @@ std::uint64_t World::state_hash() const noexcept {
         h.feed_f32(p.x);
         h.feed_f32(p.y);
     }
+    h.feed(u_upgrade_left_.data(), u_upgrade_left_.size() * sizeof(std::int32_t));
 
     bld_pool_.feed_hash(h);
     h.feed(b_type_.data(), b_type_.size() * sizeof(BldType));
@@ -990,6 +1075,7 @@ std::uint64_t World::state_hash() const noexcept {
     h.feed(b_train_type_.data(), b_train_type_.size());
     h.feed(b_train_left_.data(), b_train_left_.size() * sizeof(std::int32_t));
     h.feed(b_train_force_.data(), b_train_force_.size());
+    h.feed(b_train_level_.data(), b_train_level_.size() * sizeof(std::int32_t));
     h.feed(b_level_.data(), b_level_.size() * sizeof(std::int32_t));
     h.feed(b_upgrade_left_.data(), b_upgrade_left_.size() * sizeof(std::int32_t));
 
