@@ -1,0 +1,327 @@
+# -*- coding: utf-8 -*-
+"""预算与节奏曲线模型 —— 攻方兵力 / 守方金币 / 出矿与解禁节奏。
+
+`波次预算曲线与堡垒等级曲线.md` 给了公式,但那份文档只能被**读**;
+一条曲线改了之后「拐点还在不在」「多余兵力有没有浪费」得手算。
+这个脚本把那些公式变成可跑的,并把其中**结构性**的几条做成断言。
+
+用法:
+    py tools/balance/budget_curves.py            # 逐波表 + 结构检查
+    py tools/balance/budget_curves.py --waves 60 # 看更远
+
+## 先说清楚哪些是结构、哪些是旋钮 —— 这是本文件存在的主要理由
+
+CLAUDE.md「关于数值」要求区分这两类。这一堆量看着都像旋钮,其实不是:
+
+| 量 | 它真正控制什么 | 类别 |
+|---|---|---|
+| `cost(等级) ∝ 战力(等级)` | 「40 杂兵 vs 8 精英」是不是真决策 | **结构** |
+| 编成位硬顶 40 | 单波单位数落在 RL 可训练区间 | **结构**（CLAUDE.md 明文） |
+| 资源点分布形态 | 「围哪一簇」是不是真决策 | **结构**（已定,见地图规范） |
+| 波间隔 T × 收入率 | 守方每波预算 | **只有乘积进预算** ⇒ 一个自由度 |
+| 出矿速率 × 矿点密度 | 总收入 | 同上,只有乘积 |
+| 兵力预算指数 α | 难度增长速度 | 数值 |
+| 等级战力指数 p+q | 等级值多少战力 | 数值（两侧有界,见 CLAUDE.md §1.4） |
+| 解禁波次序列 | 拐点反复出现的节奏 | **主难度旋钮**（CLAUDE.md 原话） |
+
+后面几条是数值,所以本文件里它们**全部是占位值**,集中在 `PLACEHOLDER` 一处。
+
+## 三条结构结论,推导写在这里
+
+### 一、`cost(L)` 必须与 `战力(L)` 同阶,否则宏观层的动作空间塌到角上
+
+`波次预算曲线与堡垒等级曲线.md` §3 已经摸到这条（「造价也应该近似线性,
+否则会出现堆量或堆级其中一个策略碾压另一个」),这里把它说准:
+
+设一个 L 级单位的战力是 `P(L)`、造价是 `C(L)`。宏观层在「多买一个」与
+「升一级」之间的取舍,比的是**每单位预算买到的战力** `P(L)/C(L)`。
+
+- `C` 比 `P` 涨得慢 ⇒ 堆级严格占优 ⇒ 永远买少量高级兵
+- `C` 比 `P` 涨得快 ⇒ 堆量严格占优 ⇒ 永远买一堆 1 级兵
+- `C ∝ P` ⇒ 两者等效,**于是选哪个由战术决定**（集火脆弱性、AOE 吃亏程度、
+  目标选择),而那正是 CLAUDE.md 要的:「40 个低级杂兵铺开 / 8 个高级精英
+  硬凿一点」是真决策,且是「AI 适应玩家最直观的演示形式之一」
+
+所以这不是平衡数值,是**结构**:它决定那个决策存不存在。
+
+### 二、`cost ∝ 战力` 一旦成立,「波次强度曲线」与「兵力预算曲线」是同一条
+
+因为攻方总战力 = Σ 每个单位的战力 = Σ 造价 / 比例常数 = 兵力预算 / 常数。
+于是**只需要标定一条曲线**,而不是「预算曲线」加「预算怎么变成战力」两条。
+这条在标定时省的功夫比看起来多:少一层非线性映射。
+
+### 三、波间隔与收入率在预算上只有乘积进去
+
+守方每波拿到的金币 = 收入率 × 波间隔。所以这两个数**不是两个自由度**。
+推论:波间隔应当由**别的**约束钉死（episode 长度 1200–2400 tick、
+建造与训练耗时、演示可读性),然后收入率去解那个目标比值。
+出矿速率与矿点密度同理——只有乘积进预算,而**分布形态**是另一回事
+（它管「围哪一簇」那个决策,已由地图规范定成「大散居、小聚居、交错杂居」)。
+
+## 已知局限
+
+本模型只算**预算与战力的总量**,不算对局。它答得了「拐点在第几波」,
+答不了「那一波实际会不会破城」——后者要 `bindings/` + `train/` 之后跑真实对局。
+所以它的用途是**给标定划出可行域**,不是给出终值。
+"""
+import argparse
+import json
+import os
+import sys
+
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+STATS_PATH = os.path.join(REPO_ROOT, "game", "data", "stats_placeholder.json")
+
+# ---------------------------------------------------------------------------
+# 占位值,全部集中在这里。**一个都没有标定过。**
+# 攻守两侧的形状取自 `波次预算曲线与堡垒等级曲线.md` §1/§2（那份文档也写明
+# 系数是占位旋钮）,这里只是把它们放到一处好一起改。
+# ---------------------------------------------------------------------------
+PLACEHOLDER = {
+    # 攻方
+    "slots_base": 6.0,          # 编成位起步
+    "slots_per_wave": 1.2,      # 编成位每波 +
+    "slots_cap": 40,            # **硬顶,这一条是结构**（CLAUDE.md）
+    "power_base": 6.0,          # 兵力预算系数
+    "power_alpha": 1.6,         # 兵力预算指数（超线性 ⇒ > 1,这一条是结构）
+    # 等级战力:战力倍率 = (1 + k(L-1))^(p+q)。k 与 p+q 都是数值。
+    "level_k": 0.22,
+    "level_pq": 1.0,
+    # 守方
+    "wave_interval_ticks": 1800,   # 波间隔。落在 thresholds.json 的 episode 区间内
+    "inner_mine_count": 2,         # 城内金矿数
+    "mine_income_per_period": 11,  # 单座金矿每结算周期产金（数值表里的 income_amount）
+    "keep_income_per_period": 2,   # 堡垒的兵力地板（同上）
+    # 解禁:第几波放出一批城外矿,每批几座。**这是主难度旋钮。**
+    "unlock_schedule": {5: 1, 10: 1, 16: 2, 24: 2, 34: 3},
+    # 守方拿到城外矿要付代价（要出城守),这里用一个「实际吃到的比例」粗略表达
+    "outer_capture_frac": 0.6,
+    "pop_base": 20,             # 人口上限 = pop_base + pop_per_keep_level * K
+    "pop_per_keep_level": 4,
+    # 每波结束后守方战力存量留下的比例（战损 + 墙塔被拆 + 维修开销一并折进去）。
+    # 粗略占位,真值只能从真实对局测。
+    "retention_per_wave": 0.75,
+}
+
+
+def load_stats():
+    with open(STATS_PATH, encoding="utf-8") as f:
+        return json.load(f)
+
+
+# ---------------------------------------------------------------------------
+# 曲线
+# ---------------------------------------------------------------------------
+
+def slots(w, P=PLACEHOLDER):
+    """编成位(w):线性,硬顶。"""
+    return min(float(P["slots_cap"]), P["slots_base"] + P["slots_per_wave"] * (w - 1))
+
+
+def power_budget(w, P=PLACEHOLDER):
+    """兵力预算(w):超线性,无上限。"""
+    return P["power_base"] * (w ** P["power_alpha"])
+
+
+def level_power_mult(L, P=PLACEHOLDER):
+    """一个 L 级单位的战力倍率 = (1 + k(L-1))^(p+q)。"""
+    return (1.0 + P["level_k"] * (L - 1)) ** P["level_pq"]
+
+
+def nominal_level(w, P=PLACEHOLDER):
+    """本波名义等级。
+
+    **由 `cost ∝ 战力` 反解,不是「预算 ÷ 编成位」。** 后者只在
+    `cost(L) = base·L` 且 base=1 时才对;这里把造价写成
+    `base·(1 + k(L-1))`（与战力同阶,见文件头结构结论一）,于是
+    `slots · base · (1 + k(L-1)) = 预算` ⇒ 解出 L。
+    """
+    per_unit = power_budget(w, P) / slots(w, P)
+    # per_unit = base·(1 + k(L-1))，取 base = P["power_base"] / P["slots_base"]
+    # 使第 1 波恰好 L=1（那是 `波次预算曲线与堡垒等级曲线.md` §1 验的关键点）
+    base = power_budget(1, P) / slots(1, P)
+    return 1.0 + (per_unit / base - 1.0) / P["level_k"]
+
+
+def attacker_power(w, P=PLACEHOLDER):
+    """攻方本波总战力。
+
+    结构结论二:`cost ∝ 战力` ⇒ 总战力 ∝ 兵力预算。这里显式按
+    「编成位 × 单位战力」算一遍,用来**验证**那条比例关系而不是假设它。
+    """
+    return slots(w, P) * level_power_mult(nominal_level(w, P), P)
+
+
+def unlocked_outer_mines(w, P=PLACEHOLDER):
+    return sum(n for wave, n in P["unlock_schedule"].items() if wave <= w)
+
+
+def defender_gold_this_wave(w, P=PLACEHOLDER):
+    """守方本波拿到的金币。
+
+    城内是线性（矿数固定,收入率固定)+ 堡垒地板;城外按解禁与实际吃到的比例。
+    """
+    stats = load_stats()
+    period = stats["global"]["income_period_ticks"]
+    periods = P["wave_interval_ticks"] / period
+    inner = P["inner_mine_count"] * P["mine_income_per_period"]
+    keep = P["keep_income_per_period"]
+    outer = (unlocked_outer_mines(w, P) * P["mine_income_per_period"]
+             * P["outer_capture_frac"])
+    return (inner + keep + outer) * periods
+
+
+def defender_buyable_power(w, P=PLACEHOLDER):
+    """守方用**本波**金币能买到的战力（上界:全部拿去买兵、不修不建）。
+
+    与攻方同一把尺子:`cost ∝ 战力`,比例常数取 `Archer` 的
+    `cost_gold ÷ 战力(1级)`。守方的战力单位因此与攻方可比。
+    """
+    stats = load_stats()
+    archer = stats["units"]["Archer"]
+    gold_per_power = archer["cost_gold"]      # 1 级 Archer 战力记为 1
+    return defender_gold_this_wave(w, P) / gold_per_power
+
+
+def defender_stock_power(w, P=PLACEHOLDER):
+    """守方到第 w 波累积下来的战力存量。
+
+    **攻方每波的预算是流量,守方是存量 —— 这两个不能直接比,初版就是这么比的。**
+    攻方的单位一波打完基本死光（亡灵不在乎伤亡,是消耗品),下一波拿一份新预算;
+    守方的墙、塔、活着的兵**留到下一波**。所以守方那一侧要累加。
+
+    `retention` 是每波结束后留下来的比例,一个粗略的占位:它把战损、
+    墙塔被拆、维修花掉的钱一并折进去。真值只能从真实对局测,
+    所以这里刻意用一个数而不是一套损耗模型——假装算得细并不会让它更准。
+    """
+    stock = 0.0
+    for i in range(1, w + 1):
+        stock = stock * P["retention_per_wave"] + defender_buyable_power(i, P)
+    return stock
+
+
+# ---------------------------------------------------------------------------
+# 结构检查。**这几条不是「数值合不合适」,是「机制存不存在」。**
+# ---------------------------------------------------------------------------
+
+def check_structure(P=PLACEHOLDER, waves=60):
+    problems = []
+
+    # 一、堆量与堆级必须等效（结构结论一）。
+    #     在 `cost ∝ 战力` 下,「花同样的钱买 n 个 1 级」与「买 1 个 L 级」
+    #     拿到的总战力应当相等。不等就说明宏观层的取舍塌到角上了。
+    base_cost = 1.0
+    for L in (2, 5, 10, 20):
+        cost_L = base_cost * (1.0 + P["level_k"] * (L - 1))          # 造价 ∝ B(L)
+        power_L = level_power_mult(L, P)                              # 战力 = B(L)^(p+q)
+        n_equiv = cost_L / base_cost                                  # 同价能买几个 1 级
+        power_stack = n_equiv * level_power_mult(1, P)
+        if abs(power_L - power_stack) / power_stack > 0.02:
+            problems.append(
+                f"堆量与堆级不等效（L={L}）：买 1 个 {L} 级得战力 {power_L:.2f}，"
+                f"同价买 {n_equiv:.2f} 个 1 级得 {power_stack:.2f} —— "
+                f"差 {abs(power_L - power_stack) / power_stack:.0%}。"
+                f"这不是数值偏差，是宏观层那个决策不存在了："
+                f"p+q = {P['level_pq']} ≠ 1 时造价（∝ B）与战力（∝ B^(p+q)）不同阶，"
+                f"必须让造价也走 B^(p+q)")
+
+    # 二、必须存在拐点:只靠城内保底、龟缩到撑不住的那一波
+    #     （CLAUDE.md「两条硬性曲线要求」）。
+    #     **比的是守方存量 vs 攻方流量**,理由见 `defender_stock_power`。
+    inner_only = dict(P)
+    inner_only["unlock_schedule"] = {}
+    inner_only["outer_capture_frac"] = 0.0
+    turning = None
+    for w in range(1, waves + 1):
+        if defender_stock_power(w, inner_only) < attacker_power(w, P):
+            turning = w
+            break
+    if turning is None:
+        problems.append(
+            f"{waves} 波之内没有拐点：只靠城内保底就一直买得起足以对等的兵力，"
+            f"于是龟缩不被惩罚，野战机制（冲锋助跑 / 枪阵 / 风筝）与"
+            f"「攻其必救」全部失效（CLAUDE.md「两条硬性曲线要求」）")
+
+    # 三、编成位必须真的打满,否则「多余兵力只能投等级」这条结构从不生效。
+    if slots(waves, P) < P["slots_cap"]:
+        problems.append(
+            f"第 {waves} 波编成位才 {slots(waves, P):.1f}，没到硬顶 "
+            f"{P['slots_cap']} —— 「编成位耗尽后多余兵力只能投入等级」"
+            f"这条结构在可见波数内从不生效")
+
+    # 四、兵力预算必须超线性（CLAUDE.md:攻方那条无界成长轴)。
+    if P["power_alpha"] <= 1.0:
+        problems.append(
+            f"power_alpha = {P['power_alpha']} ≤ 1，兵力预算不是超线性 —— "
+            f"那条无界成长轴没了，无尽模式不再「最终一定会输」")
+
+    return problems, turning
+
+
+def main():
+    ap = argparse.ArgumentParser(description="预算与节奏曲线模型")
+    ap.add_argument("--waves", type=int, default=40, help="看到第几波")
+    args = ap.parse_args()
+    P = PLACEHOLDER
+    W = args.waves
+
+    print("=== 预算与节奏曲线（全部数值为占位值，一个都没标定过） ===\n")
+    print(f"{'波':>3} {'编成位':>7} {'兵力预算':>9} {'名义等级':>8} {'攻方战力':>9} "
+          f"{'城外矿':>6} {'守方金币':>9} {'守方存量':>9} {'守/攻':>7}")
+    print("-" * 78)
+    shown = [w for w in range(1, W + 1) if w <= 5 or w % 5 == 0]
+    for w in shown:
+        ap_ = attacker_power(w, P)
+        dp = defender_stock_power(w, P)
+        print(f"{w:>3} {slots(w, P):>7.1f} {power_budget(w, P):>9.1f} "
+              f"{nominal_level(w, P):>8.1f} {ap_:>9.1f} "
+              f"{unlocked_outer_mines(w, P):>6} "
+              f"{defender_gold_this_wave(w, P):>9.0f} {dp:>9.1f} "
+              f"{dp / ap_:>7.2f}")
+    print("\n「守方存量」是累积的（墙塔留着、活兵留着，每波按 retention 折旧），")
+    print("而「攻方战力」是每波一份新预算 —— 两侧不是同一种量，见 defender_stock_power。")
+
+    problems, turning = check_structure(P, waves=W)
+    print()
+    if turning:
+        print(f"拐点（只靠城内保底就买不起对等兵力）：第 {turning} 波")
+
+    # ---- 诊断:存量为什么会饱和,以及那决定了存活波数 ----
+    #
+    # 存量递推是 S(w) = r·S(w-1) + 收入(w)。收入若**不随波数增长**,几何级数
+    # 收敛到 收入/(1-r) —— 也就是说守方存量有一个**与波数无关的天花板**,
+    # 而攻方按 w^α 无界增长。于是存活波数几乎完全由「收入增长 vs α」决定,
+    # 跟 retention 只差一个常数倍。
+    #
+    # 这不是缺陷:CLAUDE.md 明写无尽模式下玩家最终一定会输、要看的是
+    # **中位存活波数**。但它说明一件事 —— 想把局拉长,调 retention 或起始收入
+    # 都只是平移,**只有让收入随波数增长才改变斜率**,而那条路 CLAUDE.md 也
+    # 已经指名了:「主要的难度旋钮是解禁节奏与强度曲线之比」。
+    r = P["retention_per_wave"]
+    inner_income = defender_gold_this_wave(1, P)
+    stats = load_stats()
+    ceiling = (inner_income / stats["units"]["Archer"]["cost_gold"]) / (1.0 - r)
+    print()
+    print("诊断：")
+    print(f"  收入不增长时，守方存量的天花板 = 每波收入 ÷ (1 − retention) "
+          f"= {ceiling:.1f}（与波数无关）")
+    w_cross = next((w for w in range(1, 500) if attacker_power(w, P) > ceiling), None)
+    if w_cross:
+        print(f"  攻方战力在第 {w_cross} 波超过这个天花板 —— 此后靠城内收入"
+              f"**无论攒多久**都追不上")
+    print(f"  所以调 retention 或起始收入只是平移，改斜率只能靠让收入随波数增长")
+    print(f"  （解禁节奏）或压低兵力预算指数 α（现 {P['power_alpha']}）。")
+    print()
+    if problems:
+        print(f"!! 结构检查 {len(problems)} 条不通过：\n")
+        for p in problems:
+            print(f"  - {p}\n")
+        return 1
+    print("结构检查全部通过（堆量堆级等效 / 拐点存在 / 编成位打满 / 预算超线性）。")
+    print("\n注意这只说明**机制存在**，不说明数值合适——本模型只算总量、不算对局，")
+    print("「那一波会不会真的破城」要等 bindings/ + train/ 落地后跑真实对局。")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
