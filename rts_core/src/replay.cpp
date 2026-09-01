@@ -51,9 +51,9 @@ void put_command(std::vector<unsigned char>& b, const Command& c) {
     put_u8(b, static_cast<std::uint8_t>(c.kind));
     put_u8(b, static_cast<std::uint8_t>(c.side));
     put_u8(b, c.what);
-    put_u8(b, c.force);
-    put_u8(b, c.level);   // format v3：兵种等级上限落地时追加。`_reserved0`
-                          // 只在内存布局里存在（防编译器填充），不写进文件。
+    put_u8(b, c.level);
+    // `_reserved[2]` 只在内存布局里存在（防编译器填充），不写进文件——
+    // 所以载荷是 6 字节/条，不是 sizeof(Command) 的 8。
 }
 
 // 读游标。**一旦 `ok` 变 false 就不再前进**，于是所有后续读取返回 0
@@ -195,6 +195,19 @@ void Replay::push_actions(Tick t, Side s, const UnitAction* p, std::size_t n) {
     records_.push_back(rec);
 }
 
+void Replay::push_garrison_wishes(Tick t, Side s, const std::uint16_t* p,
+                                  std::size_t n) {
+    if (n > 0xFFFFu) throw ContractError("一次提交的登墙意愿数超过 65535");
+    ReplayRecord rec;
+    rec.tick = t;
+    rec.kind = ReplayRecordKind::GarrisonWishes;
+    rec.side = s;
+    rec.count = static_cast<std::uint16_t>(n);
+    rec.offset = static_cast<std::uint32_t>(wishes_.size());
+    wishes_.insert(wishes_.end(), p, p + n);
+    records_.push_back(rec);
+}
+
 void Replay::push_hash(Tick t, std::uint64_t h) {
     ReplayRecord rec;
     rec.tick = t;
@@ -222,6 +235,7 @@ std::vector<unsigned char> Replay::to_bytes() const {
     put_u32(head, static_cast<std::uint32_t>(records_.size()));
     put_u32(head, static_cast<std::uint32_t>(commands_.size()));
     put_u32(head, static_cast<std::uint32_t>(actions_.size()));
+    put_u32(head, static_cast<std::uint32_t>(wishes_.size()));
 
     std::vector<unsigned char> b;
     for (const char c : kReplayMagic) b.push_back(static_cast<unsigned char>(c));
@@ -238,6 +252,7 @@ std::vector<unsigned char> Replay::to_bytes() const {
     }
     for (const Command& c : commands_) put_command(b, c);
     for (const UnitAction& a : actions_) put_u8(b, static_cast<std::uint8_t>(a));
+    for (const std::uint16_t w : wishes_) put_u16(b, w);
 
     put_u64(b, fnv_over(b.data(), b.size()));
     return b;
@@ -294,6 +309,7 @@ bool Replay::from_bytes(const unsigned char* data, std::size_t size, Replay* out
     const std::uint32_t record_count = c.u32();
     const std::uint32_t cmd_count = c.u32();
     const std::uint32_t act_count = c.u32();
+    const std::uint32_t wish_count = c.u32();
 
     if (!c.ok) {
         *err = "回放文件头读不完整";
@@ -324,6 +340,7 @@ bool Replay::from_bytes(const unsigned char* data, std::size_t size, Replay* out
     Tick last_tick = 0;
     std::uint32_t seen_cmd = 0;
     std::uint32_t seen_act = 0;
+    std::uint32_t seen_wish = 0;
     for (std::uint32_t k = 0; k < record_count; ++k) {
         ReplayRecord rec;
         rec.tick = c.i32();
@@ -369,6 +386,10 @@ bool Replay::from_bytes(const unsigned char* data, std::size_t size, Replay* out
                 rec.offset = seen_act;
                 seen_act += static_cast<std::uint32_t>(rec.count);
                 break;
+            case ReplayRecordKind::GarrisonWishes:
+                rec.offset = seen_wish;
+                seen_wish += static_cast<std::uint32_t>(rec.count);
+                break;
             case ReplayRecordKind::Hash:
                 if (rec.count != 0) {
                     *err = "Hash 记录的 count 必须为 0";
@@ -378,7 +399,7 @@ bool Replay::from_bytes(const unsigned char* data, std::size_t size, Replay* out
         }
         r.records_.push_back(rec);
     }
-    if (seen_cmd != cmd_count || seen_act != act_count) {
+    if (seen_cmd != cmd_count || seen_act != act_count || seen_wish != wish_count) {
         *err = "回放的载荷条数与记录里声明的总数不符";
         return false;
     }
@@ -390,8 +411,7 @@ bool Replay::from_bytes(const unsigned char* data, std::size_t size, Replay* out
         const std::uint8_t kind = c.u8();
         const std::uint8_t side = c.u8();
         cmd.what = c.u8();
-        cmd.force = c.u8();
-        cmd.level = c.u8();   // format v3
+        cmd.level = c.u8();
         if (kind >= kCommandKindCount) {
             *err = with_u64("回放里有非法的 CommandKind ", kind);
             return false;
@@ -413,6 +433,15 @@ bool Replay::from_bytes(const unsigned char* data, std::size_t size, Replay* out
             return false;
         }
         r.actions_.push_back(static_cast<UnitAction>(a));
+    }
+
+    r.wishes_.reserve(wish_count);
+    for (std::uint32_t k = 0; k < wish_count; ++k) {
+        // 意愿是格线性下标，合法取值是 < 格数或 kNoSlot——格数要读地图才知道，
+        // 这里只挡「既不是 kNoSlot 又顶着 uint16 上界之外」的不可能值……
+        // uint16 没有「上界之外」，所以这里**刻意不查范围**：越界校验在
+        // `World::submit_garrison_wishes`（重放应用时），那里才拿得到格数。
+        r.wishes_.push_back(c.u16());
     }
 
     if (!c.ok) {
@@ -468,6 +497,13 @@ void ReplayRecorder::submit_actions(Side side, const UnitAction* actions,
                                     std::size_t count) {
     w_->submit_actions(side, actions, count);
     r_.push_actions(w_->now(), side, actions, count);
+}
+
+void ReplayRecorder::submit_garrison_wishes(Side side, const std::uint16_t* targets,
+                                            std::size_t count) {
+    // 先转发后记录，理由同 `submit`：抛了就不该记。
+    w_->submit_garrison_wishes(side, targets, count);
+    r_.push_garrison_wishes(w_->now(), side, targets, count);
 }
 
 void ReplayRecorder::advance(int ticks) {
@@ -563,7 +599,8 @@ ReplayResult replay_verify(const Replay& r, World& fresh) {
         }
         switch (rec.kind) {
             case ReplayRecordKind::Commands:
-            case ReplayRecordKind::Actions: {
+            case ReplayRecordKind::Actions:
+            case ReplayRecordKind::GarrisonWishes: {
                 // 世界一旦分叉，这里就会抛——最典型的是动作数组长度不再等于
                 // 活着的单位数。**必须接住**：让它逃出去，回放测试里最有价值的
                 // 那一类失败就会表现为一个未捕获异常，而不是一句
@@ -572,9 +609,12 @@ ReplayResult replay_verify(const Replay& r, World& fresh) {
                     if (rec.kind == ReplayRecordKind::Commands) {
                         fresh.submit(rec.side, r.commands().data() + rec.offset,
                                      rec.count);
-                    } else {
+                    } else if (rec.kind == ReplayRecordKind::Actions) {
                         fresh.submit_actions(rec.side, r.actions().data() + rec.offset,
                                              rec.count);
+                    } else {
+                        fresh.submit_garrison_wishes(
+                            rec.side, r.wishes().data() + rec.offset, rec.count);
                     }
                 } catch (const ContractError& e) {
                     res.verdict = res.platform_matches ? ReplayVerdict::Diverged

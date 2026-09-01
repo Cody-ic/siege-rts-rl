@@ -15,7 +15,7 @@
 //
 // | 类 | 例子 | 进回放吗 |
 // |---|---|---|
-// | **外生输入**：只能来自人或策略，仿真自己推不出来 | `submit`、`submit_actions` | **存** |
+// | **外生输入**：只能来自人或策略，仿真自己推不出来 | `submit`、`submit_actions`、`submit_garrison_wishes` | **存** |
 // | **机制产物**：在完整的仿真里由规则算出来 | `spawn_unit`、`kill_unit`、`place_bld`、`begin_next_wave` | **不存** |
 //
 // 第二类不存的理由不是省字节，而是**存了会让回放变成假绿灯**：
@@ -100,14 +100,16 @@
 //                4  record_count    u32
 //                4  cmd_count       u32   —— 载荷区命令总数
 //                4  act_count       u32   —— 载荷区动作总数
+//                4  wish_count      u32   —— 载荷区登墙意愿总数
 //      16×N  记录区（定长 16 字节 × record_count，**按录制顺序**）：
 //                4  tick   i32
-//                1  kind   u8   0=Commands 1=Actions 2=Hash
+//                1  kind   u8   0=Commands 1=Actions 2=Hash 3=GarrisonWishes
 //                1  side   u8   Hash 时无意义
 //                2  count  u16  Hash 时为 0
 //                8  hash   u64  仅 Hash 有意义
-//       7×M  命令载荷（按记录出现顺序拼接）
+//       6×M  命令载荷（按记录出现顺序拼接）
 //       1×K  动作载荷（同上）
+//       2×W  登墙意愿载荷（同上；每条是格线性下标，`kNoSlot` = 不想登）
 //        8    file_hash    u64  —— 前面全部字节的 FNV-1a
 // ```
 //
@@ -175,7 +177,14 @@ static_assert(kReplayMagic.size() == 8);
 // 6 字节/条变成 7 字节/条（`_reserved0` 那个字节只在内存布局里存在，
 // 为的是不让 `sizeof(Command)` 产生编译器填充，不写进文件，所以载荷是
 // 7 不是 8）。旧回放按新版本读会在命令载荷区错位，必须拒绝而不是猜。
-inline constexpr std::uint16_t kReplayFormatVersion = 3;
+//
+// 3 → 4：编队系统移除（2026-09，守方单兵改全自主）。命令载荷删掉 `force`
+// 字节（回到 6 字节/条：slot + kind + side + what + level，`_reserved[2]`
+// 同理不进文件）；新增第三条输入通道「登墙意愿」（逐守方单位一个 uint16，
+// 与动作同拍提交，脚本每拍重发——它和动作一样**是脚本的输出、对 World 是
+// 外生输入**，所以必须进回放，否则重放时墙头永远是空的），记录类型加
+// `GarrisonWishes`，头部加 `wish_count`。
+inline constexpr std::uint16_t kReplayFormatVersion = 4;
 
 // ——平台指纹——
 //
@@ -238,15 +247,17 @@ enum class ReplayRecordKind : std::uint8_t {
     Commands = 0,
     Actions = 1,
     Hash = 2,
+    GarrisonWishes = 3,
 };
 
-inline constexpr int kReplayRecordKindCount = 3;
+inline constexpr int kReplayRecordKindCount = 4;
 
 constexpr std::string_view ident_of(ReplayRecordKind k) noexcept {
     switch (k) {
-        case ReplayRecordKind::Commands: return "Commands";
-        case ReplayRecordKind::Actions:  return "Actions";
-        case ReplayRecordKind::Hash:     return "Hash";
+        case ReplayRecordKind::Commands:       return "Commands";
+        case ReplayRecordKind::Actions:        return "Actions";
+        case ReplayRecordKind::Hash:           return "Hash";
+        case ReplayRecordKind::GarrisonWishes: return "GarrisonWishes";
     }
     return {};
 }
@@ -291,6 +302,8 @@ public:
     const std::vector<ReplayRecord>& records() const noexcept { return records_; }
     const std::vector<Command>& commands() const noexcept { return commands_; }
     const std::vector<UnitAction>& actions() const noexcept { return actions_; }
+    // 登墙意愿载荷（第三条输入通道，2026-09 起）：逐守方单位一个格线性下标。
+    const std::vector<std::uint16_t>& wishes() const noexcept { return wishes_; }
 
     // 哈希点的条数。**零条的回放验证不了任何东西**，`replay_verify` 会判它失败。
     int hash_count() const noexcept;
@@ -298,6 +311,7 @@ public:
     // ——追加（`ReplayRecorder` 用；手写用例也用它造反例）——
     void push_commands(Tick t, Side s, const Command* p, std::size_t n);
     void push_actions(Tick t, Side s, const UnitAction* p, std::size_t n);
+    void push_garrison_wishes(Tick t, Side s, const std::uint16_t* p, std::size_t n);
     void push_hash(Tick t, std::uint64_t h);
     void set_total_ticks(Tick t) noexcept { total_ticks_ = t; }
 
@@ -330,9 +344,10 @@ private:
     std::vector<ReplayRecord> records_;
     std::vector<Command> commands_;
     std::vector<UnitAction> actions_;
+    std::vector<std::uint16_t> wishes_;
 };
 
-// 录制器：把 `World` 的三个输入方法包起来，顺手记流。
+// 录制器：把 `World` 的输入方法包起来，顺手记流。
 //
 // **不要绕过它直接调 `World`**——那样录出来的回放会缺一条输入，
 // 重放时对不上，而那是一个假阳性。
@@ -342,6 +357,8 @@ public:
 
     void submit(Side side, const Command* cmds, std::size_t count);
     void submit_actions(Side side, const UnitAction* actions, std::size_t count);
+    void submit_garrison_wishes(Side side, const std::uint16_t* targets,
+                                std::size_t count);
     void advance(int ticks);
 
     const World& world() const noexcept { return *w_; }

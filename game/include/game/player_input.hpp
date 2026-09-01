@@ -4,16 +4,17 @@
 // 放在 game/ 而不是 render/ 的理由与 BattleScene 相同：这一层不含像素、
 // 且要在默认构建里被测——「点墙下的是驻守不是开拔」是一条真断言，GCC 侧也验。
 //
-// ## 右键的语义：一个键，按格上的东西分三种命令
+// ## 右键的语义（2026-09 起）：一个键，按格上的东西分三类
 //
-//   * 己方**完工**的墙 / 门 → `Garrison`（驻守——「墙段」的判据是 Wall‖Gate，
-//     与机制第三批同一条）
-//   * 活着的障碍 → `Clear`（清野）
-//   * 其余 → `MoveForce`（开拔到那一格；执行层脚本按 flow field 走）
+//   * 己方**完工**的墙 / 门 → 驻墙（`ClickTarget::Wall`——落成框选单位的
+//     临时驻墙指令，走 `DefenderScript::issue_garrison_order`，**不是命令**）
+//   * 活着的障碍 → `Clear`（清野——这是唯一还走 `World::submit` 的逐格命令）
+//   * 其余 → 开拔（`ClickTarget::Ground`——落成临时开拔指令，走
+//     `DefenderScript::issue_move_order`，同样不是命令）
 //
-// 这不是要长成完整的交互设计——它是「基本可玩」的最小命令面：12 种命令里
-// 玩家逐格下达的恰好这三种，其余（Build / Train / Repair / Summon…）
-// 各有自己的入口，见下面三个「模式」。
+// 编队系统移除后单兵全自主，右键是**辅助性覆盖**：它不改变任何持久状态，
+// 到达即失效（`game/defender_script.hpp` 文件头）。所以这里只做「判语义」，
+// 两种单兵指令都不再包装成 `rts::Command`。
 //
 // ## 三种「点一格生效」的模式共用一套形状
 //
@@ -51,29 +52,24 @@
 
 namespace game {
 
-// 右键点击 → 命令。`cell` 必须在界内（越界归拾取层挡，这里 assert）。
-//
-// **`force` 只用来填 `Command::force`，不参与「这一格该翻成哪种命令」的
-// 判断**——判断只看格上的东西（墙/门 → Garrison，活障碍 → Clear，其余 →
-// MoveForce）。框选流程因此可以拿它当纯粹的「判语义」工具：传一个占位
-// force（比如 0），只读返回值的 `.kind`/`.slot`，`.force` 由调用方按框选
-// 到的编队重新决定（见 `distinct_forces`）——不必另写一份判断表。
-rts::Command command_for_click(const rts::WorldView& view, std::uint8_t force,
-                               rts::GridPos cell);
+// 右键点一格，格上是什么。`cell` 必须在界内（越界归拾取层挡，这里 assert）。
+// 调用方（`render/`）按它分流：Wall → 框选单位的临时驻墙指令；
+// Obstacle → `clear_command` 走 `World::submit`；Ground → 临时开拔指令；
+// None → 什么也不做。
+enum class ClickTarget : int { None = 0, Wall, Obstacle, Ground };
+ClickTarget classify_click(const rts::WorldView& view, rts::GridPos cell);
 
-// 框选：给一个世界像素矩形（`IsoProjection::world_to_screen` 那套坐标系，
-// 与鼠标拖拽经 `GetScreenToWorld2D` 得到的坐标同一套），返回落在其中的
-// 己方单位。`ids` 必须是 `enumerate_units(Side::Defender, …)` 的产物——
-// 这里只做几何判断，不重新枚举（枚举的时机与顺序归调用方）。
+// 清野命令（右键语义里唯一还走命令通道的一种）。点在活着的障碍上才有意义，
+// 调用方先经 `classify_click` 判过；这里不再复查（命令解算层会静默拒）。
+rts::Command clear_command(rts::GridPos cell, int map_width);
+
+// 框选：`ids` 里屏幕位置落在 `rect`（像素，宽高可为负——鼠标可以往任何
+// 方向拖）内的单位。纯几何判断，不读单位状态；选出的是**单位**而不是任何
+// 归属概念——编队移除后框选的产物就是一批 UnitId，直接喂给
+// `DefenderScript::issue_move_order`/`issue_garrison_order`。
 std::vector<rts::UnitId> units_in_rect(const rts::WorldView& view,
                                        std::span<const rts::UnitId> ids,
                                        const IsoProjection& proj, Rect rect);
-
-// `ids` 里出现过的、互不相同的编队号（跳过 `kNoForce`）。**驻守要按编队
-// 提交**——`rts_core` 的登墙机制（`World::tick_garrison`）天生按编队记账，
-// 框选选出的是单位而不是编队，提交前要先把这批单位映射回它们各自的编队。
-std::vector<std::uint8_t> distinct_forces(const rts::WorldView& view,
-                                          std::span<const rts::UnitId> ids);
 
 // ——建造——
 //
@@ -117,12 +113,10 @@ bool can_train_hint(const rts::WorldView& view, rts::GridPos cell);
 // 等级上限落地时追加的参数——顶不过上限直接算不够格，不单独开一个函数。
 bool can_afford_train(const rts::WorldView& view, rts::UnitType ut, std::int32_t level);
 
-// 征兵命令。`force` 决定新兵进哪支编队——**这是玩家唯一能编队的入口**
-// （命令枚举里没有「把单位编入编队」，#57 组内已定维持 12 种不变），
-// 所以「往打薄的那支里补兵」就是这条路。`level` 是兵种等级上限落地时
-// 追加的（1..`unit_level_cap()` 任选，越高越贵——`view.train_cost_gold()`
-// 查具体数额）。
-rts::Command train_command(rts::UnitType u, std::uint8_t force, std::int32_t level,
+// 征兵命令。`level` 是兵种等级上限落地时追加的（1..`unit_level_cap()` 任选，
+// 越高越贵——`view.train_cost_gold()` 查具体数额）。新兵不带任何归属概念：
+// 编队系统移除后，出兵即自主行动（`game/defender_script.hpp`）。
+rts::Command train_command(rts::UnitType u, std::int32_t level,
                            rts::GridPos cell, int map_width);
 
 // ——维修——
@@ -189,40 +183,6 @@ std::int64_t upgrade_cost_wood(const rts::WorldView& view, rts::GridPos cell);
 bool can_afford_upgrade(const rts::WorldView& view, rts::GridPos cell);
 
 rts::Command upgrade_command(rts::GridPos cell, int map_width);
-
-// ——已有部队批量升级（兵种等级上限，守方升级轴第三个输出的另一半）——
-//
-// 复用 `train_force_sel`（`render/` 里那个数字键切换的持久值，训练与批量
-// 升级共用同一个旋钮）——不新开一个框选流程：这座训练建筑当前对准的编队，
-// 既决定新兵进哪支，也决定点这里能升级哪一支。
-
-// 这一格能不能弹出「升级编队」这一行：己方完工的 `Barrack`/`Keep`。
-// **不查这支编队里有没有够格的单位**——那是更细粒度的判断，见
-// `upgrade_force_quote`；理由同 `push_upgrade` 对「顶到上限也照常出现」
-// 那条：没有够格单位时这一行也该出现、灰着，不是干脆消失。
-bool can_upgrade_force_hint(const rts::WorldView& view, rts::GridPos cell);
-
-// 给定编队在这一格实际能升级几名、总共要多少金——两个数都要印在弹窗标签里
-// （"升级编队 2（3 名合格，共 90 金）"一类），同时是买不买得起的依据。
-// **判定逻辑只在这里查一遍**（同 `upgrade_cost_stone` 那条纪律），不重新
-// 推 `rts_core/src/world.cpp` 的 `UpgradeForce` 解算——按 `enumerate_units`
-// 的规范顺序、逐名判"够格 + 在场"算出合格数与合计差价，不模拟资金耗尽
-// 的先后顺序（那是解算自己的事，这里只给一个总量参考）。
-struct UpgradeForceQuote {
-    int eligible_count = 0;
-    std::int64_t total_gold = 0;
-};
-UpgradeForceQuote upgrade_force_quote(const rts::WorldView& view, std::uint8_t force,
-                                      rts::GridPos cell);
-
-// 买不买得起：`eligible_count > 0` 且当前金库存量 >= `total_gold`。
-// **这是一个粗判**——解算是逐名扣款、按到就升，真买得起的人数在钱不够
-// 覆盖全部合格者时可能比 `eligible_count` 少；这一层只用来决定绿框亮不亮，
-// 不是精确预测。
-bool can_afford_upgrade_force(const rts::WorldView& view, std::uint8_t force,
-                              rts::GridPos cell);
-
-rts::Command upgrade_force_command(std::uint8_t force, rts::GridPos cell, int map_width);
 
 }  // namespace game
 

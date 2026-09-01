@@ -88,6 +88,13 @@ rts::Replay record_session(rts::World& w, std::uint32_t period = 2) {
     rec.submit_actions(rts::Side::Defender, &def_action, 1);
     rec.advance(1);
 
+    // 第三条输入通道（v4）：登墙意愿也要进流。取一个**非默认**的格下标
+    // （守方弓手那一格的线性下标），免得「写了又读」这趟被恒为 kNoSlot
+    // 的默认值架空——同下面「Train 的 level 字段」那条用例的理由。
+    const std::uint16_t wish = rts::slot_of(rts::GridPos{2, 1}, w.width());
+    rec.submit_garrison_wishes(rts::Side::Defender, &wish, 1);
+    rec.advance(1);
+
     return rec.finish();
 }
 
@@ -132,10 +139,18 @@ std::size_t records_begin(const std::vector<unsigned char>& b) {
     return std::size_t{14} + static_cast<std::size_t>(read_u32(b, 10));
 }
 
-// 头部主体最后三个 u32 是 record_count / cmd_count / act_count，
-// 所以 record_count 在记录区起点往前数 12 字节处。
+// 头部主体最后四个 u32 是 record_count / cmd_count / act_count / wish_count
+// （v4 加了 wish_count），所以 record_count 在记录区起点往前数 16 字节处。
 std::uint32_t declared_record_count(const std::vector<unsigned char>& b) {
-    return read_u32(b, records_begin(b) - 12);
+    return read_u32(b, records_begin(b) - 16);
+}
+
+// 载荷区顺序：命令（6 字节/条）→ 动作（1 字节/条）→ 登墙意愿（2 字节/条）。
+// 动作载荷的起点 = 记录区末尾 + 命令载荷总长。
+std::size_t actions_begin(const std::vector<unsigned char>& b) {
+    const std::size_t rb = records_begin(b);
+    return rb + declared_record_count(b) * 16 +
+           static_cast<std::size_t>(read_u32(b, rb - 12)) * 6;
 }
 
 // 第 `i` 条记录里 hash 字段的字节偏移（记录定长 16，hash 在其内偏移 8）。
@@ -225,6 +240,9 @@ TEST_CASE("录制器不改变仿真", "[replay]") {
         const rts::UnitAction def = rts::UnitAction::MoveN;
         b.submit_actions(rts::Side::Defender, &def, 1);
         b.advance(1);
+        const std::uint16_t wish = rts::slot_of(rts::GridPos{2, 1}, b.width());
+        b.submit_garrison_wishes(rts::Side::Defender, &wish, 1);
+        b.advance(1);
     }
     REQUIRE(a.now() == b.now());
     REQUIRE(a.state_hash() == b.state_hash());
@@ -313,6 +331,7 @@ TEST_CASE("字节往返之后每一个字段都一样", "[replay]") {
     REQUIRE(back.total_ticks() == r.total_ticks());
     REQUIRE(back.commands() == r.commands());
     REQUIRE(back.actions() == r.actions());
+    REQUIRE(back.wishes() == r.wishes());
 
     REQUIRE(back.records().size() == r.records().size());
     for (std::size_t i = 0; i < r.records().size(); ++i) {
@@ -337,7 +356,8 @@ TEST_CASE("字节往返之后每一个字段都一样", "[replay]") {
 // `Train` 命令，`level` 全程停在默认值 `kMinUnitLevel`——哪怕 `put_command`/
 // 读取那一行被漏掉，两侧的默认值照样相等，`operator==` 照样通过。这条专门
 // 提交一个非默认等级的 `Train`，逼字节真的经过写入再读出这一趟。
-TEST_CASE("Train 命令的 level 字段（format v3）经字节往返不丢", "[replay]") {
+// （`record_session()` 对登墙意愿通道做了同样的事：非 kNoSlot 的意愿。）
+TEST_CASE("Train 命令的 level 字段（format v4）经字节往返不丢", "[replay]") {
     rts::World w(demo_init());
     rts::ReplayRecorder rec(w, 1);
 
@@ -357,14 +377,42 @@ TEST_CASE("Train 命令的 level 字段（format v3）经字节往返不丢", "[
     REQUIRE(back.commands() == r.commands());
 }
 
+TEST_CASE("登墙意愿（v4 第三条输入通道）经字节往返不丢", "[replay]") {
+    // 意愿载荷是 u16×N 的独立一段、记录类型是 GarrisonWishes——
+    // 漏写或漏读任何一边，`back == r` 照样成立（两边都空），所以钉具体值。
+    rts::World w(demo_init());
+    rts::ReplayRecorder rec(w, 1);
+    const std::uint16_t wish = rts::slot_of(rts::GridPos{2, 1}, w.width());
+    rec.submit_garrison_wishes(rts::Side::Defender, &wish, 1);
+    rec.advance(1);
+    const rts::Replay r = rec.finish();
+
+    const rts::Replay back = reload(r.to_bytes());
+    REQUIRE(back.wishes().size() == 1);
+    REQUIRE(back.wishes()[0] == wish);
+    REQUIRE(back.wishes() == r.wishes());
+    bool seen_wish_record = false;
+    for (const rts::ReplayRecord& x : back.records()) {
+        if (x.kind == rts::ReplayRecordKind::GarrisonWishes) {
+            seen_wish_record = true;
+            REQUIRE(x.count == 1);
+        }
+    }
+    REQUIRE(seen_wish_record);
+
+    // 重放时这条通道真的被应用——少了它，重放的世界墙头永远是空的。
+    rts::World fresh(demo_init());
+    REQUIRE(rts::replay_verify(back, fresh).ok());
+}
+
 TEST_CASE("载荷偏移把多条记录分得开", "[replay]") {
     // 两条 Commands 记录共用一个平坦数组，靠 offset + count 切开。
     // 切错的症状是「重放时某一批命令用了邻批的字节」——不报错、只是对不上。
     rts::World w(demo_init());
     rts::ReplayRecorder rec(w, 100);
     rts::Command a[1];
-    a[0] = cmd(rts::CommandKind::SelectForce, rts::Side::Defender);
-    a[0].force = 3;
+    a[0] = cmd(rts::CommandKind::Clear, rts::Side::Defender);
+    a[0].slot = 3;
     rec.submit(rts::Side::Defender, a, 1);
     rec.advance(1);
     rts::Command b[2];
@@ -494,8 +542,9 @@ TEST_CASE("坏掉的回放文件报的是对的错", "[replay]") {
     }
     SECTION("非法的 UnitAction") {
         std::vector<unsigned char> b = good;
-        // 动作载荷在最末尾（校验和之前）。
-        b[b.size() - 9] = static_cast<unsigned char>(rts::kUnitActionCount);
+        // 动作载荷在命令载荷之后、意愿载荷与校验和之前（v4 加了意愿段，
+        // 「倒数第 9 字节」那个写法因此不再指向动作——按布局算，不猜）。
+        b[actions_begin(b)] = static_cast<unsigned char>(rts::kUnitActionCount);
         reseal(b);
         expect_load_error(b, "UnitAction");
     }

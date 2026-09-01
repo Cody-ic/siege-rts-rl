@@ -246,7 +246,9 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
     // 没变，变的是等级缩放的语义——线性改成各开一份平方根，见
     // `combat_math.hpp` 的 `level_permille`；stats/8 → stats/9：兵种等级
     // 上限落地，`global` 加 `train_ticks_permille_per_level` 与
-    // `unit_upgrade_radius`）。刻意不做向后兼容——旧 schema 的表缺新字段，
+    // `unit_upgrade_radius`；stats/9 → stats/10：编队移除，就地升级删除，
+    // `unit_upgrade_radius` 失去唯一消费者而从 schema 删掉）。刻意不做向后
+    // 兼容——旧 schema 的表缺新字段，
     // 静默补默认值正是「能跑但打不动」那种坑（这次的形态是「箭永远瞬时
     // 命中」/「溅射恒等于主伤害」/「建筑永远升不了级」/「批量升级永远推进
     // 不了」）。
@@ -254,8 +256,8 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
     // stats/7 → stats/8 那一格是「字段没变而必须进格」的先例：一张旧表在
     // 新公式下每个数都还合法，于是它会**载入成功并算出一整局不同的仗**。
     // 版本号是唯一能把这件事变成一句报错的地方（同 `kStatsShapeTag` 那条）。
-    if (schema != "stats/9") {
-        fail(origin, "`schema` = \"" + schema + "\"，本程序只认 \"stats/9\"");
+    if (schema != "stats/10") {
+        fail(origin, "`schema` = \"" + schema + "\"，本程序只认 \"stats/10\"");
     }
 
     rts::StatsTable t;
@@ -310,8 +312,7 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
             "high_ground_miss_permille", "high_ground_dmg_permille",
             "high_ground_range_bonus", "charge_bonus_permille_per_cell",
             "charge_max_cells", "anti_charge_permille",
-            "building_level_cap_divisor", "train_ticks_permille_per_level",
-            "unit_upgrade_radius"});
+            "building_level_cap_divisor", "train_ticks_permille_per_level"});
     t.global.hp_permille_per_level =
         need_i32(need(global, "hp_permille_per_level", origin, "`global`"), origin,
                  "`global.hp_permille_per_level`");
@@ -360,9 +361,6 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
     t.global.train_ticks_permille_per_level = need_i32(
         need(global, "train_ticks_permille_per_level", origin, "`global`"), origin,
         "`global.train_ticks_permille_per_level`");
-    t.global.unit_upgrade_radius =
-        need_f32(need(global, "unit_upgrade_radius", origin, "`global`"), origin,
-                 "`global.unit_upgrade_radius`");
     if (t.global.hp_permille_per_level < 0 || t.global.dmg_permille_per_level < 0) {
         fail(origin, "`global` 的等级缩放系数不得为负");
     }
@@ -428,9 +426,6 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
     }
     if (t.global.train_ticks_permille_per_level < 0) {
         fail(origin, "`global.train_ticks_permille_per_level` 不得为负");
-    }
-    if (t.global.unit_upgrade_radius < 0) {
-        fail(origin, "`global.unit_upgrade_radius` 不得为负");
     }
 
     return t;

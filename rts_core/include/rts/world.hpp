@@ -23,10 +23,10 @@
 //
 // **第二批**（经济闭环与命令解算，src/mechanics.cpp 的 tick_economy 一族）：
 //
-//   * **六种命令**：`Build`（验占位与点位、扣石+木、落工地）、`Repair`（扣木、
+//   * **五种命令**：`Build`（验占位与点位、扣石+木、落工地）、`Repair`（扣木、
 //     排工时）、`Cancel`（工地退款 / 放弃维修）、`Train`（扣金、耗时、兵营旁出兵）、
-//     `MoveForce` / `Clear`（**记入世界状态的指令**——守方单兵由脚本驱动，
-//     执行层读这两条状态、World 不代替单位走路，见各自的解算注释）
+//     `Clear`（**记入世界状态的清野指令**——守方单兵由脚本驱动，
+//     脚本读它翻译成逐单位动作，World 不代替单位砸树）
 //   * **施工与维修由工匠推进**：`b_work_ > 0` 的建筑只在守方 `Mason` 在半径内时
 //     推进工时（「点杀施工中的工匠」因此是真的能打断工期，CLAUDE.md）
 //   * **经济收入**：每结算周期，完工的采集建筑在对应资源点上产出
@@ -34,11 +34,12 @@
 //
 // **第三批**（驻守与高度优势，src/mechanics.cpp 的 tick_garrison 一族）：
 //
-//   * **`Garrison` 解算**：命令记成**按格的驻守指令**（`garrison_order_`，
-//     与 `MoveForce` / `Clear` 同一先例），指令格上有完工的 `Wall` / `Gate` 时，
-//     同编队的相邻守方单位**自动登墙**（延迟查表），一格一人、登顶后钉住；
-//     `MoveForce` 即召回（清指令 + 下墙）。**12 种命令自此全部解算**，
-//     `deferred_command_count()` 按约定已删
+//   * **驻守由逐单位的登墙意愿驱动**（2026-09 起，编队系统整体移除）：
+//     每个守方单位带一份「想登哪段墙」（`u_garrison_target_`，经
+//     `submit_garrison_wishes` 与动作同批提交）。目标格上有完工的
+//     `Wall` / `Gate`、该格无人且单位相邻时**自动登墙**（延迟查表），
+//     一格一人、登顶后钉住；意愿清空或改指别段墙即下墙。
+//     **全部命令自此都有解算**，`deferred_command_count()` 按约定已删
 //   * **高度优势**（Stronghold 三条，CLAUDE.md「防御建筑与城墙是消耗品」）：
 //     低处打墙上单位有 miss 且伤害打折、远程驻守吃射程加成（幅度全查表）；
 //     **墙血 < 一半三者一起消失**（「局部破损」的二值实现，见 `on_high_wall`）；
@@ -172,7 +173,7 @@ inline constexpr int kTgtKindCount = 4;
 
 // 「没在练兵」的哨兵（`b_train_type_` 用）。不用 0：0 是 `UnitType::Archer`，
 // 拿它当哨兵会让「没在练」与「在练弓手」在字节上不可区分——
-// 同 `kNoSlot` / `kNoForce` 不取 0 的理由（`rts/command.hpp`）。
+// 同 `kNoSlot` 不取 0 的理由（`rts/command.hpp`）。
 inline constexpr std::uint8_t kNoTrain = 0xFFu;
 
 // 「这枚弹丸是单位射的」的哨兵（`p_src_bld_` 用；否则该值是 `BldType`）。
@@ -369,10 +370,6 @@ struct UnitInit {
     std::int32_t level = kMinUnitLevel;
     std::int64_t hp = 1;
     std::int64_t max_hp = 1;
-    // 编队（第三批补）。缺它时「开局就有编制的守军」这种初始局面无从表达——
-    // 而驻守指令按编队匹配，回放里的初始状态只能由 WorldInit 表达（见上）。
-    // **编队是守方概念**（force_target_ 那段），攻方单位带编队会在构造时被拒。
-    std::uint8_t force = kNoForce;
 };
 
 struct WorldInit {
@@ -410,7 +407,7 @@ struct WorldInit {
     StatsTable stats{};
 };
 
-// ——`Command::slot` 对建造 / 维修 / 驻守这一族的编码：**格线性下标 `y*w + x`**——
+// ——`Command::slot` 对建造 / 维修这一族的编码（登墙意愿 `u_garrison_target_` 同码）：**格线性下标 `y*w + x`**——
 //
 // 这一条需要解释，因为它与 `守方AI与协同演化.md` 第 3 节说的「槽位 index，约 60 个」
 // 看起来不一样。两者的关系与「建筑四组粗化」完全同构：
@@ -492,7 +489,12 @@ inline GridPos pos_of_slot(std::uint16_t slot, int width) noexcept {
 // `u_upgrade_left_`（单位升级倒计时）与 `b_train_level_`（在训单位的目标
 // 等级，`Train` 命令选级之后要记住选了哪个，出兵那一刻才用得上），都进哈希
 // ——布局变更，不是行为变更。
-inline constexpr std::string_view kWorldHashTag = "World/11";
+// `World/11` → `World/12`：**编队系统整体移除**（2026-09，守方单兵改全自主）。
+// 删掉 `u_force_` / `selected_force_` / `force_target_` / `garrison_order_` /
+// `b_train_force_` 与 SelectForce / MoveForce / Garrison / UpgradeForce 四种
+// 命令；驻守改为逐单位的登墙意愿 `u_garrison_target_`（进哈希）；兵种就地升级
+// 随之移除（`u_upgrade_left_` 删，升级只经 `Train` 选级）。布局与行为双重变更。
+inline constexpr std::string_view kWorldHashTag = "World/12";
 
 class WorldView;
 
@@ -557,11 +559,15 @@ public:
     // 长度错位的症状是「每个单位都拿到邻居的动作」——不报错、不崩、只是学不动。
     void submit_actions(Side side, const UnitAction* actions, std::size_t count);
 
-    // 让指定单位离开驻守槽位。它服务玩家的单兵拖拽命令：只撤销这些单位
-    // 所在墙段的常设驻守令，不改变编队归属，也不召回同编队的其他驻守者。
-    // 已阵亡的旧句柄会被跳过（玩家选中后单位可能在落令前阵亡）；其余先整批
-    // 校验阵营，再整批执行，避免活单位半批生效。
-    void recall_units(Side side, std::span<const UnitId> ids);
+    // 提交每个守方单位的「登墙意愿」：与 `submit_actions` 同序、同长度，
+    // 值是墙段格线性下标，`kNoSlot` = 不想登。
+    //
+    // 守方单兵逻辑（DefenderScript）每决策拍决定谁该上哪段墙；登墙动作本身
+    // 不在 `UnitAction` 里（避免给攻方动作空间开按侧分叉的口子），所以用这个
+    // 并行通道表达。World 的 `tick_garrison` 读到非空目标且单位相邻墙段时
+    // 自动开始登墙。
+    void submit_garrison_wishes(Side side, const std::uint16_t* targets,
+                                std::size_t count);
 
     // 推进 `ticks` 个 tick。`ticks == 0` 是合法的空操作。
     //
@@ -576,8 +582,9 @@ public:
     //      撞上可破坏阻挡物自动承诺破坏；**驻守与在爬的被钉住**；
     //      冲锋动量在此累计（站停 / 撞停而未承诺出手 ⇒ 归零）；
     //      守方地面单位可穿行完工的 `Gate`（第六批，实体拦路的唯一例外）
-    //   4. 驻守：在爬的推进上墙延迟、到 0 落位墙心；有指令的墙格
-    //      从同编队相邻单位里按槽位序挑一名开始登墙
+    //   4. 驻守：在爬的推进上墙延迟、到 0 落位墙心；按槽位序受理每个单位的
+    //      登墙意愿 `u_garrison_target_`——意愿改指别段墙或已清空就下墙；
+    //      在地面、相邻目标墙格（完工且无人）就开始登墙
     //   5. 建筑战斗（`Tower` 对地 / `Flak` 对空；**未完工不开火**；
     //      齐射的落点在承诺那一刻锁定）
     //   6. 弹丸飞行与命中：追踪的刷新目的地（目标死了箭落空）、齐射的飞向
@@ -679,31 +686,19 @@ public:
         return composition_[static_cast<std::size_t>(t)];
     }
     bool spawn_chosen(std::size_t spawn_index) const;
-    std::uint8_t selected_force(Side side) const noexcept {
-        return selected_force_[static_cast<std::size_t>(index_of(side))];
-    }
 
     // ——守方指令状态（第二批）——
     //
-    // `MoveForce` / `Clear` 解算成**世界状态**而不是「World 代替单位走路」：
-    // 守方单兵由参数化脚本驱动（CLAUDE.md「守方 RL 只在决策层」），脚本每个
-    // 决策步从这里读指令、翻译成逐单位的 `UnitAction`。存在 `World` 里而不是
-    // 让脚本自己截听命令流，是因为命令可能由另一个模块提交（人类 UI、
-    // 决策层 RL 经 bindings），脚本唯一稳定可读的汇合点就是世界状态。
-    // `selected_force_` 早已是这个形态，这两条只是跟上先例。
-    std::uint16_t force_target(std::uint8_t force) const noexcept {
-        return force_target_[force];
-    }
+    // `Clear` 解算成**世界状态**而不是「World 代替单位砸树」：守方单兵由
+    // 参数化脚本驱动（CLAUDE.md「守方 RL 只在决策层」），脚本每个决策步从这里
+    // 读指令、翻译成逐单位的 `UnitAction`。存在 `World` 里而不是让脚本自己
+    // 截听命令流，是因为命令可能由另一个模块提交（人类 UI、决策层 RL 经
+    // bindings），脚本唯一稳定可读的汇合点就是世界状态。
     bool obstacle_clear_ordered(ObstacleId id) const;
 
-    // 某个格上的驻守指令（`Garrison` 的解算产物，第三批）。值是编队号，
-    // `kNoForce` = 没下过。它是**常设指令**：驻守者阵亡后同编队的相邻单位会
-    // 自动补位，直到 `MoveForce` 召回或那段墙被拆。
-    std::uint8_t garrison_order(std::uint16_t slot) const;
-
     // `deferred_command_count()` 曾在这里：未解算的命令按种类记账，
-    // 好让「本版没做这一类」是可断言的事实。第三批解算掉最后一种（`Garrison`），
-    // 计数器按当初的约定一并删除——12 种命令自此全部解算。
+    // 好让「本版没做这一类」是可断言的事实。第三批解算掉最后一种（驻守），
+    // 计数器按当初的约定一并删除——全部命令自此都有解算。
 
     // ——迷雾（决定 ⑥）——
     //
@@ -744,12 +739,10 @@ public:
 
     // 当前允许的兵种等级上限——**直接等于堡垒等级，没有除数**（`波次预算曲线与
     // 堡垒等级曲线.md` §2：这条与 `building_level_cap()` 的公式来源本来就
-    // 不同，不是漏抄）。`apply_one` 校验 `Train`/`UpgradeForce`、`WorldView`
-    // 给 UI 的提示都调它。
+    // 不同，不是漏抄）。`apply_one` 校验 `Train`、`WorldView` 给 UI 的提示都调它。
     std::int32_t unit_level_cap() const noexcept;
 
-    // 造价/耗时曲线：`Train`（初次征兵）与 `UpgradeForce`（已有部队补差价）
-    // 共用同一对公式，**这是唯一算它们的地方**（同 `building_level_cap()`
+    // 造价/耗时曲线：`Train` 选级征兵的唯一计算公式（同 `building_level_cap()`
     // 那条「两处算法分叉是绿框骗人的来源」的纪律）。`cost_gold(L) = base × L`
     // 是纯线性；`train_ticks(L)` 走千分比系数，语义与实现见
     // `stats.hpp` 的 `train_ticks_permille_per_level`。
@@ -779,7 +772,7 @@ private:
     ObstacleId place_obstacle(ObstacleType type, GridPos pos, std::int64_t hp,
                               std::int64_t max_hp);
 
-    void apply_one(Side side, const Command& c);
+    void apply_one(const Command& c);
     void validate(Side side, const Command& c) const;
 
     // ——机制第一批的内部阶段（实现在 src/mechanics.cpp）——
@@ -827,24 +820,10 @@ private:
     // `tick_economy`（倒计时归零）共用这一个实现，避免两处各推一遍公式。
     void finish_upgrade(std::size_t k);
 
-    // ——兵种等级上限（守方升级轴第三个输出）——
-
-    // `mason_near` 的反过来版本：给定坐标附近是否有己方**完工**的
-    // `Barrack` 或 `Keep`（半径查 `unit_upgrade_radius`）。已有部队批量升级
-    // 靠它判「须在 Barrack/Keep」——命令提交时判一次（`slot` 必须是这样一座
-    // 建筑），`tick_economy` 每 tick 再判一次（离场就停，同工匠离场停工）。
-    bool barrack_near(Vec2 pos) const;
-
-    // 单位升级到账：等级 +1、按新等级重算 `max_hp`、**按比例换算血量**——
-    // 与 `finish_upgrade`（建筑，补满）刻意不同：一个正在被追杀的半血单位
-    // 不该靠「正好在升级」变成免费回满，见 `mechanics.cpp` 该函数实现处的
-    // 完整理由。`apply_one` 的 `UpgradeForce`（工期 <= 0，当场完工）与
-    // `tick_economy`（倒计时归零）共用这一个实现。
-    void finish_unit_upgrade(std::size_t k);
-
     // ——机制第三批的内部阶段与助手（同在 src/mechanics.cpp）——
 
-    // 驻守解算：在爬的推进延迟、到 0 落位墙心；有指令的墙格挑人开始登墙。
+    // 驻守解算：在爬的推进延迟、到 0 落位墙心；按逐单位的登墙意愿
+    // （`u_garrison_target_`）受理登墙与下墙。
     void tick_garrison();
     // 槽位 `k` 上的单位是否**站在有高度的墙上**：已登顶，且脚下的墙活着、
     // 血量 >= 一半。三条高度优势（miss / 减伤 / 远程射程加成）共用这一个判据
@@ -857,7 +836,7 @@ private:
     // 通则仍由 UnitBehavior 承担；唯一需要世界上下文的例外是墙上 Archer 对空。
     bool unit_can_engage(std::size_t k, UnitType target) const;
     // 让槽位 `k` 上的单位离开墙（含还在爬的）。已登顶的落到第一个空邻格；
-    // 邻格全被占则**保持驻守**（确定性无操作，下一条 MoveForce 可再试）——
+    // 邻格全被占则**保持驻守**（确定性无操作，登墙意愿再发一次可再试）——
     // 墙格几乎总有空邻格（校验器要求墙有内外两侧），这条边界不值得一个重试态。
     void dismount_unit(std::size_t k);
 
@@ -936,17 +915,16 @@ private:
     std::vector<std::int32_t> u_windup_;      // 攻击前摇剩余 tick，0 = 可出手
     std::vector<UnitAction> u_action_;        // 上个决策边界选的动作，保持 4–8 tick
     std::vector<std::uint16_t> u_garrison_;   // 驻守的墙段槽位，kNoSlot = 没上墙
+    // 登墙意愿：想登哪段墙（`submit_garrison_wishes` 逐拍提交），kNoSlot = 不想登。
+    // 与 `u_garrison_`（已在哪段墙上）是两份状态：意愿是输入，驻守是结果——
+    // 脚本每个决策拍重发一次，「补位」因此是脚本的事，世界不持常设指令。
+    std::vector<std::uint16_t> u_garrison_target_;
     std::vector<std::int32_t> u_mount_;       // 上墙延迟剩余；>0 = 在爬（人还在地面）
     std::vector<float> u_charge_;             // 冲锋动量（已助跑格数）；非 Charge 恒 0
-    std::vector<std::uint8_t> u_force_;       // 编队，kNoForce = 未编队
     std::vector<std::int32_t> u_cd_;          // 出手冷却剩余 tick，0 = 可承诺
     std::vector<TgtKind> u_tgt_kind_;         // 已承诺攻击的目标种类，None = 空闲
     std::vector<std::uint32_t> u_tgt_raw_;    // 目标句柄的 raw()，种类由上一条判别
     std::vector<Vec2> u_aim_;                 // 锁定落点（承诺那一刻定死）
-    // ——兵种等级上限（守方升级轴第三个输出）——
-    // 升级倒计时，0 = 没在升。与建筑那边的 `b_upgrade_left_` 同一条形状，
-    // 但没有互斥字段要查——单位没有"在建/在修"的概念，不需要额外判断。
-    std::vector<std::int32_t> u_upgrade_left_;
 
     // ——建筑（全部属守方，见 `rts/roster.hpp`：不存 side）——
     SlotPool<BldTag> bld_pool_;
@@ -965,7 +943,6 @@ private:
     // 征兵状态（`Barrack` / `Keep`，一次一名）。kNoTrain = 没在练。
     std::vector<std::uint8_t> b_train_type_;
     std::vector<std::int32_t> b_train_left_;
-    std::vector<std::uint8_t> b_train_force_;   // 出兵后编入哪个编队
     std::vector<std::int32_t> b_train_level_;   // 出兵等级（`Train` 命令的 c.level）
     // ——建筑等级上限（守方升级轴第一个输出）——
     // 1 起。`Keep` 不受 `building_level_cap()` 约束，其余建筑受它约束。
@@ -1007,17 +984,6 @@ private:
     std::array<std::int64_t, kResourceCount> stock_{};
     std::array<std::uint16_t, kUnitTypeCount> composition_{};
     std::vector<std::uint8_t> spawn_chosen_;
-    std::array<std::uint8_t, kSideCount> selected_force_{kNoForce, kNoForce};
-    // 编队去处（`MoveForce` 的解算产物，脚本执行层的输入）。下标是编队号
-    // （0..254；kNoForce = 0xFF 那格永不写），值是格线性下标，kNoSlot = 没下过。
-    // 定长而不是 map：256 × 2 字节，整块进哈希，零判断。编队是守方概念，
-    // 攻方宏观层不用它，所以不按侧参数化。
-    std::array<std::uint16_t, 256> force_target_;
-    // 按格的驻守指令（`Garrison` 的解算产物，第三批）。下标是格线性下标，
-    // 值是编队号，kNoForce = 没下过。按格而不按编队存，因为一个编队要能同时
-    // 驻守多个墙格（一格一人）——按编队存一个槽位，第二条指令就会覆盖第一条。
-    // 这与 Build / Repair / Clear 同构：它们全是按格的命令。
-    std::vector<std::uint8_t> garrison_order_;
 
     // ——输入队列——
     std::array<std::vector<Command>, kSideCount> cmd_queue_;
