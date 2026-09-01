@@ -131,8 +131,9 @@ World::TargetPick World::pick_target(std::size_t k, UnitAction a) const {
                 if (s == k) continue;
                 const UnitType their = u_type_[s];
                 if (side_of(their) == my_side) continue;
-                // 结构判定：无战力打不了任何东西；没有单位能对空。
-                if (!beh.can_engage(their)) continue;
+                // 通则由 behavior 给；驻守上下文的唯一例外是已登上
+                // 墙段的 Archer 可以对空。
+                if (!unit_can_engage(k, their)) continue;
                 const float d2 = dist2(my_pos, u_pos_[s]);
                 const bool better =
                     !best.found ||
@@ -338,7 +339,7 @@ void World::land_attack(std::size_t k) {
         for (std::size_t t = 0; t < unit_pool_.slot_count(); ++t) {
             if (!unit_pool_.alive_at(static_cast<std::uint16_t>(t))) continue;
             if (t == k) continue;
-            if (!beh.can_engage(u_type_[t])) continue;
+            if (!unit_can_engage(k, u_type_[t])) continue;
             if (dist2(u_pos_[t], aim) > r2) continue;
             if (misses_high(t)) continue;
             deal_damage(TgtKind::Unit,
@@ -612,6 +613,12 @@ float World::effective_range(std::size_t k) const {
         r += stats_.global.high_ground_range_bonus;
     }
     return r;
+}
+
+bool World::unit_can_engage(std::size_t k, UnitType target) const {
+    if (behavior_of(u_type_[k]).can_engage(target)) return true;
+    return u_type_[k] == UnitType::Archer && is_aerial(target) &&
+           u_garrison_[k] != kNoSlot && u_mount_[k] == 0;
 }
 
 // 让槽位 `k` 上的单位离开墙。在爬的直接解除（人本来就还在地面原位）；

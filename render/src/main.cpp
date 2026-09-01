@@ -85,6 +85,72 @@ void fatal(const std::string& msg) {
     std::fprintf(stderr, "失败：%s\n", msg.c_str());
 }
 
+// 驻守单位在仿真里仍位于墙格中心，画面上却按墙素材抬到了墙头。选中圈与
+// 鼠标拾取必须复用同一份抬升量，否则玩家会看见人，却只能点到其脚下的地面。
+std::string_view stand_sprite_at(const rts::WorldView& view,
+                                 std::uint16_t wall_slot) noexcept {
+    const rts::GridPos wall = rts::pos_of_slot(wall_slot, view.width());
+    const auto alive = view.bld_alive();
+    const auto type = view.bld_type();
+    const auto pos = view.bld_pos();
+    for (std::size_t k = 0; k < pos.size(); ++k) {
+        if (alive[k] && pos[k] == wall) return rts::ident_of(type[k]);
+    }
+    return {};
+}
+
+rts::Vec2 unit_draw_anchor(const rts::WorldView& view, std::size_t unit_slot,
+                           const game::IsoProjection& proj,
+                           render::SpriteAtlas& atlas) {
+    rts::Vec2 p = proj.world_to_screen(view.unit_pos()[unit_slot]);
+    const auto garrison = view.unit_garrison();
+    const auto mount = view.unit_mount();
+    if (garrison[unit_slot] != rts::kNoSlot && mount[unit_slot] == 0) {
+        const std::string_view stand = stand_sprite_at(view, garrison[unit_slot]);
+        if (!stand.empty()) p.y -= atlas.stand_lift_px(stand);
+    }
+    return p;
+}
+
+std::optional<rts::UnitId> pick_garrisoned_unit(
+    const rts::WorldView& view, const std::vector<rts::UnitId>& defenders,
+    const game::IsoProjection& proj, render::SpriteAtlas& atlas, Vector2 world_mouse) {
+    const auto type = view.unit_type();
+    const auto garrison = view.unit_garrison();
+    const auto mount = view.unit_mount();
+    std::optional<rts::UnitId> best;
+    float best_d2 = 0.0f;
+
+    for (const rts::UnitId id : defenders) {
+        const std::size_t k = id.index();
+        if (garrison[k] == rts::kNoSlot || mount[k] != 0) continue;
+        const rts::Vec2 foot = unit_draw_anchor(view, k, proj, atlas);
+        const render::Sprite& sprite =
+            atlas.get(rts::ident_of(type[k]), "idle", "SE");
+
+        // 精灵画布包含透明留白，整张画布做 hit box 会让相邻墙段互相抢点击。
+        // 拾取区取角色躯干附近；比例随素材画布与锚点缩放，不复制具体像素。
+        const float half_w = static_cast<float>(sprite.texture.width) * 0.22f;
+        const float top = foot.y - sprite.ground_anchor.y * 0.62f;
+        const float bottom = foot.y +
+                             (static_cast<float>(sprite.texture.height) -
+                              sprite.ground_anchor.y) * 0.20f;
+        const Rectangle hit{foot.x - half_w, top, half_w * 2.0f, bottom - top};
+        if (!CheckCollisionPointRec(world_mouse, hit)) continue;
+
+        const float cx = foot.x;
+        const float cy = (top + bottom) * 0.5f;
+        const float dx = world_mouse.x - cx;
+        const float dy = world_mouse.y - cy;
+        const float d2 = dx * dx + dy * dy;
+        if (!best || d2 < best_d2) {
+            best = id;
+            best_d2 = d2;
+        }
+    }
+    return best;
+}
+
 struct Options {
     std::string map_path;
     std::string sprite_dir;
@@ -714,6 +780,7 @@ int run_game(const Options& opt) {
     int train_level_sel = 1;
     std::vector<rts::UnitId> selected;   // 框选 / 点选出的己方单位
     bool dragging = false;
+    std::optional<rts::UnitId> dragged_garrison;   // 有值 = 从墙头拖兵；空 = 普通框选
     Vector2 drag_screen_start{};   // 屏幕坐标：用位移量判断「点」还是「拖」
     Vector2 drag_world_start{};    // 世界像素坐标：拖动结束时拼框选矩形
     constexpr float kDragThreshold = 6.0f;   // 像素；小于它算「点」不算「拖」
@@ -934,17 +1001,27 @@ int run_game(const Options& opt) {
         if (shell.screen() == game::Screen::Battle && b != nullptr) {
             const rts::WorldView v = b->world().view(rts::Side::Defender);
             // 选中集：每个单位脚下画一个小圈，框选/点选的即时反馈。
-            const auto upos = v.unit_pos();
             const auto ualive = v.unit_alive();
             for (const rts::UnitId id : selected) {
                 const std::size_t s = id.index();
                 if (s >= ualive.size() || !ualive[s]) continue;
-                const rts::Vec2 sp = proj.world_to_screen(upos[s]);
+                const rts::Vec2 sp = unit_draw_anchor(v, s, proj, atlas);
                 DrawCircleLines(static_cast<int>(sp.x), static_cast<int>(sp.y), 14.0f,
                                 Color{255, 214, 120, 235});
             }
-            // 框选矩形：拖拽中才画，世界像素坐标（camera 会自动套变换）。
-            if (dragging) {
+            // 空地起手是框选；墙头士兵起手则画一条调兵线，终点就是下墙后的
+            // 单兵目标格。两种手势共用左键拖拽，但反馈形状明确区分。
+            if (dragging && dragged_garrison) {
+                const Vector2 cur = GetScreenToWorld2D(GetMousePosition(), cam.camera());
+                const std::size_t s = dragged_garrison->index();
+                if (s < ualive.size() && ualive[s]) {
+                    const rts::Vec2 from = unit_draw_anchor(v, s, proj, atlas);
+                    DrawLineEx(Vector2{from.x, from.y}, cur, 3.0f / cam.camera().zoom,
+                               Color{255, 214, 120, 220});
+                    DrawCircleLines(static_cast<int>(cur.x), static_cast<int>(cur.y), 10.0f,
+                                    Color{255, 214, 120, 220});
+                }
+            } else if (dragging) {
                 const Vector2 cur = GetScreenToWorld2D(GetMousePosition(), cam.camera());
                 const float x0 = drag_world_start.x < cur.x ? drag_world_start.x : cur.x;
                 const float y0 = drag_world_start.y < cur.y ? drag_world_start.y : cur.y;
@@ -1053,6 +1130,7 @@ int run_game(const Options& opt) {
             popup = Popup{};
             selected.clear();
             dragging = false;
+            dragged_garrison.reset();
             train_force_sel = 0;
         }
 
@@ -1171,30 +1249,46 @@ int run_game(const Options& opt) {
                     }
                     popup = Popup{};   // 点中选项或点在菜单外：都关掉
                 }
-            } else if (in_map && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-                // 按下先不动作：拖没拖开、拖到哪，要等松开才知道。
-                dragging = true;
-                drag_screen_start = mouse;
-                drag_world_start = wpos;
+            } else if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                // 墙头士兵按其**画出来的位置**拾取；命中它就是单兵拖动，
+                // 否则地图内照旧进入框选/点建筑流程。
+                std::vector<rts::UnitId> defenders;
+                b->world().enumerate_units(rts::Side::Defender, defenders);
+                dragged_garrison = pick_garrisoned_unit(
+                    view, defenders, proj, atlas, wpos);
+                if (dragged_garrison || in_map) {
+                    dragging = true;
+                    drag_screen_start = mouse;
+                    drag_world_start = wpos;
+                    if (dragged_garrison) selected = {*dragged_garrison};
+                }
             } else if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT) && dragging) {
                 dragging = false;
+                const std::optional<rts::UnitId> dragged = dragged_garrison;
+                dragged_garrison.reset();
                 const float ddx = mouse.x - drag_screen_start.x;
                 const float ddy = mouse.y - drag_screen_start.y;
                 if (ddx * ddx + ddy * ddy > kDragThreshold * kDragThreshold) {
-                    // 拖：框选。矩形用世界像素坐标拼，与 `units_in_rect` 同一套。
-                    const float x0 = drag_world_start.x < wpos.x ? drag_world_start.x
-                                                                 : wpos.x;
-                    const float y0 = drag_world_start.y < wpos.y ? drag_world_start.y
-                                                                 : wpos.y;
-                    const float x1 = drag_world_start.x > wpos.x ? drag_world_start.x
-                                                                 : wpos.x;
-                    const float y1 = drag_world_start.y > wpos.y ? drag_world_start.y
-                                                                 : wpos.y;
-                    std::vector<rts::UnitId> ids;
-                    b->world().enumerate_units(rts::Side::Defender, ids);
-                    selected = game::units_in_rect(
-                        view, ids, proj, game::Rect{x0, y0, x1 - x0, y1 - y0});
-                } else if (in_map) {
+                    if (dragged && in_map) {
+                        const rts::UnitId one[] = {*dragged};
+                        b->issue_move_order(one, cell);
+                        selected.assign(one, one + 1);
+                    } else if (!dragged) {
+                        // 普通拖拽：框选。矩形用世界像素坐标拼。
+                        const float x0 = drag_world_start.x < wpos.x ? drag_world_start.x
+                                                                     : wpos.x;
+                        const float y0 = drag_world_start.y < wpos.y ? drag_world_start.y
+                                                                     : wpos.y;
+                        const float x1 = drag_world_start.x > wpos.x ? drag_world_start.x
+                                                                     : wpos.x;
+                        const float y1 = drag_world_start.y > wpos.y ? drag_world_start.y
+                                                                     : wpos.y;
+                        std::vector<rts::UnitId> ids;
+                        b->world().enumerate_units(rts::Side::Defender, ids);
+                        selected = game::units_in_rect(
+                            view, ids, proj, game::Rect{x0, y0, x1 - x0, y1 - y0});
+                    }
+                } else if (in_map && !dragged) {
                     // 点（没拖开）：这一格能不能弹出菜单。**练兵优先于维修**——
                     // 能练兵的格子（完工的兵营/堡垒、没在练）一律走 Train 弹窗，
                     // 维修选项由 `popup_options` 按需插进那份清单最前面，两者
