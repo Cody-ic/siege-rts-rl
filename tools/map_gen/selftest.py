@@ -1759,10 +1759,10 @@ def _ref_cfg(**over):
         # 不改变这批既有用例的既有行为，只是把新增的必填字段补上。
         initial_breaches=[1, 1],
         wall_hp_frac_range=[0.5, 0.5],
-        forest_patches=[6, 6],
-        forest_patch_size=[4, 8],
-        rock_patches_range=[3, 3],
-        rock_patch_size=[4, 10],
+        forest_patches=[12, 12],
+        forest_patch_size=[3, 5],
+        rock_patches_range=[6, 6],
+        rock_patch_size=[3, 6],
         water_lakes_range=[0, 0],
         water_lake_size=[0, 0],
         rivers_range=[0, 0],
@@ -1881,6 +1881,73 @@ def check_generator_cluster_invariants(c):
          f"簇距 {dists} 必须随簇序（= 距带序号）递增")
 
 
+def check_generator_forest_belts_meander(c):
+    """资源簇森林带必须连到边界、4 连通，并且不能退化成笔直单格线（#117）。"""
+    cv = generate.Canvas(32)
+    belt = generate._carve_forest_belt(
+        cv, (19, 14), (1, 1), [], random.Random(20260901))
+
+    c.true(bool(belt), "空地图上的森林带必须成功生成")
+    if not belt:
+        return
+    c.true(any(x in (0, cv.size - 1) or y in (0, cv.size - 1) for x, y in belt),
+           "森林带必须触达地图边界")
+    c.true(len({x for x, _ in belt}) > 1 and len({y for _, y in belt}) > 1,
+           f"森林带不得横平竖直，实际 {belt}")
+
+    remaining = set(belt)
+    stack = [remaining.pop()]
+    seen = set(stack)
+    while stack:
+        x, y = stack.pop()
+        for nb in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+            if nb in remaining:
+                remaining.remove(nb)
+                seen.add(nb)
+                stack.append(nb)
+    c.eq(len(seen), len(set(belt)), f"森林带必须保持 4 连通，实际 {belt}")
+
+    core_span = max(len({x for x, _ in belt}), len({y for _, y in belt}))
+    c.true(len(set(belt)) >= core_span + 4,
+           f"森林带应有足够转折，不能仍读成细直线，实际 {belt}")
+
+
+def check_generator_wild_patches_are_small_and_separate(c):
+    """野外森林/岩壁应是各处分散的小撮，不能相邻粘成大团（#117）。"""
+    cfg = SimpleNamespace(
+        city_radius=10,
+        forest_patches=[12, 12], forest_patch_size=[3, 5],
+        rock_patches=6, rock_patch_size=[3, 6])
+    cv = generate.Canvas(72)
+    generate.scatter_wild_terrain(cv, cfg, random.Random(20260902))
+
+    eight = ((1, 0), (-1, 0), (0, 1), (0, -1),
+             (1, 1), (1, -1), (-1, 1), (-1, -1))
+    limits = {"Forest": 5, "Rock": 6}
+    for kind, upper in limits.items():
+        remaining = {(x, y) for y in range(cv.size) for x in range(cv.size)
+                     if cv.at(x, y) == kind}
+        components = []
+        while remaining:
+            start = min(remaining)
+            remaining.remove(start)
+            stack = [start]
+            comp = {start}
+            while stack:
+                x, y = stack.pop()
+                for dx, dy in eight:
+                    nb = (x + dx, y + dy)
+                    if nb in remaining:
+                        remaining.remove(nb)
+                        comp.add(nb)
+                        stack.append(nb)
+            components.append(comp)
+        c.true(bool(components), f"{kind} 至少应生成一小撮")
+        for comp in components:
+            c.true(3 <= len(comp) <= upper,
+                   f"{kind} 小撮大小应为 3--{upper}，实际 {sorted(comp)}")
+
+
 def check_generator_inner_content(c):
     """`place_inner_content`：两片 3 格 L 形森林（4 连通、不贴墙）、
     资源构成 2 石/2 金/1–2 木、**堡垒周围 3 格净空**（demo_init 会在
@@ -1970,6 +2037,53 @@ def check_generator_buildings_legal(c):
            f"采石场 {bld['Quarry'][0]} 必须精确踩在石点上（第 24 条豁免）")
     c.true(bld["Mine"][0] in gold,
            f"金矿场 {bld['Mine'][0]} 必须精确踩在金点上（第 24 条豁免）")
+
+
+def check_generator_obstacles_outside_and_grouped(c):
+    """可破坏树石只在城外，并同时覆盖单体与同类小团两种形态（#117）。"""
+    cfg = _ref_cfg(obstacles=[16, 16])
+    th = thresholds.load().profile("strict")
+    cv = generate.Canvas(cfg.size)
+    rng = random.Random(90901)
+    r = generate._resolve(cfg, rng)
+    sides = rng.sample(list(generate._SIDES), r.spawn_count)
+    generate.place_ring_walls(cv, r, rng)
+    generate.place_spawns(cv, r, th, rng, sides)
+    generate.place_inner_content(cv, r, rng)
+    generate.place_outer_clusters(cv, r, rng)
+    generate.scatter_wild_terrain(cv, r, rng)
+    groups = generate.place_obstacles(cv, r, rng)
+
+    c.eq(len(cv.obstacles), 16, "空位充足时应落满配置要求的障碍数量")
+    sizes = [len(g["cells"]) for g in groups]
+    c.true(1 in sizes, f"障碍组 {sizes} 中必须有单体")
+    c.true(any(n > 1 for n in sizes), f"障碍组 {sizes} 中必须有小团")
+    kinds = {g["type"] for g in groups}
+    c.true("Rubble" in kinds, f"障碍类型 {sorted(kinds)} 中必须有石堆")
+    c.true(bool(kinds & {"Stump", "Sapling"}),
+           f"障碍类型 {sorted(kinds)} 中必须有树木")
+
+    kx, ky = cv.keep
+    for group in groups:
+        cells = group["cells"]
+        c.true(1 <= len(cells) <= 3, f"障碍组大小应为 1--3，实际 {cells}")
+        for x, y in cells:
+            c.true(max(abs(x - kx), abs(y - ky)) >= r.city_radius + 2,
+                   f"障碍 {(x, y)} 落进城墙或缓冲区")
+            c.true(not any(max(abs(x - sx), abs(y - sy)) <= 1
+                           for sx, sy in cv.spawns),
+                   f"障碍 {(x, y)} 压到集结点邻域")
+        if len(cells) > 1:
+            seen = {cells[0]}
+            stack = [cells[0]]
+            while stack:
+                x, y = stack.pop()
+                for px, py in cells:
+                    if ((px, py) not in seen
+                            and max(abs(px - x), abs(py - y)) == 1):
+                        seen.add((px, py))
+                        stack.append((px, py))
+            c.eq(len(seen), len(cells), f"同组障碍必须 8 连通，实际 {cells}")
 
 
 def check_generator_water(c):
@@ -2166,8 +2280,11 @@ GROUPS = [
     ("生成器产出合法地图 + 城圈完整性", check_generator_produces_valid_maps),
     ("生成器散布不得压墙/门与集结点邻域", check_generator_scatter_avoids),
     ("生成器资源簇不变量（间距/种类/金矿/距递增）", check_generator_cluster_invariants),
+    ("生成器资源森林带自然转折且保持连通", check_generator_forest_belts_meander),
+    ("生成器野外树石保持小撮且彼此分隔", check_generator_wild_patches_are_small_and_separate),
     ("生成器城内内容（净空区/森林/构成）", check_generator_inner_content),
     ("生成器预置建筑合法", check_generator_buildings_legal),
+    ("生成器可破坏树石只在城外且有单体/小团", check_generator_obstacles_outside_and_grouped),
     ("生成器水域与桥（留白 1 作废）", check_generator_water),
     ("生成器确定：同种子同图、异种子异图", check_generator_is_deterministic),
     ("生成器的丢弃与否决计数真的工作", check_generator_discard_reporting_works),
