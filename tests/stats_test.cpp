@@ -117,6 +117,11 @@ TEST_CASE("数值表指纹：值同则同，任一格变则变", "[stats]") {
         c.global.income_period_ticks += 1;
         REQUIRE(c.fingerprint() != a.fingerprint());
     }
+    {
+        rts::StatsTable c = filled_table();
+        c.global.demolish_refund_permille += 1;
+        REQUIRE(c.fingerprint() != a.fingerprint());
+    }
     // 第三批（驻守与高度优势）的四个全局字段。整数抽一格、浮点单独一格——
     // 浮点走的是 feed_f32 那条按位喂入的路，漏喂时症状与整数那组不同。
     {
@@ -290,7 +295,7 @@ TEST_CASE("载入器：手误不得静默落回默认值", "[stats]") {
 
     // 漏一个兵种：报错点名 `units.Ram`，不是「能跑但 Ram 打不动」。
     REQUIRE_THROWS_AS(game::StatsLoader::from_string(R"({
-        "schema": "stats/10",
+        "schema": "stats/11",
         "units": {}, "buildings": {}, "obstacles": {}, "global": {}
     })"),
                       game::StatsFormatError);
@@ -326,11 +331,13 @@ TEST_CASE("载入器：手误不得静默落回默认值", "[stats]") {
     // 一张 stats/9 的表多一个认不出的键、少一格版本号，同样被拒。
     REQUIRE_THROWS_AS(game::StatsLoader::from_string(R"({"schema": "stats/9"})"),
                       game::StatsFormatError);
+    REQUIRE_THROWS_AS(game::StatsLoader::from_string(R"({"schema": "stats/10"})"),
+                      game::StatsFormatError);
 
     // 认不出的键（拼错）：`cooldown_tick` 少个 s。静默忽略的话它落回默认值 1。
     REQUIRE_THROWS_AS(
         game::StatsLoader::from_string(R"({
-        "schema": "stats/10",
+        "schema": "stats/11",
         "units": { "Archer": { "max_hp": 1, "damage": 0, "range": 0, "speed": 0,
                                "vision": 0, "windup_ticks": 0, "cooldown_tick": 5,
                                "vs_structure_permille": 0, "aoe_radius": 0, "proj_speed": 0,
@@ -344,7 +351,7 @@ TEST_CASE("载入器：手误不得静默落回默认值", "[stats]") {
     // （新字段要写全——否则先撞上的是「缺少字段」，测的就不是下界了。）
     REQUIRE_THROWS_AS(
         game::StatsLoader::from_string(R"({
-        "schema": "stats/10",
+        "schema": "stats/11",
         "units": { "Archer": { "max_hp": 0, "damage": 0, "range": 0, "speed": 0,
                                "vision": 0, "windup_ticks": 0, "cooldown_ticks": 1,
                                "vs_structure_permille": 0, "aoe_radius": 0, "proj_speed": 0,
@@ -362,7 +369,7 @@ TEST_CASE("载入器：手误不得静默落回默认值", "[stats]") {
     // 那条先例（下一条）。**这是本次唯一新增的载入不变量。**
     REQUIRE_THROWS_AS(
         game::StatsLoader::from_string(R"({
-        "schema": "stats/10",
+        "schema": "stats/11",
         "units": {}, "buildings": {}, "obstacles": {},
         "global": { "hp_permille_per_level": 220, "dmg_permille_per_level": 150 }
     })"),
@@ -373,7 +380,7 @@ TEST_CASE("载入器：手误不得静默落回默认值", "[stats]") {
     // 圈内主目标和溅射单位吃同一份伤害）。
     REQUIRE_THROWS_AS(
         game::StatsLoader::from_string(R"({
-        "schema": "stats/10",
+        "schema": "stats/11",
         "units": { "Archer": { "max_hp": 1, "damage": 1, "range": 0, "speed": 0,
                                "vision": 0, "windup_ticks": 0, "cooldown_ticks": 1,
                                "vs_structure_permille": 0, "aoe_radius": 1.0, "proj_speed": 0,

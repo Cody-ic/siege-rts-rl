@@ -52,7 +52,7 @@ std::uint64_t StatsTable::fingerprint() const noexcept {
     h.feed_f32(global.mason_work_radius);
     h.feed_pod(global.repair_hp_per_work_tick);
     h.feed_pod(global.repair_wood_per_1000hp);
-    h.feed_pod(global.cancel_refund_permille);
+    h.feed_pod(global.demolish_refund_permille);
     h.feed_pod(global.garrison_mount_ticks);
     h.feed_pod(global.high_ground_miss_permille);
     h.feed_pod(global.high_ground_dmg_permille);

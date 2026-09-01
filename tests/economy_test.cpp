@@ -68,7 +68,7 @@ rts::StatsTable econ_stats() {
     t.global.mason_work_radius = 1.6f;
     t.global.repair_hp_per_work_tick = 5;
     t.global.repair_wood_per_1000hp = 100;   // 缺 20 血 ⇒ ceil(20×100/1000) = 2 木
-    t.global.cancel_refund_permille = 600;
+    t.global.demolish_refund_permille = 800;
     t.global.building_level_cap_divisor = 2;   // 与占位表同值：每 2 级堡垒开 1 级上限
     return t;
 }
@@ -320,12 +320,12 @@ TEST_CASE("Repair：扣木排工时，工匠在场修满；不够木或满血都
     REQUIRE(wood(w) == 3);
 }
 
-TEST_CASE("Cancel：撤工地按表比例退款，放弃维修不退；对完好建筑无操作", "[econ]") {
+TEST_CASE("Cancel：撤销未完工建筑全额退款，放弃维修不退；对完好建筑无操作", "[econ]") {
     rts::World w(arena());
     w.set_stock(rts::Resource::Stone, 100);
     w.set_stock(rts::Resource::Wood, 100);
 
-    // 撤工地：花 25/10，退 600‰ = 15/6。工时不折算——工地暴露是设计要的风险。
+    // 撤工地：花 25/10 后全额返还，已经推进的工时不影响退款。
     const rts::Command build =
         build_cmd(rts::BldType::Tower, rts::GridPos{4, 1}, w.width());
     const rts::Command cancel =
@@ -336,8 +336,8 @@ TEST_CASE("Cancel：撤工地按表比例退款，放弃维修不退；对完好
     w.submit(rts::Side::Defender, &cancel, 1);
     w.advance(1);
     REQUIRE(w.live_bld_count() == 1);
-    REQUIRE(stone(w) == 90);   // 100 - 25 + 15
-    REQUIRE(wood(w) == 96);    // 100 - 10 + 6
+    REQUIRE(stone(w) == 100);
+    REQUIRE(wood(w) == 100);
 
     // 放弃维修：预付的木不退（占位决定，注释在 apply_one）。
     const rts::BldId wall = w.place_bld(rts::BldType::Wall, rts::GridPos{2, 4}, 10, 30);
@@ -347,16 +347,51 @@ TEST_CASE("Cancel：撤工地按表比例退款，放弃维修不退；对完好
         slot_cmd(rts::CommandKind::Cancel, rts::GridPos{2, 4}, w.width());
     w.submit(rts::Side::Defender, &repair, 1);
     w.advance(1);
-    REQUIRE(wood(w) == 94);
+    REQUIRE(wood(w) == 98);
     w.submit(rts::Side::Defender, &cancel_wall, 1);
     w.advance(1);
-    REQUIRE(wood(w) == 94);
+    REQUIRE(wood(w) == 98);
     REQUIRE(w.alive(wall));   // 完工建筑不会被 Cancel 拆掉
 
     // 对完好且没在修的建筑再下 Cancel：无操作。
     w.submit(rts::Side::Defender, &cancel_wall, 1);
     w.advance(1);
     REQUIRE(w.alive(wall));
+}
+
+TEST_CASE("Demolish：完工建筑返还八成基础材料，工地与堡垒不可拆", "[econ]") {
+    rts::World w(arena());
+    w.set_stock(rts::Resource::Stone, 100);
+    w.set_stock(rts::Resource::Wood, 100);
+
+    const rts::BldId tower =
+        w.place_bld(rts::BldType::Tower, rts::GridPos{4, 1}, 40, 40);
+    const rts::Command demolish =
+        slot_cmd(rts::CommandKind::Demolish, rts::GridPos{4, 1}, w.width());
+    w.submit(rts::Side::Defender, &demolish, 1);
+    w.advance(1);
+    REQUIRE_FALSE(w.alive(tower));
+    REQUIRE(stone(w) == 120);   // 100 + floor(25 * 800 / 1000)
+    REQUIRE(wood(w) == 108);    // 100 + floor(10 * 800 / 1000)
+
+    const rts::Command build =
+        build_cmd(rts::BldType::Wall, rts::GridPos{4, 2}, w.width());
+    const rts::Command demolish_site =
+        slot_cmd(rts::CommandKind::Demolish, rts::GridPos{4, 2}, w.width());
+    w.submit(rts::Side::Defender, &build, 1);
+    w.advance(1);
+    REQUIRE(w.live_bld_count() == 2);
+    w.submit(rts::Side::Defender, &demolish_site, 1);
+    w.advance(1);
+    REQUIRE(w.live_bld_count() == 2);   // 工地必须走 Cancel，不混用八成退款
+
+    const rts::Command demolish_keep =
+        slot_cmd(rts::CommandKind::Demolish, w.keep_pos(), w.width());
+    w.submit(rts::Side::Defender, &demolish_keep, 1);
+    w.advance(1);
+    REQUIRE(w.live_bld_count() == 2);
+    const rts::WorldView v = w.view(rts::Side::Defender);
+    REQUIRE(v.bld_alive()[bld_slot(v, rts::BldType::Keep)] != 0);
 }
 
 TEST_CASE("Upgrade：堡垒等级抬高其余建筑的上限，扣双资源、工匠在场才推进",

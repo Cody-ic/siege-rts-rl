@@ -759,7 +759,9 @@ int run_game(const Options& opt) {
     // 三件事全都能做），所以它也是一个可插队的行，而不是一个把别的入口顶
     // 掉的模式。`Upgrade` 作为独占弹窗只服务「点一座满血的墙/塔」——那种
     // 格子在加它之前左键点下去什么都不弹。
-    enum class PopupKind : int { None = 0, Build, Train, Repair, Upgrade };
+    enum class PopupKind : int {
+        None = 0, Build, Train, Repair, Upgrade, Cancel, Demolish
+    };
     struct Popup {
         PopupKind kind = PopupKind::None;
         rts::GridPos cell{};       // 建造的落点 / 兵营或堡垒 / 受损建筑
@@ -876,6 +878,13 @@ int run_game(const Options& opt) {
                          game::can_afford_upgrade(v, p.cell),
                 PopupKind::Upgrade, 0);
         };
+        const auto push_remove = [&]() {
+            if (game::can_cancel_build_hint(v, p.cell)) {
+                push("取消施工 (全额返还)", true, PopupKind::Cancel, 0);
+            } else if (game::can_demolish_hint(v, p.cell)) {
+                push("拆除 (返还80%)", true, PopupKind::Demolish, 0);
+            }
+        };
         switch (p.kind) {
             case PopupKind::Build:
                 for (std::size_t i = 0; i < buildable.size(); ++i) {
@@ -914,10 +923,12 @@ int run_game(const Options& opt) {
                                  game::can_afford_train(v, ut, train_level_sel),
                         PopupKind::Train, static_cast<int>(i));
                 }
+                push_remove();
                 break;
             case PopupKind::Repair:
                 push_repair();
                 push_upgrade();
+                push_remove();
                 break;
             case PopupKind::Upgrade:
                 // 点一座满血的墙/塔落到这里。维修行照 `can_repair_hint` 判，
@@ -930,6 +941,11 @@ int run_game(const Options& opt) {
                     push_repair();
                 }
                 push_upgrade();
+                push_remove();
+                break;
+            case PopupKind::Cancel:
+            case PopupKind::Demolish:
+                push_remove();
                 break;
             case PopupKind::None:
                 break;
@@ -1190,6 +1206,12 @@ int run_game(const Options& opt) {
                             case PopupKind::Upgrade:
                                 c = game::upgrade_command(popup.cell, map.width());
                                 break;
+                            case PopupKind::Cancel:
+                                c = game::cancel_build_command(popup.cell, map.width());
+                                break;
+                            case PopupKind::Demolish:
+                                c = game::demolish_command(popup.cell, map.width());
+                                break;
                             case PopupKind::None:
                                 have = false;
                                 break;
@@ -1277,6 +1299,8 @@ int run_game(const Options& opt) {
                         // 恰好不出现。这里只问「这一格有没有一座己方完工建筑」，
                         // 能不能升由那一行自己灰着说明（见 `push_upgrade`）。
                         popup = Popup{PopupKind::Upgrade, cell, mouse};
+                    } else if (game::can_cancel_build_hint(view, cell)) {
+                        popup = Popup{PopupKind::Cancel, cell, mouse};
                     } else if (tile_is_open_for_building(view, cell)) {
                         popup = Popup{PopupKind::Build, cell, mouse};
                     } else {

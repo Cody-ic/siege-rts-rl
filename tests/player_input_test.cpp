@@ -270,6 +270,27 @@ TEST_CASE("维修提示：只有完工、掉了血、且没在修的建筑可以
     REQUIRE_FALSE(game::can_repair_hint(w.view(rts::Side::Defender), rts::GridPos{4, 3}));
 }
 
+TEST_CASE("拆除提示：工地只能全额取消，完工建筑只能八成拆除，堡垒不可拆", "[input]") {
+    rts::World w(iarena());
+    w.place_bld(rts::BldType::Wall, rts::GridPos{4, 2}, 40, 40);
+    w.place_bld(rts::BldType::Tower, rts::GridPos{4, 3}, 1, 40, /*work_left=*/10);
+    const rts::WorldView v = w.view(rts::Side::Defender);
+
+    REQUIRE(game::can_demolish_hint(v, rts::GridPos{4, 2}));
+    REQUIRE_FALSE(game::can_cancel_build_hint(v, rts::GridPos{4, 2}));
+    REQUIRE(game::can_cancel_build_hint(v, rts::GridPos{4, 3}));
+    REQUIRE_FALSE(game::can_demolish_hint(v, rts::GridPos{4, 3}));
+    REQUIRE_FALSE(game::can_demolish_hint(v, w.keep_pos()));
+    REQUIRE_FALSE(game::can_cancel_build_hint(v, rts::GridPos{8, 1}));
+
+    const rts::Command cancel = game::cancel_build_command(rts::GridPos{4, 3}, 10);
+    REQUIRE(cancel.kind == rts::CommandKind::Cancel);
+    REQUIRE(cancel.slot == rts::slot_of(rts::GridPos{4, 3}, 10));
+    const rts::Command demolish = game::demolish_command(rts::GridPos{4, 2}, 10);
+    REQUIRE(demolish.kind == rts::CommandKind::Demolish);
+    REQUIRE(demolish.slot == rts::slot_of(rts::GridPos{4, 2}, 10));
+}
+
 // ——升级——
 //
 // `upgrade_block` 比一个 bool 多担一件事：弹窗要把「为什么灰着」印出来。

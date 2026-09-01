@@ -494,7 +494,9 @@ inline GridPos pos_of_slot(std::uint16_t slot, int width) noexcept {
 // `b_train_force_` 与 SelectForce / MoveForce / Garrison / UpgradeForce 四种
 // 命令；驻守改为逐单位的登墙意愿 `u_garrison_target_`（进哈希）；兵种就地升级
 // 随之移除（`u_upgrade_left_` 删，升级只经 `Train` 选级）。布局与行为双重变更。
-inline constexpr std::string_view kWorldHashTag = "World/12";
+// `World/12` → `World/13`：新增 `CommandKind::Demolish`，`deferred_` 的长度随
+// `kCommandKindCount` 增加一格并进入哈希；与上面 `World/1 → World/2` 同类。
+inline constexpr std::string_view kWorldHashTag = "World/13";
 
 class WorldView;
 

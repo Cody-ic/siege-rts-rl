@@ -77,11 +77,14 @@ enum class CommandKind : std::uint8_t {
 
     // ——守方：建筑升级。**同理该排在 `Repair` 旁边，追加在末尾是同一条纪律**——
     Upgrade,      // slot = 槽位；`Keep` 不受 `building_level_cap()` 约束
+
+    // ——守方：拆除。追加在末尾以保持旧回放的指令编号不变——
+    Demolish,     // slot = 槽位；拆除完工建筑（`Keep` 除外），返还部分基础造价
 };
 
-inline constexpr int kCommandKindCount = 10;
+inline constexpr int kCommandKindCount = 11;
 
-static_assert(static_cast<int>(CommandKind::Upgrade) == kCommandKindCount - 1);
+static_assert(static_cast<int>(CommandKind::Demolish) == kCommandKindCount - 1);
 
 // **枚举值就是回放的线路编码，所以新增一律追加在末尾，不按语义分组插入。**
 //
@@ -92,7 +95,7 @@ static_assert(static_cast<int>(CommandKind::Upgrade) == kCommandKindCount - 1);
 // 追加则只有一个后果：旧回放里不会出现 `Clear`，而它本来也不会出现。
 //
 // 附带受影响的还有 `command_mask()` 的位序（`train/` 那侧读它），追加同样让旧的
-// 11 个位不动。**下一个加命令的人照此办理：往末尾加，并把这段注释留着。**
+// 已有位不动。**下一个加命令的人照此办理：往末尾加，并把这段注释留着。**
 //
 // **这条纪律有过一次例外，值得记在这里**：编队系统整体移除时（2026-09），
 // `SelectForce` / `MoveForce` / `Garrison` / `UpgradeForce` 四个枚举被**删除**，
@@ -185,6 +188,7 @@ constexpr Side owner_of(CommandKind k) noexcept {
         case CommandKind::Summon:
         case CommandKind::Clear:
         case CommandKind::Upgrade:
+        case CommandKind::Demolish:
             return Side::Defender;
     }
     return Side::Defender;
@@ -208,6 +212,7 @@ constexpr std::string_view ident_of(CommandKind k) noexcept {
         case CommandKind::PickSpawn:   return "PickSpawn";
         case CommandKind::Clear:       return "Clear";
         case CommandKind::Upgrade:     return "Upgrade";
+        case CommandKind::Demolish:    return "Demolish";
     }
     return {};
 }

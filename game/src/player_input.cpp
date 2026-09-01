@@ -200,6 +200,28 @@ rts::Command repair_command(rts::GridPos cell, int map_width) {
     return make(rts::CommandKind::Repair, cell, map_width);
 }
 
+bool can_cancel_build_hint(const rts::WorldView& view, rts::GridPos cell) {
+    if (!in_map(view, cell)) return false;
+    const int k = bld_slot_at(view, cell);
+    return k >= 0 && view.bld_built()[static_cast<std::size_t>(k)] == 0;
+}
+
+bool can_demolish_hint(const rts::WorldView& view, rts::GridPos cell) {
+    if (!in_map(view, cell)) return false;
+    const int k = bld_slot_at(view, cell);
+    if (k < 0) return false;
+    const auto idx = static_cast<std::size_t>(k);
+    return view.bld_built()[idx] != 0 && view.bld_type()[idx] != rts::BldType::Keep;
+}
+
+rts::Command cancel_build_command(rts::GridPos cell, int map_width) {
+    return make(rts::CommandKind::Cancel, cell, map_width);
+}
+
+rts::Command demolish_command(rts::GridPos cell, int map_width) {
+    return make(rts::CommandKind::Demolish, cell, map_width);
+}
+
 rts::Command clear_command(rts::GridPos cell, int map_width) {
     return make(rts::CommandKind::Clear, cell, map_width);
 }
