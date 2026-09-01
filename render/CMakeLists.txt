@@ -216,6 +216,12 @@ if(RTS_BUILD_TESTS)
     file(COPY ${_u8_idle} DESTINATION "${_u8}")
     configure_file("${CMAKE_SOURCE_DIR}/tools/sprite_gen/out_3d/_sprite_meta.json"
                    "${_u8}/_sprite_meta.json" COPYONLY)
+    # 资源点标记（`decal_*.png`）不在元数据里、也不匹配上面那条 `*_idle_*` 的
+    # glob——`register_decal_image()` 直接从 `sprite_dir` 拼路径读它们
+    # （main.cpp 的 `register_resource_decals`），复制不到就是这条测试自己在
+    # 复现「换了个精灵目录、忘了带资源点贴图」这种真实失败，得单独补一条。
+    file(GLOB _u8_decal "${CMAKE_SOURCE_DIR}/tools/sprite_gen/out_3d/decal_*.png")
+    file(COPY ${_u8_decal} DESTINATION "${_u8}")
 
     add_test(NAME render_utf8_path
              COMMAND rts_render

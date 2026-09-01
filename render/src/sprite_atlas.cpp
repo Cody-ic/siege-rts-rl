@@ -427,38 +427,37 @@ void SpriteAtlas::preload_idle(const std::vector<std::string>& idents) {
     }
 }
 
-void SpriteAtlas::register_decal(std::string_view ident, Color fill, Color rim) {
+void SpriteAtlas::register_decal_image(std::string_view ident, const std::string& path) {
     const std::string id(ident);
     if (meta_.find(id) != meta_.end()) {
         // 与素材条目撞名：decal 与流水线出的实体精灵共用同一个命名空间，
         // 静默覆盖会让「谁的图」变成一个要逐像素看才能回答的问题。
-        throw AssetError("register_decal：`" + id +
+        throw AssetError("register_decal_image：`" + id +
                          "` 已经在元数据或已注册的 decal 里——换个名字");
     }
 
-    // 尺寸从 `px_per_tile_` 推导（§7：像素几何唯一来源），别处不写死。
-    // 徽章是半格宽的菱形：比一格小，才不会把相邻格的标记连成一片。
-    const int w = px_per_tile_ / 2;
-    const int h = px_per_tile_ / 4;
-    Image img = GenImageColor(w, h, BLANK);
-    const float cx = static_cast<float>(w - 1) / 2.0f;
-    const float cy = static_cast<float>(h - 1) / 2.0f;
-    // 逐行扫描线填充菱形：第 y 行的半宽随 |y - cy| 线性收缩。
-    for (int y = 0; y < h; ++y) {
-        const float t = 1.0f - (y <= cy ? (cy - y) : (y - cy)) / (cy + 1.0f);
-        const int half = static_cast<int>(t * cx);
-        ImageDrawLine(&img, static_cast<int>(cx) - half, y,
-                      static_cast<int>(cx) + half, y, fill);
+    // 同 `get()`：不用 `LoadImage(path)`。raylib 的文件读取走窄 `fopen`，
+    // 路径含非 ASCII 字符时会失败，自己读字节 + 内存版 API（理由见
+    // rts/utf8_path.hpp）。这条 decal 路径与花名册那条共用同一段素材加载
+    // 代码所在文件，没有理由绕开这条已经踩过的坑。
+    bool ok = false;
+    const std::vector<unsigned char> bytes = rts::read_file_bytes(path, &ok);
+    if (!ok) {
+        throw AssetError("register_decal_image：读不动 `" + path + "`");
     }
-    // 描边：四个顶点连线。没有描边的话亮色填充压在亮草地上会糊掉。
-    ImageDrawLine(&img, static_cast<int>(cx), 0, w - 1, static_cast<int>(cy), rim);
-    ImageDrawLine(&img, w - 1, static_cast<int>(cy), static_cast<int>(cx), h - 1, rim);
-    ImageDrawLine(&img, static_cast<int>(cx), h - 1, 0, static_cast<int>(cy), rim);
-    ImageDrawLine(&img, 0, static_cast<int>(cy), static_cast<int>(cx), 0, rim);
+    Image img = LoadImageFromMemory(".png", bytes.data(), static_cast<int>(bytes.size()));
+    if (img.data == nullptr) {
+        throw AssetError("register_decal_image：解不开 `" + path + "`，文件在但不是有效的 PNG");
+    }
+
+    const float w = static_cast<float>(img.width);
+    const float h = static_cast<float>(img.height);
 
     StateMeta sm;
-    sm.canvas = Vector2{static_cast<float>(w), static_cast<float>(h)};
-    sm.ground_anchor = Vector2{cx + 0.5f, cy + 0.5f};   // 画布中心 = 格心地面点
+    sm.canvas = Vector2{w, h};
+    // 地面锚点取画布底边中点：这批素材已经裁到内容边界，物体的视觉底部
+    // 贴着画布下沿。
+    sm.ground_anchor = Vector2{w / 2.0f, h};
     sm.pivot = sm.ground_anchor;
     sm.frames = {1};
     meta_[id]["idle"] = sm;
@@ -469,7 +468,7 @@ void SpriteAtlas::register_decal(std::string_view ident, Color fill, Color rim) 
         Texture2D tex = LoadTextureFromImage(img);
         if (tex.id == 0) {
             UnloadImage(img);
-            throw AssetError("register_decal：传不上 GPU：`" + id + "`");
+            throw AssetError("register_decal_image：传不上 GPU：`" + id + "`");
         }
         cache_.emplace(id + "_idle_" + f + ".png", Sprite{tex, sm.ground_anchor});
     }
