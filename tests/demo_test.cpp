@@ -6,6 +6,7 @@
 // 同一个深度序列。
 
 #include <algorithm>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -17,6 +18,7 @@
 #include "game/map_loader.hpp"
 #include "game/player_input.hpp"
 #include "game/stats_loader.hpp"
+#include "rts/utf8_path.hpp"
 #include "rts/world_view.hpp"
 
 namespace {
@@ -614,4 +616,85 @@ TEST_CASE("方位换算：南北东西不许弄反，接近正方向时不报斜
     REQUIRE(game::compass_of(o, at(0, 20)) == game::Compass::SW);
     // 几乎正北（东向分量只有北向的 1/5）不该报成东北——否则这行提示没法用。
     REQUIRE(game::compass_of(o, at(12, 0)) == game::Compass::N);
+}
+
+// 开局防御建筑必须**够得着墙线**，而不是贴着堡垒。
+//
+// 2026-09-01 试玩反馈「tower 的位置很奇怪」：`demo_init` 此前用固定偏移摆
+// `Tower`(keep+(1,−2)) 与 `Flak`(keep+(1,2))，是单张固定地图时期的写法（同
+// #110 那个「驻守目标写成堡垒正东三格」）。换成随机地图池后 `city_radius`
+// 是 12–15 ⇒ 两座离墙线 10–13 格，而 `Tower.range = 7`、`Flak.range = 5`
+// ⇒ **永远打不到墙线**，敌人进城五格才开火。
+//
+// 判据取「到最近墙段的切比雪夫距离 ≤ 自己的射程」——那正是「它够不够得着
+// 墙线」这句话本身，不依赖具体地图尺寸，也不依赖任何固定偏移。
+//
+// **夹具必须用池图，不能用 `demo_skirmish`。** 那张手写图只有 20×12、
+// 城墙离堡垒 3 格，**任何位置都在射程内** ⇒ 判据在它身上恒真。这不是挑一张
+// 更难的图，是挑一张**判据不退化**的图——实测过：把摆位改回固定偏移，用
+// `demo_skirmish` 跑照样全绿（假绿），换池图才红。同 #110 的教训。
+//
+// 池图**按目录取字典序第一张**而不是写死文件名：池图会被重新生成、名字会变
+// （合 #122 那次就有一张 `gen_01007001` 改叫 `gen_01007000`）。
+//
+// **目录遍历必须走 `rts::path_from_utf8`。** `GAME_DATA_DIR` 是 CMake 烤进来的
+// **UTF-8 绝对路径**，而本仓库的路径含中文；`std::filesystem::path(窄串)` 在
+// MSVC 上按 ANSI 代码页解释 ⇒ `is_directory()` 直接为假。第一版就是这么写的，
+// 后果不是报错而是**整条用例静默跳过、零断言、照样绿**——正是
+// `tests/CMakeLists.txt` 那段注释点名要防的东西。所以这里也**没有**
+// 「找不到就 return」那条退路：找不到就让它红。
+TEST_CASE("开局的箭楼与防空都够得着墙线（实战尺度的池图）", "[demo]") {
+    const std::filesystem::path pool =
+        rts::path_from_utf8(std::string(GAME_DATA_DIR) + "/maps/pool");
+    REQUIRE(std::filesystem::is_directory(pool));
+    std::vector<std::filesystem::path> files;
+    for (const auto& e : std::filesystem::directory_iterator(pool)) {
+        if (e.path().extension() == ".json") files.push_back(e.path());
+    }
+    REQUIRE_FALSE(files.empty());
+    std::sort(files.begin(), files.end());
+
+    const game::MapData map =
+        game::MapLoader::from_file(rts::utf8_from_path(files.front()));
+    const rts::StatsTable stats = demo_stats();
+    game::DemoBattle a(map, stats, 7);
+    const rts::WorldView v = a.world().view(rts::Side::Defender);
+
+    std::vector<rts::GridPos> walls;
+    for (std::size_t k = 0; k < v.bld_alive().size(); ++k) {
+        if (!v.bld_alive()[k]) continue;
+        const rts::BldType t = v.bld_type()[k];
+        if (t == rts::BldType::Wall || t == rts::BldType::Gate) {
+            walls.push_back(v.bld_pos()[k]);
+        }
+    }
+    // 城区够大，判据才不退化（20×12 那张手写图上它恒真，见上面那段）。
+    REQUIRE(walls.size() > 40);
+
+    int checked = 0;
+    for (std::size_t k = 0; k < v.bld_alive().size(); ++k) {
+        if (!v.bld_alive()[k]) continue;
+        const rts::BldType t = v.bld_type()[k];
+        if (t != rts::BldType::Tower && t != rts::BldType::Flak) continue;
+        ++checked;
+        const rts::GridPos p = v.bld_pos()[k];
+        int best = 1 << 20;
+        for (const rts::GridPos& w : walls) {
+            const int dx = w.i - p.i;
+            const int dy = w.j - p.j;
+            const int d = std::max(dx < 0 ? -dx : dx, dy < 0 ? -dy : dy);
+            if (d < best) best = d;
+        }
+        const auto range = static_cast<int>(v.stats().of(t).range);
+        CAPTURE(rts::ident_of(t), p.i, p.j, best, range);
+        REQUIRE(best <= range);
+    }
+    // 防空必须在场（它只可能来自 `demo_init`——池图不预置 `Flak`）。
+    // 少了这一句，「一座防御建筑都没生成」会平凡通过。
+    bool has_flak = false;
+    for (std::size_t k = 0; k < v.bld_alive().size(); ++k) {
+        if (v.bld_alive()[k] && v.bld_type()[k] == rts::BldType::Flak) has_flak = true;
+    }
+    REQUIRE(has_flak);
+    REQUIRE(checked >= 2);   // 池图预置 2–3 座箭楼 + demo_init 的一座防空
 }

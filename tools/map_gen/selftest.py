@@ -1790,9 +1790,12 @@ def check_generator_wild_patches_are_small_and_separate(c):
 
 def check_generator_inner_content(c):
     """`place_inner_content`：两片 3 格 L 形森林（4 连通、不贴墙）、
-    资源构成 2 石/2 金/1–2 木、**堡垒周围 3 格净空**（demo_init 会在
-    keep+(1,±2) 预置 Tower/Flak、keep+(2,·) 撒 7 个单位，地图内容不得
-    与它们撞车）。
+    资源构成恰好 1 石/1 金/1 木、**堡垒周围 3 格净空**（demo_init 在
+    keep+(2,·) 撒 7 个开局单位，地图内容不得与它们撞车）。
+
+    净空那条原先还有一半理由是「demo_init 在 keep+(1,±2) 预置 Tower/Flak」，
+    2026-09-01 那两座已改（Tower 删掉、Flak 改为从墙线推，理由见
+    `generate.py` 该函数的 docstring）——**净空本身保留**，7 个单位仍要地方站。
     """
     cv, r = _painted(_ref_cfg())
     kx, ky = cv.keep
