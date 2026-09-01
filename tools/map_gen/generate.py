@@ -540,7 +540,11 @@ def _carve_forest_belt(cv, start, direction, spawn_pts, rng):
     第 10 条的压力更小）。
 
     主方向保证最终碰到边界，途中以可播种随机数插入横向折步，避免树木呈
-    机械直线（#117）。**中途遇到挖不动的格就整条放弃（返回空），不跳过它继续。**
+    机械直线（#117）。折步强度按「长带」调：#119 把簇心拉近城墙后带子长达
+    几十格，#117 原版的「全程 n//3 次折步、偏移上限 ±2」在长带上读出来仍是
+    直线粘小包——改为**每步约一半概率折步、偏移上限 ±3、并带向中轴回摆的
+    倾向**，长带因此呈 S 形摆动。**中途遇到挖不动的格就整条放弃（返回空），
+    不跳过它继续。**
     跳过会留下一条断成两截的带子，而断了的带子仍然「存在」——
     第 7 条会否决它，但那时症状是「丢弃率高」而不是「这里有个 bug」。
     宁可整簇不放，让重生成去换个位置。
@@ -579,20 +583,21 @@ def _carve_forest_belt(cv, start, direction, spawn_pts, rng):
         return []
 
     cx, cy = x, y
-    bend_count = min(n, max(1, n // 3)) if n > 1 else 0
-    bend_steps = set(rng.sample(range(n), bend_count)) if bend_count else set()
     offset = 0
-    for i in range(n):
-        if i in bend_steps:
-            choices = [-1, 1]
-            rng.shuffle(choices)
-            for side in choices:
-                if abs(offset + side) > 2:
+    for _ in range(n):
+        if rng.random() < 0.5:
+            # 一半概率主动回摆（消 offset），否则随机选边——S 形而不是单向漂移
+            if offset and rng.random() < 0.5:
+                side = -1 if offset > 0 else 1
+            else:
+                side = rng.choice([-1, 1])
+            for s in (side, -side):
+                if abs(offset + s) > 3:
                     continue
-                bent = (cx + lateral[0] * side, cy + lateral[1] * side)
+                bent = (cx + lateral[0] * s, cy + lateral[1] * s)
                 if append_cell(bent):
                     cx, cy = bent
-                    offset += side
+                    offset += s
                     break
         forward = (cx + step[0], cy + step[1])
         if not append_cell(forward):
