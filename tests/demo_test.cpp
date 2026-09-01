@@ -276,7 +276,7 @@ TEST_CASE("经济与补员的闭环：建金矿 → 攒够金 → 征兵 → 新
     const std::vector<rts::UnitId> before_ids = force0_archer_ids(d.world());
 
     const rts::Command train =
-        game::train_command(rts::UnitType::Archer, /*force=*/0, keep, w);
+        game::train_command(rts::UnitType::Archer, /*force=*/0, /*level=*/1, keep, w);
     d.submit_defender(&train, 1);
     d.update(1);
     // 钱扣了 ⇒ 命令没有被静默拒绝（买不起时解算是 break，什么都不说）。

@@ -61,14 +61,16 @@ namespace rts {
 // `splash_dmg_permille`，主目标满伤、圈内其余单位打折——见该字段注释）；
 // Stats/6 → Stats/7（建筑等级上限：`BldStats` 加三个升级字段，`GlobalStats`
 // 加 `building_level_cap_divisor`）；Stats/7 → Stats/8（**§1.4 落地：等级缩放
-// 从线性改成各开一份平方根**，见 `rts/combat_math.hpp` 的 `level_permille`）。
+// 从线性改成各开一份平方根**，见 `rts/combat_math.hpp` 的 `level_permille`）；
+// Stats/8 → Stats/9（兵种等级上限：`GlobalStats` 加 `train_ticks_permille_per_level`
+// 与 `unit_upgrade_radius`）。
 //
 // **最后那一格是本文件唯一一次「形状没变而必须进格」，理由要留着。** 那次
 // 改的是 `level_permille` 怎么用这两个系数（语义），字段一个没加减。若不进格，
 // `fingerprint()` 算出来一模一样，于是旧回放**不报 `StatsMismatch` 而静默算出
 // 不同的结果**——那是本仓库通篇最防的一类失效（「布局改了」与「跑歪了」不可
 // 区分）。**下一个只改语义不改字段的人照此办理。**
-inline constexpr std::string_view kStatsShapeTag = "Stats/8";
+inline constexpr std::string_view kStatsShapeTag = "Stats/9";
 
 // 每兵种一行。**结构性属性不在这里**（能否对空、能否破坏结构、三轴定位归
 // `rts/unit_behavior.hpp` 与 `rts/roster.hpp`）；这里只有会随标定变的数。
@@ -201,6 +203,22 @@ struct GlobalStats {
     // §2）。默认 1 是诚实默认：公式退化成「上限 = 堡垒等级」，合法但显然
     // 不是标定值。**`StatsLoader` 拦 < 1**——0 会在除法里炸。
     std::int32_t building_level_cap_divisor = 1;
+    // ——兵种等级上限（守方升级轴第三个输出）——
+    // `兵种等级上限(K) = K`（`波次预算曲线与堡垒等级曲线.md` §2）——直接等于
+    // 堡垒等级，**没有除数**：这是与上面 `building_level_cap_divisor` 刻意的
+    // 不对称，公式来源就没有那一层，不是漏抄。见 `World::unit_level_cap()`。
+    //
+    // 造价 `cost_gold(L) = base × L` 是纯线性，不需要系数（同文档 §3）。
+    // 训练/升级耗时不是纯线性，需要一个千分比系数（`train_ticks(L) =
+    // base × (1 + k×(L-1))`，`k` 就是它，语义是线性、**不开方**——训练耗时
+    // 不参与 TTK / 破坏速率那组要求 p−q=0 的不变量，没有理由跟着开方。
+    // 默认 0 = 恒等（训练耗时不随等级变），一眼看出没标定。
+    std::int32_t train_ticks_permille_per_level = 0;
+    // 已有部队批量升级时，「在场」的判定半径（格）——同 `mason_work_radius`
+    // 的形状，但扫的对象反过来：那个是「单位在场影响建筑」，这个是
+    // 「建筑在场影响单位」（`World::barrack_near`）。默认 0 = 关（永远判定
+    // 不在场，升级永远推进不了），一眼看出没标定。
+    float unit_upgrade_radius = 0.0f;
 };
 
 // 四组分法来自 `rts_core 接口契约.md` §1.1.2 的三条形状决定。

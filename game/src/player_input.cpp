@@ -181,16 +181,18 @@ bool can_train_hint(const rts::WorldView& view, rts::GridPos cell) {
     return view.bld_train_type()[idx] == rts::kNoTrain;
 }
 
-bool can_afford_train(const rts::WorldView& view, rts::UnitType ut) {
-    const rts::UnitStats& s = view.stats().of(ut);
-    return view.stock()[static_cast<std::size_t>(rts::Resource::Gold)] >= s.cost_gold;
+bool can_afford_train(const rts::WorldView& view, rts::UnitType ut, std::int32_t level) {
+    if (level < rts::kMinUnitLevel || level > view.unit_level_cap()) return false;
+    return view.stock()[static_cast<std::size_t>(rts::Resource::Gold)] >=
+           view.train_cost_gold(ut, level);
 }
 
-rts::Command train_command(rts::UnitType u, std::uint8_t force, rts::GridPos cell,
-                           int map_width) {
+rts::Command train_command(rts::UnitType u, std::uint8_t force, std::int32_t level,
+                           rts::GridPos cell, int map_width) {
     rts::Command c = make(rts::CommandKind::Train, cell, map_width);
     c.what = static_cast<std::uint8_t>(u);
     c.force = force;
+    c.level = static_cast<std::uint8_t>(level);
     return c;
 }
 
@@ -282,6 +284,58 @@ bool can_afford_upgrade(const rts::WorldView& view, rts::GridPos cell) {
 
 rts::Command upgrade_command(rts::GridPos cell, int map_width) {
     return make(rts::CommandKind::Upgrade, cell, map_width);
+}
+
+bool can_upgrade_force_hint(const rts::WorldView& view, rts::GridPos cell) {
+    if (!in_map(view, cell)) return false;
+    const int k = bld_slot_at(view, cell);
+    if (k < 0) return false;
+    const auto idx = static_cast<std::size_t>(k);
+    const rts::BldType bt = view.bld_type()[idx];
+    if (bt != rts::BldType::Barrack && bt != rts::BldType::Keep) return false;
+    return view.bld_built()[idx] != 0;
+}
+
+UpgradeForceQuote upgrade_force_quote(const rts::WorldView& view, std::uint8_t force,
+                                      rts::GridPos cell) {
+    UpgradeForceQuote q;
+    if (!can_upgrade_force_hint(view, cell)) return q;
+    const std::int32_t cap = view.unit_level_cap();
+    const auto u_type = view.unit_type();
+    const auto u_level = view.unit_level();
+    const auto u_force = view.unit_force();
+    const auto u_upgrade_left = view.unit_upgrade_left();
+    const auto u_pos = view.unit_pos();
+    const auto u_alive = view.unit_alive();
+    // 逐名判"够格 + 在场"，与 `apply_one` 的 `UpgradeForce` 解算同一套判据
+    // （力等级 < 上限、没在升、在 Barrack/Keep 附近）。**不模拟资金耗尽的
+    // 先后顺序**——解算按 `enumerate_units` 顺序逐名扣款，钱不够就跳过；
+    // 这里只给一个"全体都升得起的话要多少钱"的总量参考，供弹窗与买不买得起
+    // 判断用，不是精确预测谁真的会升上去。
+    for (std::size_t k = 0; k < u_alive.size(); ++k) {
+        if (!u_alive[k]) continue;
+        if (u_force[k] != force) continue;
+        if (u_level[k] >= cap) continue;
+        if (u_upgrade_left[k] > 0) continue;
+        if (!view.barrack_near(u_pos[k])) continue;
+        q.eligible_count += 1;
+        q.total_gold += view.train_cost_gold(u_type[k], u_level[k] + 1) -
+                        view.train_cost_gold(u_type[k], u_level[k]);
+    }
+    return q;
+}
+
+bool can_afford_upgrade_force(const rts::WorldView& view, std::uint8_t force,
+                              rts::GridPos cell) {
+    const UpgradeForceQuote q = upgrade_force_quote(view, force, cell);
+    if (q.eligible_count == 0) return false;
+    return view.stock()[static_cast<std::size_t>(rts::Resource::Gold)] >= q.total_gold;
+}
+
+rts::Command upgrade_force_command(std::uint8_t force, rts::GridPos cell, int map_width) {
+    rts::Command c = make(rts::CommandKind::UpgradeForce, cell, map_width);
+    c.force = force;
+    return c;
 }
 
 }  // namespace game

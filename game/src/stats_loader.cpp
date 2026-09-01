@@ -242,17 +242,20 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
     // 与 `rts::kStatsShapeTag` 同步进格（stats/4 → stats/5：机制第五批加了
     // 单位与建筑的弹丸速度；stats/5 → stats/6：单位加 `splash_dmg_permille`，
     // AOE 主目标与溅射伤害分开算；stats/6 → stats/7：建筑加三个升级字段，
-    // `global` 加 `building_level_cap_divisor`；**stats/7 → stats/8：字段一个
-    // 没变，变的是等级缩放的语义**——线性改成各开一份平方根，见
-    // `combat_math.hpp` 的 `level_permille`）。刻意不做向后兼容——旧
-    // schema 的表缺新字段，静默补默认值正是「能跑但打不动」那种坑（这次
-    // 的形态是「箭永远瞬时命中」/「溅射恒等于主伤害」/「建筑永远升不了级」）。
+    // `global` 加 `building_level_cap_divisor`；stats/7 → stats/8：字段一个
+    // 没变，变的是等级缩放的语义——线性改成各开一份平方根，见
+    // `combat_math.hpp` 的 `level_permille`；stats/8 → stats/9：兵种等级
+    // 上限落地，`global` 加 `train_ticks_permille_per_level` 与
+    // `unit_upgrade_radius`）。刻意不做向后兼容——旧 schema 的表缺新字段，
+    // 静默补默认值正是「能跑但打不动」那种坑（这次的形态是「箭永远瞬时
+    // 命中」/「溅射恒等于主伤害」/「建筑永远升不了级」/「批量升级永远推进
+    // 不了」）。
     //
-    // **最后那一格是这里唯一一次「字段没变而必须进格」**：一张 stats/7 的表
-    // 在新公式下每个数都还合法，于是它会**载入成功并算出一整局不同的仗**。
+    // stats/7 → stats/8 那一格是「字段没变而必须进格」的先例：一张旧表在
+    // 新公式下每个数都还合法，于是它会**载入成功并算出一整局不同的仗**。
     // 版本号是唯一能把这件事变成一句报错的地方（同 `kStatsShapeTag` 那条）。
-    if (schema != "stats/8") {
-        fail(origin, "`schema` = \"" + schema + "\"，本程序只认 \"stats/8\"");
+    if (schema != "stats/9") {
+        fail(origin, "`schema` = \"" + schema + "\"，本程序只认 \"stats/9\"");
     }
 
     rts::StatsTable t;
@@ -307,7 +310,8 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
             "high_ground_miss_permille", "high_ground_dmg_permille",
             "high_ground_range_bonus", "charge_bonus_permille_per_cell",
             "charge_max_cells", "anti_charge_permille",
-            "building_level_cap_divisor"});
+            "building_level_cap_divisor", "train_ticks_permille_per_level",
+            "unit_upgrade_radius"});
     t.global.hp_permille_per_level =
         need_i32(need(global, "hp_permille_per_level", origin, "`global`"), origin,
                  "`global.hp_permille_per_level`");
@@ -353,6 +357,12 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
     t.global.building_level_cap_divisor =
         need_i32(need(global, "building_level_cap_divisor", origin, "`global`"),
                  origin, "`global.building_level_cap_divisor`");
+    t.global.train_ticks_permille_per_level = need_i32(
+        need(global, "train_ticks_permille_per_level", origin, "`global`"), origin,
+        "`global.train_ticks_permille_per_level`");
+    t.global.unit_upgrade_radius =
+        need_f32(need(global, "unit_upgrade_radius", origin, "`global`"), origin,
+                 "`global.unit_upgrade_radius`");
     if (t.global.hp_permille_per_level < 0 || t.global.dmg_permille_per_level < 0) {
         fail(origin, "`global` 的等级缩放系数不得为负");
     }
@@ -415,6 +425,12 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
     // 下界 1 是结构性的：0 会在 `World::building_level_cap()` 的除法里炸。
     if (t.global.building_level_cap_divisor < 1) {
         fail(origin, "`global.building_level_cap_divisor` 必须 >= 1");
+    }
+    if (t.global.train_ticks_permille_per_level < 0) {
+        fail(origin, "`global.train_ticks_permille_per_level` 不得为负");
+    }
+    if (t.global.unit_upgrade_radius < 0) {
+        fail(origin, "`global.unit_upgrade_radius` 不得为负");
     }
 
     return t;
