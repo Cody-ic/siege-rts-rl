@@ -17,7 +17,9 @@
 - 城墙外的资源（森林/岩壁/矿脉）随机散布、较为分散、**贴近城墙**
   （2026-09-01 第二次微调——试玩反馈「城外资源点太少且离城墙太远」，
   簇数与簇内点数上调、簇距上界改用与地图边长解耦的 `outer_cluster_span`，
-  详见下面 `CFG` 与 `generate.place_outer_clusters` 的注释），参考 AoE4 1v1 对战地图
+  详见下面 `CFG` 与 `generate.place_outer_clusters` 的注释），参考 AoE4 1v1 对战地图；
+  野外森林/岩壁按 #117 恢复为「大散居、小聚居」的小撮散布（每簇 3–5/3–6 格、
+  彼此分隔），可破坏障碍按同类 1–3 个成团、只在城外
 - 与随机地图池**共用同一套生成逻辑**（`generate.paint`），只是种子固定
 - **不画水域**：这张 56 格小图上河与湖既摆不下形态、又压城外线空间，
   水域是 144 池图的内容（`water_lakes_range`/`rivers_range` 全 0，
@@ -61,16 +63,16 @@ CFG = SimpleNamespace(
     # 这里留区间字段是因为 `paint` 的形状要求，不是「本图还可以残血」。
     # 不影响「AI 是否利用已有缺口」评估指标——那条测的是 `initial_breaches`
     # 留出的完整缺口，与 `hp_frac` 是两个独立字段。
-    forest_patches=[6, 9],
-    forest_patch_size=[4, 8],
-    rock_patches_range=[3, 5],
-    rock_patch_size=[4, 10],
+    forest_patches=[10, 14],
+    forest_patch_size=[3, 5],
+    rock_patches_range=[5, 7],
+    rock_patch_size=[3, 6],
     water_lakes_range=[0, 0],
     water_lake_size=[0, 0],
     rivers_range=[0, 0],
     towers_range=[2, 2],
     barracks_range=[1, 1],
-    obstacles=[5, 10],
+    obstacles=[8, 14],
     max_attempts=1,
 )
 
