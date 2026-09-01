@@ -259,6 +259,73 @@ std::size_t SpriteAtlas::verify_stand_geometry() const {
     return checked;
 }
 
+std::size_t SpriteAtlas::verify_linear_anchor() {
+    // 线性结构（走向决定朝向的那两种）× `game::SceneModel::run_direction`
+    // 真正会返回的那两个朝向。理由见头文件那段。
+    static constexpr std::string_view kLinear[] = {"Wall", "Gate"};
+    static constexpr std::string_view kUsedFacings[] = {"SE", "NE"};
+
+    std::vector<std::string> bad;
+    std::size_t checked = 0;
+    for (std::string_view ident : kLinear) {
+        const StateMeta& sm = state_meta(ident, "idle");
+        for (std::string_view facing : kUsedFacings) {
+            const std::string name = file_name(ident, "idle", facing, 0);
+            const std::string path = dir_ + "/" + name;
+            bool ok = false;
+            const std::vector<unsigned char> bytes = rts::read_file_bytes(path, &ok);
+            if (!ok) {
+                throw AssetError("载入不了 " + path + "（verify_linear_anchor）");
+            }
+            Image img = LoadImageFromMemory(".png", bytes.data(),
+                                            static_cast<int>(bytes.size()));
+            if (img.data == nullptr) {
+                throw AssetError("解不开 " + path + "，文件在但不是有效的 PNG");
+            }
+            // alpha 包围盒。逐像素扫一遍——只有 4 张图，且这是显式的校验模式。
+            int lo_x = img.width, hi_x = -1;
+            for (int y = 0; y < img.height; ++y) {
+                for (int x = 0; x < img.width; ++x) {
+                    if (GetImageColor(img, x, y).a == 0) continue;
+                    if (x < lo_x) lo_x = x;
+                    if (x > hi_x) hi_x = x;
+                }
+            }
+            const int w = img.width;
+            UnloadImage(img);
+            ++checked;
+            if (hi_x < 0) {
+                bad.push_back(std::string(ident) + "_" + std::string(facing) +
+                              "：整张全透明");
+                continue;
+            }
+            const float center = (static_cast<float>(lo_x) + static_cast<float>(hi_x)) * 0.5f;
+            const float off = center - sm.ground_anchor.x;
+            if (off > kAnchorTolPx || off < -kAnchorTolPx) {
+                bad.push_back(std::string(ident) + "_" + std::string(facing) +
+                              "：内容中心偏离锚点 " + std::to_string(off) +
+                              " px（容差 ±" + std::to_string(kAnchorTolPx) + "）");
+            }
+            if (lo_x == 0 || hi_x == w - 1) {
+                bad.push_back(std::string(ident) + "_" + std::string(facing) +
+                              "：内容压在画布边缘（left=" + std::to_string(lo_x) +
+                              " right=" + std::to_string(hi_x) + " 宽=" +
+                              std::to_string(w) + "），说明被切掉了一截");
+            }
+        }
+    }
+    if (!bad.empty()) {
+        std::string msg =
+            "线性结构用到的朝向，内容没有落在锚点上（门与墙会错开、墙会被切）：";
+        for (const std::string& b : bad) msg += "\n    " + b;
+        msg += "\n    这套素材四个朝向共用一个 ground_anchor，而 SW/NW 两张是偏的；"
+               "\n    `game::SceneModel::run_direction` 因此只许取 SE 与 NE。"
+               "\n    改了那张走向表、或换了素材包，就要回来一起看。";
+        throw AssetError(msg);
+    }
+    return checked;
+}
+
 float SpriteAtlas::stand_lift_px(std::string_view ident,
                                  std::string_view state) const {
     // `state_meta` 找不到就抛（同本类其余读取点）：驻守单位脚下那座建筑的精灵

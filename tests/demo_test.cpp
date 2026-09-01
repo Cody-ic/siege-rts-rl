@@ -13,6 +13,7 @@
 
 #include "game/battle_scene.hpp"
 #include "game/demo_driver.hpp"
+#include "game/display_names.hpp"
 #include "game/map_loader.hpp"
 #include "game/player_input.hpp"
 #include "game/stats_loader.hpp"
@@ -119,6 +120,156 @@ TEST_CASE("波次强度由易到难：第 1 波没有 Ram/Shade", "[demo]") {
     REQUIRE(rams == 0);
     REQUIRE(knights == 0);
     REQUIRE(phoenixes == 0);
+}
+
+// ——侦查系统：迷雾真的挡住了玩家看敌军的眼睛——
+//
+// 这是整件事的判据本身。在它之前 `BattleScene::sorted` 把 god 视角的一切原样
+// 画出，于是「编成构成」与「精确进攻方向」——CLAUDE.md 情报划分里明列为
+// **需要侦查**的那两项——对玩家全部免费，`Scout` 与 `Watch` 没有任何理由被造。
+//
+// 夹具选 `demo_skirmish`（20×12，keep 在 (4,6)、集结点在 x=18）：集结点离堡垒
+// 14 格，而守方视野最远的是 `Keep` 的 8 与弓手的 7 ⇒ 刚生出来的那一波必然在
+// 迷雾里。**这不是挑一张好过的图**，是挑一张判据不退化的图（同 #110 那条
+// 「换成实战尺度的图之后三组破坏才各红在该红处」的教训）。
+TEST_CASE("迷雾：集结点上的攻方不进绘制列表，己方与地形照进", "[demo]") {
+    const game::MapData map = demo_map();
+    const rts::StatsTable stats = demo_stats();
+    game::DemoBattle a(map, stats, 7);
+
+    a.update(370);   // 越过首波建造时长 360，刚生波、还没走几步
+    REQUIRE(a.world().wave() == 1);
+    // 前提：他们**确实存在于世界里**。这一条不能省——少了它，下面那条
+    // 「画不出来」在「压根没生出来」的情况下也会通过，是个假绿。
+    REQUIRE(a.world().live_unit_count(rts::Side::Attacker) > 0);
+
+    const rts::WorldView dv = a.world().view(rts::Side::Defender);
+    const std::vector<game::DrawItem> items =
+        game::BattleScene::sorted(map, dv, a.world().now());
+
+    int enemy_drawn = 0, ally_drawn = 0;
+    for (const game::DrawItem& it : items) {
+        if (!it.continuous) continue;                 // 只看单位/弹丸
+        if (it.sprite == rts::ident_of(rts::UnitType::Ghoul)) ++enemy_drawn;
+        if (it.sprite == rts::ident_of(rts::UnitType::Archer)) ++ally_drawn;
+    }
+    REQUIRE(enemy_drawn == 0);   // 敌军在迷雾里 ⇒ 画不出来
+    REQUIRE(ally_drawn > 0);     // 己方不过迷雾 ⇒ 照画
+
+    // 地形与建筑不受影响（迷雾只藏敌方的动态实体，见 `BattleScene::sorted`）。
+    bool saw_wall = false;
+    for (const game::DrawItem& it : items) {
+        if (it.sprite == rts::ident_of(rts::BldType::Wall)) saw_wall = true;
+    }
+    REQUIRE(saw_wall);
+}
+
+// 迷雾的**反面**：走到眼皮底下的敌人必须画得出来。
+//
+// 只有上面那条的话，「`sorted` 永远不画敌方单位」也会通过——那是把侦查系统
+// 从「白给」改成「全瞎」，同样是坏的。
+TEST_CASE("迷雾：推进到守军视野内的攻方重新出现在绘制列表里", "[demo]") {
+    const game::MapData map = demo_map();
+    const rts::StatsTable stats = demo_stats();
+    game::DemoBattle a(map, stats, 7);
+
+    bool ever_drawn = false;
+    for (int t = 0; t < 4000 && !ever_drawn; t += 20) {
+        a.update(20);
+        const rts::WorldView dv = a.world().view(rts::Side::Defender);
+        for (const game::DrawItem& it : game::BattleScene::sorted(map, dv,
+                                                                  a.world().now())) {
+            if (it.continuous && it.sprite == rts::ident_of(rts::UnitType::Ghoul)) {
+                ever_drawn = true;
+                break;
+            }
+        }
+    }
+    REQUIRE(ever_drawn);
+}
+
+// ——侦查系统：攻方那一半——
+//
+// 在这条之前 `Wraith` 在 `game/` 里只出现在中文展示名表里：**攻方从来没有
+// 侦查过**，于是「双向欺骗」只有守方那一向。
+TEST_CASE("幽影窥使：第 1 波没有，第 2 波起恒一只", "[demo]") {
+    const game::MapData map = demo_map();
+    const rts::StatsTable stats = demo_stats();
+    game::DemoBattle a(map, stats, 7);
+
+    const auto count_wraiths = [&] {
+        const rts::WorldView v = a.world().view(rts::Side::Attacker);
+        int n = 0;
+        for (std::size_t k = 0; k < v.unit_type().size(); ++k) {
+            if (v.unit_alive()[k] && v.unit_type()[k] == rts::UnitType::Wraith) ++n;
+        }
+        return n;
+    };
+
+    a.update(370);
+    REQUIRE(a.world().wave() == 1);
+    REQUIRE(count_wraiths() == 0);   // 由易到难：第 1 波只有 Ghoul
+
+    // 推进到第 2 波刚生出来的那一拍。**取「生波后尽快数」**——`Wraith` 会被
+    // 守军杀掉，等久了数出来的 0 分不清「没生」与「死了」。
+    bool saw_wave2 = false;
+    for (int t = 0; t < 20000 && !saw_wave2; t += 10) {
+        a.update(10);
+        if (a.world().wave() == 2 &&
+            a.world().live_unit_count(rts::Side::Attacker) > 0) {
+            saw_wave2 = true;
+        }
+    }
+    REQUIRE(saw_wave2);
+    REQUIRE(count_wraiths() == 1);   // 恒 1 是结构（同 Phoenix 那条数量上限）
+}
+
+// `Wraith` 无战力，所以它**不能**照步兵那套「打得着就打、否则奔堡垒」走——
+// 那会让它一路走到墙下被射死，一次侦查都不成功。这条钉的是「看到了就撤」：
+// 侦查到手之后它离堡垒更远，而不是更近。
+TEST_CASE("幽影窥使：侦查到手后掉头，不再往堡垒里钻", "[demo]") {
+    const game::MapData map = demo_map();
+    const rts::StatsTable stats = demo_stats();
+    game::DemoBattle a(map, stats, 7);
+
+    const auto wraith_dist = [&]() -> float {
+        const rts::WorldView v = a.world().view(rts::Side::Attacker);
+        const rts::Vec2 keep = rts::center_of(a.world().keep_pos());
+        for (std::size_t k = 0; k < v.unit_type().size(); ++k) {
+            if (!v.unit_alive()[k]) continue;
+            if (v.unit_type()[k] != rts::UnitType::Wraith) continue;
+            const float dx = v.unit_pos()[k].x - keep.x;
+            const float dy = v.unit_pos()[k].y - keep.y;
+            return dx * dx + dy * dy;
+        }
+        return -1.0f;
+    };
+
+    // 等到第 2 波的 `Wraith` 出场。
+    bool found = false;
+    for (int t = 0; t < 20000 && !found; t += 10) {
+        a.update(10);
+        found = wraith_dist() >= 0.0f;
+    }
+    REQUIRE(found);
+
+    // 记下它最接近堡垒的那一刻，再往后看：它必须离开过那个最近点。
+    // **不断言「一直后退」**——落单时它会改为前压（那是防波次循环卡死的分支，
+    // 见 `issue_actions`），而那条分支本身是对的，不该被这条测试禁掉。
+    float closest = wraith_dist();
+    bool retreated = false;
+    for (int t = 0; t < 2000 && !retreated; t += 10) {
+        a.update(10);
+        const float d = wraith_dist();
+        if (d < 0.0f) break;                 // 被打死了，不算失败（见下）
+        if (d < closest) closest = d;
+        if (d > closest * 1.20f) retreated = true;   // 明显退开了
+    }
+    // 它可能在退开之前就被守军射死——那同样是设计里的一环（玩家猎杀
+    // `Wraith` 让 AI 带错情报开打）。所以判据是「要么退过，要么死了」，
+    // 唯独不能是「活着而且一路钻到堡垒脚下」。
+    const float end = wraith_dist();
+    REQUIRE((retreated || end < 0.0f));
 }
 
 TEST_CASE("提前召唤：建造阶段一条 Summon，倒计时直接作废开打", "[demo]") {
@@ -398,4 +549,69 @@ TEST_CASE("驻守：开局的三名弓手登上真实的墙，并带上 stand_on
         if (it.continuous && it.stand_on.empty()) continue;
         if (!it.continuous) REQUIRE(it.stand_on.empty());
     }
+}
+
+// ——免费方向提示——
+//
+// 迷雾一开，敌军在画面上消失；CLAUDE.md 的情报划分要求「大致方向」仍是
+// **免费**的（要花钱买的是编成构成与精确分兵），否则玩家就是全盲乱找。
+TEST_CASE("免费方向提示：没生波时不报，生波后指向兵力最多的集结点", "[demo]") {
+    const game::MapData map = demo_map();
+    const rts::StatsTable stats = demo_stats();
+    game::DemoBattle a(map, stats, 7);
+
+    // 建造阶段一个攻方单位都没有 ⇒ 不报方向（而不是报一个假的）。
+    REQUIRE(game::strongest_spawn(a.world().view(rts::Side::Defender)) < 0);
+
+    a.update(370);
+    const rts::WorldView v = a.world().view(rts::Side::Defender);
+    const int lead = game::strongest_spawn(v);
+    REQUIRE(lead >= 0);
+    REQUIRE(lead < static_cast<int>(v.spawns().size()));
+
+    // **独立重算一遍**（不复用被测函数的写法）：把每个攻方单位算给离它最近的
+    // 集结点，被测函数报的那个必须是人数最多的。
+    std::vector<int> tally(v.spawns().size(), 0);
+    for (std::size_t k = 0; k < v.unit_alive().size(); ++k) {
+        if (!v.unit_alive()[k]) continue;
+        if (rts::side_of(v.unit_type()[k]) != rts::Side::Attacker) continue;
+        std::size_t best = 0;
+        float best_d2 = -1.0f;
+        for (std::size_t s = 0; s < v.spawns().size(); ++s) {
+            const rts::Vec2 c = rts::center_of(v.spawns()[s].pos);
+            const float dx = c.x - v.unit_pos()[k].x;
+            const float dy = c.y - v.unit_pos()[k].y;
+            const float d2 = dx * dx + dy * dy;
+            if (best_d2 < 0.0f || d2 < best_d2) { best_d2 = d2; best = s; }
+        }
+        ++tally[best];
+    }
+    for (int n : tally) REQUIRE(tally[static_cast<std::size_t>(lead)] >= n);
+
+    // 提示**不过迷雾**：那一波此刻正好全在迷雾里（上面「集结点上的攻方不进
+    // 绘制列表」钉的就是这件事），而方向照样报得出来——这正是「免费」的含义。
+    const std::vector<game::DrawItem> items =
+        game::BattleScene::sorted(map, v, a.world().now());
+    int drawn = 0;
+    for (const game::DrawItem& it : items) {
+        if (it.continuous && it.sprite == rts::ident_of(rts::UnitType::Ghoul)) ++drawn;
+    }
+    REQUIRE(drawn == 0);
+}
+
+// 方位换算：`gj` 增大是屏幕下方（南），`gi` 增大是屏幕右方（东）。
+// 弄反的话方向提示会把玩家指到反方向去，而画面上一切正常。
+TEST_CASE("方位换算：南北东西不许弄反，接近正方向时不报斜向", "[demo]") {
+    const rts::GridPos o{10, 10};
+    const auto at = [](int x, int y) {
+        return rts::GridPos{static_cast<std::int16_t>(x), static_cast<std::int16_t>(y)};
+    };
+    REQUIRE(game::compass_of(o, at(10, 0)) == game::Compass::N);
+    REQUIRE(game::compass_of(o, at(10, 20)) == game::Compass::S);
+    REQUIRE(game::compass_of(o, at(20, 10)) == game::Compass::E);
+    REQUIRE(game::compass_of(o, at(0, 10)) == game::Compass::W);
+    REQUIRE(game::compass_of(o, at(20, 0)) == game::Compass::NE);
+    REQUIRE(game::compass_of(o, at(0, 20)) == game::Compass::SW);
+    // 几乎正北（东向分量只有北向的 1/5）不该报成东北——否则这行提示没法用。
+    REQUIRE(game::compass_of(o, at(12, 0)) == game::Compass::N);
 }

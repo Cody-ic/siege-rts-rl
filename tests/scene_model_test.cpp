@@ -105,12 +105,17 @@ TEST_CASE("线性结构的朝向由走向决定", "[scene]") {
     const game::MapData m = fixture();
     using RunKind = game::SceneModel::RunKind;
 
-    SECTION("沿 gi 铺的墙段用 SW") {
+    SECTION("沿 gi 铺的墙段用 NE") {
         // 夹具第 4 行有一段横墙 (0,4) (1,4) (2,4)。
+        //
+        // **这一条上一版写的是 SW**，改成 NE 与下面那条竖墙从 NW 改成 SE 是
+        // **同一个原因**（scene_model.hpp 那张逐朝向实测表）：四个朝向共用一个
+        // 锚点，而 `SW`/`NW` 两张的内容偏离它、`Wall` 还被画布切掉 228 px。
+        // 上一轮只改了竖直那一档，于是南北门一直是错开的。
         REQUIRE(SceneModel::run_direction(m, at(1, 4), RunKind::Wall) ==
-                game::Facing::SW);
+                game::Facing::NE);
         REQUIRE(SceneModel::run_direction(m, at(0, 4), RunKind::Wall) ==
-                game::Facing::SW);
+                game::Facing::NE);
     }
 
     SECTION("沿 gj 铺的墙段用 SE") {
@@ -149,10 +154,35 @@ TEST_CASE("线性结构的朝向由走向决定", "[scene]") {
         //
         // (1,4) 是沿 gi 的墙、(3,2) 是沿 gi 的桥（河沿 gj）。
         REQUIRE(SceneModel::run_direction(m, at(1, 4), RunKind::Wall) ==
-                game::Facing::SW);
+                game::Facing::NE);
         REQUIRE(SceneModel::run_direction(m, at(3, 2), RunKind::Bridge) ==
                 game::Facing::SE);
     }
+}
+
+// 墙与门的朝向**只能取「干净」那两个**。
+//
+// 四个朝向共用一个 `ground_anchor`，而 `SW`/`NW` 两张图的内容偏离它
+// （`Wall` +34.5 px 且右侧被画布切掉 228 px、`Gate` −32.5 px，逐张实测见
+// `scene_model.hpp` 那张表）。用到它们的后果是**画面照样出、只是错位**：
+// 门与墙朝相反方向各偏一段、墙被切掉一截，没有任何别的测试会红。
+//
+// 这条断言只钉枚举值——像素那一侧（「这两个朝向确实是正的」）归 `render/` 的
+// `SpriteAtlas::verify_linear_anchor()`，两边合起来才是完整的判据（§7 把像素
+// 几何的唯一来源定在 `_sprite_meta.json`，`game/` 不许读它）。
+TEST_CASE("墙与门的走向只取内容落在锚点上的那两个朝向", "[scene]") {
+    using game::SceneModel;
+    const game::MapData m = fixture();
+    const game::DrawLists d = SceneModel::build(m);
+
+    int walls = 0;
+    for (const game::DrawItem& it : d.sorted) {
+        if (it.sprite != "Wall" && it.sprite != "Gate") continue;
+        ++walls;
+        CAPTURE(it.pos.i, it.pos.j, it.sprite, game::to_string(it.facing));
+        REQUIRE((it.facing == game::Facing::SE || it.facing == game::Facing::NE));
+    }
+    REQUIRE(walls > 0);   // 夹具真的有墙，否则这条恒真
 }
 
 // 演示地图上的桥：**两格桥并排在同一条一格宽的河上**，而这正是「看相邻桥格」
@@ -334,23 +364,28 @@ TEST_CASE("城圈四角：拐角格补一块竖板，非拐角不补", "[scene]"
     // 横墙最左端 (0,3)：左出界、右是墙，上下无——也不是拐角。
     REQUIRE_FALSE(SceneModel::is_wall_corner(m, at(0, 3)));
 
-    // 拐角格出两块 Wall 板：run_direction 给的主板（SW）+ 补的竖板（SE）。
+    // 拐角格出两块 Wall 板：run_direction 给的主板（横边 NE）+ 补的竖板（SE）。
     // 非拐角格只出一块。
+    //
+    // **两块板必须都落在「干净」那组 {SE, NE}**（scene_model.hpp 的逐朝向实测表）。
+    // 这不是顺带要求：拐角处横板被裁掉的那一端，正是它该与竖板接上的那一端——
+    // 所以「四个角没包起来」有两个独立成因，补板只解掉其中一个，横板走脏朝向
+    // （`SW`，`Wall` 被切 228 px）时角照样是开的。
     const game::DrawLists d = SceneModel::build(m);
     int corner_boards = 0;
-    bool saw_sw = false, saw_se = false;
+    bool saw_ne = false, saw_se = false;
     int mid_boards = 0;
     for (const game::DrawItem& it : d.sorted) {
         if (it.sprite != "Wall") continue;
         if (it.pos.i == 3 && it.pos.j == 3) {
             ++corner_boards;
-            if (it.facing == game::Facing::SW) saw_sw = true;
+            if (it.facing == game::Facing::NE) saw_ne = true;
             if (it.facing == game::Facing::SE) saw_se = true;
         }
         if (it.pos.i == 1 && it.pos.j == 3) ++mid_boards;
     }
     REQUIRE(corner_boards == 2);
-    REQUIRE(saw_sw);
+    REQUIRE(saw_ne);
     REQUIRE(saw_se);
     REQUIRE(mid_boards == 1);
 }

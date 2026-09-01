@@ -260,4 +260,42 @@ rts::Command upgrade_command(rts::GridPos cell, int map_width) {
     return make(rts::CommandKind::Upgrade, cell, map_width);
 }
 
+int strongest_spawn(const rts::WorldView& view) {
+    const auto& spawns = view.spawns();
+    if (spawns.empty()) return -1;
+
+    std::vector<int> tally(spawns.size(), 0);
+    const auto u_alive = view.unit_alive();
+    const auto u_type = view.unit_type();
+    const auto u_pos = view.unit_pos();
+    int counted = 0;
+    for (std::size_t k = 0; k < u_alive.size(); ++k) {
+        if (u_alive[k] == 0) continue;
+        if (rts::side_of(u_type[k]) != rts::Side::Attacker) continue;
+        // 离哪个集结点最近就算在谁头上（理由见头文件）。
+        std::size_t best = 0;
+        float best_d2 = -1.0f;
+        for (std::size_t s = 0; s < spawns.size(); ++s) {
+            const rts::Vec2 c = rts::center_of(spawns[s].pos);
+            const float dx = c.x - u_pos[k].x;
+            const float dy = c.y - u_pos[k].y;
+            const float d2 = dx * dx + dy * dy;
+            if (best_d2 < 0.0f || d2 < best_d2) {
+                best_d2 = d2;
+                best = s;
+            }
+        }
+        ++tally[best];
+        ++counted;
+    }
+    if (counted == 0) return -1;   // 本波还没生，没有方向可报
+
+    // 平手取下标小的那个：**要的是确定**，画面上不能同一局每帧换一个方向。
+    std::size_t best = 0;
+    for (std::size_t s = 1; s < spawns.size(); ++s) {
+        if (tally[s] > tally[best]) best = s;
+    }
+    return static_cast<int>(best);
+}
+
 }  // namespace game

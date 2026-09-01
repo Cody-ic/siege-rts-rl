@@ -355,10 +355,14 @@ int run_verify(const Options& opt) {
         // 第三条：可驻守建筑的抬升量落在合理区间（`kStandFrac` 是目视标定的，
         // 这条挡量级错——见 `verify_stand_geometry()`）。同样不碰 GPU，先跑。
         const std::size_t stands = atlas.verify_stand_geometry();
+        // 第四条：线性结构真正用到的朝向，内容确实落在锚点上（门与墙才对得齐、
+        // 墙才不被画布切掉）。它要载 4 张图，所以排在只读元数据的两条之后。
+        const std::size_t linear = atlas.verify_linear_anchor();
         const std::size_t n = atlas.verify_all_declared();
         std::printf("素材校验通过：花名册 %zu 个实体全部有图，共 %zu 张，"
-                    "%zu 种可驻守建筑的抬升在区间内，px_per_tile = %d\n",
-                    entities, n, stands, atlas.px_per_tile());
+                    "%zu 种可驻守建筑的抬升在区间内，"
+                    "%zu 对线性结构朝向的锚点对得上，px_per_tile = %d\n",
+                    entities, n, stands, linear, atlas.px_per_tile());
     } catch (const std::exception& e) {
         fatal(e.what());
         rc = 4;
@@ -601,13 +605,27 @@ void draw_battle_hud(const render::FontSet& font, const game::MapData& map,
                   map.name().c_str(), map.map_id().c_str(), w.wave(), phase,
                   static_cast<int>(w.now()), paused ? "   已暂停" : "");
     const std::string line1 = buf;
+    // 主攻方向：**免费情报**（CLAUDE.md 的情报划分——要花钱侦查的是「编成构成」
+    // 与「精确分兵」，方向与总兵力是白给的）。迷雾一开，敌军在画面上消失，
+    // 没有这一行玩家就是全盲乱找；而它诚实的对象由攻方控制，佯攻堆得更多
+    // 它就成了诱饵——这是设计要的，不是缺陷。
+    //
+    // 本波还没生（`strongest_spawn` 返回 -1）时整段不出现，不显示一个假方向。
+    const rts::WorldView bv = w.view(rts::Side::Defender);
+    const int lead = game::strongest_spawn(bv);
+    std::string dir;
+    if (lead >= 0) {
+        dir = "   主攻 " +
+              std::string(game::display_name(game::compass_of(
+                  w.keep_pos(), bv.spawns()[static_cast<std::size_t>(lead)].pos)));
+    }
     std::snprintf(buf, sizeof(buf), "守方 %d   攻方 %d   石 %d   木 %d   金 %d",
                   w.live_unit_count(rts::Side::Defender),
                   w.live_unit_count(rts::Side::Attacker),
                   static_cast<int>(w.stock(rts::Resource::Stone)),
                   static_cast<int>(w.stock(rts::Resource::Wood)),
                   static_cast<int>(w.stock(rts::Resource::Gold)));
-    const std::string line2 = buf;
+    const std::string line2 = std::string(buf) + dir;
 
     // **`Esc 菜单` 摆在最前面。** 这一行是玩家唯一会读的操作提示，而「怎么退出」
     // 是他第一个要找的东西——找不到就只能点窗口的叉，那看起来像卡住了。

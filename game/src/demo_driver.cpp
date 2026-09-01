@@ -3,6 +3,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <optional>
+#include <utility>
+#include <vector>
 
 #include "game/world_builder.hpp"
 #include "rts/action.hpp"
@@ -27,6 +30,71 @@ bool has(std::uint16_t mask, rts::UnitAction a) noexcept {
 
 constexpr float kInvSqrt2 = 0.70710678f;
 
+// 防空塔摆哪：**城门内侧**那一格（没有门则退回离堡垒最近的墙段内侧）。
+//
+// **不写固定偏移**，理由见调用点。判据分三步，与 `place_inner_content` 摆预置塔
+// 的做法同构（贴着墙线、避开已占的格）：
+//
+//   1. 候选墙段按 (是不是门, 到 `keep` 的切比雪夫距离) 排序 ⇒ 门优先
+//   2. 从它沿「指向堡垒」的方向往里走一格，得到候选格
+//   3. 候选被占（墙/预置建筑/资源点/已进 init 的建筑）或出界就换下一段墙再试
+//
+// **门优先不是审美偏好，是因为「最近」在方环上是退化的**：城圈是切比雪夫方环，
+// 环上每一格到堡垒的距离**完全相同**，只按距离排等于「取文件里第一个」
+// （实测落在拐角上）。而门是结构上的既定薄弱点（木质、破坏速率更高），
+// 也是攻方最可能压过来的一段——地图自己的预置塔也正是贴着城门/缺口摆的。
+//
+// 返回空 = 这张图上找不到位置（没有初始墙，或内侧全被占满）。**那时就不摆**，
+// 不退化成「随便找个地方放」——一座位置错的防空塔比没有更误导人。
+std::optional<rts::GridPos> flak_site(const MapData& map, const rts::WorldInit& init) {
+    const rts::GridPos keep = init.keep;
+    const auto cheb = [&](rts::GridPos p) {
+        const int dx = p.i - keep.i;
+        const int dy = p.j - keep.j;
+        return std::max(dx < 0 ? -dx : dx, dy < 0 ? -dy : dy);
+    };
+    // 排下标而不排 `WallSegment` 本身，且用 `stable_sort`：键相同时保持地图里的
+    // 原始顺序（生成器按环序产出），于是结果是确定的——demo 必须可复现。
+    std::vector<std::size_t> order;
+    order.reserve(map.walls().size());
+    for (std::size_t k = 0; k < map.walls().size(); ++k) order.push_back(k);
+    const auto key = [&](std::size_t k) {
+        const WallSegment& w = map.walls()[k];
+        return std::pair<int, int>{w.kind == WallKind::Gate ? 0 : 1, cheb(w.pos)};
+    };
+    std::stable_sort(order.begin(), order.end(),
+                     [&](std::size_t a, std::size_t b) { return key(a) < key(b); });
+
+    const auto occupied = [&](rts::GridPos p) {
+        if (!map.in_bounds(p.i, p.j)) return true;
+        if (map.wall_at(p.i, p.j) != nullptr) return true;
+        if (p.i == keep.i && p.j == keep.j) return true;
+        for (const BuildingNode& b : map.buildings()) {
+            if (b.pos.i == p.i && b.pos.j == p.j) return true;
+        }
+        for (const ResourceNode& r : map.resources()) {
+            if (r.pos.i == p.i && r.pos.j == p.j) return true;
+        }
+        // 已经摆进 init 的（堡垒、全部墙段、地图预置建筑）也要避开——
+        // 同一格摆两座建筑在 `World` 里是没有定义的。
+        for (const rts::BldInit& b : init.buildings) {
+            if (b.pos.i == p.i && b.pos.j == p.j) return true;
+        }
+        return false;
+    };
+
+    for (const std::size_t k : order) {
+        const rts::GridPos w = map.walls()[k].pos;
+        // 「往堡垒方向走一格」：两轴各取符号，于是角上的墙走对角、边上的走正向。
+        const int sx = (keep.i > w.i) ? 1 : (keep.i < w.i ? -1 : 0);
+        const int sy = (keep.j > w.j) ? 1 : (keep.j < w.j ? -1 : 0);
+        const rts::GridPos cand{static_cast<std::int16_t>(w.i + sx),
+                                static_cast<std::int16_t>(w.j + sy)};
+        if (!occupied(cand)) return cand;
+    }
+    return std::nullopt;
+}
+
 // 开局兵力全部经 `WorldInit` 进场（不再是构造后逐个 spawn）：初始局面因此
 // 完整地由建局参数表达（回放 = 建局参数 + 输入流，这正是 `WorldInit::units`
 // 存在的理由）。**不带任何归属标记**——编队系统移除后，守方单兵开局即自主
@@ -48,17 +116,29 @@ rts::WorldInit demo_init(const MapData& map, const rts::StatsTable& stats,
     add(rts::UnitType::Spear, keep.x + 2.0f, keep.y + 2.0f, 1);
     add(rts::UnitType::Ranger, keep.x + 1.0f, keep.y, 1);
     add(rts::UnitType::Mason, keep.x + 1.0f, keep.y + 1.0f, 1);
-    // 箭楼与防空各一座（完工状态）。位置：堡垒斜后方两格，覆盖墙线。
-    const auto bld = [&](rts::BldType b, int dx, int dy) {
-        const std::int64_t hp = stats.of(b).max_hp;
-        init.buildings.push_back(rts::BldInit{
-            b,
-            rts::GridPos{static_cast<std::int16_t>(init.keep.i + dx),
-                         static_cast<std::int16_t>(init.keep.j + dy)},
-            hp, hp});
-    };
-    bld(rts::BldType::Tower, 1, -2);
-    bld(rts::BldType::Flak, 1, 2);
+    // 防空一座（完工状态），**摆在墙线内侧**。
+    //
+    // 2026-09-01：此前这里用固定偏移摆了 `Tower`(keep+(1,−2)) 与
+    // `Flak`(keep+(1,2))，那是**单张固定地图时期的写法**（与 #110 修掉的
+    // 「驻守目标写成堡垒正东三格」同源）。换成随机地图池之后 `city_radius`
+    // 是 12–15，于是这两座离墙线 10–13 格，而 `Tower.range = 7`、
+    // `Flak.range = 5` ⇒ **它们永远打不到墙线**，敌人进城五格才开火，
+    // 画面上就是「两座塔莫名其妙贴着堡垒」。
+    //
+    // 两处修法不同：
+    //
+    //   * **`Tower` 直接删掉**——地图自己的预置塔（`place_inner_content`：
+    //     2–3 座，贴城门/缺口内侧）位置本来就是对的，demo 不该再摆一座。
+    //   * **`Flak` 保留但摆位从墙线推**：池图不预置防空，删了玩家就见不到
+    //     AA 这件事，而 `Phoenix` 从第 3 波起就来。
+    //
+    // 长远归宿是把 `Flak` 也放进地图的 `buildings` 预置（走校验器第 24 条的
+    // 摆放冲突检查），那要重生成全部池图——**PR #122 正在重生成同一批文件**，
+    // 所以这轮先留在这里。
+    if (const auto flak_at = flak_site(map, init)) {
+        const std::int64_t hp = stats.of(rts::BldType::Flak).max_hp;
+        init.buildings.push_back(rts::BldInit{rts::BldType::Flak, *flak_at, hp, hp});
+    }
 
     // 攻方不在这里：波次循环生效后每波在建造阶段结束时生成（spawn_wave）。
     return init;
@@ -178,14 +258,25 @@ void DemoBattle::spawn_wave() {
     const int knights = wave >= 2 ? std::max(1, slots * 3 / 20) : 0;
     const int rams = wave >= 3 ? std::max(1, slots / 10) : 0;
     const int phoenixes = wave >= 3 ? 1 : 0;
-    const int ghouls = std::max(1, slots - shades - knights - rams - phoenixes);
+    // 幽影窥使恒 1，第 2 波起。**这一只是整个侦查博弈里攻方那一半**：
+    // 在它进编成之前，`Wraith` 在 `game/` 里只出现在中文展示名表里——攻方
+    // 从来没有侦查过，于是「双向欺骗」只有守方那一向，而 CLAUDE.md 那三条
+    // （AI 先侦查再定主攻方向、玩家猎杀 `Wraith` 让 AI 带错情报开打、
+    // 玩家等 `Wraith` 走了再造防空）一条都无从发生。
+    //
+    // 从编成位里扣、不额外加人：它占的是攻方自己的预算，否则等于白送一只。
+    const int wraiths = wave >= 2 ? 1 : 0;
+    const int ghouls =
+        std::max(1, slots - shades - knights - rams - phoenixes - wraiths);
     std::vector<rts::UnitType> roster;
-    roster.reserve(static_cast<std::size_t>(ghouls + shades + knights + rams + phoenixes));
+    roster.reserve(static_cast<std::size_t>(ghouls + shades + knights + rams +
+                                            phoenixes + wraiths));
     for (int k = 0; k < ghouls; ++k) roster.push_back(rts::UnitType::Ghoul);
     for (int k = 0; k < shades; ++k) roster.push_back(rts::UnitType::Shade);
     for (int k = 0; k < knights; ++k) roster.push_back(rts::UnitType::Knight);
     for (int k = 0; k < rams; ++k) roster.push_back(rts::UnitType::Ram);
     for (int k = 0; k < phoenixes; ++k) roster.push_back(rts::UnitType::Phoenix);
+    for (int k = 0; k < wraiths; ++k) roster.push_back(rts::UnitType::Wraith);
 
     // 固定的落位偏移环（不掷点：demo 的确定性不该依赖「生成时的随机散布」）。
     // 5×5、由内向外——编成位撤掉硬顶后单波会超过「集结点数 × 9」，原来的
@@ -272,6 +363,36 @@ void DemoBattle::issue_actions() {
     acts_.clear();
     acts_.reserve(ids_.size());
     const rts::WorldView av = w_.view(rts::Side::Attacker);
+
+    // ——`Wraith` 的两个判据，逐拍算一次，不逐单位重算——
+    //
+    // 一、**本波侦查到手了没有**：攻方迷雾里已经看见过任意一座守方建筑。
+    //     用建筑数组而不是逐格扫 144×144 的迷雾图；条件在一波之内基本是单调的
+    //     （格子一旦看过就不回到 `Unseen`），所以不会在边界上来回抖。
+    if (!wave_scouted_) {
+        const auto b_alive = av.bld_alive();
+        const auto b_pos = av.bld_pos();
+        const rts::FogLayer& af = av.fog();
+        for (std::size_t b = 0; b < b_alive.size(); ++b) {
+            if (b_alive[b] == 0) continue;
+            const rts::GridPos p = b_pos[b];
+            if (af.in_bounds(p.i, p.j) && af.at(p.i, p.j) == rts::Vis::Visible) {
+                wave_scouted_ = true;
+                break;
+            }
+        }
+    }
+    // 二、**本波还有没有战斗单位活着**。这一条不是为了行为好看，是为了**波次循环
+    //     不会卡死**：下一波挂在「攻方存活数归零」上，而 `Wraith` 撤回集结点之后
+    //     不会死，于是它一个人就能让游戏永远停在这一波。所以当它落单时改为前压
+    //     ——侦查任务此时已经没有意义（没有部队可以用得上这份情报了）。
+    bool any_combat = false;
+    for (const rts::UnitId id : ids_) {
+        if (rts::is_combat(w_.unit_type(id))) {
+            any_combat = true;
+            break;
+        }
+    }
     // 最近的非墙建筑是不是 Keep——镜像 mechanics 的 AtkBld 选择（全场最近者；
     // 掩码位亮着就保证它在射程内，因为「有一座在射程内」蕴含「最近那座在
     // 射程内」）。Phoenix 用它绕开 Keep，理由见下。
@@ -317,6 +438,40 @@ void DemoBattle::issue_actions() {
             } else {
                 a = flow_step(id);
             }
+        } else if (w_.unit_type(id) == rts::UnitType::Wraith) {
+            // 幽影窥使：**无战力**（`is_combat()` 为假 ⇒ 攻击掩码永远不亮），
+            // 所以不能照步兵那套「打得着就打、否则奔堡垒」走——那会让它一路
+            // 走到墙下被射死，侦查一次都没成功过。
+            //
+            // 行为是「看到了就撤」：还没侦查到手就按 flow 前压，到手之后掉头
+            // 回最近的集结点。撤回去正是设计要的形状——玩家由此有机会猎杀它
+            // （`CLAUDE.md`「双向欺骗」：杀掉 `Wraith` 让 AI 带着错误情报开打），
+            // 而它活着走掉则意味着 AI 这一波真的看清了防御布局。
+            //
+            // `!any_combat` 那一支见上面，是防波次循环卡死的，不是行为设计。
+            if (!wave_scouted_ || !any_combat) {
+                a = flow_step(id);
+            } else {
+                const auto& spawns = w_.spawns();
+                if (spawns.empty()) {
+                    a = rts::UnitAction::Stop;
+                } else {
+                    const rts::Vec2 p = w_.unit_pos(id);
+                    rts::Vec2 best = rts::center_of(spawns[0].pos);
+                    float best_d2 = -1.0f;
+                    for (const auto& s : spawns) {
+                        const rts::Vec2 c = rts::center_of(s.pos);
+                        const float dx = c.x - p.x;
+                        const float dy = c.y - p.y;
+                        const float d2 = dx * dx + dy * dy;
+                        if (best_d2 < 0.0f || d2 < best_d2) {
+                            best_d2 = d2;
+                            best = c;
+                        }
+                    }
+                    a = greedy_move(id, best);
+                }
+            }
         } else if (has(mask, rts::UnitAction::AtkNear)) {
             a = rts::UnitAction::AtkNear;
         } else if (w_.unit_type(id) == rts::UnitType::Ram &&
@@ -352,6 +507,7 @@ void DemoBattle::update(int ticks) {
                 w_.begin_next_wave(wave_level(w_.wave() + 1, w_.stats()));
                 build_left_ = kBuildTicksPlaceholder;
                 wave_spawned_ = false;
+                wave_scouted_ = false;   // 新的一波要重新侦查（记忆天然过时）
             }
         }
         if (since_decision_ >= rts::kDecisionPeriodMax) {
