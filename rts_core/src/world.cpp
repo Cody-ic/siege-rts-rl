@@ -276,6 +276,31 @@ void World::submit_actions(Side side, const UnitAction* actions, std::size_t cou
     }
 }
 
+void World::recall_units(Side side, std::span<const UnitId> ids) {
+    // 先全部校验，再改任何状态。拖选集里若混进一个失效句柄，调用方得到的是
+    // 一次完整失败，而不是前几名已经下墙、后几名没有。
+    for (const UnitId id : ids) {
+        if (!unit_pool_.alive(id)) continue;
+        const std::size_t k = require(id);
+        if (side_of(u_type_[k]) != side) {
+            throw ContractError("召回单位不属于提交方");
+        }
+    }
+
+    for (const UnitId id : ids) {
+        if (!unit_pool_.alive(id)) continue;
+        const std::size_t k = require(id);
+        if (u_garrison_[k] == kNoSlot) continue;
+        const std::uint16_t wall = u_garrison_[k];
+        dismount_unit(k);
+        // 邻格全满时 dismount_unit 会保持驻守；成功下墙后才撤掉该墙段，
+        // 防止下一 tick 的常设驻守令立刻再补一人上去。
+        if (u_garrison_[k] == kNoSlot) {
+            garrison_order_[static_cast<std::size_t>(wall)] = kNoForce;
+        }
+    }
+}
+
 void World::apply_one(Side side, const Command& c) {
     switch (c.kind) {
         case CommandKind::None:

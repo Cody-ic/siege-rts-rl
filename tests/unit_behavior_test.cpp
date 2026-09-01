@@ -102,7 +102,8 @@ TEST_CASE("只有一个兵种吃冲锋助跑，且是 Knight", "[behavior]") {
 }
 
 TEST_CASE("没有任何单位能攻击空中目标", "[behavior]") {
-    // 克制表：「`Phoenix` ──► `Flak`（**且仅此**，纯位置性）」，而 `Flak` 是建筑。
+    // behavior 是无世界状态的地面通则；墙上 Archer 的例外由 garrison_test
+    // 用真实驻守状态覆盖，这里仍要求所有兵种模板默认不能对空。
     // 这条连着「守方没有空军，空中威胁只能被位置性否定」整段论证——
     // 任何一个能对空的单位都会让 AA 的机会成本失去两难性质。
     for (int i = 0; i < rts::kUnitTypeCount; ++i) {
