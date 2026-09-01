@@ -169,6 +169,33 @@ TEST_CASE("Build：扣造价落工地，工匠在场才盖，完工那一刻血�
     REQUIRE(v.bld_hp()[site] == 40);
 }
 
+TEST_CASE("多名工匠同任务线性加速：人数即每拍工时（2026-09-01 起）", "[econ]") {
+    // 此前是「在场与否」二值占位（mason_near），多人不加速——试玩拍板：
+    // 任务不够分时多人同任务必须真的更快。Tower 4 工时，两名工匠应两拍
+    // 盖完（每拍 2 工时），血量由 clamp 兜底恰好到满。升级走同一条
+    // 纪律（同一个 crew 计数），不另起用例。
+    rts::World w(arena());
+    w.set_stock(rts::Resource::Stone, 100);
+    w.set_stock(rts::Resource::Wood, 100);
+    const rts::Command c =
+        build_cmd(rts::BldType::Tower, rts::GridPos{4, 1}, w.width());
+    w.submit(rts::Side::Defender, &c, 1);
+    w.advance(1);
+    const std::size_t site =
+        bld_slot(w.view(rts::Side::Defender), rts::BldType::Tower);
+
+    w.spawn_unit(rts::UnitType::Mason, rts::center_of(rts::GridPos{4, 2}), 1, 10, 10);
+    w.spawn_unit(rts::UnitType::Mason, rts::center_of(rts::GridPos{5, 1}), 1, 10, 10);
+    w.advance(1);
+    const rts::WorldView v1 = w.view(rts::Side::Defender);
+    REQUIRE(v1.bld_work_left()[site] == 2);   // 一拍走了 2 工时
+    REQUIRE(v1.bld_built()[site] == 0);
+    w.advance(1);
+    const rts::WorldView v2 = w.view(rts::Side::Defender);
+    REQUIRE(v2.bld_built()[site] == 1);
+    REQUIRE(v2.bld_hp()[site] == 40);   // 完工那一刻血量恰好到满
+}
+
 TEST_CASE("Build 的拒绝路径一律无操作：钱、占位、资源点规则、Keep", "[econ]") {
     rts::World w(arena());
     const int before = w.live_bld_count();
