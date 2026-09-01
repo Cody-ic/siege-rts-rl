@@ -322,10 +322,11 @@ def place_spawns(cv, cfg, th, rng, sides):
 
 
 def place_inner_content(cv, cfg, rng):
-    """城内内容：资源（2 石 / 2 金 / 1–2 木）→ 预置建筑。
+    """城内内容：两片 L 形森林 → 资源（恰好 1 石 / 1 金 / 1 木，2026-09-01 从
+    「2 石 / 2 金 / 1–2 木」收紧，试玩反馈「城墙内资源点太多」）→ 预置建筑。
 
-    树木与岩石只在城外生成，城内保留清晰、可建造的空间。资源与建筑都从
-    `free_plain_cells` 抽。**堡垒周围 3 格净空（cheb ≤ 3 不放任何内容）**——
+    顺序是森林 → 资源 → 建筑：资源与建筑都从 `free_plain_cells` 抽，
+    森林先落地自然被避开。**堡垒周围 3 格净空（cheb ≤ 3 不放任何内容）**——
     `demo_init` 在 keep+(1,±2) 预置 Tower/Flak、keep+(2,·) 撒 7 个单位，
     地图内容不得与它们撞车（2026-08-31 定，见 `地图与场景设计.md` 4.4.0）。
     返回 False = 放不下（走 `GenerationFailed` 路径，换种子重试）。
@@ -340,8 +341,29 @@ def place_inner_content(cv, cfg, rng):
         return [c for c in cv.free_plain_cells(cv.keep, r_hi)
                 if r_lo <= cheb(c) and cv.no_build[c[1]][c[0]] == 0]
 
-    # 城内资源：构成 2 石 + 2 金 + 1–2 木（`inner_resources_range` 定死了
-    # 石/金恒 2——试玩反馈「城区内外都缺金矿」的落点；第 6 条三种各 ≥1 恒成立）。
+    # 两片 3 格 L 形森林（参考图同款设计语言）。L 形三格天然 4 连通，
+    # 第 23 条（阈值 3）恒过；三格全部 cheb ≤ R−2 不贴墙/门——
+    # 树冠糊住城墙、墙被拆后原地补不回（Forest 不可建造）是踩过的课。
+    for _ in range(2):
+        cands = [c for c in plain_cands(R - 2, 4) if cheb(c) <= R - 3]
+        rng.shuffle(cands)
+        placed = False
+        for ax, ay in cands:
+            cells = [(ax, ay), (ax + 1, ay), (ax, ay + 1)]
+            if (all(cv.inside(*c) for c in cells)
+                    and all(cv.at(*c) == "Plain" for c in cells)
+                    and all(c not in cv.occupied() for c in cells)
+                    and all(cheb(c) <= R - 2 for c in cells)):
+                for c in cells:
+                    cv.set_terrain(*c, "Forest")
+                placed = True
+                break
+        if not placed:
+            return False
+
+    # 城内资源：恰好 1 石 + 1 金 + 1 木（`inner_resources_range` 三种恒 1，
+    # 2026-09-01 从「石/金恒 2」收紧——试玩反馈「城墙内资源点太多」；
+    # 第 6 条三种各 ≥1 恒成立）。
     placed = []
     for kind in ("stone", "wood", "gold"):
         for _ in range(cfg.inner_resources[kind]):
@@ -382,6 +404,14 @@ def place_inner_content(cv, cfg, rng):
     return True
 
 
+# 森林带里，簇心往边界方向数这么多格以内才允许落资源点（其余的带子纯森林）。
+# 2026-09-01：与 `outer_cluster_span` 同一次改动引入，理由见函数内注释。
+# 实测过 8（最远点 beyond-wall 15）与 5（15 → 12，但候选格太少，簇经常放不满，
+# 总点数反而不涨）——6 是在「够近」与「够多」之间的折中，配合簇数/簇大小的
+# 上调实测总量能涨。
+_BELT_POINT_WINDOW = 6
+
+
 def place_outer_clusters(cv, cfg, rng, spawn_pts=None):
     """外部资源簇 + 每簇一条通到地图边界的 `Forest` 带。
 
@@ -400,6 +430,18 @@ def place_outer_clusters(cv, cfg, rng, spawn_pts=None):
     §2.1.1 的森林带（第 7 条）：对每个 `outer` 资源点，必须存在一条从它
     出发、到地图边界、全程 `Forest` 的 4 连通路径——顺序仍是**先挖带子、
     再把点贴在带子正交邻格**（先放点再挖带会只服务第一个点，60/60 全否的课）。
+
+    **2026-09-01 再续（试玩反馈：城外资源点离城墙太远）**：此前最远一簇的
+    距离上界 `max_d` 直接取 `地图边长 // 2 - 4`——地图从 72 涨到 144 之后
+    这个量跟着涨，簇距的整个跨度被动拉到贴地图边缘，与城墙的距离感和地图
+    尺寸绑死、不受城区大小控制。改为 `min(地图给的上界, R + 4 + cfg.
+    outer_cluster_span)`：跨度不再随地图边长走，只随**城区半径**走——地图
+    再涨一次，簇也不会跟着自动散得更远。**这条只管簇心**——森林带本身仍要
+    走到地图边界（第 7 条要求），而资源点若能贴在带子沿途任意格，会借着
+    带子把自己摆到远超 `outer_cluster_span` 的地方，实测就是这样（cap 了
+    簇心之后仍量到远端资源点）。因此点的候选格额外收窄到
+    `belt[:_BELT_POINT_WINDOW]`——只在簇心附近这一小段落点，带子其余部分
+    仍是纯森林、仍然连到边界，两条要求互不影响。
     """
     R = cfg.city_radius
     lo, hi = cfg.outer_cluster_size
@@ -412,24 +454,22 @@ def place_outer_clusters(cv, cfg, rng, spawn_pts=None):
     rng.shuffle(directions)
 
     n = min(cfg.outer_clusters, len(directions))
-    max_d = cv.size // 2 - 4
+    max_d = min(cv.size // 2 - 4, R + 4 + cfg.outer_cluster_span)
     if max_d <= R + 4:
         return []
-    # 资源簇靠近外缘分布，使每簇通边所需的森林带保持短小；簇间仍按距离
-    # 递增，保留「越远越散」的设计语言。
-    band_start = max(R + 4, max_d - (n - 1) * 2)
+    stride = (max_d - (R + 4)) // n
     placed_gold = 0
     clusters = []
     for i in range(n):
         dx, dy = directions[i]
         # 簇心：第 i 簇落在自己的距离带上（越远越散、越少）
-        dist = min(max_d, band_start + i * 2)
+        dist = R + 4 + i * stride + rng.randint(0, min(2, stride))
         cxx = cv.keep[0] + dx * dist
         cyy = cv.keep[1] + dy * dist
         if not cv.inside(cxx, cyy):
             continue
 
-        belt = _carve_forest_belt(cv, (cxx, cyy), (dx, dy), spawn_pts, rng)
+        belt = _carve_forest_belt(cv, (cxx, cyy), (dx, dy), spawn_pts)
         if not belt:
             continue
 
@@ -445,12 +485,21 @@ def place_outer_clusters(cv, cfg, rng, spawn_pts=None):
 
         # **先攒局部列表，整簇成功才并入**——放不下弃整簇（滚回），
         # 不留下「半个簇」的残点（半个簇仍过校验，但破坏「小聚居」的形状）。
+        #
+        # **点只贴带子靠近簇心的那一截，不是整条带子**（2026-09-01，试玩反馈
+        # 「城外资源点离城墙太远」）——`belt` 是从簇心走到地图边界的**全程**
+        # （§2.1.1 第 7 条要求森林带通边界，这一半不能缩短），但资源点若能贴
+        # 在带子沿途**任意**格上，簇心明明卡在 `outer_cluster_span` 之内、
+        # 点却能借着带子搭车飘到地图边缘——「小聚居」的形状因此被破坏。
+        # `_BELT_POINT_WINDOW` 只让簇心附近这一小段可供落点，带子其余部分
+        # 仍然是纯森林、仍然连到边界。
+        belt_window = belt[:_BELT_POINT_WINDOW]
         local = []
         ok = True
         for k in kinds:
             taken = cv.occupied() | {p for _, p in local}
             cands = []
-            for bx, by in belt:
+            for bx, by in belt_window:
                 for ox, oy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
                     c = (bx + ox, by + oy)
                     if not cv.inside(*c) or c in taken or c in cands:
@@ -481,8 +530,8 @@ def place_outer_clusters(cv, cfg, rng, spawn_pts=None):
     return clusters
 
 
-def _carve_forest_belt(cv, start, direction, spawn_pts, rng):
-    """从 `start` 挖一条短而曲折的 4 连通 `Forest` 带到地图边界。
+def _carve_forest_belt(cv, start, direction, spawn_pts):
+    """从 `start` 挖一条 4 连通的 `Forest` 带到最近的地图边界，返回带子的格。
 
     先走一个轴到边界即可——**不需要走完两个轴**，碰到任意一条边就满足
     「通到地图边界」。**轴跟着方向走**（2026-09-01 起方向含正方向）：
@@ -490,8 +539,7 @@ def _carve_forest_belt(cv, start, direction, spawn_pts, rng):
     (1,0) 会算出 dy=0 的零步长死路；对角方向才按更短轴选（森林占地更少，
     第 10 条的压力更小）。
 
-    主方向保证最终碰到边界，途中以可播种随机数插入横向折步，避免树木呈
-    机械直线。**中途遇到挖不动的格就整条放弃（返回空），不跳过它继续。**
+    **中途遇到挖不动的格就整条放弃（返回空），不跳过它继续。**
     跳过会留下一条断成两截的带子，而断了的带子仍然「存在」——
     第 7 条会否决它，但那时症状是「丢弃率高」而不是「这里有个 bug」。
     宁可整簇不放，让重生成去换个位置。
@@ -501,54 +549,29 @@ def _carve_forest_belt(cv, start, direction, spawn_pts, rng):
     to_x = (cv.size - 1 - x) if dx > 0 else x
     to_y = (cv.size - 1 - y) if dy > 0 else y
     if dx == 0:
-        step, lateral, n = (0, dy), (1, 0), to_y
+        step, n = (0, dy), to_y
     elif dy == 0:
-        step, lateral, n = (dx, 0), (0, 1), to_x
+        step, n = (dx, 0), to_x
     elif to_x <= to_y:
-        step, lateral, n = (dx, 0), (0, 1), to_x
+        step, n = (dx, 0), to_x
     else:
-        step, lateral, n = (0, dy), (1, 0), to_y
+        step, n = (0, dy), to_y
 
     taken = cv.occupied()
     cells = []
-    seen = set()
-
-    def append_cell(cell):
-        cx, cy = cell
-        if not cv.inside(cx, cy) or cell in seen:
-            return False
-        # 岩壁与水域不挖开；实体格不覆盖；集结点附近不碰。
-        if cv.at(cx, cy) in ("Rock", "Water", "Bridge") or cell in taken:
-            return False
-        if any(max(abs(cx - s[0]), abs(cy - s[1])) <= 2 for s in spawn_pts):
-            return False
-        cells.append(cell)
-        seen.add(cell)
-        return True
-
-    if not append_cell((x, y)):
-        return []
-
     cx, cy = x, y
-    bend_count = min(n, max(1, n // 3)) if n > 1 else 0
-    bend_steps = set(rng.sample(range(n), bend_count)) if bend_count else set()
-    offset = 0
-    for i in range(n):
-        if i in bend_steps:
-            choices = [-1, 1]
-            rng.shuffle(choices)
-            for side in choices:
-                if abs(offset + side) > 2:
-                    continue
-                bent = (cx + lateral[0] * side, cy + lateral[1] * side)
-                if append_cell(bent):
-                    cx, cy = bent
-                    offset += side
-                    break
-        forward = (cx + step[0], cy + step[1])
-        if not append_cell(forward):
+    for _ in range(n + 1):
+        if not cv.inside(cx, cy):
+            break
+        # 岩壁与水域不挖开（城圈完整性比一条带子重要；河上盖森林等于把河
+        # 掐断一截，2026-09-01 起 `place_water` 先于簇落地）；实体格不覆盖；
+        # 集结点附近不碰（留白 1：集结点八邻不放森林，第 10 条因此恒过）。
+        if cv.at(cx, cy) in ("Rock", "Water", "Bridge") or (cx, cy) in taken:
             return []
-        cx, cy = forward
+        if any(max(abs(cx - s[0]), abs(cy - s[1])) <= 2 for s in spawn_pts):
+            return []
+        cells.append((cx, cy))
+        cx, cy = cx + step[0], cy + step[1]
 
     if not cells or not any(cv.inside(*c) and (c[0] in (0, cv.size - 1)
                                                or c[1] in (0, cv.size - 1))
@@ -592,9 +615,7 @@ def scatter_wild_terrain(cv, cfg, rng, spacing=8):
 
     wall_zone = zone(p for _, p, _ in cv.walls)
     spawn_zone = zone(cv.spawns)
-    existing_wild = [(x, y) for y in range(cv.size) for x in range(cv.size)
-                     if cv.at(x, y) in ("Forest", "Rock")]
-    forbidden = wall_zone | spawn_zone | cv.occupied() | zone(existing_wild)
+    forbidden = wall_zone | spawn_zone | cv.occupied()
 
     def valid(p):
         return (cv.inside(*p) and cv.at(*p) == "Plain"
@@ -644,14 +665,12 @@ def scatter_wild_terrain(cv, cfg, rng, spacing=8):
             continue   # 粉尘斑块直接放弃——第 23 条会否掉它
         for c in cells:
             cv.set_terrain(*c, "Forest")
-        forbidden.update(zone(cells))
     for _ in range(cfg.rock_patches):
         cells = blob(rng.randint(*cfg.rock_patch_size))
         if len(cells) < 3:
             continue
         for c in cells:
             cv.set_terrain(*c, "Rock")
-        forbidden.update(zone(cells))
     return True
 
 
@@ -943,58 +962,13 @@ def place_obstacles(cv, cfg, rng):
     """
     lo, hi = cfg.obstacles
     want = rng.randint(int(lo), int(hi))
-    kx, ky = cv.keep
-    radius = cfg.city_radius
-    types = ("Stump", "Rubble", "Sapling")
-    occupied = cv.occupied()
-    group_zone = set()
-    group_index = 0
-    groups = []
-
-    def valid(cell):
-        x, y = cell
-        return (cv.inside(x, y) and cv.at(x, y) == "Plain"
-                and cv.no_build[y][x] == 0 and cell not in occupied
-                and cell not in group_zone
-                and max(abs(x - kx), abs(y - ky)) >= radius + 2)
-
-    while len(cv.obstacles) < want:
-        seeds = [c for c in cv.free_plain_cells() if valid(c)]
-        if not seeds:
-            break
-        seed = rng.choice(seeds)
-        if group_index == 0 and want >= 3:
-            target = 1
-        elif group_index == 1 and want >= 3:
-            target = 2
-        else:
-            target = rng.randint(1, 3)
-        target = min(target, want - len(cv.obstacles))
-        cells = [seed]
-        frontier = [seed]
-        while len(cells) < target and frontier:
-            base = rng.choice(frontier)
-            neighbors = [(base[0] + ox, base[1] + oy)
-                         for ox, oy in ((1, 0), (-1, 0), (0, 1), (0, -1))]
-            rng.shuffle(neighbors)
-            nxt = next((c for c in neighbors if c not in cells and valid(c)), None)
-            if nxt is None:
-                frontier.remove(base)
-                continue
-            cells.append(nxt)
-            frontier.append(nxt)
-
-        kind = types[group_index % len(types)]
-        group_index += 1
-        for cell in cells:
-            cv.obstacles.append((kind, cell))
-            occupied.add(cell)
-        groups.append({"type": kind, "cells": list(cells)})
-        for px, py in cells:
-            for oy in range(-2, 3):
-                for ox in range(-2, 3):
-                    group_zone.add((px + ox, py + oy))
-    return groups
+    cands = cv.free_plain_cells()
+    if not cands:
+        return
+    rng.shuffle(cands)
+    types = ("Stump", "Sapling", "Rubble")
+    for i in range(min(want, len(cands))):
+        cv.obstacles.append((types[i % len(types)], cands[i]))
 
 
 def _resolve(cfg, rng):
@@ -1035,6 +1009,7 @@ def _resolve(cfg, rng):
         inner_resources=inner_resources,
         outer_clusters=outer_clusters,
         outer_cluster_size=cfg.outer_cluster_size,
+        outer_cluster_span=cfg.outer_cluster_span,
         initial_breaches=cfg.initial_breaches,
         wall_hp_frac_range=cfg.wall_hp_frac_range,
         forest_patches=cfg.forest_patches,
