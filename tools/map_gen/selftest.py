@@ -1723,11 +1723,12 @@ def check_generator_produces_valid_maps(c):
     outer_gold = sum(1 for r in doc["resources"]
                      if r["tier"] == "outer" and r["type"] == "gold")
     c.true(outer_gold >= 2, f"城外金矿 {outer_gold} 个，必须 ≥ 2（2026-08-31 试玩查出）")
-    # 城内构成：2 石 + 2 金 + 1–2 木。
+    # 城内构成：恰好 1 石 + 1 金 + 1 木（2026-09-01 从「2 石 2 金 1–2 木」收紧，
+    # 试玩反馈「城墙内资源点太多」）。
     inner = sorted(r["type"] for r in doc["resources"] if r["tier"] == "inner")
-    c.eq(inner.count("gold"), 2, f"城内金矿必须恒 2，实际 inner 构成 {inner}")
-    c.eq(inner.count("stone"), 2, f"城内石矿必须恒 2，实际 inner 构成 {inner}")
-    c.true(1 <= inner.count("wood") <= 2, f"城内木材 1–2，实际 inner 构成 {inner}")
+    c.eq(inner.count("gold"), 1, f"城内金矿必须恰好 1，实际 inner 构成 {inner}")
+    c.eq(inner.count("stone"), 1, f"城内石矿必须恰好 1，实际 inner 构成 {inner}")
+    c.eq(inner.count("wood"), 1, f"城内木材必须恰好 1，实际 inner 构成 {inner}")
 
     # 2026-09-01：金矿场恒一座、精确踩城内金点（「金矿不刷新」试玩反馈的落点）。
     gold_inner = sorted(tuple(r["pos"]) for r in doc["resources"]
@@ -1739,15 +1740,23 @@ def check_generator_produces_valid_maps(c):
 
 
 def _ref_cfg(**over):
-    """一组全钉死的生成配置（参考图同款形状），给直测生成器中间产物的
-    新用例用。区间全取单值 ⇒ `_resolve` 抽出来就是这个数，rng 消费序列
-    因此可预测。"""
+    """一组全钉死的生成配置，给直测生成器中间产物的用例用。区间全取单值
+    ⇒ `_resolve` 抽出来就是这个数，rng 消费序列因此可预测。
+
+    **这不是「参考图同款形状」**（本文档曾这么写，已订正）——具体数值是这批
+    用例自己钉死的固定夹具，独立于 `build_reference_map.py` 的 `CFG` 与
+    `thresholds.json` 的 `generator` 段；三处各自可以改而互不牵连。改这里
+    的默认值前先看下面用它的用例是否硬编码了依赖这些具体数字的断言
+    （`inner.count("stone") == 2` 这类）。"""
     base = SimpleNamespace(
         size=72, city_radius_range=[12, 12],
         spawn_count_range=[3, 3],
         inner_resources_range={"stone": [2, 2], "wood": [1, 2], "gold": [2, 2]},
         outer_clusters_range=[3, 3],
         outer_cluster_size=[2, 3],
+        outer_cluster_span=20,   # 宽松值：size=72/city_radius=12 下与旧
+        # 「上界=地图边长//2-4=32」等效（12+4+20=36>32，被 min() 钉在 32），
+        # 不改变这批既有用例的既有行为，只是把新增的必填字段补上。
         initial_breaches=[1, 1],
         wall_hp_frac_range=[0.5, 0.5],
         forest_patches=[6, 6],

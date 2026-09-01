@@ -322,7 +322,8 @@ def place_spawns(cv, cfg, th, rng, sides):
 
 
 def place_inner_content(cv, cfg, rng):
-    """城内内容：两片 L 形森林 → 资源（2 石 / 2 金 / 1–2 木）→ 预置建筑。
+    """城内内容：两片 L 形森林 → 资源（恰好 1 石 / 1 金 / 1 木，2026-09-01 从
+    「2 石 / 2 金 / 1–2 木」收紧，试玩反馈「城墙内资源点太多」）→ 预置建筑。
 
     顺序是森林 → 资源 → 建筑：资源与建筑都从 `free_plain_cells` 抽，
     森林先落地自然被避开。**堡垒周围 3 格净空（cheb ≤ 3 不放任何内容）**——
@@ -360,8 +361,9 @@ def place_inner_content(cv, cfg, rng):
         if not placed:
             return False
 
-    # 城内资源：构成 2 石 + 2 金 + 1–2 木（`inner_resources_range` 定死了
-    # 石/金恒 2——试玩反馈「城区内外都缺金矿」的落点；第 6 条三种各 ≥1 恒成立）。
+    # 城内资源：恰好 1 石 + 1 金 + 1 木（`inner_resources_range` 三种恒 1，
+    # 2026-09-01 从「石/金恒 2」收紧——试玩反馈「城墙内资源点太多」；
+    # 第 6 条三种各 ≥1 恒成立）。
     placed = []
     for kind in ("stone", "wood", "gold"):
         for _ in range(cfg.inner_resources[kind]):
@@ -402,6 +404,14 @@ def place_inner_content(cv, cfg, rng):
     return True
 
 
+# 森林带里，簇心往边界方向数这么多格以内才允许落资源点（其余的带子纯森林）。
+# 2026-09-01：与 `outer_cluster_span` 同一次改动引入，理由见函数内注释。
+# 实测过 8（最远点 beyond-wall 15）与 5（15 → 12，但候选格太少，簇经常放不满，
+# 总点数反而不涨）——6 是在「够近」与「够多」之间的折中，配合簇数/簇大小的
+# 上调实测总量能涨。
+_BELT_POINT_WINDOW = 6
+
+
 def place_outer_clusters(cv, cfg, rng, spawn_pts=None):
     """外部资源簇 + 每簇一条通到地图边界的 `Forest` 带。
 
@@ -420,6 +430,18 @@ def place_outer_clusters(cv, cfg, rng, spawn_pts=None):
     §2.1.1 的森林带（第 7 条）：对每个 `outer` 资源点，必须存在一条从它
     出发、到地图边界、全程 `Forest` 的 4 连通路径——顺序仍是**先挖带子、
     再把点贴在带子正交邻格**（先放点再挖带会只服务第一个点，60/60 全否的课）。
+
+    **2026-09-01 再续（试玩反馈：城外资源点离城墙太远）**：此前最远一簇的
+    距离上界 `max_d` 直接取 `地图边长 // 2 - 4`——地图从 72 涨到 144 之后
+    这个量跟着涨，簇距的整个跨度被动拉到贴地图边缘，与城墙的距离感和地图
+    尺寸绑死、不受城区大小控制。改为 `min(地图给的上界, R + 4 + cfg.
+    outer_cluster_span)`：跨度不再随地图边长走，只随**城区半径**走——地图
+    再涨一次，簇也不会跟着自动散得更远。**这条只管簇心**——森林带本身仍要
+    走到地图边界（第 7 条要求），而资源点若能贴在带子沿途任意格，会借着
+    带子把自己摆到远超 `outer_cluster_span` 的地方，实测就是这样（cap 了
+    簇心之后仍量到远端资源点）。因此点的候选格额外收窄到
+    `belt[:_BELT_POINT_WINDOW]`——只在簇心附近这一小段落点，带子其余部分
+    仍是纯森林、仍然连到边界，两条要求互不影响。
     """
     R = cfg.city_radius
     lo, hi = cfg.outer_cluster_size
@@ -432,7 +454,7 @@ def place_outer_clusters(cv, cfg, rng, spawn_pts=None):
     rng.shuffle(directions)
 
     n = min(cfg.outer_clusters, len(directions))
-    max_d = cv.size // 2 - 4
+    max_d = min(cv.size // 2 - 4, R + 4 + cfg.outer_cluster_span)
     if max_d <= R + 4:
         return []
     stride = (max_d - (R + 4)) // n
@@ -463,12 +485,21 @@ def place_outer_clusters(cv, cfg, rng, spawn_pts=None):
 
         # **先攒局部列表，整簇成功才并入**——放不下弃整簇（滚回），
         # 不留下「半个簇」的残点（半个簇仍过校验，但破坏「小聚居」的形状）。
+        #
+        # **点只贴带子靠近簇心的那一截，不是整条带子**（2026-09-01，试玩反馈
+        # 「城外资源点离城墙太远」）——`belt` 是从簇心走到地图边界的**全程**
+        # （§2.1.1 第 7 条要求森林带通边界，这一半不能缩短），但资源点若能贴
+        # 在带子沿途**任意**格上，簇心明明卡在 `outer_cluster_span` 之内、
+        # 点却能借着带子搭车飘到地图边缘——「小聚居」的形状因此被破坏。
+        # `_BELT_POINT_WINDOW` 只让簇心附近这一小段可供落点，带子其余部分
+        # 仍然是纯森林、仍然连到边界。
+        belt_window = belt[:_BELT_POINT_WINDOW]
         local = []
         ok = True
         for k in kinds:
             taken = cv.occupied() | {p for _, p in local}
             cands = []
-            for bx, by in belt:
+            for bx, by in belt_window:
                 for ox, oy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
                     c = (bx + ox, by + oy)
                     if not cv.inside(*c) or c in taken or c in cands:
@@ -978,6 +1009,7 @@ def _resolve(cfg, rng):
         inner_resources=inner_resources,
         outer_clusters=outer_clusters,
         outer_cluster_size=cfg.outer_cluster_size,
+        outer_cluster_span=cfg.outer_cluster_span,
         initial_breaches=cfg.initial_breaches,
         wall_hp_frac_range=cfg.wall_hp_frac_range,
         forest_patches=cfg.forest_patches,

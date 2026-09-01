@@ -54,7 +54,8 @@ PROFILE_KEYS = frozenset({
 GENERATOR_KEYS = frozenset({
     "size", "city_radius_range", "spawn_count_range",
     "inner_resources_range", "outer_clusters_range",
-    "outer_cluster_size", "initial_breaches", "wall_hp_frac_range",
+    "outer_cluster_size", "outer_cluster_span",
+    "initial_breaches", "wall_hp_frac_range",
     "forest_patches", "forest_patch_size",
     "rock_patches_range", "rock_patch_size",
     "water_lakes_range", "water_lake_size", "rivers_range",
@@ -149,6 +150,12 @@ class Generator:
 
         self.size = _num(d, "size", where, kind=(int,))
         self.max_attempts = _num(d, "max_attempts", where, kind=(int,))
+        self.outer_cluster_span = _num(d, "outer_cluster_span", where, kind=(int,))
+        if self.outer_cluster_span < 1:
+            raise ThresholdError(
+                f"{where}.outer_cluster_span = {self.outer_cluster_span} 应当 ≥ 1"
+                f"——它是簇距上界相对 `city_radius + 4` 的可加跨度，取 0 或负数会让"
+                f"最远一簇的上界不超过下界，`place_outer_clusters` 因此不放任何簇")
 
         for k in ("city_radius_range", "spawn_count_range",
                   "outer_clusters_range", "outer_cluster_size", "initial_breaches",
