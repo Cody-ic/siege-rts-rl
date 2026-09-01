@@ -515,7 +515,8 @@ constexpr std::uint64_t kBattleSeed = 20260830u;
 // （底板按行数现算高度）——2026-09-01 起传进来一起画。
 void draw_battle_hud(const render::FontSet& font, const game::MapData& map,
                      const game::DemoBattle& battle, bool paused,
-                     std::size_t selected_count, int train_force_sel) {
+                     std::size_t selected_count, int train_force_sel,
+                     int train_level_sel) {
     const rts::World& w = battle.world();
     char buf[320];
     char phase[48];
@@ -542,8 +543,9 @@ void draw_battle_hud(const render::FontSet& font, const game::MapData& map,
     // 是他第一个要找的东西——找不到就只能点窗口的叉，那看起来像卡住了。
     const std::string line3 = "Esc 菜单   空格暂停   方向键平移   滚轮缩放   F 重新入画";
     std::snprintf(buf, sizeof(buf),
-                  "选中 %zu   右键下令   N 召唤下一波   1-4 征兵进哪支编队(当前 %d)",
-                  selected_count, train_force_sel + 1);
+                  "选中 %zu   右键下令   N 召唤下一波   1-4 征兵进哪支编队(当前 %d)   "
+                  "[/] 征兵等级(当前 %d)",
+                  selected_count, train_force_sel + 1, train_level_sel);
     const std::string line4 = buf;
     draw_hud_backing(font, {line1, line2, line3, line4});
     font.draw(line1, rts::Vec2{14.0f, 12.0f}, kHudSize, Color{235, 235, 245, 255});
@@ -688,7 +690,13 @@ int run_game(const Options& opt) {
     // 三件事全都能做），所以它也是一个可插队的行，而不是一个把别的入口顶
     // 掉的模式。`Upgrade` 作为独占弹窗只服务「点一座满血的墙/塔」——那种
     // 格子在加它之前左键点下去什么都不弹。
-    enum class PopupKind : int { None = 0, Build, Train, Repair, Upgrade };
+    //
+    // `UpgradeForce`（兵种等级上限落地时追加）是另一个可插队的行，专属于
+    // Barrack/Keep：升级"训练建筑当前对准的那支编队"里够格的活着单位。
+    // 它不单独占一种独占弹窗——建筑升级用 `Upgrade` 那种独占弹窗触发的
+    // 场景（点一座满血的墙/塔）天生不适用于兵种升级（那里没有编队概念），
+    // 所以这一行只出现在 `Train`（点 Barrack/Keep）与它自己插队的地方。
+    enum class PopupKind : int { None = 0, Build, Train, Repair, Upgrade, UpgradeForce };
     struct Popup {
         PopupKind kind = PopupKind::None;
         rts::GridPos cell{};       // 建造的落点 / 兵营或堡垒 / 受损建筑
@@ -700,6 +708,10 @@ int run_game(const Options& opt) {
     // 训练仍是编队唯一入口（CLAUDE.md 未动这一条），但选编队不再是下令的
     // 前提——它只在征兵这一件事上出现，所以退化成一个不常按的持久值。
     int train_force_sel = 0;
+    // 征兵等级（兵种等级上限落地时追加）。同 `train_force_sel` 一样是个
+    // 不常按的持久值，用 `[`/`]` 调，clamp 到 `[1, unit_level_cap()]`——
+    // 上限会随堡垒等级涨，所以 clamp 每帧都按当前视图重算，不是建局时定死。
+    int train_level_sel = 1;
     std::vector<rts::UnitId> selected;   // 框选 / 点选出的己方单位
     bool dragging = false;
     Vector2 drag_screen_start{};   // 屏幕坐标：用位移量判断「点」还是「拖」
@@ -802,6 +814,29 @@ int run_game(const Options& opt) {
                          game::can_afford_upgrade(v, p.cell),
                 PopupKind::Upgrade, 0);
         };
+        // 「升级编队」同「升级」那条纪律：只要这一格是 Barrack/Keep 就恒
+        // 出现（哪怕当前这支编队一个够格的单位都没有），把原因印在标签里，
+        // 而不是让这一行干脆消失——否则玩家不会知道这个功能存在。升级的
+        // 是 `train_force_sel` 那支（同一个旋钮既决定新兵进哪支，也决定
+        // 点这里能升级哪一支）。
+        const auto push_upgrade_force = [&]() {
+            if (!game::can_upgrade_force_hint(v, p.cell)) return;
+            const std::uint8_t force = static_cast<std::uint8_t>(train_force_sel);
+            const game::UpgradeForceQuote q = game::upgrade_force_quote(v, force, p.cell);
+            if (q.eligible_count == 0) {
+                // 括号与逗号一律用 ASCII，同「维修」「升级」两行既有标签的
+                // 写法——不引入新的标点码点，也不必额外去 ui_strings() 登记。
+                std::snprintf(buf, sizeof(buf), "升级编队 %d (无合格单位)",
+                             train_force_sel + 1);
+            } else {
+                std::snprintf(buf, sizeof(buf), "升级编队 %d (%d 名合格, 共 %d 金)",
+                             train_force_sel + 1, q.eligible_count,
+                             static_cast<int>(q.total_gold));
+            }
+            push(buf,
+                q.eligible_count > 0 && game::can_afford_upgrade_force(v, force, p.cell),
+                PopupKind::UpgradeForce, 0);
+        };
         switch (p.kind) {
             case PopupKind::Build:
                 for (std::size_t i = 0; i < buildable.size(); ++i) {
@@ -828,20 +863,24 @@ int run_game(const Options& opt) {
                     push_repair();
                 }
                 push_upgrade();
+                push_upgrade_force();
                 for (std::size_t i = 0; i < trainable.size(); ++i) {
                     const rts::UnitType ut = trainable[i];
-                    const rts::UnitStats& s = stats.of(ut);
-                    std::snprintf(buf, sizeof(buf), "%s (金%d)",
+                    // 造价随 `train_level_sel` 变——`[`/`]` 调的是这一格
+                    // 弹窗里全部兵种共用的同一个等级，不是逐兵种各自的。
+                    std::snprintf(buf, sizeof(buf), "%s Lv%d (金%d)",
                                  std::string(game::display_name(ut)).c_str(),
-                                 static_cast<int>(s.cost_gold));
+                                 train_level_sel,
+                                 static_cast<int>(v.train_cost_gold(ut, train_level_sel)));
                     push(buf, game::can_train_hint(v, p.cell) &&
-                                 game::can_afford_train(v, ut),
+                                 game::can_afford_train(v, ut, train_level_sel),
                         PopupKind::Train, static_cast<int>(i));
                 }
                 break;
             case PopupKind::Repair:
                 push_repair();
                 push_upgrade();
+                push_upgrade_force();
                 break;
             case PopupKind::Upgrade:
                 // 点一座满血的墙/塔落到这里。维修行照 `can_repair_hint` 判，
@@ -854,6 +893,13 @@ int run_game(const Options& opt) {
                     push_repair();
                 }
                 push_upgrade();
+                push_upgrade_force();
+                break;
+            case PopupKind::UpgradeForce:
+                // `UpgradeForce` 从不是 `popup.kind` 本身——它只作为
+                // `push_upgrade_force()` 推的那一行的 `.action` 标签，
+                // 真正打开的弹窗永远是 `Train`/`Repair`/`Upgrade` 之一。
+                // 这一支纯粹是让上面这个 switch 保持穷举、`/W4` 挑不出漏项。
                 break;
             case PopupKind::None:
                 break;
@@ -912,7 +958,8 @@ int run_game(const Options& opt) {
         EndMode2D();
 
         if (shell.screen() == game::Screen::Battle && b != nullptr) {
-            draw_battle_hud(*font, map, *b, paused, selected.size(), train_force_sel);
+            draw_battle_hud(*font, map, *b, paused, selected.size(),
+                            train_force_sel, train_level_sel);
 
             // 弹出菜单：屏幕坐标，画在点开那一刻的位置。**造价写在选项里**——
             // 「点了没反应」最常见的真因是买不起，把价钱摆在眼前比事后猜便宜。
@@ -1046,6 +1093,16 @@ int run_game(const Options& opt) {
             if (IsKeyPressed(KEY_TWO)) train_force_sel = 1;
             if (IsKeyPressed(KEY_THREE)) train_force_sel = 2;
             if (IsKeyPressed(KEY_FOUR)) train_force_sel = 3;
+            // 征兵等级（兵种等级上限落地时追加）。下限钳在这里（1，恒合法）；
+            // 上限用 `b->world()` 现算，不用 `view`——这段代码跑在 `view`
+            // 构造之前（见下面「拾取」那段），提前引用会是一个悬垂读取。
+            if (IsKeyPressed(KEY_LEFT_BRACKET)) {
+                train_level_sel = train_level_sel > 1 ? train_level_sel - 1 : 1;
+            }
+            if (IsKeyPressed(KEY_RIGHT_BRACKET)) {
+                const int cap = static_cast<int>(b->world().unit_level_cap());
+                train_level_sel = train_level_sel < cap ? train_level_sel + 1 : cap;
+            }
             if (IsKeyPressed(KEY_N)) {
                 rts::Command c;
                 c.kind = rts::CommandKind::Summon;
@@ -1092,13 +1149,18 @@ int run_game(const Options& opt) {
                                 c = game::train_command(
                                     trainable[opt_idx],
                                     static_cast<std::uint8_t>(train_force_sel),
-                                    popup.cell, map.width());
+                                    train_level_sel, popup.cell, map.width());
                                 break;
                             case PopupKind::Repair:
                                 c = game::repair_command(popup.cell, map.width());
                                 break;
                             case PopupKind::Upgrade:
                                 c = game::upgrade_command(popup.cell, map.width());
+                                break;
+                            case PopupKind::UpgradeForce:
+                                c = game::upgrade_force_command(
+                                    static_cast<std::uint8_t>(train_force_sel),
+                                    popup.cell, map.width());
                                 break;
                             case PopupKind::None:
                                 have = false;

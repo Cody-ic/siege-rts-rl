@@ -82,11 +82,16 @@ enum class CommandKind : std::uint8_t {
 
     // ——守方：建筑升级。**同理该排在 `Repair` 旁边，追加在末尾是同一条纪律**——
     Upgrade,      // slot = 槽位；`Keep` 不受 `building_level_cap()` 约束
+
+    // ——守方：兵种等级上限第二半（第一半是 `Train` 借 `level` 字段表达，
+    // 不需要新命令）。同样只能追加在末尾——
+    UpgradeForce, // force = 编队；slot = Barrack/Keep 槽位；把该编队里在场
+                  // 且未顶 `unit_level_cap()` 的活着单位各升一级，取差价
 };
 
-inline constexpr int kCommandKindCount = 13;
+inline constexpr int kCommandKindCount = 14;
 
-static_assert(static_cast<int>(CommandKind::Upgrade) == kCommandKindCount - 1);
+static_assert(static_cast<int>(CommandKind::UpgradeForce) == kCommandKindCount - 1);
 
 // **枚举值就是回放的线路编码，所以新增一律追加在末尾，不按语义分组插入。**
 //
@@ -123,20 +128,31 @@ inline constexpr std::uint8_t kNoForce = 0xFFu;
 
 // 一条命令。
 //
-// **字段顺序是为了零填充**：uint16 在前，四个 uint8 在后，于是 sizeof == 6、
-// 对齐 2、没有填充字节。这条对回放不是锦上添花——填充字节的内容是不确定的，
-// 若直接把结构体喂进 `StateHash` 或写进文件，**同一条命令可能哈希出两个值**。
-// 下面有 static_assert 钉住。
+// **字段顺序是为了零填充**：uint16 在前，uint8 们在后，于是 sizeof 恰好是
+// 对齐（2）的整数倍、没有编译器插入的填充字节。这条对回放不是锦上添花——
+// 填充字节的内容是不确定的，若直接把结构体喂进 `StateHash`（`World::state_hash()`
+// 对待排空命令队列就是这么干的：`h.feed(q.data(), q.size() * sizeof(Command))`）
+// 或写进文件，**同一条命令可能哈希出两个值**。下面有 static_assert 钉住。
 //
 // `what` 一个字段兼放 `BldType` 与 `UnitType`，语义由 `kind` 决定。
 // 这是刻意的紧凑，代价是类型安全，所以取值一律经下面两个访问器（带断言），
 // 不要直接读 `what`。
+//
+// **`level`（兵种等级上限落地时追加）只有 `Train` 读**——征兵时选等级，
+// 1..`unit_level_cap()` 任选。`_reserved0` 不是笔误：五个 uint8 字段合计
+// 5 字节，加上 `slot` 的 2 字节是 7，不是 2 的整数倍，编译器会在结构体末尾
+// 插一个内容不确定的填充字节——正是上一段要挡的那种。补一个显式、恒为 0
+// 的字段把总字节数凑回 8（2 的整数倍），于是「有没有填充」不再取决于
+// 编译器的选择，是结构体自己保证的。它目前没有语义，留给下一个需要一个
+// 字节的命令字段用（比如「调兵」那个待定项，见 `守方AI与协同演化.md`）。
 struct Command {
     std::uint16_t slot = kNoSlot;
     CommandKind   kind = CommandKind::None;
     Side          side = Side::Defender;
     std::uint8_t  what = 0;
     std::uint8_t  force = kNoForce;
+    std::uint8_t  level = kMinUnitLevel;
+    std::uint8_t  _reserved0 = 0;
 
     friend constexpr bool operator==(Command, Command) noexcept = default;
 
@@ -163,7 +179,7 @@ constexpr std::uint16_t composition_slots(Command c) noexcept {
     return c.slot;
 }
 
-static_assert(sizeof(Command) == 6,
+static_assert(sizeof(Command) == 8,
               "回放要按字节存命令流；有填充字节的话同一条命令可能哈希出两个值");
 static_assert(alignof(Command) == 2);
 static_assert(std::is_trivially_copyable_v<Command>);
@@ -190,6 +206,7 @@ constexpr Side owner_of(CommandKind k) noexcept {
         case CommandKind::Garrison:
         case CommandKind::Clear:
         case CommandKind::Upgrade:
+        case CommandKind::UpgradeForce:
             return Side::Defender;
     }
     return Side::Defender;
@@ -216,6 +233,7 @@ constexpr std::string_view ident_of(CommandKind k) noexcept {
         case CommandKind::PickSpawn:   return "PickSpawn";
         case CommandKind::Clear:       return "Clear";
         case CommandKind::Upgrade:     return "Upgrade";
+        case CommandKind::UpgradeForce: return "UpgradeForce";
     }
     return {};
 }

@@ -333,6 +333,30 @@ TEST_CASE("字节往返之后每一个字段都一样", "[replay]") {
     REQUIRE(back.to_bytes() == bytes);
 }
 
+// **上一条测不出 `level` 字段的真实性**：`record_session()` 里没有任何一条
+// `Train` 命令，`level` 全程停在默认值 `kMinUnitLevel`——哪怕 `put_command`/
+// 读取那一行被漏掉，两侧的默认值照样相等，`operator==` 照样通过。这条专门
+// 提交一个非默认等级的 `Train`，逼字节真的经过写入再读出这一趟。
+TEST_CASE("Train 命令的 level 字段（format v3）经字节往返不丢", "[replay]") {
+    rts::World w(demo_init());
+    rts::ReplayRecorder rec(w, 1);
+
+    rts::Command train = cmd(rts::CommandKind::Train, rts::Side::Defender);
+    train.slot = rts::slot_of(w.keep_pos(), w.width());
+    train.what = static_cast<std::uint8_t>(rts::UnitType::Archer);
+    train.level = 4;
+    rec.submit(rts::Side::Defender, &train, 1);
+    rec.advance(1);
+    const rts::Replay r = rec.finish();
+
+    const std::vector<unsigned char> bytes = r.to_bytes();
+    const rts::Replay back = reload(bytes);
+
+    REQUIRE(back.commands().size() == r.commands().size());
+    REQUIRE(back.commands()[0].level == 4);
+    REQUIRE(back.commands() == r.commands());
+}
+
 TEST_CASE("载荷偏移把多条记录分得开", "[replay]") {
     // 两条 Commands 记录共用一个平坦数组，靠 offset + count 切开。
     // 切错的症状是「重放时某一批命令用了邻批的字节」——不报错、只是对不上。

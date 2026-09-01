@@ -106,7 +106,7 @@
 //                1  side   u8   Hash 时无意义
 //                2  count  u16  Hash 时为 0
 //                8  hash   u64  仅 Hash 有意义
-//       6×M  命令载荷（按记录出现顺序拼接）
+//       7×M  命令载荷（按记录出现顺序拼接）
 //       1×K  动作载荷（同上）
 //        8    file_hash    u64  —— 前面全部字节的 FNV-1a
 // ```
@@ -170,7 +170,12 @@ static_assert(kReplayMagic.size() == 8);
 //
 // 1 → 2：头部加了 `stats_fp`（数值表指纹）。这次两个都动了（布局变了、
 // 喂入清单也变了），但那是巧合不是规律——上一次 `World/1 → World/2` 就只动了一边。
-inline constexpr std::uint16_t kReplayFormatVersion = 2;
+//
+// 2 → 3：兵种等级上限落地，`Command` 追加 `level` 字段——命令载荷从
+// 6 字节/条变成 7 字节/条（`_reserved0` 那个字节只在内存布局里存在，
+// 为的是不让 `sizeof(Command)` 产生编译器填充，不写进文件，所以载荷是
+// 7 不是 8）。旧回放按新版本读会在命令载荷区错位，必须拒绝而不是猜。
+inline constexpr std::uint16_t kReplayFormatVersion = 3;
 
 // ——平台指纹——
 //

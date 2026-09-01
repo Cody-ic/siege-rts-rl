@@ -111,15 +111,19 @@ const std::vector<rts::UnitType>& trainable_types();
 // 与「菜单里哪个兵种买得起」是两个不同粒度的问题，后者见 `can_afford_train`。
 bool can_train_hint(const rts::WorldView& view, rts::GridPos cell);
 
-// 造价够不够（金）。同 `can_afford_build` 的理由：弹窗里每个兵种一行，
-// 造价各不相同，只有知道具体兵种才能判断买不买得起。
-bool can_afford_train(const rts::WorldView& view, rts::UnitType ut);
+// 造价够不够（金），且 `level` 没有顶过 `unit_level_cap()`。同
+// `can_afford_build` 的理由：弹窗里每个兵种一行，造价各不相同，只有知道
+// 具体兵种（现在还要知道具体等级）才能判断买不买得起。`level` 是兵种
+// 等级上限落地时追加的参数——顶不过上限直接算不够格，不单独开一个函数。
+bool can_afford_train(const rts::WorldView& view, rts::UnitType ut, std::int32_t level);
 
 // 征兵命令。`force` 决定新兵进哪支编队——**这是玩家唯一能编队的入口**
 // （命令枚举里没有「把单位编入编队」，#57 组内已定维持 12 种不变），
-// 所以「往打薄的那支里补兵」就是这条路。
-rts::Command train_command(rts::UnitType u, std::uint8_t force, rts::GridPos cell,
-                           int map_width);
+// 所以「往打薄的那支里补兵」就是这条路。`level` 是兵种等级上限落地时
+// 追加的（1..`unit_level_cap()` 任选，越高越贵——`view.train_cost_gold()`
+// 查具体数额）。
+rts::Command train_command(rts::UnitType u, std::uint8_t force, std::int32_t level,
+                           rts::GridPos cell, int map_width);
 
 // ——维修——
 //
@@ -185,6 +189,40 @@ std::int64_t upgrade_cost_wood(const rts::WorldView& view, rts::GridPos cell);
 bool can_afford_upgrade(const rts::WorldView& view, rts::GridPos cell);
 
 rts::Command upgrade_command(rts::GridPos cell, int map_width);
+
+// ——已有部队批量升级（兵种等级上限，守方升级轴第三个输出的另一半）——
+//
+// 复用 `train_force_sel`（`render/` 里那个数字键切换的持久值，训练与批量
+// 升级共用同一个旋钮）——不新开一个框选流程：这座训练建筑当前对准的编队，
+// 既决定新兵进哪支，也决定点这里能升级哪一支。
+
+// 这一格能不能弹出「升级编队」这一行：己方完工的 `Barrack`/`Keep`。
+// **不查这支编队里有没有够格的单位**——那是更细粒度的判断，见
+// `upgrade_force_quote`；理由同 `push_upgrade` 对「顶到上限也照常出现」
+// 那条：没有够格单位时这一行也该出现、灰着，不是干脆消失。
+bool can_upgrade_force_hint(const rts::WorldView& view, rts::GridPos cell);
+
+// 给定编队在这一格实际能升级几名、总共要多少金——两个数都要印在弹窗标签里
+// （"升级编队 2（3 名合格，共 90 金）"一类），同时是买不买得起的依据。
+// **判定逻辑只在这里查一遍**（同 `upgrade_cost_stone` 那条纪律），不重新
+// 推 `rts_core/src/world.cpp` 的 `UpgradeForce` 解算——按 `enumerate_units`
+// 的规范顺序、逐名判"够格 + 在场"算出合格数与合计差价，不模拟资金耗尽
+// 的先后顺序（那是解算自己的事，这里只给一个总量参考）。
+struct UpgradeForceQuote {
+    int eligible_count = 0;
+    std::int64_t total_gold = 0;
+};
+UpgradeForceQuote upgrade_force_quote(const rts::WorldView& view, std::uint8_t force,
+                                      rts::GridPos cell);
+
+// 买不买得起：`eligible_count > 0` 且当前金库存量 >= `total_gold`。
+// **这是一个粗判**——解算是逐名扣款、按到就升，真买得起的人数在钱不够
+// 覆盖全部合格者时可能比 `eligible_count` 少；这一层只用来决定绿框亮不亮，
+// 不是精确预测。
+bool can_afford_upgrade_force(const rts::WorldView& view, std::uint8_t force,
+                              rts::GridPos cell);
+
+rts::Command upgrade_force_command(std::uint8_t force, rts::GridPos cell, int map_width);
 
 }  // namespace game
 

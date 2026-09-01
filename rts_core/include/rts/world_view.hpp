@@ -101,6 +101,11 @@ public:
         return sp(w_->u_tgt_kind_);
     }
     std::span<const Vec2> unit_aim() const noexcept { return sp(w_->u_aim_); }
+    // 单位升级倒计时（守方升级轴第三个输出，`0` = 没在升）。UI 的"升级中"
+    // 提示与脚本执行层读它——同 `bld_upgrade_left()` 那条形状。
+    std::span<const std::int32_t> unit_upgrade_left() const noexcept {
+        return sp(w_->u_upgrade_left_);
+    }
     std::span<const std::int32_t> unit_cooldown() const noexcept {
         return sp(w_->u_cd_);
     }
@@ -142,6 +147,21 @@ public:
     std::int32_t building_level_cap() const noexcept {
         return w_->building_level_cap();
     }
+    // 兵种等级上限（守方升级轴第三个输出）：直接等于堡垒等级，无除数——
+    // 与上面 `building_level_cap()` 的公式来源本来就不同，见 `World` 的实现。
+    std::int32_t unit_level_cap() const noexcept { return w_->unit_level_cap(); }
+    // 造价/耗时曲线，`game/player_input.cpp` 的征兵与批量升级查询都调它，
+    // 不在 `game/` 里重新推公式（同 `upgrade_cost_stone` 那条纪律）。
+    std::int64_t train_cost_gold(UnitType ut, std::int32_t level) const noexcept {
+        return w_->train_cost_gold(ut, level);
+    }
+    std::int32_t train_ticks_at(UnitType ut, std::int32_t level) const noexcept {
+        return w_->train_ticks_at(ut, level);
+    }
+    // 已有部队批量升级的"须在场"判定。`game/player_input.cpp` 的造价/合格数
+    // 查询要用它——不重新推一遍"扫 Barrack/Keep、按半径判在场"，同
+    // `train_cost_gold` 那条"唯一算这个公式的地方"的纪律。
+    bool barrack_near(Vec2 pos) const { return w_->barrack_near(pos); }
     std::span<const std::uint8_t> bld_alive() const noexcept {
         return std::span<const std::uint8_t>(w_->bld_pool_.alive_bytes(),
                                              w_->bld_pool_.slot_count());

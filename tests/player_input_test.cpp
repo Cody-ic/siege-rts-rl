@@ -156,7 +156,7 @@ TEST_CASE("征兵提示：只有完工且没在练的兵营或堡垒可以点", 
     // 真的下一条征兵命令，然后这一格就该变成不可点（一次一名）。
     w.set_stock(rts::Resource::Gold, 100);
     const rts::Command c =
-        game::train_command(rts::UnitType::Archer, 2, rts::GridPos{2, 1}, 10);
+        game::train_command(rts::UnitType::Archer, 2, /*level=*/1, rts::GridPos{2, 1}, 10);
     REQUIRE_NOTHROW(w.submit(rts::Side::Defender, &c, 1));
     w.advance(1);
     REQUIRE_FALSE(game::can_train_hint(w.view(rts::Side::Defender), rts::GridPos{2, 1}));
@@ -471,9 +471,10 @@ TEST_CASE("造价提示：资源不够时红框，够了才绿（试玩报的 bu
     {
         const rts::WorldView v = w.view(rts::Side::Defender);
         REQUIRE(game::can_train_hint(v, rts::GridPos{2, 1}));
-        REQUIRE_FALSE(game::can_afford_train(v, rts::UnitType::Archer));   // 10 < 60
+        REQUIRE_FALSE(game::can_afford_train(v, rts::UnitType::Archer, 1));   // 10 < 60
         const rts::Command c =
-            game::train_command(rts::UnitType::Archer, 0, rts::GridPos{2, 1}, 10);
+            game::train_command(rts::UnitType::Archer, 0, /*level=*/1,
+                               rts::GridPos{2, 1}, 10);
         w.submit(rts::Side::Defender, &c, 1);
         w.advance(1);
         REQUIRE(w.stock(rts::Resource::Gold) == 10);   // 真被拒了
@@ -481,9 +482,10 @@ TEST_CASE("造价提示：资源不够时红框，够了才绿（试玩报的 bu
     w.set_stock(rts::Resource::Gold, 100);
     {
         const rts::WorldView v = w.view(rts::Side::Defender);
-        REQUIRE(game::can_afford_train(v, rts::UnitType::Archer));
+        REQUIRE(game::can_afford_train(v, rts::UnitType::Archer, 1));
         const rts::Command c =
-            game::train_command(rts::UnitType::Archer, 0, rts::GridPos{2, 1}, 10);
+            game::train_command(rts::UnitType::Archer, 0, /*level=*/1,
+                               rts::GridPos{2, 1}, 10);
         w.submit(rts::Side::Defender, &c, 1);
         w.advance(1);
         REQUIRE(w.stock(rts::Resource::Gold) == 40);   // 真生效了

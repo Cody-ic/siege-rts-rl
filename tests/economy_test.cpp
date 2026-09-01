@@ -484,6 +484,142 @@ TEST_CASE("Train：扣金倒计时，在兵营邻格出兵并编入编队；忙�
     REQUIRE(w.live_unit_count() == 1);
 }
 
+// ——兵种等级上限（守方升级轴第三个输出）——
+
+TEST_CASE("征兵选级：造价按等级涨、顶不过 unit_level_cap() 拒绝、出兵等级与耗时都对",
+          "[econ]") {
+    rts::WorldInit init = arena();
+    init.stats.global.hp_permille_per_level = 100;
+    init.stats.global.dmg_permille_per_level = 100;
+    init.stats.global.train_ticks_permille_per_level = 200;   // 每级训练耗时 +20%
+    init.stats.unit[static_cast<std::size_t>(rts::UnitType::Archer)].train_ticks = 5;
+    rts::World w(std::move(init));
+    w.place_bld(rts::BldType::Barrack, rts::GridPos{4, 3}, 50, 50);
+    w.set_stock(rts::Resource::Stone, 1000);
+    w.set_stock(rts::Resource::Wood, 1000);
+    w.set_stock(rts::Resource::Gold, 1000);
+    w.spawn_unit(rts::UnitType::Mason, rts::center_of(w.keep_pos()), 1, 10, 10);
+
+    rts::Command train = slot_cmd(rts::CommandKind::Train, rts::GridPos{4, 3}, w.width());
+    train.what = static_cast<std::uint8_t>(rts::UnitType::Archer);
+    train.level = 2;
+
+    // Keep 还在 1 级，unit_level_cap()==1（无除数，直接等于堡垒等级）：
+    // level=2 顶不过，一分钱不扣、不进训练队列。
+    //
+    // **基线是 1，不是 0**：501 行那名 Mason 已经活着。`live_unit_count()`
+    // 不分侧、不分兵种，后面几条断言都对着这个基线比，不是比绝对 0/1/2。
+    REQUIRE(w.unit_level_cap() == 1);
+    w.submit(rts::Side::Defender, &train, 1);
+    w.advance(1);
+    REQUIRE(gold(w) == 1000);
+    REQUIRE(w.live_unit_count() == 1);   // 只有 Mason，没多出 Archer
+
+    // 升堡垒到 2 级，cap 跟着变成 2（econ_stats 的 Keep upgrade_ticks=2，
+    // 工匠已经在场——同 level_keep_to 的既定用法）。
+    level_keep_to(w, 2);
+    REQUIRE(w.unit_level_cap() == 2);
+
+    // 现在通过：cost_gold(L) = base × L = 30 × 2 = 60 金（纯线性，不走
+    // apply_permille）；训练耗时 5 × (1 + 200‰×1) = 5×1.2 = 6 tick。
+    //
+    // **942 不是 940**：`level_keep_to(w, 2)` 那个 `advance(10)` 跨过了一次
+    // `income_period_ticks=10` 的结算边界，Keep 的金币地板 +2——同「Train：
+    // 扣金倒计时」既有用例踩过的那同一条（「补兵的钱永远会慢慢回来」正是
+    // 地板的本职，账要算上它，不是测试写错）。
+    w.submit(rts::Side::Defender, &train, 1);
+    w.advance(1);
+    REQUIRE(gold(w) == 942);   // 1000 + 2（地板） - 60
+    REQUIRE(w.live_unit_count() == 1);   // Archer 还在倒计时，没出兵
+
+    // 同 「Train：扣金倒计时」既有用例的换算——N tick 倒计时要 N+1 次 advance
+    // 才真正出兵（提交那一拍先算一次，最后归零那一拍还差一拍才落地）。
+    w.advance(6);
+    REQUIRE(w.live_unit_count() == 2);   // Mason + 新出的 Archer
+
+    std::vector<rts::UnitId> ids;
+    w.enumerate_units(rts::Side::Defender, ids);
+    // Mason 也在守方里，出的新兵是另一个——按类型挑出来，不假设下标。
+    rts::UnitId trained{};
+    for (const rts::UnitId id : ids) {
+        if (w.unit_type(id) == rts::UnitType::Archer) trained = id;
+    }
+    REQUIRE(trained.valid());
+    REQUIRE(w.unit_level(trained) == 2);
+    // 出兵等级真的传到了血量公式——1 级时 level_permille 恒为 1000（无缩放），
+    // 2 级时按系数 100 算出的那个数，两者不同才说明这一行真的读了 c.level。
+    const std::int64_t expect_hp =
+        rts::apply_permille(20, {rts::level_permille(2, 100)});
+    REQUIRE(expect_hp != 20);
+    REQUIRE(w.unit_hp(trained) == expect_hp);
+}
+
+TEST_CASE("已有部队批量升级：差价、须在场、按比例换血、顶上限与缺钱都会跳过",
+          "[econ]") {
+    rts::WorldInit init = arena();
+    init.stats.global.hp_permille_per_level = 100;
+    init.stats.global.dmg_permille_per_level = 100;
+    init.stats.unit[static_cast<std::size_t>(rts::UnitType::Archer)].cost_gold = 30;
+    init.stats.global.unit_upgrade_radius = 1.6f;
+    // 四名 Archer + 一名工匠，全部经 `WorldInit::units` 放好——按插入顺序给
+    // 槙位是既定纪律（同 `replay_test.cpp` 的写法），才能用 `enumerate_units()`
+    // 的规范顺序稳定对应回它们，不必猜下标。
+    init.units.push_back(rts::UnitInit{
+        rts::UnitType::Archer, rts::center_of(rts::GridPos{4, 4}), 1, 10, 20, 0});
+    init.units.push_back(rts::UnitInit{
+        rts::UnitType::Archer, rts::center_of(rts::GridPos{5, 3}), 1, 20, 20, 0});
+    init.units.push_back(rts::UnitInit{
+        rts::UnitType::Archer, rts::center_of(rts::GridPos{0, 5}), 1, 20, 20, 0});
+    init.units.push_back(rts::UnitInit{
+        rts::UnitType::Archer, rts::center_of(rts::GridPos{4, 2}), 3, 20, 20, 0});
+    init.units.push_back(rts::UnitInit{rts::UnitType::Mason,
+                                       rts::center_of(init.keep), 1, 10, 10, rts::kNoForce});
+    rts::World w(std::move(init));
+    w.place_bld(rts::BldType::Barrack, rts::GridPos{4, 3}, 50, 50);
+    w.set_stock(rts::Resource::Stone, 1000);
+    w.set_stock(rts::Resource::Wood, 1000);
+    level_keep_to(w, 3);   // unit_level_cap() == 3（无除数）
+
+    std::vector<rts::UnitId> ids;
+    w.enumerate_units(rts::Side::Defender, ids);
+    REQUIRE(ids.size() == 5);
+    // 不叫 near/far：那是 MSVC 上历史悠久的宏名（16 位指针修饰符遗留），
+    // 虽然这份 TU 没拉 windows.h、大概率不会撞上，但没必要冒这个险。
+    const rts::UnitId close_ok = ids[0];      // 半血、够格、在 Barrack 附近
+    const rts::UnitId close_broke = ids[1];   // 满血、够格、在场，但钱不够
+    const rts::UnitId distant = ids[2];       // 够格，但离 Barrack/Keep 都太远
+    const rts::UnitId capped = ids[3];        // 已经是 3 级 == unit_level_cap()
+
+    // 只够升一名：差价 = cost_gold(2) - cost_gold(1) = 60 - 30 = 30。
+    w.set_stock(rts::Resource::Gold, 30);
+
+    rts::Command up;
+    up.kind = rts::CommandKind::UpgradeForce;
+    up.side = rts::Side::Defender;
+    up.force = 0;
+    up.slot = rts::slot_of(rts::GridPos{4, 3}, w.width());
+    w.submit(rts::Side::Defender, &up, 1);
+    w.advance(1);   // train_ticks 未配（诚实默认 0）⇒ 差价一到账立刻完工
+
+    REQUIRE(gold(w) == 0);
+    REQUIRE(w.unit_level(close_ok) == 2);
+    // **按比例换血，不补满**：与建筑升级"完工即满血"刻意不同（见
+    // `finish_unit_upgrade` 的理由）——半血的兵升级后仍然是半血左右，
+    // 不会变成免费的全额维修。
+    const std::int64_t new_max = rts::apply_permille(20, {rts::level_permille(2, 100)});
+    const std::int64_t expect_hp = (10 * new_max + 10) / 20;
+    REQUIRE(expect_hp < new_max);
+    REQUIRE(w.unit_hp(close_ok) == expect_hp);
+
+    // 按 enumerate_units 的规范顺序处理：close_ok 先花掉唯一的 30 金，
+    // close_broke 排在它后面、轮到它时钱已经不够，跳过——不是整批作废。
+    REQUIRE(w.unit_level(close_broke) == 1);
+    // 不在场：无论钱够不够都跳过。
+    REQUIRE(w.unit_level(distant) == 1);
+    // 已经顶到 unit_level_cap()：跳过，不会继续往上升。
+    REQUIRE(w.unit_level(capped) == 3);
+}
+
 TEST_CASE("MoveForce 与 Clear 解算成世界状态，脚本执行层读得到", "[econ]") {
     rts::World w(arena());
 
