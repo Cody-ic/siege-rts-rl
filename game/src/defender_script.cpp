@@ -83,6 +83,7 @@ void DefenderScript::decide(const rts::WorldView& view,
     // 一拍内的缓存重建：field 的破坏代价读当前血量，拍间会变。
     fields_.clear();
     wall_claimed_.clear();
+    bld_claimed_.clear();
     if (threat_streak_.size() < view.unit_type().size()) {
         threat_streak_.resize(view.unit_type().size(), 0);
     }
@@ -258,9 +259,23 @@ rts::UnitAction DefenderScript::decide_unit(const rts::WorldView& view,
             return hold_position(view, slot, mask);
         }
         case rts::UnitType::Spear: {
-            // 堵缺口不追击：打得着就打，打不着绝不朝敌人挪一步——
-            // 被风筝出阵位正是 Shade 克枪卫的机制，脚本不能亲手送。
+            // 守家迎击，拴堡垒不追远：打得着就打；敌人进堡垒
+            // `spear_engage_cells` 圈就迎击**离堡垒最近**的来敌（打进来了
+            // 不能再干看），出圈即收兵回驻防环——被风筝出阵位正是 Shade
+            // 克枪卫的机制，圈就是风筝防线，脚本不能亲手送。
             if (has(mask, rts::UnitAction::AtkNear)) return rts::UnitAction::AtkNear;
+            float d2 = 0.0f;
+            const int intruder = nearest_enemy(
+                view, rts::center_of(view.keep_pos()),
+                [](rts::UnitType) { return true; }, &d2);
+            if (intruder >= 0 &&
+                d2 < p_.spear_engage_cells * p_.spear_engage_cells) {
+                return move_towards(
+                    view, slot,
+                    rts::grid_of(
+                        view.unit_pos()[static_cast<std::size_t>(intruder)]),
+                    mask);
+            }
             return hold_position(view, slot, mask);
         }
         case rts::UnitType::Ranger: {
@@ -288,13 +303,18 @@ rts::UnitAction DefenderScript::decide_unit(const rts::WorldView& view,
             return hold_position(view, slot, mask);
         }
         case rts::UnitType::Mason: {
-            // 自动找活：最近的有工时的建筑（工地或维修点）。半径内工时才会走
-            // （机制第二批），「到了」的判据就是那个半径。
+            // 自动找活 + 任务认领：优先挑「本拍还没别的工匠认领」的最近
+            // 任务，各管一个（一窝蜂挤同一个工地是试玩抓出来的形态）；任务
+            // 数少于工匠数时才多人同任务——同任务的加速在机制层
+            // （`mason_count` 线性加速）。半径内工时才会走（机制第二批），
+            // 「到了」的判据就是那个半径。
             const auto bp = view.bld_pos();
             const auto bw = view.bld_work_left();
             const auto ba = view.bld_alive();
-            int best = -1;
+            int best = -1;        // 最近的任务（不论认领与否，兜底用）
             float best_d2 = 0.0f;
+            int best_free = -1;   // 最近的未认领任务
+            float best_free_d2 = 0.0f;
             for (std::size_t s = 0; s < bp.size(); ++s) {
                 if (!ba[s] || bw[s] <= 0) continue;
                 const float d2 = dist2(me, rts::center_of(bp[s]));
@@ -302,12 +322,27 @@ rts::UnitAction DefenderScript::decide_unit(const rts::WorldView& view,
                     best = static_cast<int>(s);
                     best_d2 = d2;
                 }
+                bool claimed = false;
+                for (const std::size_t c : bld_claimed_) {
+                    if (c == s) {
+                        claimed = true;
+                        break;
+                    }
+                }
+                if (!claimed && (best_free < 0 || d2 < best_free_d2)) {
+                    best_free = static_cast<int>(s);
+                    best_free_d2 = d2;
+                }
             }
-            if (best >= 0) {
+            const int pick = best_free >= 0 ? best_free : best;
+            if (pick >= 0) {
+                bld_claimed_.push_back(static_cast<std::size_t>(pick));
+                const float d2 =
+                    dist2(me, rts::center_of(bp[static_cast<std::size_t>(pick)]));
                 const float r = view.stats().global.mason_work_radius;
-                if (best_d2 > r * r) {
+                if (d2 > r * r) {
                     return move_towards(view, slot,
-                                        bp[static_cast<std::size_t>(best)], mask);
+                                        bp[static_cast<std::size_t>(pick)], mask);
                 }
                 return rts::UnitAction::Stop;   // 已在半径内干活
             }

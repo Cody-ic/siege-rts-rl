@@ -806,8 +806,12 @@ private:
 
     // 施工 / 维修推进、征兵倒计时与出兵、按周期入账。顺序在 advance() 注释里。
     void tick_economy();
-    // 守方 `Mason` 是否在 `pos` 的施工半径内（半径查表 `mason_work_radius`）。
-    // 第二批取「在场与否」的二值——多名工匠不加速，是占位机制，标定时再议。
+    // 守方 `Mason` 在 `pos` 施工半径内的人数（半径查表 `mason_work_radius`）。
+    // 施工/维修/升级按人数线性加速（2026-09-01 起，此前是「在场与否」二值
+    // 占位——试玩拍板：任务不够分时多人同任务必须真的更快）。
+    std::int32_t mason_count(GridPos pos) const;
+    // 守方 `Mason` 是否在 `pos` 的施工半径内。`mason_count(pos) > 0` 的
+    // 便捷写法。
     bool mason_near(GridPos pos) const;
     // 给槽位 `k` 上的建筑找一个出兵格。找不到返回 false（下 tick 再试）。
     bool try_train_spawn(std::size_t k);

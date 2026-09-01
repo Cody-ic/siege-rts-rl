@@ -949,19 +949,26 @@ void World::tick_projectiles() {
 
 // ——阶段 7：经济（第二批）——
 
-// 守方 `Mason` 是否在 `pos` 的施工半径内。二值（在场与否）而非人数：
-// 多名工匠不加速是占位机制，标定时再议。半径查全局表。
-bool World::mason_near(GridPos pos) const {
+// 守方 `Mason` 在 `pos` 施工半径内的人数。施工/维修/升级按人数**线性加速**
+// （2026-09-01 起，试玩拍板：工匠优先各管一个任务——脚本侧认领；任务不够
+// 分时多人同任务，同任务必须真的更快，否则「都在干活」与「一个人在干活」
+// 无法区分）。半径查全局表。
+std::int32_t World::mason_count(GridPos pos) const {
     const float r = stats_.global.mason_work_radius;
-    if (r <= 0.0f) return false;
+    if (r <= 0.0f) return 0;
     const float r2 = r * r;
     const Vec2 c = center_of(pos);
+    std::int32_t n = 0;
     for (std::size_t s = 0; s < unit_pool_.slot_count(); ++s) {
         if (!unit_pool_.alive_at(static_cast<std::uint16_t>(s))) continue;
         if (u_type_[s] != UnitType::Mason) continue;
-        if (dist2(u_pos_[s], c) <= r2) return true;
+        if (dist2(u_pos_[s], c) <= r2) ++n;
     }
-    return false;
+    return n;
+}
+
+bool World::mason_near(GridPos pos) const {
+    return mason_count(pos) > 0;
 }
 
 // 八邻按行主序（dj 外层、di 内层）扫，取第一个地形可通行、无建筑无障碍、
@@ -1019,32 +1026,39 @@ bool World::try_train_spawn(std::size_t k) {
 }
 
 void World::tick_economy() {
-    // 施工 / 维修：工匠在场才走工时。血量按「剩余缺口 ÷ 剩余工时」向上取整
-    // 逐工时补上——无人打扰时恰好在工时归零那一刻到满；挨了打则往后的每
-    // 工时多补一点、**总工期不变**（工期是买定的，血量是工期的产出）。
-    // 这条自我修正意味着工地挨打不延长工期，只压低它全程的血量下限——
-    // 要打断它得打死它，或者点杀工匠（那才是设计给 AI 的目标）。占位决定，
-    // 标定时若要「挨打延工」再改。
+    // 施工 / 维修：工匠在场才走工时，**按在场人数线性加速**（2026-09-01 起，
+    // 见 `mason_count` 注释——此前是「在场与否」二值占位）。血量按「剩余缺口
+    // ÷ 剩余工时」向上取整逐工时补上——无人打扰时恰好在工时归零那一刻到满；
+    // 挨了打则往后的每工时多补一点、**总工期不变**（工期是买定的，血量是工期
+    // 的产出）。这条自我修正意味着工地挨打不延长工期，只压低它全程的血量
+    // 下限——要打断它得打死它，或者点杀工匠（那才是设计给 AI 的目标）。
+    // 占位决定，标定时若要「挨打延工」再改。多人同任务时最后几拍一次补
+    // 多份工时，血量由 clamp 兜底到满，不会溢出。
     for (std::size_t k = 0; k < bld_pool_.slot_count(); ++k) {
         if (!bld_pool_.alive_at(static_cast<std::uint16_t>(k))) continue;
         if (b_work_[k] <= 0) continue;
-        if (!mason_near(b_pos_[k])) continue;
+        const std::int32_t crew = mason_count(b_pos_[k]);
+        if (crew <= 0) continue;
         const std::int64_t gap = b_max_hp_[k] - b_hp_[k];
         if (gap > 0) {
-            b_hp_[k] += (gap + b_work_[k] - 1) / b_work_[k];
+            const std::int64_t share =
+                (gap + b_work_[k] - 1) / b_work_[k] * crew;
+            b_hp_[k] = (share >= gap) ? b_max_hp_[k] : b_hp_[k] + share;
         }
-        --b_work_[k];
+        b_work_[k] = (b_work_[k] > crew) ? b_work_[k] - crew : 0;
         if (b_work_[k] == 0) b_built_[k] = 1;
     }
 
-    // 建筑升级：与施工/维修同一条纪律——工匠在场才推进，点杀维匠一样能
-    // 拖慢它。倒计时归零即完工，逻辑收在 `finish_upgrade`（与 `apply_one`
-    // 的「工期 <= 0 当场完工」共用同一个实现）。
+    // 建筑升级：与施工/维修同一条纪律——工匠在场才推进（人数同样线性加速），
+    // 点杀维匠一样能拖慢它。倒计时归零即完工，逻辑收在 `finish_upgrade`
+    // （与 `apply_one` 的「工期 <= 0 当场完工」共用同一个实现）。
     for (std::size_t k = 0; k < bld_pool_.slot_count(); ++k) {
         if (!bld_pool_.alive_at(static_cast<std::uint16_t>(k))) continue;
         if (b_upgrade_left_[k] <= 0) continue;
-        if (!mason_near(b_pos_[k])) continue;
-        --b_upgrade_left_[k];
+        const std::int32_t crew = mason_count(b_pos_[k]);
+        if (crew <= 0) continue;
+        b_upgrade_left_[k] =
+            (b_upgrade_left_[k] > crew) ? b_upgrade_left_[k] - crew : 0;
         if (b_upgrade_left_[k] == 0) finish_upgrade(k);
     }
 
