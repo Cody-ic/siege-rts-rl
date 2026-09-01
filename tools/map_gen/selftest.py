@@ -1911,6 +1911,20 @@ def check_generator_forest_belts_meander(c):
     c.true(len(set(belt)) >= core_span + 4,
            f"森林带应有足够转折，不能仍读成细直线，实际 {belt}")
 
+    # 长带场景（簇心被 #119 拉近城墙后带子的真实长度，几十格）：稀疏折步
+    # （全程 n//3 次、偏移 ±2）在长带上读出来仍是直线粘小包——带长上界
+    # span + n//3 + 1。按 +10 钉住就只剩加密折步一种过法。
+    cv2 = generate.Canvas(64)
+    belt2 = generate._carve_forest_belt(
+        cv2, (40, 32), (1, 0), [], random.Random(20260901))
+    c.true(bool(belt2), "长带必须成功生成")
+    if belt2:
+        span2 = max(x for x, _ in belt2) - min(x for x, _ in belt2) + 1
+        c.true(len(set(belt2)) >= span2 + 10,
+               f"长带折步密度不足（仍读成直线粘小包），实际 {belt2}")
+        c.true(max(y for _, y in belt2) - min(y for _, y in belt2) >= 3,
+               f"长带横向摆动幅度应达到 ±3 档，实际 {belt2}")
+
 
 def check_generator_wild_patches_are_small_and_separate(c):
     """野外森林/岩壁应是各处分散的小撮，不能相邻粘成大团（#117）。"""
