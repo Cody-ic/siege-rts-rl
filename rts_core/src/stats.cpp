@@ -62,7 +62,6 @@ std::uint64_t StatsTable::fingerprint() const noexcept {
     h.feed_pod(global.anti_charge_permille);
     h.feed_pod(global.building_level_cap_divisor);
     h.feed_pod(global.train_ticks_permille_per_level);
-    h.feed_f32(global.unit_upgrade_radius);
 
     return h.value();
 }

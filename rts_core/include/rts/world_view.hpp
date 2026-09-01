@@ -93,7 +93,12 @@ public:
     // 上墙延迟剩余（第三批）。与 `unit_garrison()` 配对读：garrison != kNoSlot
     // 且 mount > 0 = 在爬（画攀爬动画、既不打也不走），mount == 0 = 已登顶。
     std::span<const std::int32_t> unit_mount() const noexcept { return sp(w_->u_mount_); }
-    std::span<const std::uint8_t> unit_force() const noexcept { return sp(w_->u_force_); }
+    // 登墙意愿（逐单位，`submit_garrison_wishes` 的写入结果），`kNoSlot` = 不想登。
+    // 与 `unit_garrison()`（已在哪段墙上）配对读：意愿是输入、驻守是结果——
+    // 两者不一致的那几 tick 就是「正在去」或「正在下来」。
+    std::span<const std::uint16_t> unit_garrison_target() const noexcept {
+        return sp(w_->u_garrison_target_);
+    }
     // 已承诺攻击的目标种类与锁定落点（机制第一批）。渲染层画「出手表现」
     // 靠它们：windup > 0 且 kind != None ⇒ 这个单位正在挥（或箭在弦上），
     // 落点是 aim——**它在前摇开始那一刻就定死了**，画预兆圈画它才是诚实的。
@@ -101,11 +106,6 @@ public:
         return sp(w_->u_tgt_kind_);
     }
     std::span<const Vec2> unit_aim() const noexcept { return sp(w_->u_aim_); }
-    // 单位升级倒计时（守方升级轴第三个输出，`0` = 没在升）。UI 的"升级中"
-    // 提示与脚本执行层读它——同 `bld_upgrade_left()` 那条形状。
-    std::span<const std::int32_t> unit_upgrade_left() const noexcept {
-        return sp(w_->u_upgrade_left_);
-    }
     std::span<const std::int32_t> unit_cooldown() const noexcept {
         return sp(w_->u_cd_);
     }
@@ -150,7 +150,7 @@ public:
     // 兵种等级上限（守方升级轴第三个输出）：直接等于堡垒等级，无除数——
     // 与上面 `building_level_cap()` 的公式来源本来就不同，见 `World` 的实现。
     std::int32_t unit_level_cap() const noexcept { return w_->unit_level_cap(); }
-    // 造价/耗时曲线，`game/player_input.cpp` 的征兵与批量升级查询都调它，
+    // 造价/耗时曲线，`game/player_input.cpp` 的征兵查询调它，
     // 不在 `game/` 里重新推公式（同 `upgrade_cost_stone` 那条纪律）。
     std::int64_t train_cost_gold(UnitType ut, std::int32_t level) const noexcept {
         return w_->train_cost_gold(ut, level);
@@ -158,10 +158,6 @@ public:
     std::int32_t train_ticks_at(UnitType ut, std::int32_t level) const noexcept {
         return w_->train_ticks_at(ut, level);
     }
-    // 已有部队批量升级的"须在场"判定。`game/player_input.cpp` 的造价/合格数
-    // 查询要用它——不重新推一遍"扫 Barrack/Keep、按半径判在场"，同
-    // `train_cost_gold` 那条"唯一算这个公式的地方"的纪律。
-    bool barrack_near(Vec2 pos) const { return w_->barrack_near(pos); }
     std::span<const std::uint8_t> bld_alive() const noexcept {
         return std::span<const std::uint8_t>(w_->bld_pool_.alive_bytes(),
                                              w_->bld_pool_.slot_count());
@@ -217,20 +213,6 @@ public:
         return sp(w_->p_src_bld_);
     }
     std::span<const Side> proj_side() const noexcept { return sp(w_->p_side_); }
-
-    // 编队去处表（`MoveForce` 的解算产物），下标是编队号、值是格线性下标，
-    // `kNoSlot` = 没下过。与 `unit_force()` 配对读：脚本按单位的编队查这里。
-    std::span<const std::uint16_t> force_target() const noexcept {
-        return std::span<const std::uint16_t>(w_->force_target_.data(),
-                                              w_->force_target_.size());
-    }
-
-    // 按格的驻守指令表（`Garrison` 的解算产物，第三批）。下标是格线性下标、
-    // 值是编队号，`kNoForce` = 没下过。登墙本身由 World 解算（tick_garrison），
-    // 脚本执行层读它只为一件事：把还没到墙边的编队成员往指令格挪。
-    std::span<const std::uint8_t> garrison_order() const noexcept {
-        return sp(w_->garrison_order_);
-    }
 
     // 数值表（只读）。脚本执行层与 flow field（rts/flow.hpp）按它算代价——
     // 与机制同一份表、同一对函数（combat_math），不另立公式。

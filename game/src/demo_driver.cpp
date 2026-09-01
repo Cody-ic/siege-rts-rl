@@ -25,73 +25,27 @@ bool has(std::uint16_t mask, rts::UnitAction a) noexcept {
 
 constexpr float kInvSqrt2 = 0.70710678f;
 
-// 演示要驻守的那一段墙：离堡垒最近的一段初始城墙（`Wall` 或 `Gate` 都算——
-// 「墙段」的判据是 Wall‖Gate，门楼一样能站人）。
-//
-// **入参刻意取 `MapData` 而不是建好的 `World`**：摆兵在 `demo_init`、下驻守令在
-// 构造函数体，两处都拿得到 `map`，于是它们必然得到同一个答案。若一处从 `WorldInit`
-// 找、另一处从 `WorldView` 找，判据稍有出入就会变成「人站在 A 墙、令下给 B 墙」，
-// 而那个形态**看起来只是「他们不动」**，很难联想到是两处各算了一遍。
-//
-// 判据取曼哈顿距离、平手取地图文件里先出现的那一段，所以同一张图每次跑选中同一段。
-rts::GridPos garrison_wall(const MapData& map) noexcept {
-    const rts::GridPos keep = map.keep();
-    rts::GridPos best_pos = keep;
-    int best = 1 << 30;
-    for (const WallSegment& w : map.walls()) {
-        const int di = w.pos.i > keep.i ? w.pos.i - keep.i : keep.i - w.pos.i;
-        const int dj = w.pos.j > keep.j ? w.pos.j - keep.j : keep.j - w.pos.j;
-        if (di + dj < best) {
-            best = di + dj;
-            best_pos = w.pos;
-        }
-    }
-    return best_pos;
-}
-
-// 开局兵力全部经 `WorldInit` 进场（不再是构造后逐个 spawn）。改成这样有两个
-// 原因：初始局面因此完整地由建局参数表达（回放 = 建局参数 + 输入流，这正是
-// `WorldInit::units` 存在的理由）；而且**只有这条路能给单位编队**——三名弓手
-// 要编入 0 号编队才能受命驻守（机制第三批）。
+// 开局兵力全部经 `WorldInit` 进场（不再是构造后逐个 spawn）：初始局面因此
+// 完整地由建局参数表达（回放 = 建局参数 + 输入流，这正是 `WorldInit::units`
+// 存在的理由）。**不带任何归属标记**——编队系统移除后，守方单兵开局即自主
+// （弓手会自己找墙登墙，见 `game/defender_script.hpp`），不再需要「摆到
+// 墙内侧一格 + 下 Garrison 令」那套配合。
 rts::WorldInit demo_init(const MapData& map, const rts::StatsTable& stats,
                          std::uint64_t seed) {
     rts::WorldInit init = make_world_init(map, stats, seed, /*nominal_level=*/1);
-    const auto add = [&](rts::UnitType u, float x, float y, std::int32_t lv,
-                         std::uint8_t force) {
+    const auto add = [&](rts::UnitType u, float x, float y, std::int32_t lv) {
         const std::int64_t hp = hp_at(stats, u, lv);
-        init.units.push_back(rts::UnitInit{u, rts::Vec2{x, y}, lv, hp, hp, force});
+        init.units.push_back(rts::UnitInit{u, rts::Vec2{x, y}, lv, hp, hp});
     };
-    // 守方：三名弓手贴墙内侧（0 号编队，开局即受命驻守墙线，见构造函数）、
-    // 两名枪卫、一名游骑与一名工匠。**全员有编队**（1 = 枪卫、2 = 游骑、
-    // 3 = 工匠）：玩家的逐格命令按编队下达（MoveForce / Garrison 的形状），
-    // 没编队的单位在交互层就是指挥不动的。
+    // 守方：三名弓手、两名枪卫、一名游骑与一名工匠，散开摆在堡垒周围。
     const rts::Vec2 keep = rts::center_of(init.keep);
-    // 三名弓手摆在**要驻守的那段墙**的内侧一格，站着就能登上（登墙要求切比雪夫
-    // 距离恰为 1，见 `World::tick_garrison`）。
-    //
-    // **不能写成「堡垒正东两格」那样的固定偏移。** 那是单张固定地图时期的写法，
-    // 换成随机地图池（`game/data/maps/pool/`，12 张，`city_radius` 也是随机的）之后
-    // 城墙离堡垒有远有近——实测 `keep=(36,36)` 而墙在 `i=50`，于是弓手摆在空地上、
-    // 驻守指令也落在空地上（`apply_one` 只对完工的 `Wall`/`Gate` 记指令，因此被
-    // 直接丢掉）。症状是**演示里从来没有人站上墙**，而它不会让任何测试变红：
-    // 驻守本身是可选行为，没人登墙与「三个人都登上了」在断言上都说得通。
-    const rts::GridPos wall = garrison_wall(map);
-    {
-        // 内侧 = 朝堡垒那一侧。墙沿哪个轴铺就沿那个轴排开三人（另一轴恒为 0）。
-        const int inx = (init.keep.i > wall.i) - (init.keep.i < wall.i);
-        const int iny = (init.keep.j > wall.j) - (init.keep.j < wall.j);
-        for (int k = -1; k <= 1; ++k) {
-            const float x = static_cast<float>(wall.i) + 0.5f + static_cast<float>(inx) +
-                            (inx == 0 ? static_cast<float>(k) : 0.0f);
-            const float y = static_cast<float>(wall.j) + 0.5f + static_cast<float>(iny) +
-                            (iny == 0 ? static_cast<float>(k) : 0.0f);
-            add(rts::UnitType::Archer, x, y, 2, 0);
-        }
-    }
-    add(rts::UnitType::Spear, keep.x + 2.0f, keep.y - 2.0f, 1, 1);
-    add(rts::UnitType::Spear, keep.x + 2.0f, keep.y + 2.0f, 1, 1);
-    add(rts::UnitType::Ranger, keep.x + 1.0f, keep.y, 1, 2);
-    add(rts::UnitType::Mason, keep.x + 1.0f, keep.y + 1.0f, 1, 3);
+    add(rts::UnitType::Archer, keep.x - 2.0f, keep.y - 2.0f, 2);
+    add(rts::UnitType::Archer, keep.x - 3.0f, keep.y, 2);
+    add(rts::UnitType::Archer, keep.x - 2.0f, keep.y + 2.0f, 2);
+    add(rts::UnitType::Spear, keep.x + 2.0f, keep.y - 2.0f, 1);
+    add(rts::UnitType::Spear, keep.x + 2.0f, keep.y + 2.0f, 1);
+    add(rts::UnitType::Ranger, keep.x + 1.0f, keep.y, 1);
+    add(rts::UnitType::Mason, keep.x + 1.0f, keep.y + 1.0f, 1);
     // 箭楼与防空各一座（完工状态）。位置：堡垒斜后方两格，覆盖墙线。
     const auto bld = [&](rts::BldType b, int dx, int dy) {
         const std::int64_t hp = stats.of(b).max_hp;
@@ -131,26 +85,8 @@ std::int32_t wave_level(int wave) {
 DemoBattle::DemoBattle(const MapData& map, const rts::StatsTable& stats,
                        std::uint64_t seed)
     : w_(demo_init(map, stats, seed)), script_(ScriptParams{}, seed ^ 0x9e3779b9u) {
-    // 0 号编队受命驻守离堡垒最近的那三段墙（含门楼——「墙段」的判据是 Wall‖Gate）。
-    // 弓手爬上去之后吃高度优势：射程加成、被低处打有 miss 且减伤（第三批），
-    // Shade 压制墙头 vs 墙头反压制的画面由此涌现，脚本仍然一行战术没写。
-    const rts::GridPos keep = w_.keep_pos();
-    const rts::GridPos wall = garrison_wall(map);
-    // 沿**墙的走向**取三格：墙与堡垒同一列 ⇒ 它沿 i 铺开，反之沿 j。
-    // 照着堡垒的偏移方向取（原先那样固定沿 j）会让三格里有两格不是墙，
-    // 于是只有中间一个人登得上——而那看起来像「登墙机制只支持一个人」。
-    const bool along_i = (wall.i == keep.i);
-    rts::Command cmds[3];
-    for (int k = 0; k < 3; ++k) {
-        cmds[k].kind = rts::CommandKind::Garrison;
-        cmds[k].side = rts::Side::Defender;
-        cmds[k].force = 0;
-        const rts::GridPos g{
-            static_cast<std::int16_t>(wall.i + (along_i ? k - 1 : 0)),
-            static_cast<std::int16_t>(wall.j + (along_i ? 0 : k - 1))};
-        cmds[k].slot = rts::slot_of(g, w_.width());
-    }
-    w_.submit(rts::Side::Defender, cmds, 3);
+    // 弓手登墙不再靠开局下命令：执行层脚本每个决策拍会自己找空墙段、
+    // 发登墙意愿（`submit_garrison_wishes`），登墙由 `tick_garrison` 解算。
     // 开局资源（**占位数额**，无平衡含义）：交互层要能试建造，
     // 石木全零的话 Build 永远被解算拒绝，「建造放置」就没法演示。
     w_.set_stock(rts::Resource::Stone, 120);
@@ -253,10 +189,12 @@ void DemoBattle::issue_actions() {
     // field 每个决策拍作废重算：破坏代价读的是当前墙血，决策拍之间它在变。
     for (auto& f : flow_) f.reset();
 
-    // 守方：执行层脚本（拉扯 / 堵口不追 / 避骑士摸攻城锤 / 命令翻译）。
+    // 守方：执行层脚本（拉扯 / 堵口不追 / 避骑士摸攻城锤 / 自动驻墙找活）。
+    // 动作与登墙意愿是同一拍的两份输出，分别进两条输入通道。
     w_.enumerate_units(rts::Side::Defender, ids_);
-    script_.decide(w_.view(rts::Side::Defender), ids_, acts_);
+    script_.decide(w_.view(rts::Side::Defender), ids_, acts_, wishes_);
     w_.submit_actions(rts::Side::Defender, acts_.data(), acts_.size());
+    w_.submit_garrison_wishes(rts::Side::Defender, wishes_.data(), wishes_.size());
 
     // 攻方：占位脚本（正式形态是逐单位 RL）——优先打得着的人，Ram 优先砸墙，
     // 否则按 flow field 向堡垒推进（「绕远走缺口 vs 就近砸墙」由代价模型

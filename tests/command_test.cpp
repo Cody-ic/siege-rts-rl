@@ -49,8 +49,7 @@ TEST_CASE("两条值相同的命令哈希相同", "[command][determinism]") {
     std::memset(buf_b, 0xFF, sizeof(buf_b));
 
     const rts::Command tpl{7, rts::CommandKind::Build, rts::Side::Defender,
-                           static_cast<std::uint8_t>(rts::BldType::Tower),
-                           rts::kNoForce};
+                           static_cast<std::uint8_t>(rts::BldType::Tower)};
     std::memcpy(buf_a, &tpl, sizeof(tpl));
     std::memcpy(buf_b, &tpl, sizeof(tpl));
 
@@ -61,16 +60,14 @@ TEST_CASE("两条值相同的命令哈希相同", "[command][determinism]") {
     REQUIRE(ha.value() == hb.value());
 }
 
-TEST_CASE("kNoSlot 与 kNoForce 不与合法下标撞车", "[command]") {
+TEST_CASE("kNoSlot 不与合法下标撞车", "[command]") {
     // 用 0 当哨兵会让「没指定槽位」与「指定了第 0 个槽位」不可区分，
     // 而第 0 个槽位在地图文件里是真实存在的一个。
     REQUIRE(rts::kNoSlot != 0);
-    REQUIRE(rts::kNoForce != 0);
-    // 默认构造的命令是「跳过」，且不指向任何槽位或编队。
+    // 默认构造的命令是「跳过」，且不指向任何槽位。
     const rts::Command c{};
     REQUIRE(c.kind == rts::CommandKind::None);
     REQUIRE(c.slot == rts::kNoSlot);
-    REQUIRE(c.force == rts::kNoForce);
 }
 
 TEST_CASE("攻方的宏观命令只有两条，其余都是守方的", "[command]") {
@@ -145,30 +142,4 @@ TEST_CASE("Composition 的编成位数放在 slot 字段里", "[command]") {
     c.slot = 12;
     REQUIRE(rts::composition_slots(c) == 12);
     REQUIRE(c.unit() == rts::UnitType::Ghoul);
-}
-
-TEST_CASE("驻守是玩家级命令，不是战术动作", "[command]") {
-    // CLAUDE.md「没有兵种专属动作」要求战术动作枚举保持最小，
-    // 而登墙是守方专属。把它放在 Command 里，`UnitAction` 才能一个字不动。
-    REQUIRE(rts::owner_of(rts::CommandKind::Garrison) == rts::Side::Defender);
-}
-
-TEST_CASE("「调哪一支部队」两个候选都还表达得出来", "[command]") {
-    // 甲：MoveForce 自带 force 字段，一步说完。
-    rts::Command one_step{};
-    one_step.kind = rts::CommandKind::MoveForce;
-    one_step.force = 2;
-    one_step.slot = 17;
-    REQUIRE(one_step.force == 2);
-
-    // 乙：先 SelectForce 再 MoveForce，两步。
-    rts::Command pick{};
-    pick.kind = rts::CommandKind::SelectForce;
-    pick.force = 2;
-    REQUIRE(pick.slot == rts::kNoSlot);   // 第一步不指定去处
-
-    // 这条测试的作用是**提醒**：待定项定了之后，其中一条会变成死代码，
-    // 该删。两条并存意味着同一件事有两种字节表达，
-    // 而回放里出现哪一种取决于是谁录的。
-    REQUIRE(rts::CommandKind::SelectForce != rts::CommandKind::MoveForce);
 }

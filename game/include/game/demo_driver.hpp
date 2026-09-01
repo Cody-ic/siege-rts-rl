@@ -51,13 +51,16 @@ public:
         w_.submit(rts::Side::Defender, cmds, count);
     }
 
-    // 框选之后的临时开拔指令：转给执行层脚本，**不进 `World`**——理由见
-    // `DefenderScript::issue_move_order`（框选只影响这批单位，不改变编队
-    // 归属，因此不能走 `force_target_` 那条持久记账的路）。
+    // 框选 + 右键的辅助性单兵指令：转给执行层脚本，**不进 `World`**——
+    // 它是临时覆盖（到达即失效），不是持久状态，理由见
+    // `game/defender_script.hpp` 文件头。对已上墙的单位，开拔指令同时
+    // 是「下来」（脚本清空它的登墙意愿，世界放人）。
     void issue_move_order(std::span<const rts::UnitId> ids, rts::GridPos target) {
-        // 单兵临时命令同时承担「从墙上拖下来」的语义；同编队的其余墙段不动。
-        w_.recall_units(rts::Side::Defender, ids);
         script_.issue_move_order(ids, target);
+    }
+    void issue_garrison_order(std::span<const rts::UnitId> ids,
+                              rts::GridPos wall_cell) {
+        script_.issue_garrison_order(ids, wall_cell);
     }
 
 private:
@@ -79,6 +82,7 @@ private:
     int since_decision_ = 0;
     std::vector<rts::UnitId> ids_;
     std::vector<rts::UnitAction> acts_;
+    std::vector<std::uint16_t> wishes_;   // 守方登墙意愿，与 acts_ 同拍同序
     // field 缓存：兵种 × 等级档，每个决策拍作废重算（墙血变了破坏代价就变）。
     // demo 的攻方全是 1 级（低档），但按契约的形状存——这就是「档数烤进
     // 下游缓存下标」的那个下游。档界用占位默认值（rts/flow.hpp）。

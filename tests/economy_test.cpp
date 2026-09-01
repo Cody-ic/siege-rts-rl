@@ -1,5 +1,6 @@
-// 机制第二批：经济闭环与命令解算（Build / Repair / Cancel / Train / MoveForce /
-// Clear）。`Garrison` 仍在记账，它的用例在 world_test.cpp 那条记账测试里。
+// 机制第二批：经济闭环与命令解算（Build / Repair / Cancel / Train / Clear）。
+// 编队系统移除后（2026-09），驻守改为逐单位登墙意愿（`submit_garrison_wishes`），
+// 它的用例在 garrison_test.cpp；兵种就地升级随之删除，升级只经 Train 选级。
 //
 // 与 mechanics_test.cpp 同一条纪律：**数值全是驱动测试的占位**，试图从这里
 // 反推平衡性是误读。凡是「结构 vs 数值」的分界（Keep 不可建、采集建筑必须踩点、
@@ -442,14 +443,13 @@ TEST_CASE("Cancel 收掉在途升级，预付的石/木不退", "[econ]") {
     REQUIRE(wood(w) == wood_spent);
 }
 
-TEST_CASE("Train：扣金倒计时，在兵营邻格出兵并编入编队；忙时无操作", "[econ]") {
+TEST_CASE("Train：扣金倒计时，在兵营邻格出兵；忙时无操作", "[econ]") {
     rts::World w(arena());
     w.place_bld(rts::BldType::Barrack, rts::GridPos{4, 3}, 50, 50);
     w.set_stock(rts::Resource::Gold, 100);
 
     rts::Command train = slot_cmd(rts::CommandKind::Train, rts::GridPos{4, 3}, w.width());
     train.what = static_cast<std::uint8_t>(rts::UnitType::Archer);
-    train.force = 2;
 
     // 同一批里下两单：第一单入训，第二单撞上「一次一名」，只扣一份钱。
     const std::array<rts::Command, 2> both{train, train};
@@ -466,7 +466,6 @@ TEST_CASE("Train：扣金倒计时，在兵营邻格出兵并编入编队；忙�
     for (std::size_t k = 0; k < v.unit_alive().size(); ++k) {
         if (!v.unit_alive()[k]) continue;
         REQUIRE(v.unit_type()[k] == rts::UnitType::Archer);
-        REQUIRE(v.unit_force()[k] == 2);
         REQUIRE(v.unit_hp()[k] == 20);   // 1 级 = 基础值（等级公式照走）
         // 出兵格与兵营相邻（规范扫描顺序给出的第一个空格）。
         const rts::GridPos g = rts::grid_of(v.unit_pos()[k]);
@@ -554,81 +553,8 @@ TEST_CASE("征兵选级：造价按等级涨、顶不过 unit_level_cap() 拒绝
     REQUIRE(w.unit_hp(trained) == expect_hp);
 }
 
-TEST_CASE("已有部队批量升级：差价、须在场、按比例换血、顶上限与缺钱都会跳过",
-          "[econ]") {
-    rts::WorldInit init = arena();
-    init.stats.global.hp_permille_per_level = 100;
-    init.stats.global.dmg_permille_per_level = 100;
-    init.stats.unit[static_cast<std::size_t>(rts::UnitType::Archer)].cost_gold = 30;
-    init.stats.global.unit_upgrade_radius = 1.6f;
-    // 四名 Archer + 一名工匠，全部经 `WorldInit::units` 放好——按插入顺序给
-    // 槙位是既定纪律（同 `replay_test.cpp` 的写法），才能用 `enumerate_units()`
-    // 的规范顺序稳定对应回它们，不必猜下标。
-    init.units.push_back(rts::UnitInit{
-        rts::UnitType::Archer, rts::center_of(rts::GridPos{4, 4}), 1, 10, 20, 0});
-    init.units.push_back(rts::UnitInit{
-        rts::UnitType::Archer, rts::center_of(rts::GridPos{5, 3}), 1, 20, 20, 0});
-    init.units.push_back(rts::UnitInit{
-        rts::UnitType::Archer, rts::center_of(rts::GridPos{0, 5}), 1, 20, 20, 0});
-    init.units.push_back(rts::UnitInit{
-        rts::UnitType::Archer, rts::center_of(rts::GridPos{4, 2}), 3, 20, 20, 0});
-    init.units.push_back(rts::UnitInit{rts::UnitType::Mason,
-                                       rts::center_of(init.keep), 1, 10, 10, rts::kNoForce});
-    rts::World w(std::move(init));
-    w.place_bld(rts::BldType::Barrack, rts::GridPos{4, 3}, 50, 50);
-    w.set_stock(rts::Resource::Stone, 1000);
-    w.set_stock(rts::Resource::Wood, 1000);
-    level_keep_to(w, 3);   // unit_level_cap() == 3（无除数）
-
-    std::vector<rts::UnitId> ids;
-    w.enumerate_units(rts::Side::Defender, ids);
-    REQUIRE(ids.size() == 5);
-    // 不叫 near/far：那是 MSVC 上历史悠久的宏名（16 位指针修饰符遗留），
-    // 虽然这份 TU 没拉 windows.h、大概率不会撞上，但没必要冒这个险。
-    const rts::UnitId close_ok = ids[0];      // 半血、够格、在 Barrack 附近
-    const rts::UnitId close_broke = ids[1];   // 满血、够格、在场，但钱不够
-    const rts::UnitId distant = ids[2];       // 够格，但离 Barrack/Keep 都太远
-    const rts::UnitId capped = ids[3];        // 已经是 3 级 == unit_level_cap()
-
-    // 只够升一名：差价 = cost_gold(2) - cost_gold(1) = 60 - 30 = 30。
-    w.set_stock(rts::Resource::Gold, 30);
-
-    rts::Command up;
-    up.kind = rts::CommandKind::UpgradeForce;
-    up.side = rts::Side::Defender;
-    up.force = 0;
-    up.slot = rts::slot_of(rts::GridPos{4, 3}, w.width());
-    w.submit(rts::Side::Defender, &up, 1);
-    w.advance(1);   // train_ticks 未配（诚实默认 0）⇒ 差价一到账立刻完工
-
-    REQUIRE(gold(w) == 0);
-    REQUIRE(w.unit_level(close_ok) == 2);
-    // **按比例换血，不补满**：与建筑升级"完工即满血"刻意不同（见
-    // `finish_unit_upgrade` 的理由）——半血的兵升级后仍然是半血左右，
-    // 不会变成免费的全额维修。
-    const std::int64_t new_max = rts::apply_permille(20, {rts::level_permille(2, 100)});
-    const std::int64_t expect_hp = (10 * new_max + 10) / 20;
-    REQUIRE(expect_hp < new_max);
-    REQUIRE(w.unit_hp(close_ok) == expect_hp);
-
-    // 按 enumerate_units 的规范顺序处理：close_ok 先花掉唯一的 30 金，
-    // close_broke 排在它后面、轮到它时钱已经不够，跳过——不是整批作废。
-    REQUIRE(w.unit_level(close_broke) == 1);
-    // 不在场：无论钱够不够都跳过。
-    REQUIRE(w.unit_level(distant) == 1);
-    // 已经顶到 unit_level_cap()：跳过，不会继续往上升。
-    REQUIRE(w.unit_level(capped) == 3);
-}
-
-TEST_CASE("MoveForce 与 Clear 解算成世界状态，脚本执行层读得到", "[econ]") {
+TEST_CASE("Clear 解算成世界状态，脚本执行层读得到", "[econ]") {
     rts::World w(arena());
-
-    rts::Command mv;
-    mv.kind = rts::CommandKind::MoveForce;
-    mv.side = rts::Side::Defender;
-    mv.force = 3;
-    mv.slot = rts::slot_of(rts::GridPos{6, 1}, w.width());
-    w.submit(rts::Side::Defender, &mv, 1);
 
     const rts::Command clear =
         slot_cmd(rts::CommandKind::Clear, rts::GridPos{6, 4}, w.width());
@@ -640,27 +566,30 @@ TEST_CASE("MoveForce 与 Clear 解算成世界状态，脚本执行层读得到"
     w.submit(rts::Side::Defender, &clear_empty, 1);
 
     w.advance(1);
-    REQUIRE(w.force_target(3) == rts::slot_of(rts::GridPos{6, 1}, w.width()));
-    REQUIRE(w.force_target(4) == rts::kNoSlot);   // 没下过的编队保持「无」
-
     const rts::WorldView v = w.view(rts::Side::Defender);
     REQUIRE(v.obstacle_clear_ordered()[0] == 1);
 }
 
 TEST_CASE("指令状态进了 state_hash：只差一条指令的两个世界哈希必须不同", "[econ]") {
     // 喂入清单漏一条的症状是「两个不同的世界哈希相同」，而**回放测不出来**：
-    // 重演会得到同样的漏。只有这种成对构造抓得到。挑 `force_target_` 与
+    // 重演会得到同样的漏。只有这种成对构造抓得到。挑登墙意愿
+    // （`u_garrison_target_`，编队记账删除后仅剩的逐单位指令状态）与
     // `o_clear_ordered_` 做探针，因为它们是纯指令状态——除了自己，
     // 不牵动任何别的会进哈希的东西（钱、实体都不变），探针是隔离的。
     {
-        rts::World a(arena());
-        rts::World b(arena());
-        rts::Command mv;
-        mv.kind = rts::CommandKind::MoveForce;
-        mv.side = rts::Side::Defender;
-        mv.force = 1;
-        mv.slot = 3;
-        b.submit(rts::Side::Defender, &mv, 1);
+        // 意愿指着一格**没有墙**的合法格：什么都不会发生（逐 tick 重验拦下），
+        // 于是全部差异恰好只剩那份意愿本身。
+        const auto fresh = [] {
+            rts::WorldInit init = arena();
+            init.units.push_back(rts::UnitInit{rts::UnitType::Mason,
+                                               rts::center_of(rts::GridPos{2, 2}),
+                                               1, 10, 10});
+            return init;
+        };
+        rts::World a(fresh());
+        rts::World b(fresh());
+        const std::uint16_t wish = rts::slot_of(rts::GridPos{3, 3}, b.width());
+        b.submit_garrison_wishes(rts::Side::Defender, &wish, 1);
         a.advance(1);
         b.advance(1);
         REQUIRE(a.state_hash() != b.state_hash());
