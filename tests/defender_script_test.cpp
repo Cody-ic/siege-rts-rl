@@ -6,9 +6,11 @@
 //     的判据：图里写死的进脚本、没写的留给 RL）——拉扯、堵口不追、
 //     避骑士摸攻城锤。每条都配一个「关掉参数就退化」的对照，
 //     免得断言碰巧绿在别的机制上
-//   * **玩家命令的执行**（World 记账、脚本走路）：编队开拔**穿城门出城**、
-//     驻守走到墙边等 World 拉上墙、清野走过去撞上自动破坏、工匠自动找活。
-//     出城那条是第六批城门修正的端到端验收
+//   * **自主默认与手动临时指令**（2026-09 编队移除后）：弓手没仗打自动找
+//     最近的空墙段登墙（意愿经 `submit_garrison_wishes` 进 World）、框选
+//     开拔**穿城门出城**（到达即失效、回归自主）、清野走过去撞上自动破坏、
+//     工匠自动找活、闲人回堡垒周围的驻防环。出城那条是第六批城门修正的
+//     端到端验收
 //
 // 数值全部是测试自带的占位表，只求「几个决策拍能追上/拉开」可手算。
 
@@ -78,14 +80,17 @@ bool has(std::uint16_t mask, rts::UnitAction a) {
 
 // 决策拍循环：守方走脚本；攻方是最简追击者——打得着就打，否则按给定方向走。
 // 每拍按当时的存活单位重发（数量会变，submit 的长度检查是硬的）。
+// 登墙意愿与动作同拍提交（脚本的第二份输出，v4 起是独立的输入通道）。
 void run(rts::World& w, game::DefenderScript& s, int ticks,
          rts::UnitAction atk_move = rts::UnitAction::Stop) {
     std::vector<rts::UnitId> ids;
     std::vector<rts::UnitAction> acts;
+    std::vector<std::uint16_t> wishes;
     for (int t = 0; t < ticks; t += rts::kDecisionPeriodMin) {
         w.enumerate_units(rts::Side::Defender, ids);
-        s.decide(w.view(rts::Side::Defender), ids, acts);
+        s.decide(w.view(rts::Side::Defender), ids, acts, wishes);
         w.submit_actions(rts::Side::Defender, acts.data(), acts.size());
+        w.submit_garrison_wishes(rts::Side::Defender, wishes.data(), wishes.size());
 
         w.enumerate_units(rts::Side::Attacker, ids);
         acts.clear();
@@ -146,9 +151,14 @@ TEST_CASE("弓手拉扯：追兵永远够不着，反被一路放风筝打死", 
     }
 }
 
-TEST_CASE("枪卫堵缺口不追击：敌人在射程外就一步都不挪", "[script]") {
+TEST_CASE("枪卫堵缺口不追击：敌人在射程外就绝不朝它挪一步", "[script]") {
     // 被风筝出阵位正是 Shade 克枪卫的机制（克制表「Spear ──► Shade」），
     // 所以「不追」不是懒，是这条克制关系存在的前提。
+    //
+    // 编队移除后「原地杵着」不再是可断言行：没仗打时枪卫会回堡垒周围的
+    // 驻防环（自主默认）。所以这条锁的是**距离只增不减**——它往哪儿走都行，
+    // 就是不许朝敌人靠近。敌人刻意摆在「看得见（视野 4）但打不着
+    // （射程 1.2）」的距离 3 上：看不见的话这条测的是驻防环而不是不追击。
     rts::WorldInit init = sarena();
     init.units.push_back(
         rts::UnitInit{rts::UnitType::Spear, rts::Vec2{5.5f, 2.5f}, 1, 24, 24});
@@ -158,13 +168,15 @@ TEST_CASE("枪卫堵缺口不追击：敌人在射程外就一步都不挪", "[s
         w.enumerate_units(rts::Side::Defender, ids);
         return ids[0];
     }();
-    w.spawn_unit(rts::UnitType::Ghoul, rts::Vec2{10.5f, 2.5f}, 1, 30, 30);
+    const rts::UnitId g =
+        w.spawn_unit(rts::UnitType::Ghoul, rts::Vec2{8.5f, 2.5f}, 1, 30, 30);
 
     game::DefenderScript s(game::ScriptParams{}, 3);
     run(w, s, 100, rts::UnitAction::Stop);   // 敌人站着不动，构成「诱饵」
 
-    REQUIRE(w.unit_pos(sp).x == 5.5f);       // 一步都没挪
-    REQUIRE(w.unit_pos(sp).y == 2.5f);
+    const float dx = w.unit_pos(sp).x - w.unit_pos(g).x;
+    const float dy = w.unit_pos(sp).y - w.unit_pos(g).y;
+    REQUIRE(dx * dx + dy * dy >= 3.0f * 3.0f);   // 一步都没有靠近
 }
 
 TEST_CASE("游骑：骑士靠近就脱离，没命令时主动摸攻城锤", "[script]") {
@@ -203,9 +215,9 @@ TEST_CASE("游骑：骑士靠近就脱离，没命令时主动摸攻城锤", "[s
     }
 }
 
-// ——命令执行：World 记账，脚本走路——
+// ——自主默认与手动临时指令——
 
-TEST_CASE("编队开拔穿城门出城：门血一点不掉（第六批的端到端验收）", "[script]") {
+TEST_CASE("框选开拔穿城门出城：门血一点不掉（第六批的端到端验收）", "[script]") {
     // 门刻意**不在直线上**（墙线顶端）：直奔目标会怼在自家墙上（守方不打
     // 自家墙、贪心方向也全被挡），必须由 flow field 绕行穿门——这条测试
     // 锁的就是「脚本的开拔真的在用 field」。门在直线上时贪心碰巧也能过，
@@ -218,7 +230,7 @@ TEST_CASE("编队开拔穿城门出城：门血一点不掉（第六批的端到
     init.buildings.push_back(
         rts::BldInit{rts::BldType::Gate, rts::GridPos{6, 0}, 30, 30});
     init.units.push_back(
-        rts::UnitInit{rts::UnitType::Ranger, rts::Vec2{3.5f, 2.5f}, 1, 18, 18, 1});
+        rts::UnitInit{rts::UnitType::Ranger, rts::Vec2{3.5f, 2.5f}, 1, 18, 18});
     rts::World w(std::move(init));
     const rts::UnitId r = [&] {
         std::vector<rts::UnitId> ids;
@@ -226,21 +238,30 @@ TEST_CASE("编队开拔穿城门出城：门血一点不掉（第六批的端到
         return ids[0];
     }();
 
-    rts::Command c;
-    c.kind = rts::CommandKind::MoveForce;
-    c.side = rts::Side::Defender;
-    c.force = 1;
-    c.slot = rts::slot_of(rts::GridPos{10, 2}, w.width());
-    w.submit(rts::Side::Defender, &c, 1);
-
     game::DefenderScript s(game::ScriptParams{}, 3);
-    run(w, s, 160);
+    // 编队移除后没有「调兵」命令，框选 + 右键落成脚本的临时开拔指令。
+    const rts::UnitId picked[1] = {r};
+    s.issue_move_order(picked, rts::GridPos{10, 2});
 
-    // 到了墙外的集合点，而门是走过去的、不是砸开的。
-    const rts::Vec2 p = w.unit_pos(r);
-    const float dx = p.x - 10.5f;
-    const float dy = p.y - 2.5f;
-    REQUIRE(dx * dx + dy * dy <= 1.5f * 1.5f);
+    // 指令「到达即失效」：到了之后它会回归自主（回驻防环），所以不能像旧
+    // 编队时代那样跑满固定 tick 再验收终点——逐拍跑、到了就停。
+    bool arrived = false;
+    for (int t = 0; t < 300 && !arrived; t += rts::kDecisionPeriodMin) {
+        std::vector<rts::UnitId> ids;
+        std::vector<rts::UnitAction> acts;
+        std::vector<std::uint16_t> wishes;
+        w.enumerate_units(rts::Side::Defender, ids);
+        s.decide(w.view(rts::Side::Defender), ids, acts, wishes);
+        w.submit_actions(rts::Side::Defender, acts.data(), acts.size());
+        w.submit_garrison_wishes(rts::Side::Defender, wishes.data(), wishes.size());
+        w.advance(rts::kDecisionPeriodMin);
+        const rts::Vec2 p = w.unit_pos(r);
+        const float dx = p.x - 10.5f;
+        const float dy = p.y - 2.5f;
+        arrived = dx * dx + dy * dy <= 1.5f * 1.5f;
+    }
+    REQUIRE(arrived);   // 到了墙外的集合点
+    // 而门是走过去的、不是砸开的。
     std::int64_t gate_hp = -1;
     const auto view = w.view(rts::Side::Defender);
     for (std::size_t k = 0; k < view.bld_type().size(); ++k) {
@@ -251,33 +272,23 @@ TEST_CASE("编队开拔穿城门出城：门血一点不掉（第六批的端到
     REQUIRE(gate_hp == 30);
 }
 
-TEST_CASE("驻守指令：各奔最近的指令格，两段墙都有人", "[script]") {
-    // 场景刻意取**两格相隔的驻守指令**：`Garrison` 解算时 World 会把
-    // `force_target_` 顺手指到（最后一条命令的）指令格，单格场景下光靠它
-    // 也能走到——锁不住脚本的「走向最近指令格」。两格相隔时差异是实质的：
-    // 没有这条逻辑，全编队挤向最后一格，另一格永远空着（一格一人）。
+TEST_CASE("弓手自主驻墙：各奔最近的空墙段，两段墙都有人（不挤同一段）", "[script]") {
+    // 编队移除后没有驻守指令：弓手「手上没仗打就找最近的空墙段登墙」是
+    // 自主默认（`find_wall_post` + 登墙意愿）。场景刻意取**两格相隔的墙**：
+    // 脚本那张拍级认领表就是为了防「两个弓手同时看上同一段墙」——没有它，
+    // 两人挤同一格（一格一人，后到者永远轮不上），另一格永远空着。
     rts::WorldInit init = sarena(14, 5);
     init.buildings.push_back(
         rts::BldInit{rts::BldType::Wall, rts::GridPos{6, 1}, 40, 40});
     init.buildings.push_back(
         rts::BldInit{rts::BldType::Wall, rts::GridPos{6, 3}, 40, 40});
     init.units.push_back(
-        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{2.5f, 1.5f}, 1, 20, 20, 0});
+        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{2.5f, 1.5f}, 1, 20, 20});
     init.units.push_back(
-        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{2.5f, 3.5f}, 1, 20, 20, 0});
+        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{2.5f, 3.5f}, 1, 20, 20});
     rts::World w(std::move(init));
     std::vector<rts::UnitId> ids;
     w.enumerate_units(rts::Side::Defender, ids);
-
-    rts::Command cmds[2];
-    for (int k = 0; k < 2; ++k) {
-        cmds[k].kind = rts::CommandKind::Garrison;
-        cmds[k].side = rts::Side::Defender;
-        cmds[k].force = 0;
-        cmds[k].slot = rts::slot_of(
-            rts::GridPos{6, static_cast<std::int16_t>(1 + 2 * k)}, w.width());
-    }
-    w.submit(rts::Side::Defender, cmds, 2);
 
     game::DefenderScript s(game::ScriptParams{}, 3);
     run(w, s, 160);
@@ -327,27 +338,27 @@ TEST_CASE("工匠自动找活：走进半径，工时才开始动", "[script]") 
     REQUIRE(w.view(rts::Side::Defender).bld_work_left()[slot] < 60);   // 真开工了
 }
 
-// ——确定性——
-
-// ——框选临时指令 + 无指令时的集结点默认值（#57 重开）——
+// ——框选临时指令 + 无指令时的驻防环默认（编队移除后的新形态）——
 //
-// ## 破坏性验证（做过，改这份文件前请重做）
+// 旧编队时代的破坏性验证表（`muster_fallback` / `follow_orders` 那几行）
+// 随编队系统一起作废。新形态下的等价破坏**值得重做一轮**再动这份文件：
 //
 // | 把 defender_script.cpp 改成 | 应当红的用例 |
 // |---|---|
-// | `muster_fallback` 插到 `Ranger`/`Mason` 自己的兜底**之前** | 「摸攻城锤」「工匠自动找活」两条既有用例——它们的兜底会被截胡，永远走不到 |
-// | `follow_orders` 的临时指令检查漏了世代比对 | 无法直接构造（依赖槎位复用的时序），改动前请至少手动推演一遍 |
-// | 最后一行 `return rts::UnitAction::Stop;` 忘了改成 `return std::nullopt;` | 「已到达的编队仍应保持不动」——会被错误地送去集结点 |
+// | `hold_position` 兜底插到 `Ranger`/`Mason` 自己的兜底**之前** | 「摸攻城锤」「工匠自动找活」——兜底被截胡，永远走不到 |
+// | 临时指令的世代比对删掉 | 无法直接构造（依赖槽位复用的时序），改动前请至少手动推演一遍 |
+// | 到达后忘了清 `manual_order_` | 「框选临时指令到达即失效」——单位卡在终点 |
+// | `find_wall_post` 不查本拍已指派的认领表 | 「弓手自主驻墙」——两人挤同一段墙 |
 
-TEST_CASE("没有任何指令：走向按编队错开的集结点待命，不再永远杵在原地", "[script]") {
+TEST_CASE("没有任何指令：走向按槽位错开的堡垒驻防环，不再永远杵在原地", "[script]") {
     rts::WorldInit init = sarena(20, 20);
     init.keep = rts::GridPos{10, 10};
     init.buildings.clear();
     init.buildings.push_back(rts::BldInit{rts::BldType::Keep, init.keep, 200, 200});
     init.units.push_back(
-        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{2.5f, 2.5f}, 1, 20, 20, 0});
+        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{2.5f, 2.5f}, 1, 20, 20});
     init.units.push_back(
-        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{2.5f, 3.5f}, 1, 20, 20, 1});
+        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{2.5f, 3.5f}, 1, 20, 20});
     rts::World w(std::move(init));
     std::vector<rts::UnitId> ids;
     w.enumerate_units(rts::Side::Defender, ids);
@@ -355,12 +366,12 @@ TEST_CASE("没有任何指令：走向按编队错开的集结点待命，不再
     const rts::UnitId a1 = ids[1];
 
     game::DefenderScript s(game::ScriptParams{}, 3);
-    run(w, s, 400);   // 无攻方、无命令：纯看它自己会不会挪窝
+    run(w, s, 400);   // 无攻方、无指令、没有墙可登：纯看驻防环默认
 
     const rts::Vec2 p0 = w.unit_pos(a0);
     const rts::Vec2 p1 = w.unit_pos(a1);
-    // 两支编队的集结点在堡垒不同侧，所以两个终点必须不同——
-    // 若两者挤到同一格，说明 muster_point_for 没有按编队区分。
+    // 两个槽位的驻防点在堡垒不同侧（半径 3 的环按槽位轮转），所以两个终点
+    // 必须不同——若两者挤到同一格，说明 hold_point_for 没有按槽位区分。
     const float dx = p0.x - p1.x, dy = p0.y - p1.y;
     REQUIRE(dx * dx + dy * dy > 1.0f);
     // 都离开了出生点（原地不动是这条要防的旧行为）。
@@ -368,76 +379,60 @@ TEST_CASE("没有任何指令：走向按编队错开的集结点待命，不再
     REQUIRE((p1.x != 2.5f || p1.y != 3.5f));
 }
 
-TEST_CASE("框选临时指令：只影响被点到的单位，同编队其余成员照旧听编队指令",
-         "[script]") {
+TEST_CASE("框选临时指令：只影响被点到的单位，其余的照走自主默认", "[script]") {
     rts::WorldInit init = sarena(20, 20);
     init.units.push_back(
-        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{2.5f, 2.5f}, 1, 20, 20, 0});
+        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{2.5f, 2.5f}, 1, 20, 20});
     init.units.push_back(
-        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{2.5f, 3.5f}, 1, 20, 20, 0});
+        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{2.5f, 3.5f}, 1, 20, 20});
     rts::World w(std::move(init));
     std::vector<rts::UnitId> ids;
     w.enumerate_units(rts::Side::Defender, ids);
     const rts::UnitId picked = ids[0];    // 只框选这一个
     const rts::UnitId other = ids[1];
 
-    // 编队 0 的持久指令：去 A。
-    rts::Command c;
-    c.kind = rts::CommandKind::MoveForce;
-    c.side = rts::Side::Defender;
-    c.force = 0;
-    c.slot = rts::slot_of(rts::GridPos{16, 2}, w.width());
-    w.submit(rts::Side::Defender, &c, 1);
-
     game::DefenderScript s(game::ScriptParams{}, 3);
-    // 框选到的那一个改去 B（离出生点更近，好与 A 区分）。
+    // 框选到的那一个改去 B（4, 8）——离出生点够远，方向上与自主默认
+    // （回堡垒 (0,0) 周围的驻防环）相反，好与它区分。
     const rts::UnitId picked_ids[1] = {picked};
     s.issue_move_order(picked_ids, rts::GridPos{4, 8});
 
-    // 只跑一小段，看**方向**而不是等「到没到」——到达时机对两段路径的
-    // 长短很敏感，纯看进度不用猜时长：B 比 A 近，若跑到 picked 真到了 B，
-    // 它会清空临时指令继续往 A 走，反而看不出「只影响 picked」这件事
-    // （下一条用例才是测「到达后退回编队指令」）。
+    // 只跑一小段，看**方向**而不是等「到没到」——到达时机对路径长短很敏感：
+    // 临时指令到达即失效，真等它到了 B，它已回归自主、往回走了，反而看不出
+    // 「只影响 picked」这件事（下一条用例才是测「到达后回归自主」）。
     run(w, s, 20);
 
     const rts::Vec2 pa = w.unit_pos(picked);
     const rts::Vec2 pb = w.unit_pos(other);
     // 被框选的那个朝 B（4, 8）走：B 的 y 比起点大得多，y 应显著增大。
     REQUIRE(pa.y > 4.0f);
-    // 没被框选的那个没有跟着去 B（y 不该被拉向 8 那一侧），而是朝编队
-    // 持久指令 A（16, 2）走：x 应显著增大。
-    REQUIRE(pb.y < 4.0f);
-    REQUIRE(pb.x > 4.0f);
+    // 没被框选的那个没有跟着去 B，而是朝堡垒方向的驻防点走：y 应明显减小。
+    REQUIRE(pb.y < 3.0f);
 }
 
-TEST_CASE("框选临时指令到达后清空：退回编队的持久指令，不是空等一拍",
-         "[script]") {
+TEST_CASE("框选临时指令到达即失效：回归自主驻防，不是卡在终点", "[script]") {
     rts::WorldInit init = sarena(20, 20);
     init.units.push_back(
-        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{2.5f, 2.5f}, 1, 20, 20, 0});
+        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{2.5f, 2.5f}, 1, 20, 20});
     rts::World w(std::move(init));
     std::vector<rts::UnitId> ids;
     w.enumerate_units(rts::Side::Defender, ids);
     const rts::UnitId a = ids[0];
 
-    // 编队持久指令：去远处 A（18, 2）。
-    rts::Command c;
-    c.kind = rts::CommandKind::MoveForce;
-    c.side = rts::Side::Defender;
-    c.force = 0;
-    c.slot = rts::slot_of(rts::GridPos{18, 2}, w.width());
-    w.submit(rts::Side::Defender, &c, 1);
-
     game::DefenderScript s(game::ScriptParams{}, 3);
-    // 临时指令：先去近处 B（4, 2），到了应当继续赶去 A，不会卡在 B。
+    // 临时指令：去 B（4, 2）。到了应当清掉指令、回归自主——本图无墙可登，
+    // 自主默认是回堡垒 (0,0) 周围的驻防环，所以它不该停在 B。
     const rts::UnitId picked_ids[1] = {a};
     s.issue_move_order(picked_ids, rts::GridPos{4, 2});
 
-    run(w, s, 400);   // 给足够 tick 走完 B 再走完 A
+    run(w, s, 400);   // 给足够 tick 走完 B 再走完回程
 
     const rts::Vec2 p = w.unit_pos(a);
-    const float dx = p.x - 18.5f, dy = p.y - 2.5f;
-    REQUIRE(dx * dx + dy * dy <= 1.5f * 1.5f);
+    // 已离开 B（指令失效了），且朝堡垒一侧回走——终点在出生点的西北方向。
+    const float dx = p.x - 4.5f, dy = p.y - 2.5f;
+    REQUIRE(dx * dx + dy * dy > 1.5f * 1.5f);
+    REQUIRE(p.x < 2.5f);
+    REQUIRE(p.y < 2.5f);
 }
 
 TEST_CASE("同种子同输入 ⇒ 同一局：脚本不是不确定性的来源", "[script]") {

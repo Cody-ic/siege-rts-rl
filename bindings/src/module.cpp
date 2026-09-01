@@ -169,7 +169,7 @@ PYBIND11_MODULE(rts_native, m) {
                 const auto ut = static_cast<rts::UnitType>(t);
                 const std::int64_t hp = stats.of(ut).max_hp;
                 init.units.push_back(rts::UnitInit{ut, rts::Vec2{x, y},
-                                                   lvl, hp, hp, rts::kNoForce});
+                                                   lvl, hp, hp});
             }
             return init;
         },

@@ -88,8 +88,6 @@ World::World(WorldInit init)
         }
     }
     spawn_chosen_.assign(spawns_.size(), 0);
-    force_target_.fill(kNoSlot);
-    garrison_order_.assign(terrain_.cell_count(), kNoForce);
 
     // 占位格（派生缓存，不进哈希——见头文件那段）。必须在放建筑与障碍**之前**
     // 就位，`place_bld` / `place_obstacle` 要往里写。
@@ -129,16 +127,7 @@ World::World(WorldInit init)
     // 边界外该怎么处理（夹紧、判死、还是不可能发生）属寻路与移动，是 1c 的事。
     // 在这里单独加一道检查会造出「建局时管、跑起来不管」的不对称。
     for (const UnitInit& u : init.units) {
-        const UnitId id = spawn_unit(u.type, u.pos, u.level, u.hp, u.max_hp);
-        if (u.force != kNoForce) {
-            // 编队是守方概念（`force_target_` 不按侧参数化的同一条理由）。
-            // 这里拦住是结构性的：攻方单位若能带编队，驻守指令就能匹配到它，
-            // 「攻方没有登墙手段」从结构退化成约定。
-            if (side_of(u.type) != Side::Defender) {
-                throw ContractError("编队是守方概念：攻方初始单位不得带编队");
-            }
-            u_force_[id.index()] = u.force;
-        }
+        spawn_unit(u.type, u.pos, u.level, u.hp, u.max_hp);
     }
 
     // 初始障碍。校验同样全部复用 `place_obstacle`（类型越界、界内、血量），
@@ -220,17 +209,6 @@ void World::validate(Side side, const Command& c) const {
                 throw ContractError("Train 的 level 字段不得小于 kMinUnitLevel");
             }
             break;
-        case CommandKind::SelectForce:
-            if (c.force == kNoForce) throw ContractError("SelectForce 未指定编队");
-            break;
-        case CommandKind::MoveForce:
-        case CommandKind::Garrison:
-        case CommandKind::UpgradeForce:
-            if (c.force == kNoForce) throw ContractError("未指定编队");
-            if (c.slot == kNoSlot || static_cast<std::size_t>(c.slot) >= cells) {
-                throw ContractError("目标槽位越界");
-            }
-            break;
         case CommandKind::Composition:
             if (static_cast<int>(c.what) >= kUnitTypeCount ||
                 side_of(unit_at(c.what)) != Side::Attacker) {
@@ -285,32 +263,40 @@ void World::submit_actions(Side side, const UnitAction* actions, std::size_t cou
     }
 }
 
-void World::recall_units(Side side, std::span<const UnitId> ids) {
-    // 先全部校验，再改任何状态。拖选集里若混进一个失效句柄，调用方得到的是
-    // 一次完整失败，而不是前几名已经下墙、后几名没有。
-    for (const UnitId id : ids) {
-        if (!unit_pool_.alive(id)) continue;
-        const std::size_t k = require(id);
-        if (side_of(u_type_[k]) != side) {
-            throw ContractError("召回单位不属于提交方");
+void World::submit_garrison_wishes(Side side, const std::uint16_t* targets,
+                                   std::size_t count) {
+    // 登墙是守方专属（「攻方没有登墙手段」是结构，CLAUDE.md）。给攻方开这个
+    // 通道会让那条从结构退化成约定，所以在这里直接拒。
+    if (side != Side::Defender) {
+        throw ContractError("登墙意愿是守方专属通道（攻方没有登墙手段）");
+    }
+    const int live = live_unit_count(side);
+    if (count != static_cast<std::size_t>(live)) {
+        throw ContractError(
+            with_int("登墙意愿数组长度必须恰好等于守方活着的单位数 ", live) +
+            with_int("，实际 ", static_cast<long long>(count)));
+    }
+    if (count > 0 && targets == nullptr) throw ContractError("targets 为空指针");
+
+    // 先全部校验再全部写入，理由同 `submit`：半批生效不可区分于整批失败。
+    const std::size_t cells = terrain_.cell_count();
+    for (std::size_t k = 0; k < count; ++k) {
+        if (targets[k] != kNoSlot && static_cast<std::size_t>(targets[k]) >= cells) {
+            throw ContractError(with_int("登墙意愿的槽位越界，下标 ",
+                                         static_cast<long long>(k)));
         }
     }
 
-    for (const UnitId id : ids) {
-        if (!unit_pool_.alive(id)) continue;
-        const std::size_t k = require(id);
-        if (u_garrison_[k] == kNoSlot) continue;
-        const std::uint16_t wall = u_garrison_[k];
-        dismount_unit(k);
-        // 邻格全满时 dismount_unit 会保持驻守；成功下墙后才撤掉该墙段，
-        // 防止下一 tick 的常设驻守令立刻再补一人上去。
-        if (u_garrison_[k] == kNoSlot) {
-            garrison_order_[static_cast<std::size_t>(wall)] = kNoForce;
-        }
+    // 按 `enumerate_units` 的顺序（槽位下标升序）逐个写入，与 `submit_actions` 同。
+    std::size_t k = 0;
+    for (std::size_t s = 0; s < unit_pool_.slot_count(); ++s) {
+        if (!unit_pool_.alive_at(static_cast<std::uint16_t>(s))) continue;
+        if (side_of(u_type_[s]) != side) continue;
+        u_garrison_target_[s] = targets[k++];
     }
 }
 
-void World::apply_one(Side side, const Command& c) {
+void World::apply_one(const Command& c) {
     switch (c.kind) {
         case CommandKind::None:
             // **「跳过」是一个合法动作，不是「这一格没填」**（`rts/command.hpp`）。
@@ -321,9 +307,6 @@ void World::apply_one(Side side, const Command& c) {
             // 奖励在 `train/`；这里只做阶段转换，不需要任何数值。
             if (phase_ == WavePhase::Build) begin_assault();
             break;
-        case CommandKind::SelectForce:
-            selected_force_[static_cast<std::size_t>(index_of(side))] = c.force;
-            break;
         case CommandKind::Composition:
             composition_[static_cast<std::size_t>(c.what)] = composition_slots(c);
             break;
@@ -331,7 +314,7 @@ void World::apply_one(Side side, const Command& c) {
             // 可对多个集结点各下一条 = 分兵佯攻，所以是置位而不是赋值。
             spawn_chosen_[static_cast<std::size_t>(c.slot)] = std::uint8_t{1};
             break;
-        // ——第二批解算的六种——
+        // ——第二批解算的五种——
         //
         // **世界状态层面的不合法一律无操作**（买不起、格被占、点位不匹配、
         // 目标不存在）。结构合法性已在 `validate` 拦过（字节层：越界、错侧），
@@ -490,85 +473,7 @@ void World::apply_one(Side side, const Command& c) {
             stock_[static_cast<std::size_t>(Resource::Gold)] -= cost;
             b_train_type_[k] = c.what;
             b_train_left_[k] = train_ticks_at(ut, c.level);
-            b_train_force_[k] = c.force;
             b_train_level_[k] = c.level;
-            break;
-        }
-        case CommandKind::UpgradeForce: {
-            // 已有部队批量升级（守方升级轴第三个输出的另一半）。`slot` 只
-            // 校验"这是一座真的 Barrack/Keep"——具体谁够格升级，逐单位判，
-            // 见下面的循环。
-            const std::size_t cell = static_cast<std::size_t>(c.slot);
-            if (bld_at_[cell] == 0) break;
-            const std::size_t bk = static_cast<std::size_t>(bld_at_[cell] - 1);
-            if (b_type_[bk] != BldType::Keep && b_type_[bk] != BldType::Barrack) break;
-            if (!b_built_[bk]) break;
-            const std::int32_t cap = unit_level_cap();
-            // **按槙位下标升序**（与 `enumerate_units` 同一个规范顺序，
-            // `rts/world.hpp:585` 那条纪律）：钱不够全部升级时，谁先被处理
-            // 决定谁先升，这必须确定，不能是遍历顺序的副产品。
-            for (std::size_t k = 0; k < unit_pool_.slot_count(); ++k) {
-                if (!unit_pool_.alive_at(static_cast<std::uint16_t>(k))) continue;
-                if (u_force_[k] != c.force) continue;
-                if (u_level_[k] >= cap) continue;        // 已顶上限，跳过
-                if (u_upgrade_left_[k] > 0) continue;    // 已经在升，跳过
-                if (!barrack_near(u_pos_[k])) continue;  // 须在 Barrack/Keep 附近
-                const UnitType ut = u_type_[k];
-                const std::int32_t lvl = u_level_[k];
-                const std::int64_t price =
-                    train_cost_gold(ut, lvl + 1) - train_cost_gold(ut, lvl);
-                if (stock_[static_cast<std::size_t>(Resource::Gold)] < price) {
-                    // **买不起就跳过这一名，不让整条命令失败**——同 `Train`
-                    // 「征兵出口被自己人堵住是玩家该解的局面」那条纪律：
-                    // 这里是「这一批钱不够就先升前面几个」，不是整批作废。
-                    continue;
-                }
-                stock_[static_cast<std::size_t>(Resource::Gold)] -= price;
-                const std::int32_t ticks =
-                    train_ticks_at(ut, lvl + 1) - train_ticks_at(ut, lvl);
-                if (ticks > 0) {
-                    u_upgrade_left_[k] = ticks;
-                } else {
-                    finish_unit_upgrade(k);
-                }
-            }
-            break;
-        }
-        case CommandKind::MoveForce:
-            // 解算 = 记入编队去处表。**World 不代替单位走路**：守方单兵由
-            // 参数化脚本驱动（CLAUDE.md），脚本读这张表、翻译成逐单位动作。
-            force_target_[c.force] = c.slot;
-            // **调兵即召回**（第三批）：「想换位置要先下来」——给编队下新去处
-            // 就是那句「先下来」的命令形式，不另设一种「取消驻守」命令。
-            // 清掉该编队的全部驻守指令，已上墙 / 在爬的都下来。
-            for (std::uint8_t& g : garrison_order_) {
-                if (g == c.force) g = kNoForce;
-            }
-            for (std::size_t k = 0; k < unit_pool_.slot_count(); ++k) {
-                if (!unit_pool_.alive_at(static_cast<std::uint16_t>(k))) continue;
-                if (u_force_[k] != c.force) continue;
-                if (u_garrison_[k] == kNoSlot) continue;
-                dismount_unit(k);
-            }
-            break;
-        case CommandKind::Garrison: {
-            // 解算 = 记入按格的驻守指令表（同 `MoveForce` / `Clear` 的先例：
-            // 指令进世界状态，登墙本身在 tick_garrison——那是机制，不是命令）。
-            // 世界状态层面的不合法一律无操作（同 Build 家族）：格上不是
-            // 完工的墙就不记。**完工**是条件的一部分——工地还不是墙，
-            // 站上去没有「上」可言。
-            const std::size_t cell = static_cast<std::size_t>(c.slot);
-            if (bld_at_[cell] == 0) break;
-            const std::size_t k = static_cast<std::size_t>(bld_at_[cell] - 1);
-            const BldType bt = b_type_[k];
-            // 「墙段」的既有判据就是 Wall‖Gate（AtkWall 与破坏倍率同一个），
-            // 驻守沿用它，不另立第二种「墙」的定义。门楼上站人也是城防的常态。
-            if (bt != BldType::Wall && bt != BldType::Gate) break;
-            if (!b_built_[k]) break;
-            garrison_order_[cell] = c.force;
-            // 驻守含着「先走到那儿」：把编队去处一并指过去，脚本执行层照旧
-            // 读 force_target_ 行军，到了墙边 tick_garrison 自会接手。
-            force_target_[c.force] = c.slot;
             break;
         }
         case CommandKind::Clear: {
@@ -581,7 +486,7 @@ void World::apply_one(Side side, const Command& c) {
             break;
         }
     }
-    // 12 种命令全部解算（第三批收掉 `Garrison`），未解算计数器已按约定删除。
+    // 全部命令都有解算分支（驻守已改为逐单位登墙意愿，不再是命令），未解算计数器按约定早已删除。
     // 这个 switch 没有 default，新增命令种类漏写分支会被 -Wswitch / /w14062 逮住。
 }
 
@@ -592,7 +497,7 @@ void World::advance(int ticks) {
         // 顺序固定是确定性的一部分：守方先、攻方后，各按提交顺序。
         for (int s = 0; s < kSideCount; ++s) {
             std::vector<Command>& q = cmd_queue_[static_cast<std::size_t>(s)];
-            for (const Command& c : q) apply_one(static_cast<Side>(s), c);
+            for (const Command& c : q) apply_one(c);
             q.clear();
         }
 
@@ -637,14 +542,13 @@ UnitId World::spawn_unit(UnitType type, Vec2 pos, std::int32_t level, std::int64
         u_windup_.resize(n);
         u_action_.resize(n);
         u_garrison_.resize(n);
+        u_garrison_target_.resize(n);
         u_mount_.resize(n);
         u_charge_.resize(n);
-        u_force_.resize(n);
         u_cd_.resize(n);
         u_tgt_kind_.resize(n);
         u_tgt_raw_.resize(n);
         u_aim_.resize(n);
-        u_upgrade_left_.resize(n);
     }
     u_type_[k] = type;
     u_level_[k] = level;
@@ -656,14 +560,13 @@ UnitId World::spawn_unit(UnitType type, Vec2 pos, std::int32_t level, std::int64
     // 那是唯一安全的默认值（`rts/action.hpp`）。
     u_action_[k] = UnitAction::Stop;
     u_garrison_[k] = kNoSlot;
+    u_garrison_target_[k] = kNoSlot;
     u_mount_[k] = 0;
     u_charge_[k] = 0.0f;
-    u_force_[k] = kNoForce;
     u_cd_[k] = 0;
     u_tgt_kind_[k] = TgtKind::None;
     u_tgt_raw_[k] = 0;
     u_aim_[k] = Vec2{};
-    u_upgrade_left_[k] = 0;
     return unit_pool_.id_at(k);
 }
 
@@ -689,7 +592,6 @@ BldId World::place_bld(BldType type, GridPos pos, std::int64_t hp, std::int64_t 
         b_built_.resize(n);
         b_train_type_.resize(n);
         b_train_left_.resize(n);
-        b_train_force_.resize(n);
         b_train_level_.resize(n);
         b_level_.resize(n);
         b_upgrade_left_.resize(n);
@@ -708,7 +610,6 @@ BldId World::place_bld(BldType type, GridPos pos, std::int64_t hp, std::int64_t 
     b_built_[k] = (work_left == 0) ? std::uint8_t{1} : std::uint8_t{0};
     b_train_type_[k] = kNoTrain;
     b_train_left_[k] = 0;
-    b_train_force_[k] = kNoForce;
     b_train_level_[k] = kMinUnitLevel;
     b_level_[k] = 1;
     b_upgrade_left_[k] = 0;
@@ -759,14 +660,13 @@ void World::kill_unit(UnitId id) {
     u_windup_[k] = 0;
     u_action_[k] = UnitAction::Stop;
     u_garrison_[k] = kNoSlot;
+    u_garrison_target_[k] = kNoSlot;
     u_mount_[k] = 0;
     u_charge_[k] = 0.0f;
-    u_force_[k] = kNoForce;
     u_cd_[k] = 0;
     u_tgt_kind_[k] = TgtKind::None;
     u_tgt_raw_[k] = 0;
     u_aim_[k] = Vec2{};
-    u_upgrade_left_[k] = 0;
     unit_pool_.release(static_cast<std::uint16_t>(k));
 }
 
@@ -781,17 +681,19 @@ void World::destroy_bld(BldId id) {
         if (bld_at_[c] == static_cast<std::uint16_t>(k + 1)) bld_at_[c] = 0;
         // 墙塌了，上面的人**当场落地站在缺口里**（缺口在修复前可通行，
         // CLAUDE.md）——不给延迟：那不是「下墙」，是脚下的东西没了。
-        // 在爬的一并解除（人本来就还在地面）。指令随墙作废——「驻守那段墙」
-        // 里的那段墙不存在了，留着指令等于等一座还没许诺的新墙。
+        // 在爬的一并解除（人本来就还在地面）。指着这段墙的登墙意愿随墙作废
+        // ——不清的话，原地重建一座新墙会让旧意愿突然复活，那是「等一座
+        // 还没许诺的新墙」的同款形态。
         if (bld_at_[c] == 0) {
             const std::uint16_t slot = slot_of(b_pos_[k], width());
             for (std::size_t u = 0; u < unit_pool_.slot_count(); ++u) {
                 if (!unit_pool_.alive_at(static_cast<std::uint16_t>(u))) continue;
-                if (u_garrison_[u] != slot) continue;
-                u_garrison_[u] = kNoSlot;
-                u_mount_[u] = 0;
+                if (u_garrison_[u] == slot) {
+                    u_garrison_[u] = kNoSlot;
+                    u_mount_[u] = 0;
+                }
+                if (u_garrison_target_[u] == slot) u_garrison_target_[u] = kNoSlot;
             }
-            garrison_order_[c] = kNoForce;
         }
     }
     b_type_[k] = BldType::Keep;
@@ -806,7 +708,6 @@ void World::destroy_bld(BldId id) {
     b_built_[k] = 0;
     b_train_type_[k] = kNoTrain;
     b_train_left_[k] = 0;
-    b_train_force_[k] = kNoForce;
     b_train_level_[k] = kMinUnitLevel;
     b_level_[k] = 1;
     b_upgrade_left_[k] = 0;
@@ -878,13 +779,6 @@ Vec2 World::unit_aim(UnitId id) const { return u_aim_[require(id)]; }
 std::uint16_t World::unit_garrison(UnitId id) const { return u_garrison_[require(id)]; }
 std::int32_t World::unit_mount(UnitId id) const { return u_mount_[require(id)]; }
 float World::unit_charge(UnitId id) const { return u_charge_[require(id)]; }
-
-std::uint8_t World::garrison_order(std::uint16_t slot) const {
-    if (static_cast<std::size_t>(slot) >= terrain_.cell_count()) {
-        throw ContractError("garrison_order 的槽位越界");
-    }
-    return garrison_order_[slot];
-}
 
 BldType World::bld_type(BldId id) const { return b_type_[require(id)]; }
 GridPos World::bld_pos(BldId id) const { return b_pos_[require(id)]; }
@@ -1026,11 +920,11 @@ std::int32_t World::train_ticks_at(UnitType ut, std::int32_t level) const noexce
 //   5. 四组实体：前三组各自的槽位池（alive + 代数 + 空闲表）+ 全部字段数组；
 //      弹丸无槽位池（保序压实的 SoA），**先喂数量再喂字段**——变长数组
 //      不喂长度会让不同的 (数量, 内容) 组合拼出相同的字节流
-//   6. 资源、编成位、集结点选择、选中编队、编队去处表、驻守指令表
+//   6. 资源、编成位、集结点选择
 //   7. **两侧的待排空命令队列**
 //   8. 两侧迷雾
 //
-// （原第 8 项——未解算命令的计数器——随第三批删除：12 种命令全部解算。）
+// （原第 8 项——未解算命令的计数器——随第三批删除：全部命令均有解算。）
 //
 // 第 7 项是写回放格式时补的，理由值得记：队列是**跨 `submit` / `advance` 边界存活**
 // 的状态，所以它是仿真状态。漏掉它，哈希的承诺「同一个哈希 ⇒ 同一个未来」就不成立
@@ -1069,10 +963,10 @@ std::uint64_t World::state_hash() const noexcept {
     h.feed(u_windup_.data(), u_windup_.size() * sizeof(std::int32_t));
     h.feed(u_action_.data(), u_action_.size() * sizeof(UnitAction));
     h.feed(u_garrison_.data(), u_garrison_.size() * sizeof(std::uint16_t));
+    h.feed(u_garrison_target_.data(), u_garrison_target_.size() * sizeof(std::uint16_t));
     h.feed(u_mount_.data(), u_mount_.size() * sizeof(std::int32_t));
     // 冲锋动量是浮点，与 u_pos_ 同一条纪律：按位喂。
     for (const float c : u_charge_) h.feed_f32(c);
-    h.feed(u_force_.data(), u_force_.size());
     h.feed(u_cd_.data(), u_cd_.size() * sizeof(std::int32_t));
     h.feed(u_tgt_kind_.data(), u_tgt_kind_.size() * sizeof(TgtKind));
     h.feed(u_tgt_raw_.data(), u_tgt_raw_.size() * sizeof(std::uint32_t));
@@ -1081,7 +975,6 @@ std::uint64_t World::state_hash() const noexcept {
         h.feed_f32(p.x);
         h.feed_f32(p.y);
     }
-    h.feed(u_upgrade_left_.data(), u_upgrade_left_.size() * sizeof(std::int32_t));
 
     bld_pool_.feed_hash(h);
     h.feed(b_type_.data(), b_type_.size() * sizeof(BldType));
@@ -1099,7 +992,6 @@ std::uint64_t World::state_hash() const noexcept {
     h.feed(b_built_.data(), b_built_.size());
     h.feed(b_train_type_.data(), b_train_type_.size());
     h.feed(b_train_left_.data(), b_train_left_.size() * sizeof(std::int32_t));
-    h.feed(b_train_force_.data(), b_train_force_.size());
     h.feed(b_train_level_.data(), b_train_level_.size() * sizeof(std::int32_t));
     h.feed(b_level_.data(), b_level_.size() * sizeof(std::int32_t));
     h.feed(b_upgrade_left_.data(), b_upgrade_left_.size() * sizeof(std::int32_t));
@@ -1135,9 +1027,6 @@ std::uint64_t World::state_hash() const noexcept {
     h.feed(stock_.data(), stock_.size() * sizeof(std::int64_t));
     h.feed(composition_.data(), composition_.size() * sizeof(std::uint16_t));
     h.feed(spawn_chosen_.data(), spawn_chosen_.size());
-    h.feed(selected_force_.data(), selected_force_.size());
-    h.feed(force_target_.data(), force_target_.size() * sizeof(std::uint16_t));
-    h.feed(garrison_order_.data(), garrison_order_.size());
 
     // 待排空的命令队列。**长度必须一起喂**，否则「守方一条、攻方两条」与
     // 「守方两条、攻方一条」在拼接之后字节相同。

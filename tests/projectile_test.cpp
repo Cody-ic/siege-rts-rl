@@ -225,16 +225,12 @@ TEST_CASE("高度 miss / 减伤按命中时刻的目标状态判：飞行中登�
         init.buildings.push_back(
             rts::BldInit{rts::BldType::Wall, rts::GridPos{6, 4}, 40, 40});
         init.units.push_back(
-            rts::UnitInit{rts::UnitType::Archer, rts::Vec2{5.5f, 4.5f}, 1, 20, 20, 0});
+            rts::UnitInit{rts::UnitType::Archer, rts::Vec2{5.5f, 4.5f}, 1, 20, 20});
         return init;
     };
-    const auto garrison_cmd = [] {
-        rts::Command c;
-        c.kind = rts::CommandKind::Garrison;
-        c.side = rts::Side::Defender;
-        c.force = 0;
-        c.slot = rts::slot_of(rts::GridPos{6, 4}, 14);
-        return c;
+    const auto garrison_wish = [] {
+        // 登墙意愿（编队移除后的新通道）：守方只有那名弓手，数组长度 1。
+        return rts::slot_of(rts::GridPos{6, 4}, 14);
     };
 
     SECTION("miss 1000‰：放箭时人在地面，命中前登墙 ⇒ 箭整发落空") {
@@ -252,8 +248,8 @@ TEST_CASE("高度 miss / 减伤按命中时刻的目标状态判：飞行中登�
         act(w, rts::Side::Attacker, {rts::UnitAction::AtkNear});
         w.advance(4);   // t3 放箭（目标在地面——放箭那一刻还没有 miss 可言）
         REQUIRE(w.live_proj_count() == 1);
-        const rts::Command c = garrison_cmd();
-        w.submit(rts::Side::Defender, &c, 1);
+        const std::uint16_t wish = garrison_wish();
+        w.submit_garrison_wishes(rts::Side::Defender, &wish, 1);
         w.advance(40);  // t5 登墙（零延迟），箭追到墙心，命中时刻人已在高处
         REQUIRE(w.live_proj_count() == 0);
         REQUIRE(w.unit_hp(archer) == 20);   // 1000‰ 必落空：登墙真的挡住了这箭
@@ -281,8 +277,8 @@ TEST_CASE("高度 miss / 减伤按命中时刻的目标状态判：飞行中登�
         w.enumerate_units(rts::Side::Defender, ids);
         const rts::UnitId archer = ids[0];
 
-        const rts::Command c = garrison_cmd();
-        w.submit(rts::Side::Defender, &c, 1);   // 开打前就在墙上
+        const std::uint16_t wish = garrison_wish();
+        w.submit_garrison_wishes(rts::Side::Defender, &wish, 1);   // 开打前就在墙上
         act(w, rts::Side::Defender, {rts::UnitAction::Stop});
         act(w, rts::Side::Attacker, {rts::UnitAction::AtkNear});
         w.advance(44);

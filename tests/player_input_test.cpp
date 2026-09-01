@@ -1,6 +1,8 @@
-// 玩家输入的语义层（game/player_input.hpp）：右键按格上的东西分三种命令，
-// 建造虚影的合法性提示。这层不含像素，在默认构建里测（GCC 侧也验）——
-// 「点墙下的是驻守不是开拔」写错了，交互层就是一个手感很怪的 bug 制造机。
+// 玩家输入的语义层（game/player_input.hpp）：右键按格上的东西分三类
+// （驻墙 / 清野 / 开拔——编队移除后只有清野还落成 `rts::Command`，另两种
+// 是脚本侧的临时单兵指令），建造虚影的合法性提示。这层不含像素，在默认
+// 构建里测（GCC 侧也验）——「点墙是驻墙不是开拔」写错了，交互层就是一个
+// 手感很怪的 bug 制造机。
 
 #include <algorithm>
 #include <cstddef>
@@ -36,7 +38,7 @@ rts::WorldInit iarena() {
 
 }  // namespace
 
-TEST_CASE("右键的语义：墙=驻守、障碍=清野、其余=开拔", "[input]") {
+TEST_CASE("右键的分类：完工墙/门=驻墙、障碍=清野、其余=开拔", "[input]") {
     rts::World w(iarena());
     w.place_bld(rts::BldType::Wall, rts::GridPos{4, 2}, 40, 40);
     w.place_bld(rts::BldType::Gate, rts::GridPos{4, 3}, 30, 30);
@@ -44,38 +46,28 @@ TEST_CASE("右键的语义：墙=驻守、障碍=清野、其余=开拔", "[inpu
     w.place_bld(rts::BldType::Wall, rts::GridPos{4, 4}, 40, 40, /*work_left=*/10);
     const rts::WorldView v = w.view(rts::Side::Defender);
 
-    // 完工的墙与门：驻守（「墙段」的判据是 Wall‖Gate，与机制第三批同一条）。
-    rts::Command c = game::command_for_click(v, 1, rts::GridPos{4, 2});
-    REQUIRE(c.kind == rts::CommandKind::Garrison);
-    REQUIRE(c.force == 1);
-    REQUIRE(c.slot == rts::slot_of(rts::GridPos{4, 2}, 10));
-    REQUIRE(game::command_for_click(v, 0, rts::GridPos{4, 3}).kind ==
-            rts::CommandKind::Garrison);
+    // 完工的墙与门：驻墙（「墙段」的判据是 Wall‖Gate，与机制第三批同一条）。
+    REQUIRE(game::classify_click(v, rts::GridPos{4, 2}) == game::ClickTarget::Wall);
+    REQUIRE(game::classify_click(v, rts::GridPos{4, 3}) == game::ClickTarget::Wall);
     // 工地状态的墙还没有可站的墙顶：开拔过去（等着也好、护着也好，归玩家）。
-    REQUIRE(game::command_for_click(v, 0, rts::GridPos{4, 4}).kind ==
-            rts::CommandKind::MoveForce);
-    // 塔不是墙段：开拔（走到它旁边），不是驻守。
-    REQUIRE(game::command_for_click(v, 0, rts::GridPos{2, 2}).kind ==
-            rts::CommandKind::MoveForce);
+    REQUIRE(game::classify_click(v, rts::GridPos{4, 4}) == game::ClickTarget::Ground);
+    // 塔不是墙段：开拔（走到它旁边），不是驻墙。
+    REQUIRE(game::classify_click(v, rts::GridPos{2, 2}) == game::ClickTarget::Ground);
     // 活障碍：清野。
-    REQUIRE(game::command_for_click(v, 0, rts::GridPos{5, 4}).kind ==
-            rts::CommandKind::Clear);
+    REQUIRE(game::classify_click(v, rts::GridPos{5, 4}) == game::ClickTarget::Obstacle);
     // 空地：开拔。
-    REQUIRE(game::command_for_click(v, 0, rts::GridPos{8, 1}).kind ==
-            rts::CommandKind::MoveForce);
+    REQUIRE(game::classify_click(v, rts::GridPos{8, 1}) == game::ClickTarget::Ground);
 }
 
-TEST_CASE("命令能被 World 原样受理：语义层给的形状与校验层对得上", "[input]") {
-    // 语义层若给出一条 submit 会拒的命令（越界槽位、错侧），交互层的症状是
-    // 「一点就崩」。这条把三种命令各真提交一遍。
+TEST_CASE("clear_command 能被 World 原样受理：语义层给的形状与校验层对得上",
+          "[input]") {
+    // 右键语义里只有清野还走命令通道（驻墙与开拔都落成脚本的临时指令，
+    // 不再是 `rts::Command`）。语义层若给出一条 submit 会拒的命令，
+    // 交互层的症状是「一点就崩」，所以真提交一遍。
     rts::World w(iarena());
-    w.place_bld(rts::BldType::Wall, rts::GridPos{4, 2}, 40, 40);
-    const rts::WorldView v = w.view(rts::Side::Defender);
-    for (const rts::GridPos p :
-         {rts::GridPos{4, 2}, rts::GridPos{5, 4}, rts::GridPos{8, 1}}) {
-        const rts::Command c = game::command_for_click(v, 0, p);
-        REQUIRE_NOTHROW(w.submit(rts::Side::Defender, &c, 1));
-    }
+    const rts::Command c = game::clear_command(rts::GridPos{5, 4}, 10);
+    REQUIRE(c.kind == rts::CommandKind::Clear);
+    REQUIRE_NOTHROW(w.submit(rts::Side::Defender, &c, 1));
 }
 
 TEST_CASE("建造提示：地形、建筑、障碍三种占法都报不可放", "[input]") {
@@ -156,7 +148,7 @@ TEST_CASE("征兵提示：只有完工且没在练的兵营或堡垒可以点", 
     // 真的下一条征兵命令，然后这一格就该变成不可点（一次一名）。
     w.set_stock(rts::Resource::Gold, 100);
     const rts::Command c =
-        game::train_command(rts::UnitType::Archer, 2, /*level=*/1, rts::GridPos{2, 1}, 10);
+        game::train_command(rts::UnitType::Archer, /*level=*/1, rts::GridPos{2, 1}, 10);
     REQUIRE_NOTHROW(w.submit(rts::Side::Defender, &c, 1));
     w.advance(1);
     REQUIRE_FALSE(game::can_train_hint(w.view(rts::Side::Defender), rts::GridPos{2, 1}));
@@ -166,15 +158,13 @@ TEST_CASE("征兵提示：只有完工且没在练的兵营或堡垒可以点", 
 // ——框选（#57 重开）——
 
 TEST_CASE("框选：矩形只框到落在其中的己方单位", "[input]") {
-    // **单位的编队只能在建局参数里给**（`spawn_unit` 没有 force 参数，
-    // 那是运行时动态出兵的接口，不带编队——同 `demo_driver.cpp` 的先例）。
     rts::WorldInit init = iarena();
     init.units.push_back(
-        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{2.5f, 2.5f}, 1, 20, 20, 0});
+        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{2.5f, 2.5f}, 1, 20, 20});
     init.units.push_back(
-        rts::UnitInit{rts::UnitType::Spear, rts::Vec2{2.5f, 2.6f}, 1, 20, 20, 1});
+        rts::UnitInit{rts::UnitType::Spear, rts::Vec2{2.5f, 2.6f}, 1, 20, 20});
     init.units.push_back(
-        rts::UnitInit{rts::UnitType::Ranger, rts::Vec2{8.5f, 4.5f}, 1, 20, 20, 2});
+        rts::UnitInit{rts::UnitType::Ranger, rts::Vec2{8.5f, 4.5f}, 1, 20, 20});
     rts::World w(std::move(init));
     std::vector<rts::UnitId> ids;
     w.enumerate_units(rts::Side::Defender, ids);
@@ -208,7 +198,7 @@ TEST_CASE("框选：矩形的两个角谁大谁小不影响结果（鼠标可能
          "[input]") {
     rts::WorldInit init = iarena();
     init.units.push_back(
-        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{2.5f, 2.5f}, 1, 20, 20, 0});
+        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{2.5f, 2.5f}, 1, 20, 20});
     rts::World w(std::move(init));
     std::vector<rts::UnitId> ids;
     w.enumerate_units(rts::Side::Defender, ids);
@@ -223,33 +213,6 @@ TEST_CASE("框选：矩形的两个角谁大谁小不影响结果（鼠标可能
     const std::vector<rts::UnitId> got = game::units_in_rect(v, ids, proj, flipped);
     REQUIRE(got.size() == 1);
     REQUIRE(got[0] == a);
-}
-
-TEST_CASE("distinct_forces：去重、跳过 kNoForce", "[input]") {
-    rts::WorldInit init = iarena();
-    init.units.push_back(
-        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{2.5f, 2.5f}, 1, 20, 20, 0});
-    init.units.push_back(
-        rts::UnitInit{rts::UnitType::Spear, rts::Vec2{3.5f, 2.5f}, 1, 20, 20, 0});
-    init.units.push_back(
-        rts::UnitInit{rts::UnitType::Ranger, rts::Vec2{4.5f, 2.5f}, 1, 20, 20, 1});
-    rts::World w(std::move(init));
-    std::vector<rts::UnitId> defenders;
-    w.enumerate_units(rts::Side::Defender, defenders);
-    REQUIRE(defenders.size() == 3);
-    // 第四个是攻方单位（`spawn_unit` 没有 force 参数——攻方本就没有编队），
-    // 混进选中集要验证 distinct_forces 会跳过它，不是漏了才刚好没崩。
-    const rts::UnitId d =
-        w.spawn_unit(rts::UnitType::Ghoul, rts::Vec2{5.5f, 2.5f}, 1, 20, 20);
-    const rts::UnitId ids_arr[4] = {defenders[0], defenders[1], defenders[2], d};
-    const rts::WorldView v = w.view(rts::Side::Defender);
-
-    const std::vector<std::uint8_t> forces = game::distinct_forces(v, ids_arr);
-    REQUIRE(forces.size() == 2);
-    const bool has0 = std::find(forces.begin(), forces.end(), 0) != forces.end();
-    const bool has1 = std::find(forces.begin(), forces.end(), 1) != forces.end();
-    REQUIRE(has0);
-    REQUIRE(has1);
 }
 
 // 一次试玩报出来的 bug（与「造价提示」那条同批，但是另一层）：`render/`
@@ -473,7 +436,7 @@ TEST_CASE("造价提示：资源不够时红框，够了才绿（试玩报的 bu
         REQUIRE(game::can_train_hint(v, rts::GridPos{2, 1}));
         REQUIRE_FALSE(game::can_afford_train(v, rts::UnitType::Archer, 1));   // 10 < 60
         const rts::Command c =
-            game::train_command(rts::UnitType::Archer, 0, /*level=*/1,
+            game::train_command(rts::UnitType::Archer, /*level=*/1,
                                rts::GridPos{2, 1}, 10);
         w.submit(rts::Side::Defender, &c, 1);
         w.advance(1);
@@ -484,7 +447,7 @@ TEST_CASE("造价提示：资源不够时红框，够了才绿（试玩报的 bu
         const rts::WorldView v = w.view(rts::Side::Defender);
         REQUIRE(game::can_afford_train(v, rts::UnitType::Archer, 1));
         const rts::Command c =
-            game::train_command(rts::UnitType::Archer, 0, /*level=*/1,
+            game::train_command(rts::UnitType::Archer, /*level=*/1,
                                rts::GridPos{2, 1}, 10);
         w.submit(rts::Side::Defender, &c, 1);
         w.advance(1);

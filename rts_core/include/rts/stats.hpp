@@ -63,14 +63,15 @@ namespace rts {
 // 加 `building_level_cap_divisor`）；Stats/7 → Stats/8（**§1.4 落地：等级缩放
 // 从线性改成各开一份平方根**，见 `rts/combat_math.hpp` 的 `level_permille`）；
 // Stats/8 → Stats/9（兵种等级上限：`GlobalStats` 加 `train_ticks_permille_per_level`
-// 与 `unit_upgrade_radius`）。
+// 与 `unit_upgrade_radius`）；Stats/9 → Stats/10（编队系统移除：就地升级机制
+// 删除，`unit_upgrade_radius` 失去唯一消费者，删字段）。
 //
-// **最后那一格是本文件唯一一次「形状没变而必须进格」，理由要留着。** 那次
+// **Stats/7 → Stats/8 那一格是本文件唯一一次「形状没变而必须进格」，理由要留着。** 那次
 // 改的是 `level_permille` 怎么用这两个系数（语义），字段一个没加减。若不进格，
 // `fingerprint()` 算出来一模一样，于是旧回放**不报 `StatsMismatch` 而静默算出
 // 不同的结果**——那是本仓库通篇最防的一类失效（「布局改了」与「跑歪了」不可
 // 区分）。**下一个只改语义不改字段的人照此办理。**
-inline constexpr std::string_view kStatsShapeTag = "Stats/9";
+inline constexpr std::string_view kStatsShapeTag = "Stats/10";
 
 // 每兵种一行。**结构性属性不在这里**（能否对空、能否破坏结构、三轴定位归
 // `rts/unit_behavior.hpp` 与 `rts/roster.hpp`）；这里只有会随标定变的数。
@@ -214,11 +215,10 @@ struct GlobalStats {
     // 不参与 TTK / 破坏速率那组要求 p−q=0 的不变量，没有理由跟着开方。
     // 默认 0 = 恒等（训练耗时不随等级变），一眼看出没标定。
     std::int32_t train_ticks_permille_per_level = 0;
-    // 已有部队批量升级时，「在场」的判定半径（格）——同 `mason_work_radius`
-    // 的形状，但扫的对象反过来：那个是「单位在场影响建筑」，这个是
-    // 「建筑在场影响单位」（`World::barrack_near`）。默认 0 = 关（永远判定
-    // 不在场，升级永远推进不了），一眼看出没标定。
-    float unit_upgrade_radius = 0.0f;
+    // （这里曾有 `unit_upgrade_radius`——已有部队批量升级的「在场」判定半径。
+    // 就地升级随编队系统移除一并删除（用户定版：升级只体现在招募时带级），
+    // 字段失去唯一消费者，留着只会是「标定了却没生效」的陷阱——删字段并进格，
+    // 见上方 Stats/9 → Stats/10。）
 };
 
 // 四组分法来自 `rts_core 接口契约.md` §1.1.2 的三条形状决定。
