@@ -1674,6 +1674,10 @@ def check_generator_produces_valid_maps(c):
             counts[cell] = counts.get(cell, 0) + 1
     c.true(counts.get("Forest", 0) > 0, "生成的图必须有 Forest（城内森林 + 城外散布）")
     c.true(counts.get("Rock", 0) > 0, "生成的图必须有 Rock（城外散布团块）")
+    # 2026-09-01：留白 1 作废，Water/Bridge 真的进生成图。
+    c.true(counts.get("Water", 0) > 0, "生成的图必须有 Water（湖/河，留白 1 已作废）")
+    c.true(counts.get("Bridge", 0) > 0,
+           "生成的图必须有 Bridge（rivers_range 下界 1 ⇒ 河必架桥）")
 
     for s in doc["spawns"]:
         c.true("corridor" not in s,
@@ -1725,6 +1729,14 @@ def check_generator_produces_valid_maps(c):
     c.eq(inner.count("stone"), 2, f"城内石矿必须恒 2，实际 inner 构成 {inner}")
     c.true(1 <= inner.count("wood") <= 2, f"城内木材 1–2，实际 inner 构成 {inner}")
 
+    # 2026-09-01：金矿场恒一座、精确踩城内金点（「金矿不刷新」试玩反馈的落点）。
+    gold_inner = sorted(tuple(r["pos"]) for r in doc["resources"]
+                        if r["tier"] == "inner" and r["type"] == "gold")
+    mines = sorted(tuple(b["pos"]) for b in doc["buildings"] if b["type"] == "Mine")
+    c.eq(len(mines), 1, f"预置金矿场必须恰一座，实际 {mines}")
+    c.true(mines[0] in gold_inner,
+           f"金矿场 {mines[0]} 必须精确踩在城内金点 {gold_inner} 上（第 24 条豁免）")
+
 
 def _ref_cfg(**over):
     """一组全钉死的生成配置（参考图同款形状），给直测生成器中间产物的
@@ -1742,6 +1754,9 @@ def _ref_cfg(**over):
         forest_patch_size=[4, 8],
         rock_patches_range=[3, 3],
         rock_patch_size=[4, 10],
+        water_lakes_range=[0, 0],
+        water_lake_size=[0, 0],
+        rivers_range=[0, 0],
         towers_range=[2, 2],
         barracks_range=[1, 1],
         obstacles=[0, 0],
@@ -1916,14 +1931,15 @@ def check_generator_inner_content(c):
 
 def check_generator_buildings_legal(c):
     """预置建筑（微随机化）：塔贴城门/缺口内侧、兵营在净空区外、伐木场/
-    采石场**精确踩**对应资源点（第 24 条 GATHERER_MATCH 豁免的摆法）。"""
+    采石场/金矿场**精确踩**对应资源点（第 24 条 GATHERER_MATCH 豁免的摆法）。"""
     cv, r = _painted(_ref_cfg())
     bld = {t: [p for bt, p in cv.buildings if bt == t]
-           for t in ("Tower", "Barrack", "Lumber", "Quarry")}
+           for t in ("Tower", "Barrack", "Lumber", "Quarry", "Mine")}
     c.eq(len(bld["Tower"]), 2, f"塔应恒 2（配置钉死），实际 {len(bld['Tower'])}")
     c.eq(len(bld["Barrack"]), 1, "兵营应恒 1（配置钉死）")
     c.eq(len(bld["Lumber"]), 1, "伐木场应恒 1")
     c.eq(len(bld["Quarry"]), 1, "采石场应恒 1")
+    c.eq(len(bld["Mine"]), 1, "金矿场应恒 1（2026-09-01 追加）")
 
     anchors = set(cv.gates) | set(cv.breaches)
     for p in bld["Tower"]:
@@ -1937,10 +1953,70 @@ def check_generator_buildings_legal(c):
             if t == "wood" and tier == "inner"]
     stone = [(x, y) for t, (x, y), tier in cv.resources
              if t == "stone" and tier == "inner"]
+    gold = [(x, y) for t, (x, y), tier in cv.resources
+            if t == "gold" and tier == "inner"]
     c.true(bld["Lumber"][0] in wood,
            f"伐木场 {bld['Lumber'][0]} 必须精确踩在木点上（第 24 条豁免）")
     c.true(bld["Quarry"][0] in stone,
            f"采石场 {bld['Quarry'][0]} 必须精确踩在石点上（第 24 条豁免）")
+    c.true(bld["Mine"][0] in gold,
+           f"金矿场 {bld['Mine'][0]} 必须精确踩在金点上（第 24 条豁免）")
+
+
+def check_generator_water(c):
+    """`place_water`（2026-09-01，留白 1 作废）：湖与河真的落地、河必架桥、
+    桥的四邻有水（第 13 条的生成器侧镜像）、任何水体落地后集结点仍连通 keep
+    （第 12 条镜像——自校验失败会整片撤销，所以产出恒满足）。
+
+    另钉住**零配置不消费 rng** 这条：参考图靠固定种子逐字节复现，
+    `place_water` 在 range 全 0 时若悄悄抽一次数，同一批种子的产出就全漂了。
+    """
+    cfg = _ref_cfg(water_lakes_range=[2, 2], water_lake_size=[10, 14],
+                   rivers_range=[1, 1])
+    cv, _ = _painted(cfg)
+
+    waters = [(x, y) for y in range(cv.size) for x in range(cv.size)
+              if cv.at(x, y) == "Water"]
+    bridges = [(x, y) for y in range(cv.size) for x in range(cv.size)
+               if cv.at(x, y) == "Bridge"]
+    c.true(len(waters) > 0, "开了水域配置就必须有 Water 落地")
+    c.true(len(bridges) > 0, "rivers_range=[1,1] 时必须有 Bridge（河必架桥）")
+
+    # 桥的四邻至少一格 Water（第 13 条镜像）。
+    for bx, by in bridges:
+        has_water = any(cv.inside(bx + ox, by + oy)
+                        and cv.at(bx + ox, by + oy) == "Water"
+                        for ox, oy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+        c.true(has_water, f"桥 {(bx, by)} 的四邻没有 Water（第 13 条镜像）")
+
+    # 连通性（第 12/4/11 条镜像）。
+    c.true(generate._connected_to_keep(cv),
+           "水域落地后所有集结点必须仍能走到 keep（自校验失败的整片撤销在跑）")
+
+    # 水域不得贴集结点（留白 1）与资源点八邻。
+    for wx, wy in waters + bridges:
+        c.true(all(max(abs(wx - s[0]), abs(wy - s[1])) >= 4 for s in cv.spawns),
+               f"水域 {(wx, wy)} 贴上了集结点（cheb < 4）")
+    res = {(x, y) for _, (x, y), _ in cv.resources}
+    for wx, wy in waters + bridges:
+        c.true((wx, wy) not in res, f"水域 {(wx, wy)} 盖住了资源点")
+
+    # 零配置 ⇒ 不消费 rng：同种子下两条路径的产出必须逐格相同。
+    cv_a, _ = _painted(_ref_cfg(), seed=777)
+    cv_b = generate.Canvas(72)
+    cfg_off = _ref_cfg()
+    th = thresholds.load().profile("strict")
+    rng_b = random.Random(777)
+    r_b = generate._resolve(cfg_off, rng_b)
+    sides = rng_b.sample(list(generate._SIDES), r_b.spawn_count)
+    generate.place_ring_walls(cv_b, r_b, rng_b)
+    generate.place_spawns(cv_b, r_b, th, rng_b, sides)
+    generate.place_inner_content(cv_b, r_b, rng_b)
+    generate.place_outer_clusters(cv_b, r_b, rng_b)
+    generate.scatter_wild_terrain(cv_b, r_b, rng_b)
+    generate.place_obstacles(cv_b, r_b, rng_b)   # 刻意不调 place_water
+    c.true(cv_a.terrain == cv_b.terrain and cv_a.resources == cv_b.resources,
+           "零配置的 place_water 不得消费 rng——否则参考图的固定种子复现会漂")
 
 
 def check_generator_is_deterministic(c):
@@ -2083,6 +2159,7 @@ GROUPS = [
     ("生成器资源簇不变量（间距/种类/金矿/距递增）", check_generator_cluster_invariants),
     ("生成器城内内容（净空区/森林/构成）", check_generator_inner_content),
     ("生成器预置建筑合法", check_generator_buildings_legal),
+    ("生成器水域与桥（留白 1 作废）", check_generator_water),
     ("生成器确定：同种子同图、异种子异图", check_generator_is_deterministic),
     ("生成器的丢弃与否决计数真的工作", check_generator_discard_reporting_works),
     ("生成器的 ASCII 预览", check_generator_preview_renders),

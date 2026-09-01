@@ -52,8 +52,20 @@ std::string_view to_string(Facing f) noexcept {
     return "SE";
 }
 
-TerrainSprites SceneModel::expand(Terrain t) noexcept {
-    switch (t) {
+std::string_view SceneModel::resource_marker(rts::Resource kind) noexcept {
+    // 与素材键同一条纪律：标识符与所属枚举成员**同前缀**（`Stone*` 属
+    // `Resource::Stone`），渲染侧按前缀归类时才有据可依（CLAUDE.md「命名纪律」）。
+    // 穷举 switch 无 default，完备性由 /w14062 与 -Wswitch 保证——同本文件
+    // `to_string` 的先例。
+    switch (kind) {
+        case rts::Resource::Stone: return "StonePt";
+        case rts::Resource::Wood:  return "WoodPt";
+        case rts::Resource::Gold:  return "GoldPt";
+    }
+    return "";
+}
+
+TerrainSprites SceneModel::expand(Terrain t) noexcept {    switch (t) {
         case Terrain::Plain:  return {kPlain, kNone};
         case Terrain::Water:  return {kWater, kNone};
         case Terrain::Rock:   return {kPlain, kRock};
@@ -151,6 +163,13 @@ DrawLists SceneModel::build(const MapData& map) {
         keyed.push_back(Keyed{
             DrawItem{w.pos, sprite, run_direction(map, w.pos, RunKind::Wall)},
             Layer::Entity});
+    }
+
+    // 资源点的地表标记。**与叠加物同层**：同深度下叠加物先画（排序次级键的
+    // layer 档），于是采集建筑落成后正好盖住自己脚下那个标记，而不是反过来。
+    for (const ResourceNode& r : map.resources()) {
+        keyed.push_back(Keyed{DrawItem{r.pos, resource_marker(r.type), Facing::SE},
+                              Layer::Overlay});
     }
 
     // 画家算法：按 gi+gj 从小到大画，后画的自然遮住先画的。

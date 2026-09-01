@@ -257,6 +257,41 @@ TEST_CASE("装配：地砖一遍，叠加物与实体混在同一个深度序列
     }
 }
 
+// 资源点必须在画面上**可见**——2026-09-01 试玩反馈「城内外完全不会刷新金矿」，
+// 而数据里金矿一直在：渲染层从来不画资源点。标记不是实体（不进花名册、不进
+// 回放），贴图是渲染侧程序化生成的（`SpriteAtlas::register_decal`），
+// 本用例钉的是**装配层把标记摆上了地图**这一半。
+TEST_CASE("装配：每个资源点都有一枚地表标记，与叠加物同层", "[scene]") {
+    const game::MapData m = fixture();
+    const game::DrawLists d = game::SceneModel::build(m);
+
+    SECTION("标识符与所属枚举成员同前缀") {
+        REQUIRE(game::SceneModel::resource_marker(rts::Resource::Stone) == "StonePt");
+        REQUIRE(game::SceneModel::resource_marker(rts::Resource::Wood) == "WoodPt");
+        REQUIRE(game::SceneModel::resource_marker(rts::Resource::Gold) == "GoldPt");
+    }
+
+    SECTION("四个资源点（夹具图）各有对应标记，石/木/金各自的名字") {
+        // fixture_min.json：stone [1,3]、wood [2,1]、gold [0,2]、wood [5,2]。
+        REQUIRE(index_of(d.sorted, 1, 3, "StonePt") >= 0);
+        REQUIRE(index_of(d.sorted, 2, 1, "WoodPt") >= 0);
+        REQUIRE(index_of(d.sorted, 0, 2, "GoldPt") >= 0);
+        REQUIRE(index_of(d.sorted, 5, 2, "WoodPt") >= 0);
+    }
+
+    SECTION("标记与叠加物同层：同深度时先于实体（采集建筑落成后盖住它）") {
+        // 夹具图 (2,1) 上的标记深度 3；找一个同深度的实体项比不出来，
+        // 就换层语义最直接的断言：标记格上的 tile 仍是地砖（标记不进 tiles）。
+        REQUIRE(index_of(d.tiles, 1, 3, "StonePt") < 0);
+        for (const game::DrawItem& it : d.sorted) {
+            if (it.sprite == "StonePt" || it.sprite == "WoodPt" ||
+                it.sprite == "GoldPt") {
+                REQUIRE(it.hp_frac < 0.0f);   // 标记不带血条
+            }
+        }
+    }
+}
+
 // `battle_scene.cpp` 挑弹丸精灵时，「单位射的」那一档**只按阵营分**：
 // 守方 → 箭（`Archer`）、攻方 → 魔法弹（`Shade`）。
 //

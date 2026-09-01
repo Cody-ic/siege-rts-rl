@@ -148,6 +148,17 @@ public:
     static Facing run_direction(const MapData& map, rts::GridPos p,
                                 RunKind kind) noexcept;
 
+    // 资源点 → 地表标记的精灵标识符（`StonePt`/`WoodPt`/`GoldPt`）。
+    //
+    // 这些标识符**没有对应的 PNG**——资源点不是实体（不进花名册、不进回放），
+    // 精灵流水线不为它出图；贴图由渲染侧程序化生成并注册
+    // （`render::SpriteAtlas::register_decal`，要 GL 上下文、在 preload 之前调）。
+    // 这里只决定「摆上地图时用哪个名字」。标记存在的理由：**资源点必须在
+    // 画面上可见**，否则「地图上有金矿」与「玩家眼里没有金矿」同时成立
+    // （2026-09-01 试玩反馈：「城内外完全不会刷新金矿」——数据里一直在，
+    // 是渲染层从来不画）。
+    static std::string_view resource_marker(rts::Resource kind) noexcept;
+
     // 装配。地砖一遍、叠加物与墙段混排一遍。
     static DrawLists build(const MapData& map);
 };

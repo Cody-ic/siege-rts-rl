@@ -64,6 +64,26 @@ public:
     // 比一开始就报错难查得多——你会先怀疑摆位、再怀疑深度，最后才想到是素材缺了。
     void preload_idle(const std::vector<std::string>& idents);
 
+    // 注册一张**程序化生成**的地表标记（decal）：一个铺满菱形的徽章，
+    // 没有对应的 PNG 与元数据条目。用于资源点标记（`StonePt`/`WoodPt`/`GoldPt`）
+    // ——它们不是实体（不进花名册、不进回放），精灵流水线（`tools/sprite_gen/`，
+    // 走 Blender）不为它们出图；而渲染层必须能让玩家**看见**资源点在哪，
+    // 否则「金矿明明在地图上」与「玩家眼里完全没有金矿」同时成立（2026-09-01
+    // 试玩反馈）。
+    //
+    // 形状：菱形，宽 `px_per_tile()/2`、高其一半（等距 2:1），`fill` 填充、
+    // `rim` 描边。锚点取画布**中心**——标记是贴在格心地面上的，
+    // 不是「站在格子里」的东西，别拿它当普通精灵的脚底锚点理解。
+    //
+    // 实现是把元数据条目与四朝向缓存**预填**进本类既有的两张表，于是
+    // `get()` / `preload_idle()` / `verify_all_declared()` 全部走原路径命中缓存，
+    // 不需要为 decal 开任何特例分支。**要 GL 上下文**（内部 LoadTextureFromImage），
+    // 所以在 InitWindow 之后、任何 preload/draw 之前调。
+    //
+    // 标识符须以所属枚举成员同前缀（`Stone*` 属 `Resource::Stone`），
+    // 与素材键命名纪律同源（CLAUDE.md「命名纪律」的豁免边界）。
+    void register_decal(std::string_view ident, Color fill, Color rim);
+
     // 把元数据声明的**每一个** (标识符, 状态, 朝向, 帧) 都载入一遍，
     // 缺的一次全报出来。返回实际载入的张数。
     //

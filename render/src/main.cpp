@@ -31,7 +31,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstdint>
+#include <algorithm>
 #include <exception>
+#include <initializer_list>
 #include <memory>
 #include <optional>
 #include <string>
@@ -325,21 +327,50 @@ std::vector<std::string_view> font_coverage(const game::MapData& map) {
 // 原先的排期表写的是「面板先接假数据」，这里刻意没那么做：硬编码的数字在界面上
 // 和真数据长得一模一样，于是「这个面板到底接没接上」变成一个要读代码才能回答的问题。
 // 宁可少显示几项。
+
+// 资源点的地表标记不在素材流水线里（本机没有 Blender，且它是纯程序图形），
+// 由图集程序化生成。登记要在任何 preload/draw 之前——`run` 与 `run_game` 各调一次。
+void register_resource_decals(render::SpriteAtlas& atlas) {
+    // 颜色按「玩家一眼能分三种资源」挑：石灰、木棕、金黄——与三种资源在建筑
+    // 造价面板里的角色一致（CLAUDE.md「守方多资源」的决策轴表）。
+    atlas.register_decal("StonePt", Color{150, 150, 160, 220}, Color{88, 88, 98, 255});
+    atlas.register_decal("WoodPt", Color{150, 105, 55, 220}, Color{92, 60, 30, 255});
+    atlas.register_decal("GoldPt", Color{225, 185, 60, 230}, Color{148, 112, 28, 255});
+}
+
+// HUD 底板：先铺一块半透明深底再写字。等距地图配色偏中间调，浅色文字直绘
+// 压在草地/石头/水面上都可能读不出来——2026-09-01 试玩反馈（地图放大到 144
+// 之后左上角文字「颜色太浅看不清」）。模式照 `SceneOverlay::draw_cell_readout`
+// 那块底（{18,18,24,205} + 浅字），两处用同一组色。
+void draw_hud_backing(const render::FontSet& font,
+                      const std::initializer_list<std::string>& lines) {
+    float max_w = 0.0f;
+    for (const std::string& s : lines) max_w = std::max(max_w, font.measure(s, kHudSize).x);
+    const float pad = 8.0f;
+    DrawRectangleRec(
+        Rectangle{14.0f - pad, 12.0f - pad,
+                  max_w + pad * 2.0f,
+                  kHudLine * static_cast<float>(lines.size()) + pad * 2.0f - 4.0f},
+        Color{18, 18, 24, 205});
+}
+
 void draw_hud(const render::FontSet& font, const game::MapData& map,
               const game::DrawLists& lists) {
     char buf[320];
     std::snprintf(buf, sizeof(buf), "地图 %s (%s)   尺寸 %d×%d", map.name().c_str(),
                   map.map_id().c_str(), map.width(), map.height());
-    font.draw(buf, rts::Vec2{14.0f, 12.0f}, kHudSize, Color{225, 225, 235, 255});
-
+    const std::string line1 = buf;
     std::snprintf(buf, sizeof(buf), "地砖 %zu   深度序列 %zu   码点 %zu",
                   lists.tiles.size(), lists.sorted.size(), font.codepoint_count());
-    font.draw(buf, rts::Vec2{14.0f, 12.0f + kHudLine}, kHudSize,
-              Color{170, 175, 190, 255});
+    const std::string line2 = buf;
 
+    draw_hud_backing(font, {line1, line2, "方向键平移   滚轮缩放   中键拖拽   F 重新入画"});
+    font.draw(line1, rts::Vec2{14.0f, 12.0f}, kHudSize, Color{235, 235, 245, 255});
+    font.draw(line2, rts::Vec2{14.0f, 12.0f + kHudLine}, kHudSize,
+              Color{190, 195, 210, 255});
     font.draw("方向键平移   滚轮缩放   中键拖拽   F 重新入画",
               rts::Vec2{14.0f, 12.0f + kHudLine * 2.0f}, kHudSize,
-              Color{140, 145, 160, 255});
+              Color{190, 195, 210, 255});
 }
 
 int run(const Options& opt) {
@@ -359,6 +390,7 @@ int run(const Options& opt) {
     }
     // 纹理与字体都要 GL 上下文，所以两者都在 InitWindow 之后才建。
     render::SpriteAtlas atlas(opt.sprite_dir);
+    register_resource_decals(atlas);
     const game::IsoProjection proj(atlas.px_per_tile());
     render::SceneRenderer renderer(atlas, proj);
 
@@ -478,9 +510,12 @@ int run(const Options& opt) {
 // 第 n 局」可复现；每局怎么从它派生见 `game::GameShell`。
 constexpr std::uint64_t kBattleSeed = 20260830u;
 
-// 演示对局的 HUD：波次 / 阶段 / tick / 双方存活 / 三种资源存量。全是真数据。
+// 演示对局的 HUD：波次 / 阶段 / tick / 双方存活 / 三种资源存量 / 选中集。
+// 全是真数据。第四行（选中集）原先在调用点单独画，**于是底板盖不住它**
+// （底板按行数现算高度）——2026-09-01 起传进来一起画。
 void draw_battle_hud(const render::FontSet& font, const game::MapData& map,
-                     const game::DemoBattle& battle, bool paused) {
+                     const game::DemoBattle& battle, bool paused,
+                     std::size_t selected_count, int train_force_sel) {
     const rts::World& w = battle.world();
     char buf[320];
     char phase[48];
@@ -494,22 +529,30 @@ void draw_battle_hud(const render::FontSet& font, const game::MapData& map,
     std::snprintf(buf, sizeof(buf), "地图 %s (%s)   波 %d   %s   tick %d%s",
                   map.name().c_str(), map.map_id().c_str(), w.wave(), phase,
                   static_cast<int>(w.now()), paused ? "   已暂停" : "");
-    font.draw(buf, rts::Vec2{14.0f, 12.0f}, kHudSize, Color{225, 225, 235, 255});
-
+    const std::string line1 = buf;
     std::snprintf(buf, sizeof(buf), "守方 %d   攻方 %d   石 %d   木 %d   金 %d",
                   w.live_unit_count(rts::Side::Defender),
                   w.live_unit_count(rts::Side::Attacker),
                   static_cast<int>(w.stock(rts::Resource::Stone)),
                   static_cast<int>(w.stock(rts::Resource::Wood)),
                   static_cast<int>(w.stock(rts::Resource::Gold)));
-    font.draw(buf, rts::Vec2{14.0f, 12.0f + kHudLine}, kHudSize,
-              Color{170, 175, 190, 255});
+    const std::string line2 = buf;
 
     // **`Esc 菜单` 摆在最前面。** 这一行是玩家唯一会读的操作提示，而「怎么退出」
     // 是他第一个要找的东西——找不到就只能点窗口的叉，那看起来像卡住了。
-    font.draw("Esc 菜单   空格暂停   方向键平移   滚轮缩放   F 重新入画",
-              rts::Vec2{14.0f, 12.0f + kHudLine * 2.0f}, kHudSize,
-              Color{140, 145, 160, 255});
+    const std::string line3 = "Esc 菜单   空格暂停   方向键平移   滚轮缩放   F 重新入画";
+    std::snprintf(buf, sizeof(buf),
+                  "选中 %zu   右键下令   N 召唤下一波   1-4 征兵进哪支编队(当前 %d)",
+                  selected_count, train_force_sel + 1);
+    const std::string line4 = buf;
+    draw_hud_backing(font, {line1, line2, line3, line4});
+    font.draw(line1, rts::Vec2{14.0f, 12.0f}, kHudSize, Color{235, 235, 245, 255});
+    font.draw(line2, rts::Vec2{14.0f, 12.0f + kHudLine}, kHudSize,
+              Color{190, 195, 210, 255});
+    font.draw(line3, rts::Vec2{14.0f, 12.0f + kHudLine * 2.0f}, kHudSize,
+              Color{190, 195, 210, 255});
+    font.draw(line4, rts::Vec2{14.0f, 12.0f + kHudLine * 3.0f}, kHudSize,
+              Color{200, 205, 160, 255});
 }
 
 // 各屏的标题与脚注（静态串）。副标题另取——它要读对局状态、要拼。
@@ -608,6 +651,7 @@ int run_game(const Options& opt) {
     if (opt.screenshot.empty()) SetWindowMinSize(960, 540);
 
     render::SpriteAtlas atlas(opt.sprite_dir);
+    register_resource_decals(atlas);
     const game::IsoProjection proj(atlas.px_per_tile());
     render::SceneRenderer renderer(atlas, proj);
     const std::vector<game::DrawItem> tiles = game::BattleScene::tiles(map);
@@ -868,13 +912,7 @@ int run_game(const Options& opt) {
         EndMode2D();
 
         if (shell.screen() == game::Screen::Battle && b != nullptr) {
-            draw_battle_hud(*font, map, *b, paused);
-            char ibuf[320];
-            std::snprintf(ibuf, sizeof(ibuf),
-                          "选中 %zu   右键下令   N 召唤下一波   1-4 征兵进哪支编队(当前 %d)",
-                          selected.size(), train_force_sel + 1);
-            font->draw(ibuf, rts::Vec2{14.0f, 12.0f + kHudLine * 3.0f}, kHudSize,
-                       Color{200, 205, 160, 255});
+            draw_battle_hud(*font, map, *b, paused, selected.size(), train_force_sel);
 
             // 弹出菜单：屏幕坐标，画在点开那一刻的位置。**造价写在选项里**——
             // 「点了没反应」最常见的真因是买不起，把价钱摆在眼前比事后猜便宜。

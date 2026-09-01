@@ -57,6 +57,7 @@ GENERATOR_KEYS = frozenset({
     "outer_cluster_size", "initial_breaches", "wall_hp_frac_range",
     "forest_patches", "forest_patch_size",
     "rock_patches_range", "rock_patch_size",
+    "water_lakes_range", "water_lake_size", "rivers_range",
     "towers_range", "barracks_range", "obstacles", "max_attempts",
 })
 
@@ -135,6 +136,8 @@ class Generator:
     走廊概念已废，替代它们的是 `spawn_count_range`（集结点数，与走廊解耦）
     与野外散布的四组参数（`forest_patches`/`forest_patch_size`/
     `rock_patches_range`/`rock_patch_size`）。
+    **2026-09-01**：新增水域三组（`water_lakes_range`/`water_lake_size`/
+    `rivers_range`），生成器留白 1（不画 Water/Bridge）作废。
     """
 
     __slots__ = tuple(sorted(GENERATOR_KEYS))
@@ -151,6 +154,7 @@ class Generator:
                   "outer_clusters_range", "outer_cluster_size", "initial_breaches",
                   "wall_hp_frac_range", "forest_patches", "forest_patch_size",
                   "rock_patches_range", "rock_patch_size",
+                  "water_lakes_range", "water_lake_size", "rivers_range",
                   "towers_range", "barracks_range", "obstacles"):
             v = d[k]
             if (not isinstance(v, list) or len(v) != 2

@@ -192,6 +192,22 @@ TEST_CASE("BattleScene 把活的实体排进同一个深度序列", "[demo]") {
             REQUIRE(it.hp_frac >= 0.0f);
         }
     }
+
+    // 资源点的地表标记也在序列里（2026-09-01 试玩反馈：资源点长期不可见，
+    // 「金矿不刷新」其实是「金矿不画」）。插在建筑**之前**：等深 stable_sort
+    // 保插入序，采集建筑落成后盖住脚下那枚标记。demo_skirmish 的五处资源点
+    // 石 [3,4]、木 [3,8]、金 [2,6]、木 [16,2]、石 [16,8]。
+    const auto marker_at = [&](int x, int y, std::string_view sprite) {
+        for (const game::DrawItem& it : sorted) {
+            if (it.pos.i == x && it.pos.j == y && it.sprite == sprite) return true;
+        }
+        return false;
+    };
+    REQUIRE(marker_at(3, 4, "StonePt"));
+    REQUIRE(marker_at(3, 8, "WoodPt"));
+    REQUIRE(marker_at(2, 6, "GoldPt"));
+    REQUIRE(marker_at(16, 2, "WoodPt"));
+    REQUIRE(marker_at(16, 8, "StonePt"));
 }
 
 // 玩家真的能把经济与补员跑起来吗？
@@ -302,9 +318,10 @@ TEST_CASE("驻守：开局的三名弓手登上真实的墙，并带上 stand_on
     // 「堡垒正东三格」**恰好命中真墙**——照它跑，这条测试对本次要修的 bug
     // 永远是绿的（写完先破坏性验证了一次，第一版正是这样绿着过的）。
     //
-    // 换成实战尺度的参考图（`keep=(36,36)`、最近的墙段在 `j=23`）：固定偏移在这里
+    // 换成实战尺度的参考图（`keep=(28,28)`、最近的墙段在 `j=20`）：固定偏移在这里
     // 落在空地上，于是「指令没落在墙上」这件事才会真的红。
     // **这不是挑一张更难的图，是挑一张判据不退化的图。**
+    //（坐标是这张图的现况，改 `build_reference_map.py` 重生成后要顺手核对。）
     const game::MapData map = game::MapLoader::from_file(
         std::string(GAME_DATA_DIR) + "/maps/reference_border_keep_01.json");
     const rts::StatsTable stats = demo_stats();

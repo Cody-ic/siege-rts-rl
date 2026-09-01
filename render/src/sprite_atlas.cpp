@@ -427,4 +427,53 @@ void SpriteAtlas::preload_idle(const std::vector<std::string>& idents) {
     }
 }
 
+void SpriteAtlas::register_decal(std::string_view ident, Color fill, Color rim) {
+    const std::string id(ident);
+    if (meta_.find(id) != meta_.end()) {
+        // 与素材条目撞名：decal 与流水线出的实体精灵共用同一个命名空间，
+        // 静默覆盖会让「谁的图」变成一个要逐像素看才能回答的问题。
+        throw AssetError("register_decal：`" + id +
+                         "` 已经在元数据或已注册的 decal 里——换个名字");
+    }
+
+    // 尺寸从 `px_per_tile_` 推导（§7：像素几何唯一来源），别处不写死。
+    // 徽章是半格宽的菱形：比一格小，才不会把相邻格的标记连成一片。
+    const int w = px_per_tile_ / 2;
+    const int h = px_per_tile_ / 4;
+    Image img = GenImageColor(w, h, BLANK);
+    const float cx = static_cast<float>(w - 1) / 2.0f;
+    const float cy = static_cast<float>(h - 1) / 2.0f;
+    // 逐行扫描线填充菱形：第 y 行的半宽随 |y - cy| 线性收缩。
+    for (int y = 0; y < h; ++y) {
+        const float t = 1.0f - (y <= cy ? (cy - y) : (y - cy)) / (cy + 1.0f);
+        const int half = static_cast<int>(t * cx);
+        ImageDrawLine(&img, static_cast<int>(cx) - half, y,
+                      static_cast<int>(cx) + half, y, fill);
+    }
+    // 描边：四个顶点连线。没有描边的话亮色填充压在亮草地上会糊掉。
+    ImageDrawLine(&img, static_cast<int>(cx), 0, w - 1, static_cast<int>(cy), rim);
+    ImageDrawLine(&img, w - 1, static_cast<int>(cy), static_cast<int>(cx), h - 1, rim);
+    ImageDrawLine(&img, static_cast<int>(cx), h - 1, 0, static_cast<int>(cy), rim);
+    ImageDrawLine(&img, 0, static_cast<int>(cy), static_cast<int>(cx), 0, rim);
+
+    StateMeta sm;
+    sm.canvas = Vector2{static_cast<float>(w), static_cast<float>(h)};
+    sm.ground_anchor = Vector2{cx + 0.5f, cy + 0.5f};   // 画布中心 = 格心地面点
+    sm.pivot = sm.ground_anchor;
+    sm.frames = {1};
+    meta_[id]["idle"] = sm;
+
+    // 四朝向各传一份纹理（共用一张 Image 各自上传）：`cache_` 的析构会逐个
+    // UnloadTexture，多份共享一个 texture id 会变成重复释放。
+    for (const std::string& f : dirs_of(id)) {
+        Texture2D tex = LoadTextureFromImage(img);
+        if (tex.id == 0) {
+            UnloadImage(img);
+            throw AssetError("register_decal：传不上 GPU：`" + id + "`");
+        }
+        cache_.emplace(id + "_idle_" + f + ".png", Sprite{tex, sm.ground_anchor});
+    }
+    UnloadImage(img);
+}
+
 }  // namespace render

@@ -85,6 +85,16 @@ std::vector<DrawItem> BattleScene::sorted(const MapData& map,
         }
     }
 
+    // 资源点的地表标记。**插在建筑循环之前**：等深时 stable_sort 保插入序，
+    // 于是采集建筑盖住自己脚下那个标记（与 `SceneModel::build` 里
+    // 「标记与叠加物同层」是同一条规则在对局侧的形状）。
+    for (const rts::ResourceSite& r : view.resources()) {
+        DrawItem it;
+        it.pos = r.pos;
+        it.sprite = SceneModel::resource_marker(r.kind);
+        out.push_back(it);
+    }
+
     // 建筑（从仿真读，含血条）。墙的走向本该看相邻墙段（4.2.1.1），
     // 这里先按地图初始墙况推——拆墙不改剩余墙段的走向读法，缺口两侧
     // 仍读作「同一条墙断了」，这正是想要的画面。
