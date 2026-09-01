@@ -11,9 +11,9 @@
 - 堡垒居中，四周距离堡垒 8 格一圈**城墙实体**（不是 Rock 岩壁），
   一对相对方向开城门 + 设计缺口
 - 开局玩家在城墙内部拥有 2 座箭塔 + 1 个兵营
-- 城墙内部：2 片森林、2 处石矿、2 处金矿、1 处木材；伐木场踩木点、采石场踩石点、
+- 城墙内部：2 处石矿、2 处金矿、1 处木材；伐木场踩木点、采石场踩石点、
   **金矿场踩金点**（2026-09-01，与池图对齐——「金矿不刷新」试玩反馈的落点之一）
-- 城墙外的资源（森林/岩壁/矿脉）随机散布、较为分散，参考 AoE4 1v1 对战地图
+- 城墙外的森林/岩壁随机单个或成小撮散布，矿脉按资源簇分布
 - 与随机地图池**共用同一套生成逻辑**（`generate.paint`），只是种子固定
 - **不画水域**：这张 56 格小图上河与湖既摆不下形态、又压城外线空间，
   水域是 144 池图的内容（`water_lakes_range`/`rivers_range` 全 0，
@@ -50,16 +50,16 @@ CFG = SimpleNamespace(
     # 这里留区间字段是因为 `paint` 的形状要求，不是「本图还可以残血」。
     # 不影响「AI 是否利用已有缺口」评估指标——那条测的是 `initial_breaches`
     # 留出的完整缺口，与 `hp_frac` 是两个独立字段。
-    forest_patches=[6, 9],
-    forest_patch_size=[4, 8],
-    rock_patches_range=[3, 5],
-    rock_patch_size=[4, 10],
+    forest_patches=[10, 14],
+    forest_patch_size=[3, 5],
+    rock_patches_range=[5, 7],
+    rock_patch_size=[3, 6],
     water_lakes_range=[0, 0],
     water_lake_size=[0, 0],
     rivers_range=[0, 0],
     towers_range=[2, 2],
     barracks_range=[1, 1],
-    obstacles=[5, 10],
+    obstacles=[8, 14],
     max_attempts=1,
 )
 
