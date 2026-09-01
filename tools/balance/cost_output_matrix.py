@@ -96,7 +96,7 @@ def load_units(path):
         income_period_ticks=g["income_period_ticks"],
         repair_hp_per_work_tick=g["repair_hp_per_work_tick"],
         repair_wood_per_1000hp=g["repair_wood_per_1000hp"],
-        cancel_refund_permille=g["cancel_refund_permille"],
+        demolish_refund_permille=g["demolish_refund_permille"],
         garrison_mount_ticks=g["garrison_mount_ticks"],
         mason_work_radius=g["mason_work_radius"],
     )

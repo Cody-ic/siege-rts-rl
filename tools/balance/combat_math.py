@@ -86,7 +86,7 @@ class GlobalStats:
     income_period_ticks: int = 100
     repair_hp_per_work_tick: int = 4
     repair_wood_per_1000hp: int = 15
-    cancel_refund_permille: int = 700
+    demolish_refund_permille: int = 800
     garrison_mount_ticks: int = 30
     mason_work_radius: float = 1.6
 

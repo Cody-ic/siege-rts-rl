@@ -401,9 +401,9 @@ def check_registry_covers_spec(c):
     nos = [chk.no for chk in validate.CHECKS]
     moved = sorted(validate.MOVED_TO_GENERATOR)
     removed = sorted(validate.REMOVED)
-    # **表内 + 已移出 + 已废除 = 规范全部条目。** 第 20 条移到了生成器的批量
-    # 报告去（丢弃率与逐条否决计数）、第 3 条随走廊概念废除（编号留空）——
-    # 两者都**不是被删掉**：直接删会让一条规范条目无声消失，
+    # **表内 + 已移出 + 已废除 = 规范全部条目。** 第 3 条随走廊概念废除、
+    # 第 7 条随森林带机制移除、第 20 条随第 7 条一起废除（三者编号都留空）——
+    # 都**不是被删掉**：直接删会让一条规范条目无声消失，
     # 而那与「白名单漏登记」是同一类错误。
     c.eq(sorted(nos + moved + removed),
          list(range(1, validate.SPEC_CHECK_COUNT + 1)),
@@ -507,23 +507,6 @@ def check_v18_resource_unlock_wave(c):
            "解禁波不同不该报")
 
 
-def _rows(w, h, forest=()):
-    """w×h 全 `Plain`，再把 `forest` 里那些格改成 `Forest`。
-
-    第 7、10 条的用例都是「一条森林带 + 大片平地」，逐行写字符串在 11×11 上
-    既难读也容易数错列。
-    """
-    out = [["0"] * w for _ in range(h)]
-    for x, y in forest:
-        out[y][x] = "2"
-    return ["".join(r) for r in out]
-
-
-# 三种 inner 资源，用来让第 6 条别在第 7 条的用例里跟着报。
-_INNER3 = [{"type": t, "pos": [i, 0], "tier": "inner"}
-           for i, t in enumerate(["stone", "wood", "gold"])]
-
-
 def make_clean_doc():
     """一张各条都过得去的地图。**只此一份**，两处用例共用。
 
@@ -532,10 +515,12 @@ def make_clean_doc():
     这句话上 —— 而那条报错完全不指向真正的原因。两份「同一张图」的拷贝就是
     在等这件事发生。
 
-    x=5 那两格 `Forest` 与 (5,2) 的 `outer` 资源点是**第 7 与第 21 条一起**
-    要求的：21 条要至少有一个 `outer`，7 条要它有一条 4 连通的森林带通到边界。
+    (5,2) 的 `outer` 资源点是**第 21 条**要求的：21 条要至少有一个 `outer`。
     这张图原先只有 inner 资源点 —— 而它能通过当时的全部检查，**正是第 21 条
-    存在的理由**。
+    存在的理由**。x=5 那两格 `Forest`**曾经**是第 7 条额外要求的（一条 4 连通
+    的森林带通到边界）——第 7 条已随 `地图与场景设计.md` 2.1 的订正废除
+    （2026-09-01），这两格森林留着纯粹是历史遗留，不再对应任何检查，
+    但留着也无害，就没有顺手删掉重新验证一遍每处依赖它的用例。
 
     `keep` 从 (3,2) 挪到了 (3,3)：原来它与金币资源点**同格**。那不违反任何已有
     条目（第 17 条按 §8.1 字面只管墙与集结点），但一张「干净地图」不该演示一个
@@ -553,121 +538,6 @@ def make_clean_doc():
                   + [{"type": "wood", "pos": [5, 2], "tier": "outer",
                      "unlock_wave": 2}])
 
-
-def check_v7_outer_unenclosable(c):
-    """第 7 条：`outer` 资源点周围的森林带必须 **4 连通**地通到地图边界。
-
-    这一组里最要紧的是**斜向森林链必须判失败**。它与第 10 条那条斜链用例形似
-    而结论相反，原因是两条问的不是同一件事（移动 vs 拓扑，见 validate 里的
-    docstring）：斜向森林链**走得过去**，所以第 10 条判它是遮蔽通道；
-    但它撑不起 2.1.1 的拓扑论证——墙线能从两格之间那个对角缺口穿过去，
-    一格森林都不碰，所以第 7 条必须判它没连上。
-
-    **有效的破坏性探针是给实现加上 `corner=grid.is_passable`（第 10 条那种写法），
-    加了这一组会红 2 条。**把 `diagonal=False` 翻成 `True` 是个**空探针**：
-    `neighbors()` 默认 `corner = passable`，一步斜向要求两个正交角格都在集合里，
-    而那两格都在的话 4 连通本来就走到了，所以两者恒等 —— 实测两种取法在斜链上
-    都只覆盖 1 格。这条写在这里是因为**空探针给出的绿与「测试没盯住」长得一样**，
-    而我第一次就指错了。
-
-    反过来若少了下面那条「改成竖直链就该通过」，上一条就可能只是「总是报」。
-    """
-    def outer_at(pos, tier="outer"):
-        return _INNER3 + [{"type": "wood", "pos": list(pos), "tier": tier}]
-
-    # -- 竖直森林带通到上边界：通过 --------------------------------------
-    band = ["0002000", "0002000", "0000000", "0000000", "0000000"]
-    doc, g = _gv(band, keep=[5, 4], resources=outer_at([3, 2]))
-    c.true(not validate.check_outer_unenclosable(doc, g),
-           "森林带 4 连通通到地图边界，不该报")
-
-    # -- 森林带存在但没通到边界：应当报 ----------------------------------
-    stub = ["0000000", "0000000", "0002000", "0000000", "0000000"]
-    doc, g = _gv(stub, keep=[5, 4], resources=outer_at([3, 3]))
-    c.true(validate.check_outer_unenclosable(doc, g),
-           "森林带没通到地图边界应当报 —— 玩家可以绕着它在外面画一圈更大的墙")
-
-    # -- 森林只**斜着**挨着资源点：应当报 --------------------------------
-    #
-    # (2,2) 与资源点 (3,3) 是对角相邻，而那条森林带本身一路通到左边界。
-    # 起点取四邻正是为了拦它：斜着挨上等于没连上，墙线能从对角缺口塞进去。
-    diag_touch = ["0000000", "0000000", "2220000", "0000000", "0000000"]
-    doc, g = _gv(diag_touch, keep=[5, 4], resources=outer_at([3, 3]))
-    c.true(validate.check_outer_unenclosable(doc, g),
-           "森林带只斜着挨着资源点应当报 —— 起点取四邻，不取八邻")
-
-    # -- 同一张图，改成 inner：本条不管 ----------------------------------
-    doc, g = _gv(diag_touch, keep=[5, 4],
-                 resources=outer_at([3, 3], tier="inner"))
-    c.true(not validate.check_outer_unenclosable(doc, g),
-           "inner 资源点不受本条约束（它本来就在城里）")
-
-    # -- 一个 outer 都没有：空过 -----------------------------------------
-    doc, g = _gv(diag_touch, keep=[5, 4], resources=_INNER3)
-    c.true(not validate.check_outer_unenclosable(doc, g),
-           "没有 outer 资源点时空过（**这是个已知的洞**，见第 10 节）")
-
-    # -- 斜向森林链：本条的关键用例 --------------------------------------
-    #
-    # (5,4) 起，(4,3)(3,2)(2,1)(1,0) 一路斜到左上边界。8 连通下它「通到了边界」，
-    # 4 连通下 flood 只覆盖 (5,4) 一格。判失败才是对的。
-    chain = [(5, 4), (4, 3), (3, 2), (2, 1), (1, 0)]
-    doc, g = _gv(_rows(11, 11, chain), keep=[5, 8],
-                 resources=outer_at([5, 5]))
-    problems = validate.check_outer_unenclosable(doc, g)
-    c.true(problems,
-           "**斜向**森林链应当报 —— 它撑不起 2.1.1 的拓扑论证，"
-           "墙线能从对角缺口穿过去（与第 10 条结论相反，因为问的不是同一件事）")
-    c.true(any("4 连通" in p for p in problems),
-           "报告要点明是 4 连通下不通，否则收到失败的人会去查森林画错没")
-
-    # -- 同一张图，把斜链改成竖直链：应当通过 ----------------------------
-    straight = [(5, y) for y in range(5)]
-    doc, g = _gv(_rows(11, 11, straight), keep=[5, 8],
-                 resources=outer_at([5, 5]))
-    c.true(not validate.check_outer_unenclosable(doc, g),
-           "竖直森林链不该报 —— 否则上一条只是「总是报」")
-
-
-def check_v7_v10_tension_is_real(c):
-    """第 7 与第 10 条**正面对立**（2.1.3），这一组把那句话变成两张具体的图。
-
-    §8.1 把「两条的联合可满足性」排为第 20 条，理由是「两条各自通过、合起来
-    不通过时，生成器陷入高丢弃率而不报原因」。第 20 条还没落地，
-    但**对立是不是真的**现在就能钉住，而且这两张图将来正好是它的夹具。
-
-    刻意只断言这两条，不要求整张图干净 —— 这一组问的是两条之间的关系。
-    """
-    # 墙横在 y=6，x=2..8，(5,6) 留缺口（第 8 条要的那种形态）。
-    walls = [{"kind": "Wall", "pos": [x, 6], "hp_frac": 1.0}
-             for x in (2, 3, 4, 6, 7, 8)]
-
-    # -- 可以同时满足：森林带在远离集结点与城墙的一侧 --------------------
-    far = [(0, 1), (0, 2), (0, 3), (1, 3)]
-    doc, g = _gv(_rows(11, 11, far), keep=[5, 8], walls=walls,
-                 spawns=[{"id": 0, "pos": [5, 0], "corridor": "open"}],
-                 resources=_INNER3 + [{"type": "wood", "pos": [2, 3],
-                                       "tier": "outer"}])
-    c.true(not validate.check_outer_unenclosable(doc, g),
-           "联合可满足：森林带通到左边界，第 7 条该过")
-    c.true(not validate.check_forest_corridor(doc, g),
-           "联合可满足：同一张图上森林没通到城墙，第 10 条也该过")
-
-    # -- 对立是真的：同一条森林带同时喂饱第 7 条、踩中第 10 条 ------------
-    #
-    # 森林 x=3 那一列从上边界一路下来（第 7 条要的），再斜挂一格 (2,5) ——
-    # 而 (2,5) 是墙 (3,6) 的八邻，于是它同时是「集结点直达城墙的遮蔽道」。
-    # 集结点挪到 (2,0)，紧挨着那条林带。
-    both = [(3, y) for y in range(5)] + [(2, 5)]
-    doc, g = _gv(_rows(11, 11, both), keep=[5, 8], walls=walls,
-                 spawns=[{"id": 0, "pos": [2, 0], "corridor": "forest"}],
-                 resources=_INNER3 + [{"type": "wood", "pos": [3, 5],
-                                       "tier": "outer"}])
-    c.true(not validate.check_outer_unenclosable(doc, g),
-           "对立用例：第 7 条该过（森林带 4 连通通到上边界）")
-    c.true(validate.check_forest_corridor(doc, g),
-           "对立用例：第 10 条该报 —— 同一条林带既是必须存在的通道，"
-           "又是通到城墙的遮蔽道。这就是 2.1.3 说的那件事")
 
 
 def check_v10_forest_corridor(c):
@@ -1109,20 +979,20 @@ def check_v22_obstacle_placement(c):
 def check_v21_has_outer(c):
     """第 21 条：至少一个 `outer` 资源点。
 
-    **这一组同时钉住这条为什么必须存在**：第 7 条在没有 `outer` 时空过，
-    第 6 条只查 `inner`，所以少了本条，一张把所有资源都放在城里的地图
-    能通过全部检查。下面第二段就是那张图。
+    **这一组同时钉住这条为什么必须存在**：第 6 条只查 `inner`，所以少了
+    本条，一张把所有资源都放在城里的地图能通过全部检查。下面第二段就是
+    那张图。**这条要求现在是「部分资源点在墙外」唯一的守门人**——原先还有
+    第 7 条的「不可围墙」做后盾，那条已随 `地图与场景设计.md` 2.1 的订正
+    废除（2026-09-01），本条因此更不能删。
     """
     inner_only = [{"type": t, "pos": [i, 0], "tier": "inner"}
                   for i, t in enumerate(["stone", "wood", "gold"])]
     doc, g = _gv(OBLONG, keep=[3, 3], resources=inner_only)
     c.true(validate.check_has_outer_resource(doc, g),
            "一个 outer 都没有应当报")
-    # 那张图确实能过第 6、7 条 —— 这才是本条存在的理由。
+    # 那张图确实能过第 6 条 —— 这才是本条存在的理由。
     c.true(not validate.check_inner_resources(doc, g),
            "前提：全在城里的图过得了第 6 条")
-    c.true(not validate.check_outer_unenclosable(doc, g),
-           "前提：全在城里的图**空过**第 7 条，所以第 7 条兜不住这个洞")
 
     with_outer = inner_only + [{"type": "wood", "pos": [4, 0],
                                 "tier": "outer"}]
@@ -1156,8 +1026,9 @@ def check_validator_on_clean_map(c):
                   if chk.status == validate.BLOCKED)
     n_pend = sum(1 for chk in validate.CHECKS
                  if chk.status == validate.PENDING)
-    c.eq((n_impl, n_block, n_pend), (22, 1, 0),
-         "条目状态计数变了：改动状态时要同步这条断言与 README 的进度表")
+    c.eq((n_impl, n_block, n_pend), (21, 1, 0),
+         "条目状态计数变了：改动状态时要同步这条断言与 README 的进度表"
+         "（2026-09-01：第 7 条废除，已实现数 22 → 21）")
 
 
 def check_profile_is_not_a_noop(c):
@@ -1591,8 +1462,8 @@ def check_v14_spawn_buildable_distance(c):
 def check_v23_forest_cohesion(c):
     """第 23 条：`Forest` 4 连通块不得碎成粉尘。
 
-    它守的是森林的**职责**（2.1.1 不可围 / §2.2 看不清来了什么 / 把杀伤区压成
-    薄带），而三项都依赖连片——同样的总面积，撒成散点与聚成几片完全不同。
+    它守的是森林的**职责**（§2.2 看不清来了什么 / 把杀伤区压成薄带），
+    而两项都依赖连片——同样的总面积，撒成散点与聚成几片完全不同。
     """
     th = thresholds.load().profile("strict")
     thr = int(th.forest_min_component_cells)
@@ -1621,15 +1492,15 @@ def check_v23_forest_cohesion(c):
     c.true(probs, "一格孤立的 Forest 必须报——粉尘不承担森林的任何职责，"
                   "却照样计入总面积")
 
-    # **1 格宽的长条必须通过。** 2.1.1 的森林带可以只有 1 格宽，
-    # 所以判据只能看「块格数」，不能看「块厚度」——写成厚度会把合法的带子判红。
+    # **1 格宽的长条必须通过。** 城外散布的森林小簇可以窄到 1 格宽的连接处，
+    # 所以判据只能看「块格数」，不能看「块厚度」——写成厚度会把合法的形态判红。
     band = [(30, 10 + i) for i in range(max(thr, 3) + 2)]
     doc = with_forest(band)
     c.true(not validate.check_forest_cohesion(doc, Grid(doc), th),
-           f"1 格宽、{len(band)} 格长的森林带必须通过（2.1.1 允许 1 格宽）")
+           f"1 格宽、{len(band)} 格长的森林必须通过（判据允许 1 格宽）")
 
     # 只靠斜向相连的两格：4 连通下算两块 ⇒ 两块都不够 ⇒ 必须报。
-    # 取 4 连通落在保守那一侧（切得更碎 ⇒ 报得更多），与第 7 条同一个取法。
+    # 取 4 连通落在保守那一侧（切得更碎 ⇒ 报得更多）。
     doc = with_forest([(50, 50), (51, 51)])
     c.true(validate.check_forest_cohesion(doc, Grid(doc), th),
            "只斜向相连的两格在 4 连通下是两块，都不够，必须报")
@@ -1723,11 +1594,12 @@ def check_generator_produces_valid_maps(c):
     outer_gold = sum(1 for r in doc["resources"]
                      if r["tier"] == "outer" and r["type"] == "gold")
     c.true(outer_gold >= 2, f"城外金矿 {outer_gold} 个，必须 ≥ 2（2026-08-31 试玩查出）")
-    # 城内构成：2 石 + 2 金 + 1–2 木。
+    # 城内构成：恰好 1 石 + 1 金 + 1 木（2026-09-01 从「2 石 2 金 1–2 木」收紧，
+    # 试玩反馈「城墙内资源点太多」）。
     inner = sorted(r["type"] for r in doc["resources"] if r["tier"] == "inner")
-    c.eq(inner.count("gold"), 2, f"城内金矿必须恒 2，实际 inner 构成 {inner}")
-    c.eq(inner.count("stone"), 2, f"城内石矿必须恒 2，实际 inner 构成 {inner}")
-    c.true(1 <= inner.count("wood") <= 2, f"城内木材 1–2，实际 inner 构成 {inner}")
+    c.eq(inner.count("gold"), 1, f"城内金矿必须恰好 1，实际 inner 构成 {inner}")
+    c.eq(inner.count("stone"), 1, f"城内石矿必须恰好 1，实际 inner 构成 {inner}")
+    c.eq(inner.count("wood"), 1, f"城内木材必须恰好 1，实际 inner 构成 {inner}")
 
     # 2026-09-01：金矿场恒一座、精确踩城内金点（「金矿不刷新」试玩反馈的落点）。
     gold_inner = sorted(tuple(r["pos"]) for r in doc["resources"]
@@ -1739,15 +1611,23 @@ def check_generator_produces_valid_maps(c):
 
 
 def _ref_cfg(**over):
-    """一组全钉死的生成配置（参考图同款形状），给直测生成器中间产物的
-    新用例用。区间全取单值 ⇒ `_resolve` 抽出来就是这个数，rng 消费序列
-    因此可预测。"""
+    """一组全钉死的生成配置，给直测生成器中间产物的用例用。区间全取单值
+    ⇒ `_resolve` 抽出来就是这个数，rng 消费序列因此可预测。
+
+    **这不是「参考图同款形状」**（本文档曾这么写，已订正）——具体数值是这批
+    用例自己钉死的固定夹具，独立于 `build_reference_map.py` 的 `CFG` 与
+    `thresholds.json` 的 `generator` 段；三处各自可以改而互不牵连。改这里
+    的默认值前先看下面用它的用例是否硬编码了依赖这些具体数字的断言
+    （`inner.count("stone") == 2` 这类）。"""
     base = SimpleNamespace(
         size=72, city_radius_range=[12, 12],
         spawn_count_range=[3, 3],
         inner_resources_range={"stone": [2, 2], "wood": [1, 2], "gold": [2, 2]},
         outer_clusters_range=[3, 3],
         outer_cluster_size=[2, 3],
+        outer_cluster_span=20,   # 宽松值：size=72/city_radius=12 下与旧
+        # 「上界=地图边长//2-4=32」等效（12+4+20=36>32，被 min() 钉在 32），
+        # 不改变这批既有用例的既有行为，只是把新增的必填字段补上。
         initial_breaches=[1, 1],
         wall_hp_frac_range=[0.5, 0.5],
         forest_patches=[12, 12],
@@ -1809,15 +1689,14 @@ def check_generator_scatter_avoids(c):
                 c.count += 1
                 return
     c.count += 1
-    # 环内侧（cheb < R）不该有任何 Forest/Rock；野外散布的域是
-    # cheb ≥ R+2（scatter_wild_terrain 的 valid() 明写）。
+    # 环内侧（cheb < R）不该有散布的地形——城内内容只有两片 L 森林，
+    # 野外散布的域是 cheb ≥ R+2（scatter_wild_terrain 的 valid() 明写）。
     kx, ky = cv.keep
     for y in range(cv.size):
         for x in range(cv.size):
-            if (cv.at(x, y) in ("Forest", "Rock")
-                    and max(abs(x - kx), abs(y - ky)) < 12):
+            if cv.at(x, y) == "Rock" and max(abs(x - kx), abs(y - ky)) < 12:
                 c.failures.append(
-                    f"[生成器] {cv.at(x, y)} 落进了环内 {(x, y)}——树石只应在城外")
+                    f"[生成器] Rock 团块落进了环内 {(x, y)}——散布域不该进城")
                 c.count += 1
                 return
     c.count += 1
@@ -1873,39 +1752,8 @@ def check_generator_cluster_invariants(c):
          f"簇距 {dists} 必须随簇序（= 距带序号）递增")
 
 
-def check_generator_forest_belts_meander(c):
-    """资源簇森林带必须连到边界、4 连通，并且不能退化成笔直单格线。"""
-    cv = generate.Canvas(32)
-    belt = generate._carve_forest_belt(
-        cv, (19, 14), (1, 1), [], random.Random(20260901))
-
-    c.true(bool(belt), "空地图上的森林带必须成功生成")
-    if not belt:
-        return
-    c.true(any(x in (0, cv.size - 1) or y in (0, cv.size - 1) for x, y in belt),
-           "森林带必须触达地图边界")
-    c.true(len({x for x, _ in belt}) > 1 and len({y for _, y in belt}) > 1,
-           f"森林带不得横平竖直，实际 {belt}")
-
-    remaining = set(belt)
-    stack = [remaining.pop()]
-    seen = set(stack)
-    while stack:
-        x, y = stack.pop()
-        for nb in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
-            if nb in remaining:
-                remaining.remove(nb)
-                seen.add(nb)
-                stack.append(nb)
-    c.eq(len(seen), len(set(belt)), f"森林带必须保持 4 连通，实际 {belt}")
-
-    core_span = max(len({x for x, _ in belt}), len({y for _, y in belt}))
-    c.true(len(set(belt)) >= core_span + 4,
-           f"森林带应有足够转折，不能仍读成细直线，实际 {belt}")
-
-
 def check_generator_wild_patches_are_small_and_separate(c):
-    """野外森林/岩壁应是各处分散的小撮，不能相邻粘成大团。"""
+    """野外森林/岩壁应是各处分散的小撮，不能相邻粘成大团（#117）。"""
     cfg = SimpleNamespace(
         city_radius=10,
         forest_patches=[12, 12], forest_patch_size=[3, 5],
@@ -1941,8 +1789,8 @@ def check_generator_wild_patches_are_small_and_separate(c):
 
 
 def check_generator_inner_content(c):
-    """`place_inner_content`：城内无 Forest/Rock，资源构成 2 石/2 金/1–2 木、
-    **堡垒周围 3 格净空**（demo_init 会在
+    """`place_inner_content`：两片 3 格 L 形森林（4 连通、不贴墙）、
+    资源构成 2 石/2 金/1–2 木、**堡垒周围 3 格净空**（demo_init 会在
     keep+(1,±2) 预置 Tower/Flak、keep+(2,·) 撒 7 个单位，地图内容不得
     与它们撞车）。
     """
@@ -1967,11 +1815,28 @@ def check_generator_inner_content(c):
                 return
     c.count += 1
 
-    inner_wild = [(cv.at(x, y), (x, y))
-                  for y in range(cv.size) for x in range(cv.size)
-                  if cv.at(x, y) in ("Forest", "Rock")
-                  and max(abs(x - kx), abs(y - ky)) < r.city_radius]
-    c.eq(inner_wild, [], f"城内不得生成树木或岩壁，实际 {inner_wild}")
+    # 城内森林：恰好两片 L 形（每片 3 格、4 连通）。
+    inner_forest = [(x, y) for y in range(cv.size) for x in range(cv.size)
+                    if cv.at(x, y) == "Forest"
+                    and max(abs(x - kx), abs(y - ky)) < r.city_radius]
+    c.eq(len(inner_forest), 6, f"城内森林应为两片 3 格 L 形，实际 {len(inner_forest)} 格")
+    # 4 连通块计数：两片。
+    seen = set()
+    comps = 0
+    for cell in inner_forest:
+        if cell in seen:
+            continue
+        comps += 1
+        stack = [cell]
+        seen.add(cell)
+        while stack:
+            x, y = stack.pop()
+            for ox, oy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                nb = (x + ox, y + oy)
+                if nb in inner_forest and nb not in seen:
+                    seen.add(nb)
+                    stack.append(nb)
+    c.eq(comps, 2, f"城内森林应恰为两片 4 连通块，实际 {comps} 片")
 
     # 构成：2 石 + 2 金 + 1–2 木。
     inner = sorted(t for t, _, tier in cv.resources if tier == "inner")
@@ -2015,7 +1880,7 @@ def check_generator_buildings_legal(c):
 
 
 def check_generator_obstacles_outside_and_grouped(c):
-    """可破坏树石只在城外，并同时覆盖单体与同类小团两种形态。"""
+    """可破坏树石只在城外，并同时覆盖单体与同类小团两种形态（#117）。"""
     cfg = _ref_cfg(obstacles=[16, 16])
     th = thresholds.load().profile("strict")
     cv = generate.Canvas(cfg.size)
@@ -2222,8 +2087,9 @@ GROUPS = [
     # 第 3 条已废除（走廊概念取缔），其 selftest 组随之一并删除。
     ("第 4 条 集结点可达", check_v4_reachable),
     ("第 6 条 inner 三种资源", check_v6_inner_resources),
-    ("第 7 条 外部资源点不可围", check_v7_outer_unenclosable),
-    ("第 7 与第 10 条的对立是真的", check_v7_v10_tension_is_real),
+    # 第 7 条已废除（2026-09-01，移除森林带机制，见地图与场景设计.md 2.1），
+    # 其 selftest 组（含「第 7 与第 10 条的对立是真的」）随之一并删除，
+    # 同第 3 条那条先例。
     ("第 8 条 初始城圈留缺口", check_v8_initial_breach),
     ("第 10 条 森林遮蔽通道", check_v10_forest_corridor),
     ("第 11 条 Plain 孤岛", check_v11_islands),
@@ -2255,12 +2121,13 @@ GROUPS = [
     ("生成器产出合法地图 + 城圈完整性", check_generator_produces_valid_maps),
     ("生成器散布不得压墙/门与集结点邻域", check_generator_scatter_avoids),
     ("生成器资源簇不变量（间距/种类/金矿/距递增）", check_generator_cluster_invariants),
-    ("生成器资源森林带自然转折且保持连通", check_generator_forest_belts_meander),
+    # 「生成器资源森林带自然转折且保持连通」随 `_carve_forest_belt` 一并删除
+    # （2026-09-01，移除森林带机制）。
     ("生成器野外树石保持小撮且彼此分隔", check_generator_wild_patches_are_small_and_separate),
-    ("生成器城内内容（净空区/无树石/构成）", check_generator_inner_content),
+    ("生成器城内内容（净空区/森林/构成）", check_generator_inner_content),
     ("生成器预置建筑合法", check_generator_buildings_legal),
-    ("生成器水域与桥（留白 1 作废）", check_generator_water),
     ("生成器可破坏树石只在城外且有单体/小团", check_generator_obstacles_outside_and_grouped),
+    ("生成器水域与桥（留白 1 作废）", check_generator_water),
     ("生成器确定：同种子同图、异种子异图", check_generator_is_deterministic),
     ("生成器的丢弃与否决计数真的工作", check_generator_discard_reporting_works),
     ("生成器的 ASCII 预览", check_generator_preview_renders),

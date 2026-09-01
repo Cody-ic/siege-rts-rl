@@ -64,14 +64,15 @@ namespace rts {
 // 从线性改成各开一份平方根**，见 `rts/combat_math.hpp` 的 `level_permille`）；
 // Stats/8 → Stats/9（兵种等级上限：`GlobalStats` 加 `train_ticks_permille_per_level`
 // 与 `unit_upgrade_radius`）；Stats/9 → Stats/10（编队系统移除：就地升级机制
-// 删除，`unit_upgrade_radius` 失去唯一消费者，删字段）。
+// 删除，`unit_upgrade_radius` 失去唯一消费者，删字段）；Stats/10 → Stats/11（拆除
+// 成品建筑，`cancel_refund_permille` 改为 `demolish_refund_permille`）。
 //
 // **Stats/7 → Stats/8 那一格是本文件唯一一次「形状没变而必须进格」，理由要留着。** 那次
 // 改的是 `level_permille` 怎么用这两个系数（语义），字段一个没加减。若不进格，
 // `fingerprint()` 算出来一模一样，于是旧回放**不报 `StatsMismatch` 而静默算出
 // 不同的结果**——那是本仓库通篇最防的一类失效（「布局改了」与「跑歪了」不可
 // 区分）。**下一个只改语义不改字段的人照此办理。**
-inline constexpr std::string_view kStatsShapeTag = "Stats/10";
+inline constexpr std::string_view kStatsShapeTag = "Stats/11";
 
 // 每兵种一行。**结构性属性不在这里**（能否对空、能否破坏结构、三轴定位归
 // `rts/unit_behavior.hpp` 与 `rts/roster.hpp`）；这里只有会随标定变的数。
@@ -180,7 +181,7 @@ struct GlobalStats {
     float mason_work_radius = 0.0f;            // 工匠有效施工/维修半径（格）
     std::int64_t repair_hp_per_work_tick = 1;  // 维修每工时恢复的血量
     std::int64_t repair_wood_per_1000hp = 0;   // 维修花费：每 1000 缺口血量的木材
-    std::int32_t cancel_refund_permille = 0;   // 撤销工地的退款比例（千分比）
+    std::int32_t demolish_refund_permille = 0; // 拆除完工建筑的基础造价退款比例（千分比）
     // ——机制第三批：驻守与高度优势——
     // 三个 `high_ground_*` 是一组（前缀承载「墙血 >= 一半才生效」这一共同前提，
     // 见 `World::on_high_wall`）。哪些效果**存在**是结构（CLAUDE.md 抄的

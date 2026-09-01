@@ -183,6 +183,7 @@ void World::validate(Side side, const Command& c) const {
             [[fallthrough]];
         case CommandKind::Repair:
         case CommandKind::Cancel:
+        case CommandKind::Demolish:
         // `Clear`/`Upgrade` 与它们同一条校验：都只要一个合法的格下标。
         // **这里刻意不查「那一格上真的有障碍/建筑/顶没顶到等级上限」**——
         // 那要遍历建筑数组、算 `building_level_cap()`，属机制（1c），
@@ -403,14 +404,13 @@ void World::apply_one(const Command& c) {
             if (bld_at_[cell] == 0) break;
             const std::size_t k = static_cast<std::size_t>(bld_at_[cell] - 1);
             if (!b_built_[k]) {
-                // 撤工地：按表比例退款。已走的工时不折算——工地暴露在杀伤区
-                // 是设计要的风险，撤销不是免费的后悔药。
+                // 未完工时取消施工，全额返还最初支付的基础造价。施工进度不影响
+                // 退款，避免玩家因误放或临时调整布局损失材料。
                 const BldStats& s = stats_.of(b_type_[k]);
-                const std::int32_t pm = stats_.global.cancel_refund_permille;
                 stock_[static_cast<std::size_t>(Resource::Stone)] +=
-                    s.cost_stone * pm / 1000;
+                    s.cost_stone;
                 stock_[static_cast<std::size_t>(Resource::Wood)] +=
-                    s.cost_wood * pm / 1000;
+                    s.cost_wood;
                 destroy_bld(bld_pool_.id_at(static_cast<std::uint16_t>(k)));
             } else if (b_work_[k] > 0) {
                 // 放弃维修：预付的木材不退。占位决定——若标定时把维修改成
@@ -420,6 +420,21 @@ void World::apply_one(const Command& c) {
                 // 放弃升级：预付的石/木同样不退，与放弃维修同一条理由。
                 b_upgrade_left_[k] = 0;
             }
+            break;
+        }
+        case CommandKind::Demolish: {
+            const std::size_t cell = static_cast<std::size_t>(c.slot);
+            if (bld_at_[cell] == 0) break;
+            const std::size_t k = static_cast<std::size_t>(bld_at_[cell] - 1);
+            if (!b_built_[k]) break;                // 工地只能走 Cancel，退款语义不同
+            if (b_type_[k] == BldType::Keep) break; // 堡垒丢失即败，不允许主动拆除
+            const BldStats& s = stats_.of(b_type_[k]);
+            const std::int32_t pm = stats_.global.demolish_refund_permille;
+            stock_[static_cast<std::size_t>(Resource::Stone)] +=
+                s.cost_stone * pm / 1000;
+            stock_[static_cast<std::size_t>(Resource::Wood)] +=
+                s.cost_wood * pm / 1000;
+            destroy_bld(bld_pool_.id_at(static_cast<std::uint16_t>(k)));
             break;
         }
         case CommandKind::Upgrade: {

@@ -140,6 +140,16 @@ std::int64_t repair_wood_cost(const rts::WorldView& view, rts::GridPos cell);
 
 rts::Command repair_command(rts::GridPos cell, int map_width);
 
+// ——取消施工 / 拆除——
+//
+// 工地与成品建筑使用两条独立命令：工地取消固定全额返还基础造价；成品拆除
+// 返还 `GlobalStats::demolish_refund_permille`（正式表为 800‰）。`Keep` 是失败
+// 条件的锚点，不允许主动拆除。
+bool can_cancel_build_hint(const rts::WorldView& view, rts::GridPos cell);
+bool can_demolish_hint(const rts::WorldView& view, rts::GridPos cell);
+rts::Command cancel_build_command(rts::GridPos cell, int map_width);
+rts::Command demolish_command(rts::GridPos cell, int map_width);
+
 // ——升级（建筑等级上限，守方升级轴第一个输出）——
 //
 // 这一格**为什么**不能升级。`can_upgrade_hint` 就是它 `== None`，两者

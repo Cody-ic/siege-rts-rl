@@ -151,14 +151,16 @@ TEST_CASE("弓手拉扯：追兵永远够不着，反被一路放风筝打死", 
     }
 }
 
-TEST_CASE("枪卫堵缺口不追击：敌人在射程外就绝不朝它挪一步", "[script]") {
+TEST_CASE("枪卫堵缺口不追击：圈外敌人在射程外就绝不朝它挪一步", "[script]") {
     // 被风筝出阵位正是 Shade 克枪卫的机制（克制表「Spear ──► Shade」），
-    // 所以「不追」不是懒，是这条克制关系存在的前提。
+    // 所以「不追圈外敌人」不是懒，是这条克制关系存在的前提。
+    // （2026-09-01 起枪卫对**进堡垒出击圈**的敌人会主动迎击——那是另一条
+    // 用例的事；本条把敌人刻意摆在出击圈外：距堡垒 8.25 > 占位 8.0，且
+    // 看得见（视野 4）但打不着（射程 1.2）的距离 3 上。）
     //
     // 编队移除后「原地杵着」不再是可断言行：没仗打时枪卫会回堡垒周围的
     // 驻防环（自主默认）。所以这条锁的是**距离只增不减**——它往哪儿走都行，
-    // 就是不许朝敌人靠近。敌人刻意摆在「看得见（视野 4）但打不着
-    // （射程 1.2）」的距离 3 上：看不见的话这条测的是驻防环而不是不追击。
+    // 就是不许朝敌人靠近。
     rts::WorldInit init = sarena();
     init.units.push_back(
         rts::UnitInit{rts::UnitType::Spear, rts::Vec2{5.5f, 2.5f}, 1, 24, 24});
@@ -177,6 +179,45 @@ TEST_CASE("枪卫堵缺口不追击：敌人在射程外就绝不朝它挪一步
     const float dx = w.unit_pos(sp).x - w.unit_pos(g).x;
     const float dy = w.unit_pos(sp).y - w.unit_pos(g).y;
     REQUIRE(dx * dx + dy * dy >= 3.0f * 3.0f);   // 一步都没有靠近
+}
+
+TEST_CASE("枪卫守家迎击：敌人进堡垒圈就主动出击，出圈不追", "[script]") {
+    // 试玩反馈「敌人打进来了枪卫也不出击」。出击拴在堡垒半径上：进
+    // `spear_engage_cells` 圈 ⇒ 迎击离堡垒最近的来敌；圈外 ⇒ 驻防环
+    // 站桩（上一条用例守的那条风筝防线不变）。
+    auto arena_20 = [] {
+        rts::WorldInit init = sarena(20, 20);
+        init.keep = rts::GridPos{10, 10};
+        init.buildings.clear();
+        init.buildings.push_back(
+            rts::BldInit{rts::BldType::Keep, init.keep, 200, 200});
+        init.units.push_back(
+            rts::UnitInit{rts::UnitType::Spear, rts::Vec2{12.5f, 12.5f}, 1, 24, 24});
+        return init;
+    };
+    SECTION("进圈（距堡垒 3 < 8）：迎击并击杀来敌") {
+        rts::World w(arena_20());
+        const rts::UnitId g =
+            w.spawn_unit(rts::UnitType::Ghoul, rts::Vec2{13.5f, 10.5f}, 1, 30, 30);
+
+        game::DefenderScript s(game::ScriptParams{}, 3);
+        run(w, s, 200, rts::UnitAction::Stop);
+
+        REQUIRE(!w.alive(g));   // 被迎击的枪卫打死
+    }
+    SECTION("对照：迎击关（spear_engage_cells = 0）⇒ 敌人毫发无伤") {
+        rts::World w(arena_20());
+        const rts::UnitId g =
+            w.spawn_unit(rts::UnitType::Ghoul, rts::Vec2{13.5f, 10.5f}, 1, 30, 30);
+
+        game::ScriptParams p;
+        p.spear_engage_cells = 0.0f;
+        game::DefenderScript s(p, 3);
+        run(w, s, 200, rts::UnitAction::Stop);
+
+        REQUIRE(w.alive(g));
+        REQUIRE(w.unit_hp(g) == 30);   // 枪卫驻防环站桩，没上来打
+    }
 }
 
 TEST_CASE("游骑：骑士靠近就脱离，没命令时主动摸攻城锤", "[script]") {
@@ -338,6 +379,29 @@ TEST_CASE("工匠自动找活：走进半径，工时才开始动", "[script]") 
     REQUIRE(w.view(rts::Side::Defender).bld_work_left()[slot] < 60);   // 真开工了
 }
 
+TEST_CASE("工匠任务认领：两处工地各去一人，不挤同一处", "[script]") {
+    // 试玩反馈「多个工匠常一起执行同一个任务」。两名工匠**同位**出发、两处
+    // 工地等距：各算各的最近则两人挤同一处；认领表（`bld_claimed_`）强制
+    // 后决的工匠去另一处。多人同任务的加速归机制层（economy_test 那条）。
+    rts::WorldInit init = sarena(14, 5);
+    init.units.push_back(
+        rts::UnitInit{rts::UnitType::Mason, rts::Vec2{2.5f, 2.5f}, 1, 12, 12});
+    init.units.push_back(
+        rts::UnitInit{rts::UnitType::Mason, rts::Vec2{2.5f, 2.5f}, 1, 12, 12});
+    rts::World w(std::move(init));
+    const rts::BldId s1 =
+        w.place_bld(rts::BldType::Wall, rts::GridPos{8, 1}, 1, 40, /*work_left=*/60);
+    const rts::BldId s3 =
+        w.place_bld(rts::BldType::Wall, rts::GridPos{8, 3}, 1, 40, /*work_left=*/60);
+
+    game::DefenderScript s(game::ScriptParams{}, 3);
+    run(w, s, 120);
+
+    const rts::WorldView v = w.view(rts::Side::Defender);
+    REQUIRE(v.bld_work_left()[s1.index()] < 60);   // 两处都真开工了——
+    REQUIRE(v.bld_work_left()[s3.index()] < 60);   // 挤同一处的话这行必红
+}
+
 // ——框选临时指令 + 无指令时的驻防环默认（编队移除后的新形态）——
 //
 // 旧编队时代的破坏性验证表（`muster_fallback` / `follow_orders` 那几行）
@@ -349,6 +413,9 @@ TEST_CASE("工匠自动找活：走进半径，工时才开始动", "[script]") 
 // | 临时指令的世代比对删掉 | 无法直接构造（依赖槽位复用的时序），改动前请至少手动推演一遍 |
 // | 到达后忘了清 `manual_order_` | 「框选临时指令到达即失效」——单位卡在终点 |
 // | `find_wall_post` 不查本拍已指派的认领表 | 「弓手自主驻墙」——两人挤同一段墙 |
+// | Mason 分支不查 `bld_claimed_`（回到各算各的最近） | 「工匠任务认领」——两人挤同一处工地 |
+// | Spear 分支删掉迎击段（回到纯驻防环兜底） | 「枪卫守家迎击」的进圈段——敌人无伤 |
+// | `tick_economy` 退回 `mason_near` 二值（不按 crew 加速） | economy_test「多名工匠同任务线性加速」 |
 
 TEST_CASE("没有任何指令：走向按槽位错开的堡垒驻防环，不再永远杵在原地", "[script]") {
     rts::WorldInit init = sarena(20, 20);

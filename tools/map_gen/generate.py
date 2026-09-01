@@ -171,14 +171,12 @@ class Canvas:
         """给每个资源点算 `unlock_wave`：`inner` 恒为 1；`outer` 按到 `keep`
         的**实际**距离严格递增排名（第 2 起）——第 18 条查的正是这条单调性。
 
-        **按点排名，不按簇**：`outer` 点的候选格取自整条森林带（从簇心到地图
-        边界），同一簇内的点到 `keep` 的距离跨度可以很大、且能与另一簇重叠
-        （带子本身就伸到地图边界附近），所以"同一簇共享一个波"这个更好看的
-        版本**在当前的带子取点范围下站不住**——实测过，按簇心的名义距离分配
-        会在多数图上让某个近簇里"恰好取到带子远端"的点，比另一个远簇"恰好取到
-        带子近端"的点还远，第 18 条随之报违反，60 次重试全部耗尽。按点严格
-        排名不依赖这条假设，退化成"逐点单调"仍满足规范原句里"越晚解禁越远"
-        这条要求，只是粒度比"按簇"更细。
+        **按点排名，不按簇**：即便 2026-09-01 三续把 `outer` 点的候选格收紧到
+        簇心切比雪夫半径 `_OUTER_CLUSTER_RADIUS` 内（移除森林带机制之后的
+        写法，同一簇内的点到 `keep` 的距离跨度已经很小），也没有改回"同一簇
+        共享一个波"——按簇心名义距离分配仍可能被半径内的随机取点小幅打乱
+        顺序，第 18 条要的是**逐点**严格单调，按点排名不依赖"簇内顺序也单调"
+        这条更强的假设，退化路径最稳。
         """
         kx, ky = self.keep
 
@@ -322,10 +320,11 @@ def place_spawns(cv, cfg, th, rng, sides):
 
 
 def place_inner_content(cv, cfg, rng):
-    """城内内容：资源（2 石 / 2 金 / 1–2 木）→ 预置建筑。
+    """城内内容：两片 L 形森林 → 资源（恰好 1 石 / 1 金 / 1 木，2026-09-01 从
+    「2 石 / 2 金 / 1–2 木」收紧，试玩反馈「城墙内资源点太多」）→ 预置建筑。
 
-    树木与岩石只在城外生成，城内保留清晰、可建造的空间。资源与建筑都从
-    `free_plain_cells` 抽。**堡垒周围 3 格净空（cheb ≤ 3 不放任何内容）**——
+    顺序是森林 → 资源 → 建筑：资源与建筑都从 `free_plain_cells` 抽，
+    森林先落地自然被避开。**堡垒周围 3 格净空（cheb ≤ 3 不放任何内容）**——
     `demo_init` 在 keep+(1,±2) 预置 Tower/Flak、keep+(2,·) 撒 7 个单位，
     地图内容不得与它们撞车（2026-08-31 定，见 `地图与场景设计.md` 4.4.0）。
     返回 False = 放不下（走 `GenerationFailed` 路径，换种子重试）。
@@ -340,8 +339,29 @@ def place_inner_content(cv, cfg, rng):
         return [c for c in cv.free_plain_cells(cv.keep, r_hi)
                 if r_lo <= cheb(c) and cv.no_build[c[1]][c[0]] == 0]
 
-    # 城内资源：构成 2 石 + 2 金 + 1–2 木（`inner_resources_range` 定死了
-    # 石/金恒 2——试玩反馈「城区内外都缺金矿」的落点；第 6 条三种各 ≥1 恒成立）。
+    # 两片 3 格 L 形森林（参考图同款设计语言）。L 形三格天然 4 连通，
+    # 第 23 条（阈值 3）恒过；三格全部 cheb ≤ R−2 不贴墙/门——
+    # 树冠糊住城墙、墙被拆后原地补不回（Forest 不可建造）是踩过的课。
+    for _ in range(2):
+        cands = [c for c in plain_cands(R - 2, 4) if cheb(c) <= R - 3]
+        rng.shuffle(cands)
+        placed = False
+        for ax, ay in cands:
+            cells = [(ax, ay), (ax + 1, ay), (ax, ay + 1)]
+            if (all(cv.inside(*c) for c in cells)
+                    and all(cv.at(*c) == "Plain" for c in cells)
+                    and all(c not in cv.occupied() for c in cells)
+                    and all(cheb(c) <= R - 2 for c in cells)):
+                for c in cells:
+                    cv.set_terrain(*c, "Forest")
+                placed = True
+                break
+        if not placed:
+            return False
+
+    # 城内资源：恰好 1 石 + 1 金 + 1 木（`inner_resources_range` 三种恒 1，
+    # 2026-09-01 从「石/金恒 2」收紧——试玩反馈「城墙内资源点太多」；
+    # 第 6 条三种各 ≥1 恒成立）。
     placed = []
     for kind in ("stone", "wood", "gold"):
         for _ in range(cfg.inner_resources[kind]):
@@ -382,8 +402,16 @@ def place_inner_content(cv, cfg, rng):
     return True
 
 
+# 簇内点的候选格：簇心切比雪夫半径内的空闲 Plain 格。半径决定「小聚居」
+# 有多紧——2026-09-01 三续（团队决定移除「不可围墙」的森林带机制，见
+# `place_outer_clusters` docstring 与 `地图与场景设计.md` §2.1 的订正）
+# 替代原来「点贴森林带近簇心一截」（`_BELT_POINT_WINDOW`）的写法，取值
+# 大致对应原窗口覆盖的范围。
+_OUTER_CLUSTER_RADIUS = 4
+
+
 def place_outer_clusters(cv, cfg, rng, spawn_pts=None):
-    """外部资源簇 + 每簇一条通到地图边界的 `Forest` 带。
+    """外部资源簇：小聚居的资源点组。
 
     CLAUDE.md「资源分布形态」要「大散居、小聚居、交错杂居」——簇内混种类、
     簇间隔得开、各簇混合比例不同。**2026-08-31 重构追加三条硬保证**
@@ -397,40 +425,45 @@ def place_outer_clusters(cv, cfg, rng, spawn_pts=None):
 
     另加一条参考图的设计语言：**簇距随离城距离递增**（越远越散、越少）。
 
-    §2.1.1 的森林带（第 7 条）：对每个 `outer` 资源点，必须存在一条从它
-    出发、到地图边界、全程 `Forest` 的 4 连通路径——顺序仍是**先挖带子、
-    再把点贴在带子正交邻格**（先放点再挖带会只服务第一个点，60/60 全否的课）。
+    **2026-09-01 三续：移除「不可围墙」的森林带强制连通要求**（团队决定，
+    详见 `地图与场景设计.md` §2.1 的订正）。原机制是 §2.1.1 的结构约束：
+    每个 `outer` 资源点必须有一条 `Forest` 4 连通到地图边界的通道（校验器
+    第 7 条），实现是 `_carve_forest_belt` 沿主方向挖一条折线森林带、点贴
+    在带子靠近簇心的一截上（`_BELT_POINT_WINDOW`）。**移除的直接原因是
+    视觉效果**：即便经过两轮加固（#117 加折步、#121 因带子被 #119 拉长后
+    再加密折步、加大偏移上限），实测参考图与池图里这条带子在几十格长的
+    距离上侧向偏移仍只有 3–5 格——不管调多细的折步参数，玩家看到的仍然
+    基本是一条直线，试玩反馈直接指出了这一点。**代价是认下的，不是没想到**：
+    去掉这条通道之后，玩家理论上可以砌一整圈墙把外部资源点圈进城内，
+    2.1 原文论证的「龟缩退化解复活」风险不再有结构性屏障——团队认为一条
+    看起来还是直线的森林带，换来的「反龟缩」保护没有价值到值得保留，
+    情愿承担这个风险也要让地图更好看。城外森林现在完全交给
+    `scatter_wild_terrain` 的纯装饰性小撮散布。
     """
     R = cfg.city_radius
     lo, hi = cfg.outer_cluster_size
     spawn_pts = list(spawn_pts) if spawn_pts is not None else list(cv.spawns)
     # **8 个方位**（2026-09-01：地图 144 后城外面积 ~4 倍，簇数上界跟着面积走，
     # 只走 4 条对角线装不下；正方向簇与正方向集结点相邻时靠 spawn 距离限制
-    # 与带子弃权兜底）。方向列表洗牌后逐个尝试，失败的簇不留残点。
+    # 兜底）。方向列表洗牌后逐个尝试，失败的簇不留残点。
     directions = [(1, 1), (1, -1), (-1, 1), (-1, -1),
                   (1, 0), (-1, 0), (0, 1), (0, -1)]
     rng.shuffle(directions)
 
     n = min(cfg.outer_clusters, len(directions))
-    max_d = cv.size // 2 - 4
+    max_d = min(cv.size // 2 - 4, R + 4 + cfg.outer_cluster_span)
     if max_d <= R + 4:
         return []
-    # 资源簇靠近外缘分布，使每簇通边所需的森林带保持短小；簇间仍按距离
-    # 递增，保留「越远越散」的设计语言。
-    band_start = max(R + 4, max_d - (n - 1) * 2)
+    stride = (max_d - (R + 4)) // n
     placed_gold = 0
     clusters = []
     for i in range(n):
         dx, dy = directions[i]
         # 簇心：第 i 簇落在自己的距离带上（越远越散、越少）
-        dist = min(max_d, band_start + i * 2)
+        dist = R + 4 + i * stride + rng.randint(0, min(2, stride))
         cxx = cv.keep[0] + dx * dist
         cyy = cv.keep[1] + dy * dist
         if not cv.inside(cxx, cyy):
-            continue
-
-        belt = _carve_forest_belt(cv, (cxx, cyy), (dx, dy), spawn_pts, rng)
-        if not belt:
             continue
 
         size_n = rng.randint(lo, hi)
@@ -450,20 +483,19 @@ def place_outer_clusters(cv, cfg, rng, spawn_pts=None):
         for k in kinds:
             taken = cv.occupied() | {p for _, p in local}
             cands = []
-            for bx, by in belt:
-                for ox, oy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                    c = (bx + ox, by + oy)
-                    if not cv.inside(*c) or c in taken or c in cands:
-                        continue
-                    if cv.at(*c) != "Plain" or cv.no_build[c[1]][c[0]] != 0:
-                        continue
-                    if any(max(abs(c[0] - s[0]), abs(c[1] - s[1])) <= 3
-                           for s in spawn_pts):
-                        continue
-                    if any(max(abs(c[0] - pp[0]), abs(c[1] - pp[1])) < 2
-                           for _, pp in local):
-                        continue
-                    cands.append(c)
+            for c in cv.free_plain_cells(center=(cxx, cyy),
+                                         radius=_OUTER_CLUSTER_RADIUS):
+                if c in taken or c in cands:
+                    continue
+                if cv.no_build[c[1]][c[0]] != 0:
+                    continue
+                if any(max(abs(c[0] - s[0]), abs(c[1] - s[1])) <= 3
+                       for s in spawn_pts):
+                    continue
+                if any(max(abs(c[0] - pp[0]), abs(c[1] - pp[1])) < 2
+                       for _, pp in local):
+                    continue
+                cands.append(c)
             if not cands:
                 ok = False
                 break
@@ -481,84 +513,6 @@ def place_outer_clusters(cv, cfg, rng, spawn_pts=None):
     return clusters
 
 
-def _carve_forest_belt(cv, start, direction, spawn_pts, rng):
-    """从 `start` 挖一条短而曲折的 4 连通 `Forest` 带到地图边界。
-
-    先走一个轴到边界即可——**不需要走完两个轴**，碰到任意一条边就满足
-    「通到地图边界」。**轴跟着方向走**（2026-09-01 起方向含正方向）：
-    正方向（如 (1,0)）走它自己的轴——旧写法按「距离更短的轴」选，对
-    (1,0) 会算出 dy=0 的零步长死路；对角方向才按更短轴选（森林占地更少，
-    第 10 条的压力更小）。
-
-    主方向保证最终碰到边界，途中以可播种随机数插入横向折步，避免树木呈
-    机械直线。**中途遇到挖不动的格就整条放弃（返回空），不跳过它继续。**
-    跳过会留下一条断成两截的带子，而断了的带子仍然「存在」——
-    第 7 条会否决它，但那时症状是「丢弃率高」而不是「这里有个 bug」。
-    宁可整簇不放，让重生成去换个位置。
-    """
-    x, y = start
-    dx, dy = direction
-    to_x = (cv.size - 1 - x) if dx > 0 else x
-    to_y = (cv.size - 1 - y) if dy > 0 else y
-    if dx == 0:
-        step, lateral, n = (0, dy), (1, 0), to_y
-    elif dy == 0:
-        step, lateral, n = (dx, 0), (0, 1), to_x
-    elif to_x <= to_y:
-        step, lateral, n = (dx, 0), (0, 1), to_x
-    else:
-        step, lateral, n = (0, dy), (1, 0), to_y
-
-    taken = cv.occupied()
-    cells = []
-    seen = set()
-
-    def append_cell(cell):
-        cx, cy = cell
-        if not cv.inside(cx, cy) or cell in seen:
-            return False
-        # 岩壁与水域不挖开；实体格不覆盖；集结点附近不碰。
-        if cv.at(cx, cy) in ("Rock", "Water", "Bridge") or cell in taken:
-            return False
-        if any(max(abs(cx - s[0]), abs(cy - s[1])) <= 2 for s in spawn_pts):
-            return False
-        cells.append(cell)
-        seen.add(cell)
-        return True
-
-    if not append_cell((x, y)):
-        return []
-
-    cx, cy = x, y
-    bend_count = min(n, max(1, n // 3)) if n > 1 else 0
-    bend_steps = set(rng.sample(range(n), bend_count)) if bend_count else set()
-    offset = 0
-    for i in range(n):
-        if i in bend_steps:
-            choices = [-1, 1]
-            rng.shuffle(choices)
-            for side in choices:
-                if abs(offset + side) > 2:
-                    continue
-                bent = (cx + lateral[0] * side, cy + lateral[1] * side)
-                if append_cell(bent):
-                    cx, cy = bent
-                    offset += side
-                    break
-        forward = (cx + step[0], cy + step[1])
-        if not append_cell(forward):
-            return []
-        cx, cy = forward
-
-    if not cells or not any(cv.inside(*c) and (c[0] in (0, cv.size - 1)
-                                               or c[1] in (0, cv.size - 1))
-                            for c in cells):
-        return []          # 没通到边界，等于没用
-    for c in cells:
-        cv.set_terrain(*c, "Forest")
-    return cells
-
-
 def scatter_wild_terrain(cv, cfg, rng, spacing=8):
     """城外随机散布（2026-08-31 重构：取缔走廊后的核心一步，AoE4 式）。
 
@@ -570,11 +524,16 @@ def scatter_wild_terrain(cv, cfg, rng, spacing=8):
     * **团块是「半径填充式圆团」**（2026-09-01 改法，试玩反馈城外散布不美观）：
       在种子的切比雪夫半径内按概率填充、只保留最大 4 连通块——旧的纯随机游走
       产出的是细长蠕虫条带；圆团更接近 AoE4 的林地/岩壁团块观感。
-      团块中心之间有最小间距（`spacing`），避免几块糊成一团；
-    * 只落在 `Plain` 且非 `no_build` 的格上——资源簇的森林带与资源点
-      （已进 `occupied()` 或已变地形）自然被避开。
+      团块中心之间有最小间距（`spacing`），且**任何新团块不得贴着已有的
+      Forest/Rock 生长**（已有的含先落地的团块，#117）——双重隔离，避免
+      几块糊成一团；
+    * 只落在 `Plain` 且非 `no_build` 的格上——资源点（已进 `occupied()`）
+      自然被避开。
 
-    在 `place_outer_clusters` **之后**跑：那时带子与资源点都已落地。
+    在 `place_outer_clusters` **之后**跑：那时资源点都已落地。
+    **2026-09-01 三续**：资源簇不再自带森林带（团队移除了「不可围墙」的
+    强制连通要求，见 `place_outer_clusters` docstring）——这里的森林/岩壁
+    现在是城外唯一的森林来源，纯装饰性，不承载任何结构约束。
     """
     R = cfg.city_radius
     kx, ky = cv.keep
@@ -940,6 +899,10 @@ def place_water(cv, cfg, rng):
 def place_obstacles(cv, cfg, rng):
     """可破坏障碍。**它是一份一次性资源存量**（破坏后产出木材/石材，§4.4.1），
     所以撒多少不是纯装饰问题。
+
+    **2026-09-01（#117）**：只在城外生成（cheb ≥ R+2，与野外散布同域），
+    按同类 1–3 个组成彼此分离的小团（组间留两圈空地），不再全图均匀撒。
+    返回组列表供 selftest 断言分组不变量；`paint` 消费方忽略返回值。
     """
     lo, hi = cfg.obstacles
     want = rng.randint(int(lo), int(hi))
@@ -1035,6 +998,7 @@ def _resolve(cfg, rng):
         inner_resources=inner_resources,
         outer_clusters=outer_clusters,
         outer_cluster_size=cfg.outer_cluster_size,
+        outer_cluster_span=cfg.outer_cluster_span,
         initial_breaches=cfg.initial_breaches,
         wall_hp_frac_range=cfg.wall_hp_frac_range,
         forest_patches=cfg.forest_patches,
@@ -1058,9 +1022,10 @@ def paint(cv, cfg, th, rng):
     顺序 = 环墙 → 集结点 → 城内内容 → 城外资源簇 → 野外散布 → 水域 → 障碍。
     改动顺序会影响 rng 消费序列，进而改变同一批种子的产出——只能整条改。
 
-    水域放在散布**之后**（2026-09-01）：散布与资源带落地在先，河与湖只落
-    `Plain`，遇到已长的森林/岩壁就绕开或整片撤销——反过来的话森林带挖到
-    河上只能整簇弃权，那种失败的代价比河改道高得多（一簇的资源点全丢）。
+    水域放在散布**之后**（2026-09-01）：散布落地在先，河与湖只落 `Plain`，
+    遇到已长的森林/岩壁团块就绕开或整片撤销——反过来的话团块挖到河上只能
+    整片弃权，那种失败的代价比河改道高（团块数量不算少，逐个重试的成本
+    更高）。
     """
     r = _resolve(cfg, rng)
     sides = rng.sample(list(_SIDES), r.spawn_count)

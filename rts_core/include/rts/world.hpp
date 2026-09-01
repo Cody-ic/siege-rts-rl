@@ -494,7 +494,9 @@ inline GridPos pos_of_slot(std::uint16_t slot, int width) noexcept {
 // `b_train_force_` 与 SelectForce / MoveForce / Garrison / UpgradeForce 四种
 // 命令；驻守改为逐单位的登墙意愿 `u_garrison_target_`（进哈希）；兵种就地升级
 // 随之移除（`u_upgrade_left_` 删，升级只经 `Train` 选级）。布局与行为双重变更。
-inline constexpr std::string_view kWorldHashTag = "World/12";
+// `World/12` → `World/13`：新增 `CommandKind::Demolish`，`deferred_` 的长度随
+// `kCommandKindCount` 增加一格并进入哈希；与上面 `World/1 → World/2` 同类。
+inline constexpr std::string_view kWorldHashTag = "World/13";
 
 class WorldView;
 
@@ -806,8 +808,12 @@ private:
 
     // 施工 / 维修推进、征兵倒计时与出兵、按周期入账。顺序在 advance() 注释里。
     void tick_economy();
-    // 守方 `Mason` 是否在 `pos` 的施工半径内（半径查表 `mason_work_radius`）。
-    // 第二批取「在场与否」的二值——多名工匠不加速，是占位机制，标定时再议。
+    // 守方 `Mason` 在 `pos` 施工半径内的人数（半径查表 `mason_work_radius`）。
+    // 施工/维修/升级按人数线性加速（2026-09-01 起，此前是「在场与否」二值
+    // 占位——试玩拍板：任务不够分时多人同任务必须真的更快）。
+    std::int32_t mason_count(GridPos pos) const;
+    // 守方 `Mason` 是否在 `pos` 的施工半径内。`mason_count(pos) > 0` 的
+    // 便捷写法。
     bool mason_near(GridPos pos) const;
     // 给槽位 `k` 上的建筑找一个出兵格。找不到返回 false（下 tick 再试）。
     bool try_train_spawn(std::size_t k);

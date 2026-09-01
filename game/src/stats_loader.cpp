@@ -247,7 +247,8 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
     // `combat_math.hpp` 的 `level_permille`；stats/8 → stats/9：兵种等级
     // 上限落地，`global` 加 `train_ticks_permille_per_level` 与
     // `unit_upgrade_radius`；stats/9 → stats/10：编队移除，就地升级删除，
-    // `unit_upgrade_radius` 失去唯一消费者而从 schema 删掉）。刻意不做向后
+    // `unit_upgrade_radius` 失去唯一消费者而从 schema 删掉；stats/10 → stats/11：
+    // 成品拆除落地，撤销工地比例改为成品拆除比例）。刻意不做向后
     // 兼容——旧 schema 的表缺新字段，
     // 静默补默认值正是「能跑但打不动」那种坑（这次的形态是「箭永远瞬时
     // 命中」/「溅射恒等于主伤害」/「建筑永远升不了级」/「批量升级永远推进
@@ -256,8 +257,8 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
     // stats/7 → stats/8 那一格是「字段没变而必须进格」的先例：一张旧表在
     // 新公式下每个数都还合法，于是它会**载入成功并算出一整局不同的仗**。
     // 版本号是唯一能把这件事变成一句报错的地方（同 `kStatsShapeTag` 那条）。
-    if (schema != "stats/10") {
-        fail(origin, "`schema` = \"" + schema + "\"，本程序只认 \"stats/10\"");
+    if (schema != "stats/11") {
+        fail(origin, "`schema` = \"" + schema + "\"，本程序只认 \"stats/11\"");
     }
 
     rts::StatsTable t;
@@ -308,7 +309,7 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
         std::vector<std::string_view>{
             "hp_permille_per_level", "dmg_permille_per_level", "income_period_ticks",
             "mason_work_radius", "repair_hp_per_work_tick", "repair_wood_per_1000hp",
-            "cancel_refund_permille", "garrison_mount_ticks",
+            "demolish_refund_permille", "garrison_mount_ticks",
             "high_ground_miss_permille", "high_ground_dmg_permille",
             "high_ground_range_bonus", "charge_bonus_permille_per_cell",
             "charge_max_cells", "anti_charge_permille",
@@ -331,9 +332,9 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
     t.global.repair_wood_per_1000hp =
         need_i64(need(global, "repair_wood_per_1000hp", origin, "`global`"), origin,
                  "`global.repair_wood_per_1000hp`");
-    t.global.cancel_refund_permille =
-        need_i32(need(global, "cancel_refund_permille", origin, "`global`"), origin,
-                 "`global.cancel_refund_permille`");
+    t.global.demolish_refund_permille =
+        need_i32(need(global, "demolish_refund_permille", origin, "`global`"), origin,
+                 "`global.demolish_refund_permille`");
     t.global.garrison_mount_ticks =
         need_i32(need(global, "garrison_mount_ticks", origin, "`global`"), origin,
                  "`global.garrison_mount_ticks`");
@@ -388,10 +389,10 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
         fail(origin, "`global.repair_wood_per_1000hp` 不得为负");
     }
     // 上界 1000 是**结构性**的，不是风格检查：退款超过造价意味着
-    // 「下单再撤单」净赚资源——一条不用打仗的印钞回路（「结构封死」准则）。
-    if (t.global.cancel_refund_permille < 0 ||
-        t.global.cancel_refund_permille > 1000) {
-        fail(origin, "`global.cancel_refund_permille` 必须在 [0, 1000] 内");
+    // 「建成再拆」净赚资源——一条不用打仗的印钞回路（「结构封死」准则）。
+    if (t.global.demolish_refund_permille < 0 ||
+        t.global.demolish_refund_permille > 1000) {
+        fail(origin, "`global.demolish_refund_permille` 必须在 [0, 1000] 内");
     }
     if (t.global.garrison_mount_ticks < 0) {
         fail(origin, "`global.garrison_mount_ticks` 不得为负");
