@@ -128,6 +128,14 @@ Facing SceneModel::run_direction(const MapData& map, rts::GridPos p,
     return along_i ? Facing::SE : Facing::SW;
 }
 
+bool SceneModel::is_wall_corner(const MapData& map, rts::GridPos p) noexcept {
+    const int x = p.i;
+    const int y = p.j;
+    const bool along_i = is_wall_cell(map, x - 1, y) || is_wall_cell(map, x + 1, y);
+    const bool along_j = is_wall_cell(map, x, y - 1) || is_wall_cell(map, x, y + 1);
+    return along_i && along_j;
+}
+
 DrawLists SceneModel::build(const MapData& map) {
     DrawLists out;
     const auto cells = static_cast<std::size_t>(map.width()) *
@@ -163,6 +171,16 @@ DrawLists SceneModel::build(const MapData& map) {
         keyed.push_back(Keyed{
             DrawItem{w.pos, sprite, run_direction(map, w.pos, RunKind::Wall)},
             Layer::Entity});
+        // 拐角格补一块竖板。`run_direction` 对「左右有墙」的格恒判横板（SW），
+        // 城圈四角（横竖两条边相交的格）因此只画了横的那一边、竖边缺一格，
+        // 画面上四个角是开的（机制上走不进来，穿角禁令拦着，纯视觉缺陷）。
+        // 拐角格额外再画一块竖板（SE）补上。门不在拐角（生成器把门放在边中点、
+        // 不在方环的角上），所以只对 Wall 补，不碰 Gate——补板的朝向表只对
+        // 墙板成立，门板是另一套素材。
+        if (sprite == kWall && is_wall_corner(map, w.pos)) {
+            keyed.push_back(Keyed{DrawItem{w.pos, kWall, Facing::SE},
+                                  Layer::Entity});
+        }
     }
 
     // 资源点的地表标记。**与叠加物同层**：同深度下叠加物先画（排序次级键的

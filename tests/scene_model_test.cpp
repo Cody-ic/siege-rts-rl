@@ -292,6 +292,69 @@ TEST_CASE("装配：每个资源点都有一枚地表标记，与叠加物同层
     }
 }
 
+// 城圈四角的 L 形拐角：`run_direction` 对「左右有墙」的格恒判横板（SW），
+// 于是拐角格只画了横的那一边、竖边缺一格——四个角在画面上是开的。
+// 机制上走不进来（rts_core 的穿角禁令），是纯视觉缺陷。修复是给拐角格
+// **补画一块竖板（SE）**，本用例钉住「拐角判定」与「拐角格出两块板」两件事。
+//
+// 用 from_string 另造一张带 L 形拐角的夹具，而不是改 fixture_min.json——
+// 那张是全仓唯一真地图，位置是精挑细选过的（见其 _note），且没有拐角。
+TEST_CASE("城圈四角：拐角格补一块竖板，非拐角不补", "[scene]") {
+    using game::SceneModel;
+    const char* corner_json = R"({
+      "format": 1,
+      "size": [5, 5],
+      "map_id": "corner_fixture",
+      "name": "拐角夹具",
+      "keep": [2, 2],
+      "layers": {
+        "terrain": {"palette": ["Plain", "Rock", "Forest", "Water", "Bridge"],
+                    "rows": ["00000","00000","00000","00000","00000"]},
+        "no_build": {"rows": ["00000","00000","00000","00000","00000"]}
+      },
+      "spawns": [{"id": 0, "pos": [0, 0]}],
+      "resources": [],
+      "initial_walls": [
+        {"kind": "Wall", "pos": [0, 3], "hp_frac": 1.0},
+        {"kind": "Wall", "pos": [1, 3], "hp_frac": 1.0},
+        {"kind": "Wall", "pos": [2, 3], "hp_frac": 1.0},
+        {"kind": "Wall", "pos": [3, 3], "hp_frac": 1.0},
+        {"kind": "Wall", "pos": [3, 4], "hp_frac": 1.0}
+      ],
+      "obstacles": [],
+      "buildings": []
+    })";
+    const game::MapData m = game::MapLoader::from_string(corner_json, "<拐角夹具>");
+
+    // 拐角 (3,3)：左 (2,3) 是墙、下 (3,4) 是墙——横竖两条边在此相交。
+    REQUIRE(SceneModel::is_wall_corner(m, at(3, 3)));
+    // 非拐角：横墙中段 (1,3)（上下无墙）、竖墙下端 (3,4)（左右无墙）。
+    REQUIRE_FALSE(SceneModel::is_wall_corner(m, at(1, 3)));
+    REQUIRE_FALSE(SceneModel::is_wall_corner(m, at(3, 4)));
+    // 横墙最左端 (0,3)：左出界、右是墙，上下无——也不是拐角。
+    REQUIRE_FALSE(SceneModel::is_wall_corner(m, at(0, 3)));
+
+    // 拐角格出两块 Wall 板：run_direction 给的主板（SW）+ 补的竖板（SE）。
+    // 非拐角格只出一块。
+    const game::DrawLists d = SceneModel::build(m);
+    int corner_boards = 0;
+    bool saw_sw = false, saw_se = false;
+    int mid_boards = 0;
+    for (const game::DrawItem& it : d.sorted) {
+        if (it.sprite != "Wall") continue;
+        if (it.pos.i == 3 && it.pos.j == 3) {
+            ++corner_boards;
+            if (it.facing == game::Facing::SW) saw_sw = true;
+            if (it.facing == game::Facing::SE) saw_se = true;
+        }
+        if (it.pos.i == 1 && it.pos.j == 3) ++mid_boards;
+    }
+    REQUIRE(corner_boards == 2);
+    REQUIRE(saw_sw);
+    REQUIRE(saw_se);
+    REQUIRE(mid_boards == 1);
+}
+
 // `battle_scene.cpp` 挑弹丸精灵时，「单位射的」那一档**只按阵营分**：
 // 守方 → 箭（`Archer`）、攻方 → 魔法弹（`Shade`）。
 //

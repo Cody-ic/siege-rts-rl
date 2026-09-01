@@ -113,6 +113,18 @@ std::vector<DrawItem> BattleScene::sorted(const MapData& map,
         }
         it.hp_frac = hp_frac_of(b_hp[k], b_max[k]);
         out.push_back(it);
+        // 拐角格补竖板（同 `SceneModel::build` 那条纪律）：城圈四角横竖两条边
+        // 相交，`run_direction` 只给横板（SW），竖边缺一格、角在画面上是开的。
+        // 走向看**地图初始墙况**（同上面 run_direction 的那份注释），不是活墙——
+        // 拆墙不改剩余墙段的走向读法。补板不带血条（血条画在主板上，否则两板
+        // 重叠画两条）。
+        if (b_type[k] == rts::BldType::Wall &&
+            SceneModel::is_wall_corner(map, it.pos)) {
+            DrawItem corner = it;
+            corner.facing = Facing::SE;
+            corner.hp_frac = -1.0f;
+            out.push_back(corner);
+        }
     }
 
     // 中立障碍。

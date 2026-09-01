@@ -148,6 +148,14 @@ public:
     static Facing run_direction(const MapData& map, rts::GridPos p,
                                 RunKind kind) noexcept;
 
+    // 墙格是否在**拐角**：gi 方向（左右）与 gj 方向（上下）都连着墙/门。
+    //
+    // 城圈是切比雪夫方环，四个角格各连着一条横边与一条竖边。`run_direction`
+    // 对「左右有墙」的格恒判横板（SW），于是拐角格只画了横的那一边、竖边
+    // 缺一格——四个角在画面上是开的（机制上走不进来，纯视觉缺陷，见
+    // `rts_core` 的穿角禁令）。调用方据这个函数给拐角格**补画**第二块板。
+    static bool is_wall_corner(const MapData& map, rts::GridPos p) noexcept;
+
     // 资源点 → 地表标记的精灵标识符（`StonePt`/`WoodPt`/`GoldPt`）。
     //
     // 这些标识符**不在精灵流水线里**——资源点不是实体（不进花名册、不进回放），
