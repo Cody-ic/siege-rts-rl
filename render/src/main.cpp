@@ -394,14 +394,19 @@ std::vector<std::string_view> font_coverage(const game::MapData& map) {
 // 和真数据长得一模一样，于是「这个面板到底接没接上」变成一个要读代码才能回答的问题。
 // 宁可少显示几项。
 
-// 资源点的地表标记不在素材流水线里（本机没有 Blender，且它是纯程序图形），
-// 由图集程序化生成。登记要在任何 preload/draw 之前——`run` 与 `run_game` 各调一次。
-void register_resource_decals(render::SpriteAtlas& atlas) {
-    // 颜色按「玩家一眼能分三种资源」挑：石灰、木棕、金黄——与三种资源在建筑
-    // 造价面板里的角色一致（CLAUDE.md「守方多资源」的决策轴表）。
-    atlas.register_decal("StonePt", Color{150, 150, 160, 220}, Color{88, 88, 98, 255});
-    atlas.register_decal("WoodPt", Color{150, 105, 55, 220}, Color{92, 60, 30, 255});
-    atlas.register_decal("GoldPt", Color{225, 185, 60, 230}, Color{148, 112, 28, 255});
+// 资源点的地表标记不走精灵流水线（`tools/sprite_gen/` 走 Blender，不为它们
+// 出图），但**与流水线产物放在同一个目录**（`tools/sprite_gen/out_3d/`，
+// `decal_` 前缀区分），不另开一层「decals 是 sprite_dir 的同级」这种目录
+// 假设——那条假设在 `render_utf8_path` 测试（`--sprites` 指向复制出来的自定义
+// 目录，不是原目录）下不成立。放同一目录后，`sprite_dir` 走到哪、decal 就
+// 跟到哪，与花名册精灵同构。登记要在任何 preload/draw 之前——`run` 与
+// `run_game` 各调一次。
+//
+// 2026-09-01：从程序化生成的抽象菱形换成真实素材（树/石堆/矿场）。
+void register_resource_decals(render::SpriteAtlas& atlas, const std::string& sprite_dir) {
+    atlas.register_decal_image("StonePt", sprite_dir + "/decal_StonePt.png");
+    atlas.register_decal_image("WoodPt", sprite_dir + "/decal_WoodPt.png");
+    atlas.register_decal_image("GoldPt", sprite_dir + "/decal_GoldPt.png");
 }
 
 // HUD 底板：先铺一块半透明深底再写字。等距地图配色偏中间调，浅色文字直绘
@@ -456,7 +461,7 @@ int run(const Options& opt) {
     }
     // 纹理与字体都要 GL 上下文，所以两者都在 InitWindow 之后才建。
     render::SpriteAtlas atlas(opt.sprite_dir);
-    register_resource_decals(atlas);
+    register_resource_decals(atlas, opt.sprite_dir);
     const game::IsoProjection proj(atlas.px_per_tile());
     render::SceneRenderer renderer(atlas, proj);
 
@@ -719,7 +724,7 @@ int run_game(const Options& opt) {
     if (opt.screenshot.empty()) SetWindowMinSize(960, 540);
 
     render::SpriteAtlas atlas(opt.sprite_dir);
-    register_resource_decals(atlas);
+    register_resource_decals(atlas, opt.sprite_dir);
     const game::IsoProjection proj(atlas.px_per_tile());
     render::SceneRenderer renderer(atlas, proj);
     const std::vector<game::DrawItem> tiles = game::BattleScene::tiles(map);
