@@ -196,6 +196,75 @@ TEST_CASE("MoveForce 即召回：下墙到第一个空邻格，常设指令清�
     REQUIRE(w.force_target(0) == slot(rts::GridPos{1, 1}));
 }
 
+TEST_CASE("单兵召回：只让拖中的驻守者下墙，不牵连同编队另一段墙", "[garrison]") {
+    rts::WorldInit init = arena();
+    const rts::GridPos other{6, 2};
+    init.buildings.push_back(rts::BldInit{rts::BldType::Wall, kWall, 40, 40});
+    init.buildings.push_back(rts::BldInit{rts::BldType::Wall, other, 40, 40});
+    init.units.push_back(
+        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{5.5f, 4.5f}, 1, 20, 20, 0});
+    init.units.push_back(
+        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{5.5f, 2.5f}, 1, 20, 20, 0});
+    rts::World w(std::move(init));
+    const rts::Command cmds[] = {garr(0, kWall), garr(0, other)};
+    w.submit(rts::Side::Defender, cmds, 2);
+    w.advance(1);
+    const rts::UnitId first = defender_at(w, 0);
+    const rts::UnitId second = defender_at(w, 1);
+    REQUIRE(w.unit_garrison(first) == slot(kWall));
+    REQUIRE(w.unit_garrison(second) == slot(other));
+
+    const rts::UnitId picked[] = {first};
+    w.recall_units(rts::Side::Defender, picked);
+
+    REQUIRE(w.unit_garrison(first) == rts::kNoSlot);
+    REQUIRE(w.garrison_order(slot(kWall)) == rts::kNoForce);
+    REQUIRE(w.unit_garrison(second) == slot(other));
+    REQUIRE(w.garrison_order(slot(other)) == 0);
+}
+
+TEST_CASE("对空：只有登上墙段的 Archer 能锁定 Phoenix", "[garrison]") {
+    rts::WorldInit init = arena();
+    init.buildings.push_back(rts::BldInit{rts::BldType::Wall, kWall, 40, 40});
+    init.units.push_back(
+        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{5.5f, 4.5f}, 1, 20, 20, 0});
+    init.units.push_back(
+        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{6.5f, 6.5f}, 1, 20, 20, 1});
+    init.units.push_back(
+        rts::UnitInit{rts::UnitType::Phoenix, rts::Vec2{7.5f, 4.5f}, 1, 24, 24});
+    rts::World w(std::move(init));
+    const rts::Command c = garr(0, kWall);
+    w.submit(rts::Side::Defender, &c, 1);
+    w.advance(1);
+    const rts::UnitId wall_archer = defender_at(w, 0);
+    const rts::UnitId ground_archer = defender_at(w, 1);
+
+    REQUIRE(has(w.action_mask(wall_archer), rts::UnitAction::AtkNear));
+    REQUIRE_FALSE(has(w.action_mask(ground_archer), rts::UnitAction::AtkNear));
+
+    act(w, rts::Side::Defender,
+        {rts::UnitAction::AtkNear, rts::UnitAction::AtkNear});
+    act(w, rts::Side::Attacker, {rts::UnitAction::Stop});
+    w.advance(8);
+    std::vector<rts::UnitId> attackers;
+    w.enumerate_units(rts::Side::Attacker, attackers);
+    REQUIRE(attackers.size() == 1);
+    REQUIRE(w.unit_hp(attackers[0]) < 24);
+
+    // 墙掉到半血以下会失去既有高度优势，但人仍在墙上，对空许可不额外读墙血。
+    rts::WorldInit broken = arena();
+    broken.buildings.push_back(rts::BldInit{rts::BldType::Wall, kWall, 19, 40});
+    broken.units.push_back(
+        rts::UnitInit{rts::UnitType::Archer, rts::Vec2{5.5f, 4.5f}, 1, 20, 20, 0});
+    broken.units.push_back(
+        rts::UnitInit{rts::UnitType::Phoenix, rts::Vec2{7.5f, 4.5f}, 1, 24, 24});
+    rts::World damaged(std::move(broken));
+    damaged.submit(rts::Side::Defender, &c, 1);
+    damaged.advance(1);
+    REQUIRE(has(damaged.action_mask(defender_at(damaged, 0)),
+                rts::UnitAction::AtkNear));
+}
+
 TEST_CASE("墙塌了：人落在缺口里，指令随墙作废，行动恢复", "[garrison]") {
     rts::WorldInit init = arena();
     init.units.push_back(

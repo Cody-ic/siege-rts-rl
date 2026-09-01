@@ -15,7 +15,8 @@ namespace rts {
 // ——基类的通则实现——
 
 bool UnitBehavior::can_engage(UnitType target) const noexcept {
-    // 见头文件：无战力打不了任何东西；且没有任何单位能对空。
+    // 见头文件：无战力打不了任何东西；地面状态的单位不能对空。
+    // 墙上 Archer 的有状态例外由 World::unit_can_engage 叠加。
     return combat() && !is_aerial(target);
 }
 

@@ -55,6 +55,8 @@ public:
     // `DefenderScript::issue_move_order`（框选只影响这批单位，不改变编队
     // 归属，因此不能走 `force_target_` 那条持久记账的路）。
     void issue_move_order(std::span<const rts::UnitId> ids, rts::GridPos target) {
+        // 单兵临时命令同时承担「从墙上拖下来」的语义；同编队的其余墙段不动。
+        w_.recall_units(rts::Side::Defender, ids);
         script_.issue_move_order(ids, target);
     }
 

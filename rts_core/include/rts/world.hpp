@@ -109,6 +109,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -556,6 +557,12 @@ public:
     // 长度错位的症状是「每个单位都拿到邻居的动作」——不报错、不崩、只是学不动。
     void submit_actions(Side side, const UnitAction* actions, std::size_t count);
 
+    // 让指定单位离开驻守槽位。它服务玩家的单兵拖拽命令：只撤销这些单位
+    // 所在墙段的常设驻守令，不改变编队归属，也不召回同编队的其他驻守者。
+    // 已阵亡的旧句柄会被跳过（玩家选中后单位可能在落令前阵亡）；其余先整批
+    // 校验阵营，再整批执行，避免活单位半批生效。
+    void recall_units(Side side, std::span<const UnitId> ids);
+
     // 推进 `ticks` 个 tick。`ticks == 0` 是合法的空操作。
     //
     // 每个 tick 内的阶段顺序**固定**（确定性的一部分，改它等于让所有已录回放
@@ -847,6 +854,8 @@ private:
     // 槽位 `k` 上单位的有效射程：基础值 + 远程驻守的高度加成。
     // 掩码与战斗阶段都走它，两处不会各判一套（同 pick_target 那条纪律）。
     float effective_range(std::size_t k) const;
+    // 通则仍由 UnitBehavior 承担；唯一需要世界上下文的例外是墙上 Archer 对空。
+    bool unit_can_engage(std::size_t k, UnitType target) const;
     // 让槽位 `k` 上的单位离开墙（含还在爬的）。已登顶的落到第一个空邻格；
     // 邻格全被占则**保持驻守**（确定性无操作，下一条 MoveForce 可再试）——
     // 墙格几乎总有空邻格（校验器要求墙有内外两侧），这条边界不值得一个重试态。
