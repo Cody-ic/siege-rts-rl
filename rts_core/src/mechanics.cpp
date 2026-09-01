@@ -473,7 +473,7 @@ void World::tick_movement() {
         // 前摇钉住脚（弓手被贴脸即废的一半）。冲锋动量在此**冻结**——
         // 承诺出手的那一击正带着它，落地时结算并耗尽（land_attack）。
         if (u_windup_[k] > 0) continue;
-        // 驻守钉住（含在爬的）：「上墙的代价是机动性」。想走？MoveForce 先召回。
+        // 驻守钉住（含在爬的）：「上墙的代价是机动性」。想走？先撤登墙意愿（下墙）。
         if (u_garrison_[k] != kNoSlot) continue;
         const UnitType type = u_type_[k];
         const bool charger = behavior_of(type).charges();
@@ -638,7 +638,7 @@ void World::dismount_unit(std::size_t k) {
 }
 
 void World::tick_garrison() {
-    // 先推进在爬的，再受理新指令——顺序写死是规范的一部分。
+    // 先推进在爬的，再受理登墙意愿——顺序写死是规范的一部分。
     // 到 0 的那一刻人**落位墙心**：驻守单位的位置就是墙格中心，射程、视野、
     // 挨打（含 AOE 波及）全按这个位置算，不需要任何「在墙上」的特殊坐标系。
     for (std::size_t k = 0; k < unit_pool_.slot_count(); ++k) {
@@ -650,47 +650,54 @@ void World::tick_garrison() {
         }
     }
 
-    // 受理指令：格线性序即规范序。指令是**常设**的——驻守者阵亡后同编队的
-    // 相邻单位自动补位，直到 MoveForce 召回或墙被拆（两处都会清指令）。
+    // 受理意愿：按槽位下标升序遍历单位（与 `enumerate_units` 同一个规范顺序）。
+    // 意愿是逐单位的（`submit_garrison_wishes`，脚本每个决策拍重发一次），
+    // 「驻守者阵亡后谁补位」因此是脚本下一决策拍的事，世界不再持常设指令。
     //
-    // 这里不再查「格上有完工的活墙」：apply_one 只对完工的 Wall/Gate 记指令，
-    // destroy_bld 拆墙时清指令，完工位没有回退路径——再查一遍就是第二份会
-    // 漂移的判据。
-    const std::size_t cells = terrain_.cell_count();
-    for (std::size_t c = 0; c < cells; ++c) {
-        const std::uint8_t f = garrison_order_[c];
-        if (f == kNoForce) continue;
-        // 一格一人：有人在上面（或在爬）就不再挑人。
+    // 意愿与现状不一致即纠偏：指着别段墙 = 先下来；意愿清空 = 下墙。
+    for (std::size_t k = 0; k < unit_pool_.slot_count(); ++k) {
+        if (!unit_pool_.alive_at(static_cast<std::uint16_t>(k))) continue;
+        const std::uint16_t wish = u_garrison_target_[k];
+        if (u_garrison_[k] != kNoSlot && u_garrison_[k] != wish) {
+            // 已上墙（含在爬）但意愿改了或撤了：下墙。邻格全满时 dismount_unit
+            // 保持驻守（确定性无操作），脚本下一拍可再试。
+            dismount_unit(k);
+        }
+        if (wish == kNoSlot) continue;
+        if (u_garrison_[k] != kNoSlot) continue;   // 已在目标墙上 / 下墙未成
+        if (u_windup_[k] > 0) continue;            // 已承诺的出手先走完
+        // 攻方没有登墙手段（CLAUDE.md，结构）。攻方单位的意愿通道本就进不来
+        // （submit_garrison_wishes 拒收），这一条是把结构写明。
+        if (side_of(u_type_[k]) != Side::Defender) continue;
+        // 意愿逐 tick 重验：指着的那格必须是**完工**的 Wall/Gate。脚本读的是
+        // 迷雾下的记忆，它记得的墙可能已被拆（destroy_bld 会清意愿）或从未
+        // 盖完——这里再挡一道，不把「记忆的时效」推给脚本去赌。
+        const std::size_t cell = static_cast<std::size_t>(wish);
+        if (bld_at_[cell] == 0) continue;
+        const std::size_t b = static_cast<std::size_t>(bld_at_[cell] - 1);
+        if (b_type_[b] != BldType::Wall && b_type_[b] != BldType::Gate) continue;
+        if (!b_built_[b]) continue;
+        // 一格一人：有人在上面（或在爬）就轮不到本单位。
         bool taken = false;
         for (std::size_t u = 0; u < unit_pool_.slot_count(); ++u) {
             if (!unit_pool_.alive_at(static_cast<std::uint16_t>(u))) continue;
-            if (u_garrison_[u] == static_cast<std::uint16_t>(c)) {
+            if (u_garrison_[u] == wish) {
                 taken = true;
                 break;
             }
         }
         if (taken) continue;
-        const GridPos wall = pos_of_slot(static_cast<std::uint16_t>(c), width());
-        for (std::size_t u = 0; u < unit_pool_.slot_count(); ++u) {
-            if (!unit_pool_.alive_at(static_cast<std::uint16_t>(u))) continue;
-            if (u_force_[u] != f) continue;
-            // 攻方没有登墙手段（CLAUDE.md，结构）。攻方单位的编队本就恒为
-            // kNoForce、匹配不上，这一条是把结构写明而不是防一个能到达的状态。
-            if (side_of(u_type_[u]) != Side::Defender) continue;
-            if (u_garrison_[u] != kNoSlot) continue;   // 已在别的墙上 / 在爬
-            if (u_windup_[u] > 0) continue;            // 已承诺的出手先走完
-            // 「原地登上」：站在墙的八邻才登得上（切比雪夫距离恰为 1）。
-            // 走到墙边是脚本执行层的事（Garrison 已把 force_target_ 指过去）。
-            const GridPos at = grid_of(u_pos_[u]);
-            const int dx = at.i > wall.i ? at.i - wall.i : wall.i - at.i;
-            const int dy = at.j > wall.j ? at.j - wall.j : wall.j - at.j;
-            if (dx > 1 || dy > 1 || (dx == 0 && dy == 0)) continue;
-            u_garrison_[u] = static_cast<std::uint16_t>(c);
-            const std::int32_t d = stats_.global.garrison_mount_ticks;
-            u_mount_[u] = d;
-            if (d == 0) u_pos_[u] = center_of(wall);   // 零延迟：当场登顶
-            break;   // 本格已有人在登，换下一格
-        }
+        // 「原地登上」：站在墙的八邻才登得上（切比雪夫距离恰为 1）。
+        // 走到墙边是脚本的事——它给单位下 Move* 动作与登墙意愿是同一拍。
+        const GridPos wall = pos_of_slot(wish, width());
+        const GridPos at = grid_of(u_pos_[k]);
+        const int dx = at.i > wall.i ? at.i - wall.i : wall.i - at.i;
+        const int dy = at.j > wall.j ? at.j - wall.j : wall.j - at.j;
+        if (dx > 1 || dy > 1 || (dx == 0 && dy == 0)) continue;
+        u_garrison_[k] = wish;
+        const std::int32_t d = stats_.global.garrison_mount_ticks;
+        u_mount_[k] = d;
+        if (d == 0) u_pos_[k] = center_of(wall);   // 零延迟：当场登顶
     }
 }
 
@@ -1004,47 +1011,11 @@ bool World::try_train_spawn(std::size_t k) {
     const std::int32_t lvl = b_train_level_[k];
     const std::int64_t hp = apply_permille(
         s.max_hp, {level_permille(lvl, stats_.global.hp_permille_per_level)});
-    const UnitId id = spawn_unit(ut, center_of(cell), lvl, hp, hp);
-    u_force_[id.index()] = b_train_force_[k];
+    spawn_unit(ut, center_of(cell), lvl, hp, hp);
     b_train_type_[k] = kNoTrain;
     b_train_left_[k] = 0;
-    b_train_force_[k] = kNoForce;
     b_train_level_[k] = kMinUnitLevel;
     return true;
-}
-
-// `mason_near` 的反过来版本：给定坐标附近是否有己方**完工**的 `Barrack`
-// 或 `Keep`（半径查 `unit_upgrade_radius`）。已有部队批量升级靠它判
-// 「须在 Barrack/Keep」。
-bool World::barrack_near(Vec2 pos) const {
-    const float r = stats_.global.unit_upgrade_radius;
-    if (r <= 0.0f) return false;
-    const float r2 = r * r;
-    for (std::size_t k = 0; k < bld_pool_.slot_count(); ++k) {
-        if (!bld_pool_.alive_at(static_cast<std::uint16_t>(k))) continue;
-        if (!b_built_[k]) continue;
-        if (b_type_[k] != BldType::Barrack && b_type_[k] != BldType::Keep) continue;
-        if (dist2(center_of(b_pos_[k]), pos) <= r2) return true;
-    }
-    return false;
-}
-
-// 单位升级到账。**按比例换算血量，不补满**——与建筑版 `finish_upgrade`
-// 刻意不同：那边"完工即满血"是有记录的副作用（升级顺带一次免费维修，
-// 团队还没就它是否合意表态），这里若照抄同一条，会让一个正在被追杀的
-// 半血单位靠"正好在升级"变成免费回满，而升级要等更长的工期与更多的钱，
-// 比维修更容易被拿来当无痛回血用——那是一个比建筑那边更隐蔽、更容易被
-// 滥用的副作用，不值得为了复用同一段逻辑而引入。
-void World::finish_unit_upgrade(std::size_t k) {
-    const std::int32_t new_level = u_level_[k] + 1;
-    const std::int64_t new_max = apply_permille(
-        stats_.of(u_type_[k]).max_hp,
-        {level_permille(new_level, stats_.global.hp_permille_per_level)});
-    u_hp_[k] = (u_hp_[k] * new_max + u_max_hp_[k] / 2) / u_max_hp_[k];
-    if (u_hp_[k] < 1) u_hp_[k] = 1;
-    u_max_hp_[k] = new_max;
-    u_level_[k] = new_level;
-    u_upgrade_left_[k] = 0;
 }
 
 void World::tick_economy() {
@@ -1075,17 +1046,6 @@ void World::tick_economy() {
         if (!mason_near(b_pos_[k])) continue;
         --b_upgrade_left_[k];
         if (b_upgrade_left_[k] == 0) finish_upgrade(k);
-    }
-
-    // 已有部队批量升级（兵种等级上限，守方升级轴第三个输出）：与建筑升级
-    // 同一条纪律，但"在场"判的是单位自己有没有留在 Barrack/Keep 附近
-    // （`barrack_near`）——离场就停，回来接着推进，不倒退、不清零。
-    for (std::size_t k = 0; k < unit_pool_.slot_count(); ++k) {
-        if (!unit_pool_.alive_at(static_cast<std::uint16_t>(k))) continue;
-        if (u_upgrade_left_[k] <= 0) continue;
-        if (!barrack_near(u_pos_[k])) continue;
-        --u_upgrade_left_[k];
-        if (u_upgrade_left_[k] == 0) finish_unit_upgrade(k);
     }
 
     // 征兵：倒计时归零后出兵。邻格全被占就滞留（不消单、不退钱），

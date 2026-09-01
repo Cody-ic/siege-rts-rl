@@ -218,9 +218,9 @@ TEST_CASE("BattleScene 把活的实体排进同一个深度序列", "[demo]") {
 // 要等 150 秒。玩家的原话是「只能新建造建筑，不能招兵，兵被打死了就没了」。
 //
 // **所以这条测的不是某个函数，而是那条链路通不通**：建采集建筑 → 收入涨 →
-// 买得起兵 → 兵真的出来、且进了指定编队。占位数值下它成立；数值一改，
+// 买得起兵 → 兵真的出来。占位数值下它成立；数值一改，
 // 这条会红——那正是该有人回来看一眼的时刻。
-TEST_CASE("经济与补员的闭环：建金矿 → 攒够金 → 征兵 → 新兵进编队", "[demo]") {
+TEST_CASE("经济与补员的闭环：建金矿 → 攒够金 → 征兵 → 新兵真的出现", "[demo]") {
     const game::MapData map = demo_map();
     const rts::StatsTable stats = demo_stats();
     game::DemoBattle d(map, stats, 7);
@@ -235,11 +235,23 @@ TEST_CASE("经济与补员的闭环：建金矿 → 攒够金 → 征兵 → 新
     d.update(1);
     REQUIRE(d.world().live_bld_count() > 0);
 
-    // 工地要工匠盖（开局那名 3 号编队的工匠），所以先把它叫过去，再等它盖完。
-    const rts::Command send = game::command_for_click(
-        d.world().view(rts::Side::Defender), /*force=*/3, rts::GridPos{3, 6});
-    REQUIRE(send.kind == rts::CommandKind::MoveForce);
-    d.submit_defender(&send, 1);
+    // 工地要工匠盖（开局那名工匠），所以先把它叫过去，再等它盖完。
+    // 编队移除后没有「派哪支部队」，只有框选式的临时开拔指令——按类型认出
+    // 工匠，给它下一道（到达即失效，随后它回归自主找活，正好接着盖）。
+    std::vector<rts::UnitId> defenders;
+    d.world().enumerate_units(rts::Side::Defender, defenders);
+    rts::UnitId mason{};
+    {
+        const rts::WorldView v = d.world().view(rts::Side::Defender);
+        for (const rts::UnitId id : defenders) {
+            if (v.unit_type()[id.index()] == rts::UnitType::Mason) mason = id;
+        }
+    }
+    REQUIRE(mason.valid());
+    REQUIRE(game::classify_click(d.world().view(rts::Side::Defender),
+                                 rts::GridPos{3, 6}) == game::ClickTarget::Ground);
+    const rts::UnitId masons[1] = {mason};
+    d.issue_move_order(masons, rts::GridPos{3, 6});
 
     const std::int64_t gold_before = d.world().stock(rts::Resource::Gold);
     d.update(1500);
@@ -253,30 +265,29 @@ TEST_CASE("经济与补员的闭环：建金矿 → 攒够金 → 征兵 → 新
     const rts::GridPos keep = map.keep();
     REQUIRE(game::can_train_hint(d.world().view(rts::Side::Defender), keep));
 
-    // **认「新面孔」，不数总数**：这一千多 tick 里波次一直在打，0 号编队的
+    // **认「新面孔」，不数总数**：这一千多 tick 里波次一直在打，
     // 弓手本来就可能在训练完成前后死掉——`before + 1` 这种纯计数断言会被
     // 同一时间窗口内的战损抵消掉（死一个、补一个，总数不变，但训练那条
     // 链路其实是通的）。真正要证明的是「训练确实产出了一个原来不存在的
-    // 单位，且它进了指定编队」，与其余弓手的战损无关——按 `UnitId` 认，
-    // 一个在 `before` 里没见过的 id 出现在 0 号编队里，就是训练生效的
-    // 直接证据。
-    const auto force0_archer_ids = [](const rts::World& world) {
+    // 单位」，与其余弓手的战损无关——按 `UnitId` 认，
+    // 一个在 `before` 里没见过的弓手 id 出现了，就是训练生效的直接证据。
+    const auto archer_ids = [](const rts::World& world) {
         std::vector<rts::UnitId> ids;
         world.enumerate_units(rts::Side::Defender, ids);
         const rts::WorldView v = world.view(rts::Side::Defender);
         std::vector<rts::UnitId> out;
         for (const rts::UnitId id : ids) {
             const std::size_t k = id.index();
-            if (v.unit_type()[k] == rts::UnitType::Archer && v.unit_force()[k] == 0) {
+            if (v.unit_type()[k] == rts::UnitType::Archer) {
                 out.push_back(id);
             }
         }
         return out;
     };
-    const std::vector<rts::UnitId> before_ids = force0_archer_ids(d.world());
+    const std::vector<rts::UnitId> before_ids = archer_ids(d.world());
 
     const rts::Command train =
-        game::train_command(rts::UnitType::Archer, /*force=*/0, /*level=*/1, keep, w);
+        game::train_command(rts::UnitType::Archer, /*level=*/1, keep, w);
     d.submit_defender(&train, 1);
     d.update(1);
     // 钱扣了 ⇒ 命令没有被静默拒绝（买不起时解算是 break，什么都不说）。
@@ -284,13 +295,11 @@ TEST_CASE("经济与补员的闭环：建金矿 → 攒够金 → 征兵 → 新
     // 兵营占用了 ⇒ 这一格立刻不能再点（一次一名）。
     REQUIRE_FALSE(game::can_train_hint(d.world().view(rts::Side::Defender), keep));
 
-    // 训练要时间（占位 100 tick）。等它出来。
-    //
-    // 新兵进的是**指定的编队**——命令枚举里没有「把单位编入编队」（#57 定的
-    // 12 种不变），所以「往打薄的那支里补兵」只有征兵这一条路，
-    // 而这条断言就是那句话的可执行形式。
+    // 训练要时间（占位 100 tick）。等它出来。编队移除后新兵不带任何归属，
+    // 出兵即自主行动（弓手会自己找墙登）——所以这里只认「新面孔出现了」，
+    // 不再有「进哪支编队」可言。
     d.update(200);
-    const std::vector<rts::UnitId> after_ids = force0_archer_ids(d.world());
+    const std::vector<rts::UnitId> after_ids = archer_ids(d.world());
     const bool found_new = std::any_of(
         after_ids.begin(), after_ids.end(), [&](rts::UnitId id) {
             return std::find(before_ids.begin(), before_ids.end(), id) ==
@@ -328,8 +337,12 @@ TEST_CASE("驻守：开局的三名弓手登上真实的墙，并带上 stand_on
     game::DemoBattle d(map, stats, 7);
 
     // 登墙延迟从数值表来（占位 30 tick），所以推进量按它算、不写死一个 tick 数。
+    // 编队移除后，登墙不再是 t=0 就下好的指令：弓手要等第一个决策拍才决定上墙，
+    // 还要自己**走到**墙边（这张图城内到城墙有约 8 格）才开始爬——所以除了延迟
+    // 还要留足行军余量。但仍要停在首波生波（占位 360 tick）之前：攻方出现后
+    // 弓手的第一优先级是拉扯放箭，不再是找墙。
     const int mount = stats.global.garrison_mount_ticks;
-    d.update(mount + 20);
+    d.update(mount + 240);
 
     const rts::WorldView view = d.world().view(rts::Side::Defender);
     const auto u_alive = view.unit_alive();

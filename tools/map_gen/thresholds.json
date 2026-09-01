@@ -69,8 +69,6 @@
   },
 
   "generator": {
-    "_use": "§9 的「固定项」。固定项若也随机，训练数据里就混入「这张图城墙特别短」这类与策略无关的方差，波次课程的信号会被淹没。**2026-08-31 重构（取缔走廊、城圈改城墙实体、城外随机散布）**：`corridors`/`corridor_count_range`/`corridor_mouth_width_range` 三个键已随走廊概念一起删除；新增集结点数（`spawn_count_range`）、预置建筑（`towers_range`/`barracks_range`）与野外散布（`forest_patches`/`forest_patch_size`/`rock_patches_range`/`rock_patch_size`）六组参数。",
-
     "_use": "§9 的「固定项」。固定项若也随机，训练数据里就混入「这张图城墙特别短」这类与策略无关的方差，波次课程的信号会被淹没。**2026-08-31 重构（取缔走廊、城圈改城墙实体、城外随机散布）**：`corridors`/`corridor_count_range`/`corridor_mouth_width_range` 三个键已随走廊概念一起删除；新增集结点数（`spawn_count_range`）、预置建筑（`towers_range`/`barracks_range`）与野外散布（`forest_patches`/`forest_patch_size`/`rock_patches_range`/`rock_patch_size`）六组参数。**2026-09-01**：新增水域三组（`water_lakes_range`/`water_lake_size`/`rivers_range`）——Water/Bridge 不再留白（`generate.py` 模块 docstring 留白 1 作废）。",
 
     "size": 144,

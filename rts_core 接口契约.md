@@ -79,8 +79,8 @@
 | tick、波次阶段、RNG 状态 | ✅ |
 | 三组实体的增删、句柄代数、槽位复用 | ✅ |
 | 命令入队 + 校验 + 排空 | ✅ |
-| `None` / `Summon` / `SelectForce` / `Composition` / `PickSpawn` | ✅ 完整应用（都不需要数值） |
-| `Build` / `Repair` / `Cancel` / `Train` / `MoveForce` / `Garrison` / `Clear` | ❌ 但**记账**，见下 |
+| `None` / `Summon` / `Composition` / `PickSpawn` | ✅ 完整应用（都不需要数值）。`SelectForce` 曾在此列，2026-09 编队移除时删 |
+| `Build` / `Repair` / `Cancel` / `Train` / `Clear` | ❌ 但**记账**，见下。`MoveForce` / `Garrison` 曾在此列，2026-09 编队移除时删（驻守改走 `submit_garrison_wishes` 意愿通道） |
 | 地图里的可破坏障碍装进 `World`（`ObstacleInit`） | ✅ 血量由调用方经 `game::InitialHp` 给，同墙 |
 | 清野的破坏与产出 | ❌ 1c（要破坏速率与产出数额，两个都待标定） |
 | 攻击前摇、施工进度的递减 | ✅ 纯计数器 |
@@ -103,6 +103,11 @@
 > `deferred_command_count()` 按当初的约定已删。`WorldInit::UnitInit` 补了
 > `force` 字段（初始局面要能表达「开局就有编制的守军」，且攻方带编队在建局时
 > 被拒——「编队是守方概念」由此是结构而不是约定）。
+> **【2026-09 修订】编队系统已整体移除**：上面三批里的 `MoveForce` /
+> `Garrison` / `SelectForce` / `UpgradeForce` 四种编队命令与 `UnitInit` 的
+> `force` 字段一并删除，登墙改走逐单位意愿通道
+> `World::submit_garrison_wishes`（每拍重发，清空即下墙），`kCommandKindCount`
+> 现为 10，回放格式 v4（见 `rts/replay.hpp`）。上文保留作决策史。
 > **第四批收掉冲锋助跑、克制倍率与 `Tower` 齐射**：冲锋动量逐 tick 累距
 > （站停 / 撞停归零、前摇冻结、落地耗尽），「伤害 ∝ 助跑距离」机制等级无关；
 > 克制倍率**由三轴推导而非平铺 N×N**——唯一的数值克制关系是
@@ -290,8 +295,11 @@
 
 **② 输入分两级，都离散、都按侧参数化。**
 `UnitAction`（战术，每 4–8 tick 一次）与 `Command`（玩家 / 宏观级）。
-**「驻守墙段槽位」归 `Command`，不进 `UnitAction`**——于是战术动作枚举
-一个字不动，CLAUDE.md「没有兵种专属动作」得以保住。
+**「驻守墙段槽位」不归 `UnitAction`**——于是战术动作枚举
+一个字不动，CLAUDE.md「没有兵种专属动作」得以保住。（它曾经归 `Command`
+的 `Garrison`；2026-09 编队移除后改为独立的登墙意愿通道
+`World::submit_garrison_wishes`——逐单位、每拍重发、与 `submit_actions`
+同序，不进 `Command` 枚举。）
 
 落地时多出一条 #46 带来的后果：**`Command` 同时是守方 RL 决策层的动作空间**，
 因为守方 AI 是人类玩家的替身，其动作空间应当恰好等于玩家能下的指令。
@@ -633,6 +641,10 @@ tmux 命名解决「谁在跑」，解决不了「各占多少核」。
 （`地图与场景设计.md` 第 3 节那个 36 KB / 张的估算要按档数重算）。
 
 ### 5.2 「调哪一支部队」
+
+**【2026-09 起作废】编队系统已整体移除，不存在「调兵」动作，本节问题随之
+消解（守方决策层动作空间 = 纯宏观命令，见 `守方AI与协同演化.md` 第 3 节
+的作废注记）。** 以下原文保留作决策史。
 
 甲 = 加第三个动作头「编队 index」；乙 = 复用目标头，两步动作。倾向乙。
 `rts/command.hpp` 对两者都成立（`MoveForce` 自带 `force` 字段 / `SelectForce`）。

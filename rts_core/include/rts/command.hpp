@@ -68,11 +68,6 @@ enum class CommandKind : std::uint8_t {
     Train,        // what = UnitType；在 slot 指定的兵营（Barrack）出兵
     Summon,       // 提前召唤下一波。CLAUDE.md 明写「必须提供」，附奖励
 
-    // ——守方：部队——
-    SelectForce,  // force = 编队；两步动作的第一步（见下面「调哪一支」）
-    MoveForce,    // force = 编队；slot = 去处
-    Garrison,     // force = 编队；slot = 墙段槽位。上墙，代价是机动性
-
     // ——攻方：宏观（一波一次，bandit 尺度）——
     Composition,  // what = UnitType；param = 该兵种占的编成位数
     PickSpawn,    // slot = 集结点 index；可对多个集结点各下一条 = 分兵佯攻
@@ -82,49 +77,39 @@ enum class CommandKind : std::uint8_t {
 
     // ——守方：建筑升级。**同理该排在 `Repair` 旁边，追加在末尾是同一条纪律**——
     Upgrade,      // slot = 槽位；`Keep` 不受 `building_level_cap()` 约束
-
-    // ——守方：兵种等级上限第二半（第一半是 `Train` 借 `level` 字段表达，
-    // 不需要新命令）。同样只能追加在末尾——
-    UpgradeForce, // force = 编队；slot = Barrack/Keep 槽位；把该编队里在场
-                  // 且未顶 `unit_level_cap()` 的活着单位各升一级，取差价
 };
 
-inline constexpr int kCommandKindCount = 14;
+inline constexpr int kCommandKindCount = 10;
 
-static_assert(static_cast<int>(CommandKind::UpgradeForce) == kCommandKindCount - 1);
+static_assert(static_cast<int>(CommandKind::Upgrade) == kCommandKindCount - 1);
 
 // **枚举值就是回放的线路编码，所以新增一律追加在末尾，不按语义分组插入。**
 //
 // `Clear` 是守方的建造/经济类命令，读起来该跟在 `Cancel` 后面。但插在那里会让
 // `Train`..`PickSpawn` 全部后移一位，于是**旧回放里那些字节会被重新解释成别的命令**
-// ——`Garrison` 变 `Composition` 之类。那种失效不报错，只是回放出一局不同的仗。
+// ——`Clear` 变 `Composition` 之类。那种失效不报错，只是回放出一局不同的仗。
 //
 // 追加则只有一个后果：旧回放里不会出现 `Clear`，而它本来也不会出现。
 //
 // 附带受影响的还有 `command_mask()` 的位序（`train/` 那侧读它），追加同样让旧的
 // 11 个位不动。**下一个加命令的人照此办理：往末尾加，并把这段注释留着。**
 //
+// **这条纪律有过一次例外，值得记在这里**：编队系统整体移除时（2026-09），
+// `SelectForce` / `MoveForce` / `Garrison` / `UpgradeForce` 四个枚举被**删除**，
+// 其后的枚举值前移——线路编码当场全变。那次能这么做，是因为哈希口径同时进格
+// （`World/11` → `World/12`）、全部已录回放本来就要重录；「删枚举」与「改口径」
+// 必须绑在同一次提交里，否则旧回放的字节会被静默重解释。
+//
 // `Clear` 是玩家级命令而不是战术动作（没有 `UnitAction::AtkObst`），
 // 理由见 CLAUDE.md「RL 设计决策」那两条：攻方不需要它（寻路已把障碍当高代价可通行，
 // 撞上去自动破坏），而守方清野是波次间的决策、不是逐 tick 微操。
-// 这与「驻守墙段归玩家级命令」完全同构。
 
-// 「调哪一支部队」这个维度**尚未定**，两个候选见 `守方AI与协同演化.md` 第 3 节：
-// 甲 = 加第三个动作头「编队 index」；乙 = 复用目标头，先选编队再选去处（两步）。
-// 该文倾向乙，理由是「决策层本就是短序列」且不引入新的待定数值。
+// 「无槽位」哨兵。
 //
-// **本文件对两者都成立**：`SelectForce` 让乙可行，`MoveForce` 自带 `force` 字段
-// 让甲可行。所以这条待定不阻塞契约——但等它定了，**其中一条会变成死代码**，
-// 到时候该删掉，别让两条都留着（两条并存意味着同一件事有两种表达，
-// 而回放里出现哪一种取决于是谁录的）。
-
-// 槽位与编队的「无」。
-//
-// 用 0xFFFF / 0xFF 而不是 0：0 是一个合法的槽位下标，拿它当哨兵会让
+// 用 0xFFFF 而不是 0：0 是一个合法的槽位下标，拿它当哨兵会让
 // 「没指定槽位」与「指定了第 0 个槽位」不可区分——而第 0 个槽位在地图文件里
 // 是真实存在的一个。
 inline constexpr std::uint16_t kNoSlot = 0xFFFFu;
-inline constexpr std::uint8_t kNoForce = 0xFFu;
 
 // 一条命令。
 //
@@ -139,20 +124,18 @@ inline constexpr std::uint8_t kNoForce = 0xFFu;
 // 不要直接读 `what`。
 //
 // **`level`（兵种等级上限落地时追加）只有 `Train` 读**——征兵时选等级，
-// 1..`unit_level_cap()` 任选。`_reserved0` 不是笔误：五个 uint8 字段合计
-// 5 字节，加上 `slot` 的 2 字节是 7，不是 2 的整数倍，编译器会在结构体末尾
-// 插一个内容不确定的填充字节——正是上一段要挡的那种。补一个显式、恒为 0
+// 1..`unit_level_cap()` 任选。`_reserved` 不是笔误：四个 uint8 字段合计
+// 4 字节，加上 `slot` 的 2 字节是 6，不是 2 的整数倍，编译器会在结构体末尾
+// 插内容不确定的填充字节——正是上一段要挡的那种。补两个显式、恒为 0
 // 的字段把总字节数凑回 8（2 的整数倍），于是「有没有填充」不再取决于
-// 编译器的选择，是结构体自己保证的。它目前没有语义，留给下一个需要一个
-// 字节的命令字段用（比如「调兵」那个待定项，见 `守方AI与协同演化.md`）。
+// 编译器的选择，是结构体自己保证的。
 struct Command {
     std::uint16_t slot = kNoSlot;
     CommandKind   kind = CommandKind::None;
     Side          side = Side::Defender;
     std::uint8_t  what = 0;
-    std::uint8_t  force = kNoForce;
     std::uint8_t  level = kMinUnitLevel;
-    std::uint8_t  _reserved0 = 0;
+    std::uint8_t  _reserved[2] = {0, 0};
 
     friend constexpr bool operator==(Command, Command) noexcept = default;
 
@@ -169,8 +152,7 @@ struct Command {
 
 // `param` 只有 `Composition` 用（该兵种占多少编成位），而它需要的位宽超过 uint8
 // 吗？不需要：编成位**硬性封顶约 40**（CLAUDE.md，且那是结构约束不是数值），
-// 所以 uint8 有充足余量。复用 `force` 字段承载它会更省，但那样两个语义共享一个
-// 名字叫 `force` 的字段，读代码时会以为编队和配比有关系——所以不复用。
+// 所以 uint16 有充足余量。
 //
 // 于是 `Composition` 的权重放在 `slot` 里（uint16，肯定够），而它不用槽位。
 // 这一处「字段换用途」写在这里而不是靠注释散落：
@@ -201,12 +183,8 @@ constexpr Side owner_of(CommandKind k) noexcept {
         case CommandKind::Cancel:
         case CommandKind::Train:
         case CommandKind::Summon:
-        case CommandKind::SelectForce:
-        case CommandKind::MoveForce:
-        case CommandKind::Garrison:
         case CommandKind::Clear:
         case CommandKind::Upgrade:
-        case CommandKind::UpgradeForce:
             return Side::Defender;
     }
     return Side::Defender;
@@ -226,14 +204,10 @@ constexpr std::string_view ident_of(CommandKind k) noexcept {
         case CommandKind::Cancel:      return "Cancel";
         case CommandKind::Train:       return "Train";
         case CommandKind::Summon:      return "Summon";
-        case CommandKind::SelectForce: return "SelectForce";
-        case CommandKind::MoveForce:   return "MoveForce";
-        case CommandKind::Garrison:    return "Garrison";
         case CommandKind::Composition: return "Composition";
         case CommandKind::PickSpawn:   return "PickSpawn";
         case CommandKind::Clear:       return "Clear";
         case CommandKind::Upgrade:     return "Upgrade";
-        case CommandKind::UpgradeForce: return "UpgradeForce";
     }
     return {};
 }
