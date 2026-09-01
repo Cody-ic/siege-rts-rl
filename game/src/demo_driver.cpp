@@ -1,5 +1,7 @@
 #include "game/demo_driver.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 
 #include "game/world_builder.hpp"
@@ -62,11 +64,12 @@ rts::WorldInit demo_init(const MapData& map, const rts::StatsTable& stats,
     return init;
 }
 
-// ——波次循环的占位常量（演示定数，无平衡含义）——
+// ——波次循环的常量——
 //
-// 建造阶段时长与编成曲线都是**占位**：正式形态里前者是待标定数值、
-// 后者由攻方宏观层按双预算决定（编成位线性封顶 / 兵力超线性）。
-// 这里只求循环的形状对：波数涨、编成随之变厚、等级随波缓涨。
+// 建造阶段时长仍是**占位**（待标定数值）；编成曲线自 2026-09-01 起不再是
+// 「随波缓涨的占位混编」，而是双预算的 v1（见下面 wave_slots/wave_level）——
+// 正式形态里编成由攻方宏观层按同一对预算**决策**，这里是它的无决策退化：
+// 比例固定、预算全花。
 //
 // 2026-08-31 试玩反馈：波次节奏太紧，且第 1 波来得太快、玩家还没看清初始
 // 布局。原先两处（首波前的建造倒计时、清波后到下一波的建造倒计时）共用同
@@ -76,8 +79,65 @@ rts::WorldInit demo_init(const MapData& map, const rts::StatsTable& stats,
 constexpr int kBuildTicksPlaceholder = 260;        // 13 秒 @ 20 Hz（原 8s，波次间隔 +5s）
 constexpr int kFirstBuildTicksPlaceholder = 360;   // 18 秒 @ 20 Hz（原 8s，首波延后 10s）
 
-std::int32_t wave_level(int wave) {
-    return 1 + (wave - 1) / 3;   // 占位：每三波涨一级
+// ——攻方双预算（2026-09-01 试玩反馈「20 分钟后玩家显著强过敌人」的修复）——
+//
+// 旧占位曲线的编成在第 12 波彻底封顶（8 Ghoul + 4 Shade + 1 Knight + 4 Ram +
+// 1 Phoenix = 18 个），等级每 3 波才 +1 ⇒ 攻方战力此后近乎停涨，而守方收入是
+// 恒定流量、复利无对手——交叉点恰落在 20 分钟上下。换成
+// 《波次预算曲线与堡垒等级曲线.md》§1 的双预算：
+//
+//   编成位(w)   = 6 + 1.2·(w−1)              线性；**硬顶暂不设**，见下
+//   兵力预算(w) = 6 · w^1.25                  超线性，无上限
+//
+// α 取 1.25，不是文档最初写的 1.6——1.6 在低波段太陡（第 3 波人均战力已是
+// 首波的 4.3 倍，玩家还没起经济就被数值碾过去），而结构要求只是 α > 1。
+// 1.25 下第 10 波总战力约为旧占位曲线停涨值的 3 倍多、且此后持续增长，
+// 对准的正是「20 分钟后玩家反超」那个病灶。
+//
+// **编成位的硬顶撤下了（2026-09-01 用户定版）**：40 是随手标的，RL 实际能
+// 支持多少单位没人测过——CLAUDE.md 引的文献只说明「存在一个不大的可训练
+// 区间」，没给出本项目的那个数，demo 不该钉一个假数。撤下它**不改难度曲线**：
+// 名义等级按预算反解，总战力 ≡ 兵力预算，上限只改「人数 × 等级」的分配；
+// 等 `bindings/`+`train/` 实测出可训练规模后再把硬顶接回来（接回时也只改
+// 分配）。「必须有硬上限」这一结构主张本身没撤，撤的是没有依据的取值。
+//
+// 系数与 `tools/balance/budget_curves.py` 的 PLACEHOLDER 同源（那边是模型与
+// 结构检查，这边是唯一的消费者；调系数两处一起改）。两条是结构、不是旋钮：
+//
+//   * **兵力预算超线性（α > 1）**——「城内保底收入线性、波次强度超线性」
+//     那个拐点的存在性靠它；守方收入率有上界（资源点有限），所以交叉必然
+//     发生且不可逆，这正是「无尽模式必败、看中位存活波数」的形状
+//   * **名义等级由 cost ∝ 战力 反解**（L = 1 + (预算/编成位 − 1)/k，k 读
+//     数值表的等级系数），**不是「预算 ÷ 编成位」**——战力 = 1 + k(L−1)
+//     是仿射而非过原点的线性，直接除会让攻方总战力随波数次比例增长，
+//     推导见 budget_curves.py 文件头「结构结论一/二」。
+constexpr double kSlotsBase = 6.0;
+constexpr double kSlotsPerWave = 1.2;
+constexpr double kPowerBase = 6.0;
+constexpr double kPowerAlpha = 1.25;
+
+int wave_slots(int wave) {
+    const double s = kSlotsBase + kSlotsPerWave * static_cast<double>(wave - 1);
+    return static_cast<int>(s);
+}
+
+std::int32_t wave_level(int wave, const rts::StatsTable& stats) {
+    // k 从数值表读（hp 与 dmg 两个系数相等由 StatsLoader 拦，取哪个都一样），
+    // 不在这里抄一份 0.22——机制里不许藏数，那条纪律对 demo 曲线同样适用。
+    const double k =
+        static_cast<double>(stats.global.hp_permille_per_level) / 1000.0;
+    if (k <= 0.0) return 1;
+    const double budget =
+        kPowerBase * std::pow(static_cast<double>(wave), kPowerAlpha);
+    const double per_unit = budget / static_cast<double>(wave_slots(wave));
+    // 除以第 1 波的人均预算（budget_curves.py 的 `base`）：把「1 级单位值多少
+    // 预算」锚定在第 1 波 ⇒ L(1) = 1 由构造成立。当前系数下 base 恰是 1，
+    // 但省略它的话「同源」就是假的——改 kPowerBase/kSlotsBase 时这里会静默
+    // 丢掉那个锚点，而 Python 那边不会。
+    const double base = kPowerBase / kSlotsBase;
+    const double level = 1.0 + (per_unit / base - 1.0) / k;
+    if (level < 1.0) return 1;
+    return static_cast<std::int32_t>(level + 0.5);
 }
 
 }  // namespace
@@ -96,7 +156,8 @@ DemoBattle::DemoBattle(const MapData& map, const rts::StatsTable& stats,
     issue_actions();
 }
 
-// 本波编成（占位曲线）：随波数缓涨的混编，轮流摆在各集结点周围。
+// 本波编成（双预算曲线，见上面 wave_slots/wave_level）：编成位定人数、
+// 兵力预算经名义等级定质量，轮流摆在各集结点周围。
 // 骑士走开阔走廊一路直线 = 满动量冲锋（第四批）——首击明显重于互殴，正是要看的。
 void DemoBattle::spawn_wave() {
     const auto& spawns = w_.spawns();
@@ -105,30 +166,38 @@ void DemoBattle::spawn_wave() {
     const std::int32_t lv = w_.nominal_level();
     const rts::StatsTable& stats = w_.stats();
 
-    // 由易到难：`Ghoul`（肉盾）从第 1 波起就是主力，其余按威胁强度依次推后
-    // 才第一次出场——第 1 波只应付基础压力，不必同时应付压制与破墙
-    // （2026-08-31 试玩反馈：不能一开局就刷 `Ram` 这种攻城单位）。`Knight`/
-    // `Phoenix` 原来就是这个节奏（wave>=2/wave>=3 才出现），这次只是把
-    // `Shade`（中程压制）与 `Ram`（攻城，本作单件威胁最高）也接上同一条曲线，
-    // 而不是像原来那样从第 1 波就以 `1 + wave/3`（wave=1 时已经是 1）出场。
+    // 编成：把本波编成位**填满**（旧曲线各兵种各自封顶、总数钉死在 18，
+    // 正是「攻方战力躺平」的另一半根因）。比例是占位（Shade 2 成 / Knight
+    // 1.5 成 / Ram 1 成 / 余量全是 Ghoul），出场门槛沿用「由易到难」那条
+    // 试玩结论：第 1 波只有 Ghoul（有测试钉着），Shade/Knight 第 2 波起、
+    // Ram/Phoenix 第 3 波起。`Phoenix` 恒 1——「硬性数量上限」是结构
+    // （CLAUDE.md「空中单位」），上限随波缓慢放开是后话，这里先取最小值；
+    // 注意它与编成位那个撤下的硬顶不是一回事，这条不随之松动。
+    const int slots = wave_slots(wave);
+    const int shades = wave >= 2 ? std::max(1, slots / 5) : 0;
+    const int knights = wave >= 2 ? std::max(1, slots * 3 / 20) : 0;
+    const int rams = wave >= 3 ? std::max(1, slots / 10) : 0;
+    const int phoenixes = wave >= 3 ? 1 : 0;
+    const int ghouls = std::max(1, slots - shades - knights - rams - phoenixes);
     std::vector<rts::UnitType> roster;
-    const int ghouls = wave + 2 > 8 ? 8 : wave + 2;
+    roster.reserve(static_cast<std::size_t>(ghouls + shades + knights + rams + phoenixes));
     for (int k = 0; k < ghouls; ++k) roster.push_back(rts::UnitType::Ghoul);
-    if (wave >= 2) {
-        const int shades = 1 + (wave - 2) / 2 > 4 ? 4 : 1 + (wave - 2) / 2;
-        for (int k = 0; k < shades; ++k) roster.push_back(rts::UnitType::Shade);
-    }
-    if (wave >= 2) roster.push_back(rts::UnitType::Knight);
-    if (wave >= 3) {
-        const int rams = 1 + (wave - 3) / 3 > 4 ? 4 : 1 + (wave - 3) / 3;
-        for (int k = 0; k < rams; ++k) roster.push_back(rts::UnitType::Ram);
-    }
-    if (wave >= 3) roster.push_back(rts::UnitType::Phoenix);
+    for (int k = 0; k < shades; ++k) roster.push_back(rts::UnitType::Shade);
+    for (int k = 0; k < knights; ++k) roster.push_back(rts::UnitType::Knight);
+    for (int k = 0; k < rams; ++k) roster.push_back(rts::UnitType::Ram);
+    for (int k = 0; k < phoenixes; ++k) roster.push_back(rts::UnitType::Phoenix);
 
     // 固定的落位偏移环（不掷点：demo 的确定性不该依赖「生成时的随机散布」）。
-    constexpr float kOff[][2] = {{0.0f, 0.0f},  {1.0f, 0.0f},  {-1.0f, 0.0f},
-                                 {0.0f, 1.0f},  {0.0f, -1.0f}, {1.0f, 1.0f},
-                                 {-1.0f, -1.0f}, {1.0f, -1.0f}, {-1.0f, 1.0f}};
+    // 5×5、由内向外——编成位撤掉硬顶后单波会超过「集结点数 × 9」，原来的
+    // 3×3 环在高波次会让后来者与先来者叠在同一坐标上生成。
+    constexpr float kOff[][2] = {
+        {0.0f, 0.0f},   {1.0f, 0.0f},   {-1.0f, 0.0f},  {0.0f, 1.0f},
+        {0.0f, -1.0f},  {1.0f, 1.0f},   {-1.0f, -1.0f}, {1.0f, -1.0f},
+        {-1.0f, 1.0f},  {2.0f, 0.0f},   {-2.0f, 0.0f},  {0.0f, 2.0f},
+        {0.0f, -2.0f},  {2.0f, 1.0f},   {-2.0f, -1.0f}, {2.0f, -1.0f},
+        {-2.0f, 1.0f},  {1.0f, 2.0f},   {-1.0f, -2.0f}, {1.0f, -2.0f},
+        {-1.0f, 2.0f},  {2.0f, 2.0f},   {-2.0f, -2.0f}, {2.0f, -2.0f},
+        {-2.0f, 2.0f}};
     constexpr std::size_t kOffCount = sizeof(kOff) / sizeof(kOff[0]);
     for (std::size_t n = 0; n < roster.size(); ++n) {
         const rts::Vec2 c = rts::center_of(spawns[n % spawns.size()].pos);
@@ -202,10 +271,53 @@ void DemoBattle::issue_actions() {
     w_.enumerate_units(rts::Side::Attacker, ids_);
     acts_.clear();
     acts_.reserve(ids_.size());
+    const rts::WorldView av = w_.view(rts::Side::Attacker);
+    // 最近的非墙建筑是不是 Keep——镜像 mechanics 的 AtkBld 选择（全场最近者；
+    // 掩码位亮着就保证它在射程内，因为「有一座在射程内」蕴含「最近那座在
+    // 射程内」）。Phoenix 用它绕开 Keep，理由见下。
+    const auto nearest_bld_is_keep = [&](rts::Vec2 p) {
+        bool found = false;
+        bool keep = false;
+        float best = 0.0f;
+        for (std::size_t b = 0; b < av.bld_type().size(); ++b) {
+            if (!av.bld_alive()[b]) continue;
+            const rts::BldType t = av.bld_type()[b];
+            if (t == rts::BldType::Wall || t == rts::BldType::Gate) continue;
+            const rts::Vec2 c = rts::center_of(av.bld_pos()[b]);
+            const float dx = c.x - p.x;
+            const float dy = c.y - p.y;
+            const float d2 = dx * dx + dy * dy;
+            if (!found || d2 < best) {
+                found = true;
+                best = d2;
+                keep = (t == rts::BldType::Keep);
+            }
+        }
+        return found && keep;
+    };
     for (const rts::UnitId id : ids_) {
         const std::uint16_t mask = w_.action_mask(id);
         rts::UnitAction a = rts::UnitAction::Stop;
-        if (has(mask, rts::UnitAction::AtkNear)) {
+        if (w_.unit_type(id) == rts::UnitType::Phoenix) {
+            // Phoenix 单走一档（2026-09-01 试玩反馈：它原先与步兵同一套
+            // 「AtkNear 否则奔堡垒」，于是径直飞进墙上弓手的火网、到了堡垒
+            // 又因为射程内没有单位而干悬着——「手术刀」全程没切过一刀）：
+            // 优先点杀射程内最脆的单位（AtkWeak，工匠/斥候先遭殃），其次
+            // 俯冲最近的非墙建筑（AtkBld，点杀防御塔是设计明写的用途）。
+            // **最近那座是 Keep 就不发**：CLAUDE.md「空中单位」明写它无法
+            // 攻击核心建筑，而机制侧的 AtkBld 目前不区分 Keep（demo 从前
+            // 不发 AtkBld，这条差异一直休眠）——demo 不该示范一个违反设计
+            // 契约的行为，先在脚本侧绕开；机制侧要不要把 Keep 排除出
+            // AtkBld，留给团队定。
+            if (has(mask, rts::UnitAction::AtkWeak)) {
+                a = rts::UnitAction::AtkWeak;
+            } else if (has(mask, rts::UnitAction::AtkBld) &&
+                       !nearest_bld_is_keep(w_.unit_pos(id))) {
+                a = rts::UnitAction::AtkBld;
+            } else {
+                a = flow_step(id);
+            }
+        } else if (has(mask, rts::UnitAction::AtkNear)) {
             a = rts::UnitAction::AtkNear;
         } else if (w_.unit_type(id) == rts::UnitType::Ram &&
                    has(mask, rts::UnitAction::AtkWall)) {
@@ -237,7 +349,7 @@ void DemoBattle::update(int ticks) {
                 since_decision_ = 0;
             } else if (w_.live_unit_count(rts::Side::Attacker) == 0) {
                 // 本波打完（消耗殆尽也算，突破与否不改变循环）：进下一波建造。
-                w_.begin_next_wave(wave_level(w_.wave() + 1));
+                w_.begin_next_wave(wave_level(w_.wave() + 1, w_.stats()));
                 build_left_ = kBuildTicksPlaceholder;
                 wave_spawned_ = false;
             }
