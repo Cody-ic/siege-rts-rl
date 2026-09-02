@@ -140,7 +140,8 @@ rts::WorldInit demo_init(const MapData& map, const rts::StatsTable& stats,
         init.buildings.push_back(rts::BldInit{rts::BldType::Flak, *flak_at, hp, hp});
     }
 
-    // 攻方不在这里：波次循环生效后每波在建造阶段结束时生成（spawn_wave）。
+    // 攻方不在这里：波次循环生效后每波在**建造阶段一开始**生成（集结期，
+    // 见 update() 顶部那段），不是开局摆好。
     return init;
 }
 
@@ -231,8 +232,14 @@ DemoBattle::DemoBattle(const MapData& map, const rts::StatsTable& stats,
     // 石木全零的话 Build 永远被解算拒绝，「建造放置」就没法演示。
     w_.set_stock(rts::Resource::Stone, 120);
     w_.set_stock(rts::Resource::Wood, 120);
-    // 从建造阶段开始（World 的初始 phase 就是 Build）：倒计时走完才生波。
+    // 从建造阶段开始（World 的初始 phase 就是 Build）。**集结期**（2026-09-02，
+    // 《地图生成器大改方案.md》§4 第一行）：首波在建造阶段**一开始**就在集结点
+    // 生成、待命到开打——不再挂在进攻阶段的第一拍。三件事由此才成立：
+    // 建造阶段有可侦查的对象（`Wraith` 的活就在这段时间干）、HUD「攻方 N」不再
+    // 建造期恒 0、免费方向提示给得出**行军之前**的调兵窗口（实力模型 §4 的那条
+    // 唯一大杠杆——弓手集中——没有这个窗口就跨不过半圈）。
     build_left_ = kFirstBuildTicksPlaceholder;
+    spawn_wave();
     issue_actions();
 }
 
@@ -418,15 +425,26 @@ void DemoBattle::issue_actions() {
 
     // ——`Wraith` 的两个判据，逐拍算一次，不逐单位重算——
     //
-    // 一、**本波侦查到手了没有**：攻方迷雾里已经看见过任意一座守方建筑。
+    // 一、**本波侦查到手了没有**：攻方迷雾里已经看见过任意一座**防御布局建筑**
+    //     （塔 / 防空 / 堡垒）。2026-09-02 起**墙与门不算**（《地图生成器大改方案.md》
+    //     §4：城墙在哪是免费信息——地形不过迷雾，墙环开局就看得见，「看见任意
+    //     建筑就撤」等于在城外瞟一眼就回家，从来没侦查过）；资源建筑也不算
+    //     （那是经济情报，不是布局）。要看见塔/防空/堡垒就得压到城圈附近——
+    //     配合速度压到 0.12（见数值表 `_note`），它因此**真的能被追上**。
     //     用建筑数组而不是逐格扫 144×144 的迷雾图；条件在一波之内基本是单调的
     //     （格子一旦看过就不回到 `Unseen`），所以不会在边界上来回抖。
     if (!wave_scouted_) {
         const auto b_alive = av.bld_alive();
         const auto b_pos = av.bld_pos();
+        const auto b_type = av.bld_type();
         const rts::FogLayer& af = av.fog();
         for (std::size_t b = 0; b < b_alive.size(); ++b) {
             if (b_alive[b] == 0) continue;
+            const rts::BldType t = b_type[b];
+            if (t != rts::BldType::Tower && t != rts::BldType::Flak &&
+                t != rts::BldType::Keep) {
+                continue;
+            }
             const rts::GridPos p = b_pos[b];
             if (af.in_bounds(p.i, p.j) && af.at(p.i, p.j) == rts::Vis::Visible) {
                 wave_scouted_ = true;
@@ -468,6 +486,53 @@ void DemoBattle::issue_actions() {
         }
         return found && keep;
     };
+
+    // ——集结期待命与编队步速线（2026-09-02，《地图生成器大改方案.md》§4）——
+    //
+    // **集结期**：建造阶段里战斗单位在集结点待命（Stop），一个都不动——
+    // 「建造阶段在集结区集结」是 CLAUDE.md 写着的形状，也让免费方向提示在
+    // 行军之前就可用。待命只罩「否则就该 flow 推进」的那一支：有人送到脸上
+    // （AtkNear 掩码亮）照打，`Wraith` 的侦查也照跑（它的活就该在这段干）。
+    const bool muster = (w_.phase() == rts::WavePhase::Build);
+    //
+    // **编队推进**：开打后按**最慢兵种**齐步——到达离散（`Knight` 18 s 到、
+    // `Ram` 61 s 到、一波分三批）是「没有压迫感」那条反馈的成因之一，而
+    // 「等最慢的」正是 RL 阶段期望涌现的行为，占位脚本先把它写出来。
+    // 步速线 = 最慢兵种里**最靠前**的那个到堡垒的距离；比它超前超过
+    // `kFormationSlack` 格的地面战斗单位止步等它（有攻击目标的不等——
+    // 接战优先，那是上面几支的事）。`Phoenix` 单走（空中、自己选目标）、
+    // `Wraith` 单走（上面那一支），都不进步速线。
+    //
+    // **必须是「最靠前」而不能是「最靠后」**（2026-09-02 实测踩过）：取殿后者
+    // 当步速线时，前排停在原地等它，而停下的人**会堵住路**——1 格宽的桥上
+    // 被止步的前排塞死，殿后者永远走不上来，步速线因此永远不前移，全军
+    // 在原地被塔火磨死（败局定格那条测试就是这么红的）。取前锋则死锁解不开
+    // 的那一环不存在：殿后的慢兵永远在走，被挡的快兵在它接近到 slack 以内时
+    // 已经恢复移动、把路让开。
+    constexpr float kFormationSlack = 3.0f;   // 占位：队形松紧，格
+    float pace_dist = -1.0f;
+    {
+        const rts::StatsTable& st = w_.stats();
+        const rts::Vec2 kc = rts::center_of(w_.keep_pos());
+        float slowest = -1.0f;
+        for (const rts::UnitId id : ids_) {
+            const rts::UnitType t = w_.unit_type(id);
+            if (!rts::is_combat(t) || t == rts::UnitType::Phoenix) continue;
+            const float s = st.of(t).speed;
+            if (slowest < 0.0f || s < slowest) slowest = s;
+        }
+        // 同一兵种速度相同（读同一张表），浮点等值比较是精确的。
+        for (const rts::UnitId id : ids_) {
+            const rts::UnitType t = w_.unit_type(id);
+            if (!rts::is_combat(t) || t == rts::UnitType::Phoenix) continue;
+            if (st.of(t).speed != slowest) continue;
+            const rts::Vec2 p = w_.unit_pos(id);
+            const float dx = p.x - kc.x;
+            const float dy = p.y - kc.y;
+            const float d = std::sqrt(dx * dx + dy * dy);
+            if (pace_dist < 0.0f || d < pace_dist) pace_dist = d;
+        }
+    }
     for (const rts::UnitId id : ids_) {
         const std::uint16_t mask = w_.action_mask(id);
         rts::UnitAction a = rts::UnitAction::Stop;
@@ -529,6 +594,20 @@ void DemoBattle::issue_actions() {
         } else if (w_.unit_type(id) == rts::UnitType::Ram &&
                    has(mask, rts::UnitAction::AtkWall)) {
             a = rts::UnitAction::AtkWall;
+        } else if (muster) {
+            // 集结期：待命。能走到这里说明没有任何攻击目标在脸上（上面几支
+            // 先判过了），所以 Stop 是「列队等开打」，不是「挨打不还手」。
+            a = rts::UnitAction::Stop;
+        } else if (pace_dist > 0.0f &&
+                   rts::is_combat(w_.unit_type(id))) {
+            // 编队推进：比步速线超前超过 slack 就止步等后排（理由见上面那段）。
+            const rts::Vec2 p = w_.unit_pos(id);
+            const rts::Vec2 kc = rts::center_of(w_.keep_pos());
+            const float dx = p.x - kc.x;
+            const float dy = p.y - kc.y;
+            const float d = std::sqrt(dx * dx + dy * dy);
+            a = (d < pace_dist - kFormationSlack) ? rts::UnitAction::Stop
+                                                  : flow_step(id);
         } else {
             a = flow_step(id);
         }
@@ -544,23 +623,24 @@ void DemoBattle::update(int ticks) {
             --build_left_;
         } else if (w_.phase() == rts::WavePhase::Build) {
             w_.begin_assault();
+            // 开打这一拍重新下令：集结期待命的全队从 Stop 换成推进。
+            // （玩家的 `Summon` 也会把 phase 掰到 Assault——那条路不经过这里，
+            // 但待命中的单位最多再呆一个决策周期（8 tick）就会拿到新命令，
+            // 不另开一条通道。）
+            issue_actions();
+            since_decision_ = 0;
         }
-        // 生波挂在「进攻阶段且本波还没生」上，而不是「倒计时走完」上——
-        // 玩家的 `Summon`（提前召唤）也会把 phase 掰到 Assault，两条路
-        // 在这里汇合，不需要各生各的波。
-        if (w_.phase() == rts::WavePhase::Assault) {
-            if (!wave_spawned_) {
-                spawn_wave();
-                wave_spawned_ = true;
-                issue_actions();   // 新生成的单位当拍拿到动作，不呆等一个决策周期
-                since_decision_ = 0;
-            } else if (w_.live_unit_count(rts::Side::Attacker) == 0) {
-                // 本波打完（消耗殆尽也算，突破与否不改变循环）：进下一波建造。
-                w_.begin_next_wave(wave_level(w_.wave() + 1, w_.stats()));
-                build_left_ = kBuildTicksPlaceholder;
-                wave_spawned_ = false;
-                wave_scouted_ = false;   // 新的一波要重新侦查（记忆天然过时）
-            }
+        if (w_.phase() == rts::WavePhase::Assault &&
+            w_.live_unit_count(rts::Side::Attacker) == 0) {
+            // 本波打完（消耗殆尽也算，突破与否不改变循环）：进下一波建造，
+            // 且**新一波动即生成**——集结期（见构造函数那段）：建造阶段一开始
+            // 他们就在集结点待命，侦查与方向提示因此有一整个建造阶段可用。
+            w_.begin_next_wave(wave_level(w_.wave() + 1, w_.stats()));
+            build_left_ = kBuildTicksPlaceholder;
+            wave_scouted_ = false;   // 新的一波要重新侦查（记忆天然过时）
+            spawn_wave();
+            issue_actions();   // 新生成的单位当拍拿到动作，不呆等一个决策周期
+            since_decision_ = 0;
         }
         if (since_decision_ >= rts::kDecisionPeriodMax) {
             issue_actions();
