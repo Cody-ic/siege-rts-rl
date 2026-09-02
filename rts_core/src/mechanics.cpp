@@ -1090,17 +1090,28 @@ void World::tick_economy() {
             if (amount <= 0) continue;
             if (is_gatherer(bt)) {
                 bool unlocked = false;
+                ResourceTier tier = ResourceTier::Inner;
                 for (const ResourceSite& r : resources_) {
                     if (r.pos == b_pos_[k] && r.kind == resource_of(bt)) {
                         // 资源点随波数解禁（CLAUDE.md 同名一节）：还没到解禁波，
                         // 建筑盖着也不入账——玩家可以早建，只是白等，不是白建
                         // （占位不冲突，采集建筑的其余用途，比如挡路，仍然成立）。
                         unlocked = wave_ >= r.unlock_wave;
+                        tier = r.tier;
                         break;
                     }
                 }
                 if (!unlocked) continue;
-                stock_[static_cast<std::size_t>(resource_of(bt))] += amount;
+                // 城外资源点产出倍率（2026-09-02，`地图生成器大改方案.md` §4
+                // 第四条）：按踩着的点的 tier 乘 `tier_income_permille_` 对应档。
+                // 记账不走 `apply_permille`——「钳到 >= 1」是伤害规则（见
+                // `world.cpp` 维修那条）；舍入同 `train_ticks_at`：
+                // 加半个分母再除，唯一一次除法、四舍五入。
+                const std::int64_t pm = tier == ResourceTier::Outer
+                                            ? tier_income_permille_.outer
+                                            : tier_income_permille_.inner;
+                stock_[static_cast<std::size_t>(resource_of(bt))] +=
+                    (amount * pm + kPermilleOne / 2) / kPermilleOne;
             } else if (bt == BldType::Keep) {
                 // 兵力地板：`Keep` 恒产极少量金币（CLAUDE.md 单列一节的护栏，
                 // 「三种资源都来自资源点」的唯一有意例外）。数额查表、待标定，

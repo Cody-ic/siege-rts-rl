@@ -81,8 +81,8 @@ rts::WorldInit arena() {
     init.terrain.assign(48, rts::Terrain::Plain);
     init.keep = rts::GridPos{1, 1};
     init.buildings.push_back(rts::BldInit{rts::BldType::Keep, init.keep, 100, 100});
-    init.resources.push_back(
-        rts::ResourceSite{rts::GridPos{5, 2}, rts::Resource::Stone});
+    init.resources.push_back(rts::ResourceSite{rts::GridPos{5, 2}, rts::Resource::Stone,
+                                               1, rts::ResourceTier::Inner});
     init.obstacles.push_back(
         rts::ObstacleInit{rts::ObstacleType::Stump, rts::GridPos{6, 4}, 12, 12});
     init.spawns.push_back(rts::SpawnSite{rts::GridPos{0, 5}});
@@ -259,6 +259,31 @@ TEST_CASE("收入：采集建筑不踩点就一分不产（付账条件是唯一
     w.place_bld(rts::BldType::Quarry, rts::GridPos{3, 3}, 20, 20);
     w.advance(20);
     REQUIRE(stone(w) == 0);
+}
+
+TEST_CASE("收入：城外资源点按 tier 乘产出倍率（outer 占位 1.5×）", "[econ]") {
+    // `WorldInit::tier_income_permille` 默认 Inner=1000 / Outer=1500（占位值，
+    // 2026-09-02）。采石场基数 7：inner = 7×1000/1000 = 7（上面那条用例已钉），
+    // outer = 7×1500/1000 = 10.5 → 11（记账舍入：加半个分母再除，四舍五入，
+    // 同 `train_ticks_at`；不走 `apply_permille` 的「钳到 >= 1」）。
+    rts::WorldInit init = arena();
+    init.resources[0].tier = rts::ResourceTier::Outer;
+    rts::World w(init);
+    w.place_bld(rts::BldType::Quarry, rts::GridPos{5, 2}, 20, 20);
+
+    w.advance(10);
+    REQUIRE(stone(w) == 11);
+    w.advance(10);
+    REQUIRE(stone(w) == 22);
+
+    // 契约面是那个字段而不是这两个数：建局时覆盖倍率，产出跟着变。
+    rts::WorldInit init2 = arena();
+    init2.resources[0].tier = rts::ResourceTier::Outer;
+    init2.tier_income_permille.outer = 2000;
+    rts::World w2(init2);
+    w2.place_bld(rts::BldType::Quarry, rts::GridPos{5, 2}, 20, 20);
+    w2.advance(10);
+    REQUIRE(stone(w2) == 14);
 }
 
 TEST_CASE("收入：资源点随波数解禁——没到波不产，到了波才产", "[econ]") {

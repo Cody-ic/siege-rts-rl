@@ -118,6 +118,18 @@ inline constexpr int kResourceCount = 3;
 
 static_assert(static_cast<int>(Resource::Gold) == kResourceCount - 1);
 
+// 资源点的静态分层：`Inner` 在城内、是保底收入；`Outer` 在墙外、要派兵争夺
+// （CLAUDE.md「资源分布形态」）。
+//
+// **2026-09-02 起它影响仿真**：`World::tick_economy` 付账时按 `ResourceSite::tier`
+// 乘 `WorldInit::tier_income_permille` 的对应档。但它描述的仍是**地图生成时的
+// 静态分层**——「这个点当前在墙内吗」取决于玩家把墙建在哪、墙还剩多少，
+// 那个问题看当前墙况，与本枚举是两回事，不能互相替代。
+//
+// 定义放在花名册这一头，理由与 `Resource` 相同：`game::ResourceTier` 是它的别名
+// （`game/map_data.hpp`），依赖方向只能是 `game` → `rts_core`。
+enum class ResourceTier : std::uint8_t { Inner, Outer };
+
 // ——中立可破坏障碍——
 //
 // 第三类实体，既不是单位也不是建筑（CLAUDE.md 为它单开了一张对照表）。

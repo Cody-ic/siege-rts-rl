@@ -303,9 +303,10 @@ def check_format(doc):
             raise MapFormatError(
                 f"{where}.tier = {tier!r} 不是 {sorted(RESOURCE_TIERS)} 之一")
         _need_pos(_need(r, "pos", list, where=where), f"{where}.pos", size)
-        # **必填、与 `tier` 不相关**（地图与场景设计.md 6.2/10）：`tier` 只是描述、
-        # 不影响仿真；`unlock_wave` 影响仿真（哪一波之后这个点才产出），两者
-        # 不能互相替代。下界 1——`rts::World::wave()` 从 1 起。
+        # **必填、与 `tier` 不相关**（地图与场景设计.md 6.2/10）：两者都影响仿真
+        # 但各管一轴——`unlock_wave` 管哪一波之后才产出，`tier` 管产出倍率
+        # （2026-09-02 起，`rts::WorldInit::tier_income_permille`），不能互相
+        # 替代。下界 1——`rts::World::wave()` 从 1 起。
         wave = _need(r, "unlock_wave", int, where=where)
         if isinstance(wave, bool) or wave < 1:
             raise MapFormatError(

@@ -50,7 +50,10 @@ static_assert(kTerrainCount <= 10,
               "rows 逐字符解码，palette 超过 10 项时下标 >=10 无法用单字符表达");
 
 // `inner` 在城内、是保底收入；`outer` 在墙外、要派兵争夺（CLAUDE.md「资源分布形态」）。
-enum class ResourceTier : std::uint8_t { Inner, Outer };
+// 2026-09-02 起它也是 `rts_core` 枚举的别名（同上面的 `ResourceType`，理由见那段
+// 注释）：tier 进仿真了（产出倍率，`rts::ResourceSite::tier` ×
+// `rts::WorldInit::tier_income_permille`），定义只能有一份。
+using ResourceTier = rts::ResourceTier;
 
 // 2026-08-31：`CorridorKind` 已随「走廊」概念一起删除（组长拍板取缔，
 // `spawns[].corridor` 字段一并废除）。集结点是固定边缘候选点，不带性质标签。
@@ -78,8 +81,9 @@ struct ResourceNode {
     ResourceType type = ResourceType::Stone;
     rts::GridPos pos{};
     ResourceTier tier = ResourceTier::Inner;
-    // **影响仿真，随 `make_world_init` 传进 `rts::ResourceSite::unlock_wave`**
-    // ——与 `tier` 不同，`tier` 到此为止（见 `world_builder.cpp` 的注释）。
+    // **影响仿真，随 `make_world_init` 传进 `rts::ResourceSite::unlock_wave`**。
+    // 2026-09-02 起 `tier` 也进仿真（产出倍率）——两字段仍是两条不相关的轴：
+    // 一个管什么时候开始产，一个管产多少（见 `world_builder.cpp` 的注释）。
     // 地图文件里的字段名同名（`地图与场景设计.md` 6.2），必填、下界 1。
     int unlock_wave = 1;
 };
