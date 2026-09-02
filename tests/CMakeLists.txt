@@ -275,6 +275,17 @@ if(Python3_FOUND)
              COMMAND "${Python3_EXECUTABLE}"
                      "${CMAKE_SOURCE_DIR}/tools/map_gen/selftest.py")
 
+    # **§7 校准 runner 的冒烟（2026-09-02）。** 跑真实二进制：一张池图、一个种子、
+    # 2 波上限、6000 tick 上限，Python 检查器钉住「输出格式与关键字段」
+    # （不钉数值——数值随标定变）。不跑全量 20 波，全量是本地开发时手动跑的活。
+    # 与上面各条同一原则：这条挂的是**真实 CLI 路径**，不是进程内复刻。
+    add_test(NAME calibration_runner_smoke
+             COMMAND "${Python3_EXECUTABLE}"
+                     "${CMAKE_SOURCE_DIR}/tools/calibration_runner/check_smoke.py"
+                     "$<TARGET_FILE:calibration_runner>"
+                     "${GAME_DATA_DIR}/maps/pool"
+                     "${CMAKE_CURRENT_BINARY_DIR}/calibration_smoke.json")
+
     # 校验器的「一张地图都没读到必须红」。与上面那条 determinism 探针同一道钉子：
     # 「目录改名后校验器什么都没校验却全绿」正是要防的那种失败。
     set(_map_empty_probe "${CMAKE_CURRENT_BINARY_DIR}/map_gen_empty_probe")

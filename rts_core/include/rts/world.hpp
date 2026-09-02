@@ -658,6 +658,24 @@ public:
     // 在飞的弹丸数。弹丸数组**不含空槽**（每 tick 稳定压实），所以是 size。
     int live_proj_count() const noexcept { return static_cast<int>(p_pos_.size()); }
 
+    // ——校准诊断：齐射命中日志（2026-09-02，tools/calibration_runner 的埋点）——
+    //
+    // 每次齐射弹丸（`TgtKind::None`）落地，按「圈内实际挨打的地面单位数」
+    // （miss 过滤之后）追加一行。消费者是 §7 校准 runner（`攻守实力模型与
+    // 平衡分析.md`）：用「每发 AOE 实际命中数」拟合 §1 的 `aoe_mult`。
+    // 当前只有 `Tower` 会产出齐射弹丸（`Flak` 结构上忽略 AOE），所以这列
+    // 实际就是塔的每发 AOE 命中数。
+    //
+    // **刻意不进 `state_hash`、不进回放**：它是机制的旁观计数器，不是仿真
+    // 状态——任何一条仿真推演都不读它，把它喂进哈希只会让「改了一个纯诊断
+    // 字段」表现为「回放对不上」，把查 bug 的人引向一个不存在的确定性缺陷。
+    // 同「派生缓存不进哈希」那段的判断：它可由输入史重建，喂进去是第二份
+    // 真相来源。代价是回放比对查不出「这列数与当初不同」——可接受，因为它
+    // 由机制决定，机制本身在哈希里。
+    const std::vector<std::int32_t>& volley_hits() const noexcept {
+        return volley_hits_;
+    }
+
     // **一侧活着的单位，按槽位下标升序。这是唯一的规范顺序。**
     //
     // `submit_actions` 按它取动作，观测打包必须按它写行。两处各自遍历一遍
@@ -1036,6 +1054,11 @@ private:
     std::vector<float> p_aoe_;
     std::vector<Side> p_side_;
     std::vector<std::uint8_t> p_src_bld_;
+
+    // ——校准诊断（2026-09-02）——
+    // 齐射命中日志，见公开访问器 `volley_hits()` 那段注释。只增不改，
+    // 不进 `state_hash`。
+    std::vector<std::int32_t> volley_hits_;
 
     // ——资源与宏观——
     std::array<std::int64_t, kResourceCount> stock_{};

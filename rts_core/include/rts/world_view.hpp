@@ -220,6 +220,11 @@ public:
     }
     std::span<const Side> proj_side() const noexcept { return sp(w_->p_side_); }
 
+    // 齐射命中日志（校准诊断，见 `World::volley_hits()` 那段注释）。
+    const std::vector<std::int32_t>& volley_hits() const noexcept {
+        return w_->volley_hits_;
+    }
+
     // 数值表（只读）。脚本执行层与 flow field（rts/flow.hpp）按它算代价——
     // 与机制同一份表、同一对函数（combat_math），不另立公式。
     const StatsTable& stats() const noexcept { return w_->stats(); }
