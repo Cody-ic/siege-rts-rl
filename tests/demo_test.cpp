@@ -6,8 +6,10 @@
 // 同一个深度序列。
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
@@ -66,14 +68,16 @@ TEST_CASE("demo 对局是确定性的，且攻防真的发生了", "[demo]") {
     REQUIRE((casualties || demolition));
 }
 
-TEST_CASE("波次循环：建造 → 生波 → 清波 → 下一波建造", "[demo]") {
+TEST_CASE("波次循环：建造（集结）→ 开打 → 清波 → 下一波建造", "[demo]") {
     const game::MapData map = demo_map();
     const rts::StatsTable stats = demo_stats();
     game::DemoBattle a(map, stats, 7);
 
-    // 建造阶段先行：倒计时没走完，一个攻方单位都不该出现。
+    // **集结期**（2026-09-02，《地图生成器大改方案.md》§4）：建造阶段一开始
+    // 本波就已在集结点生成待命——「倒计时没走完，一个攻方单位都不该出现」
+    // 是集结期之前的形状。建造期有敌军在集结，侦查与方向提示才有对象。
     REQUIRE(a.world().phase() == rts::WavePhase::Build);
-    REQUIRE(a.world().live_unit_count(rts::Side::Attacker) == 0);
+    REQUIRE(a.world().live_unit_count(rts::Side::Attacker) > 0);
 
     a.update(400);   // 占位建造时长 360（首波），越过它
     REQUIRE(a.world().phase() == rts::WavePhase::Assault);
@@ -140,7 +144,8 @@ TEST_CASE("迷雾：集结点上的攻方不进绘制列表，己方与地形照
     const rts::StatsTable stats = demo_stats();
     game::DemoBattle a(map, stats, 7);
 
-    a.update(370);   // 越过首波建造时长 360，刚生波、还没走几步
+    a.update(370);   // 越过首波建造时长 360（集结期：波在 t=0 就生成待命，
+                     // 此刻刚开打、还没走几步）
     REQUIRE(a.world().wave() == 1);
     // 前提：他们**确实存在于世界里**。这一条不能省——少了它，下面那条
     // 「画不出来」在「压根没生出来」的情况下也会通过，是个假绿。
@@ -276,19 +281,20 @@ TEST_CASE("幽影窥使：侦查到手后掉头，不再往堡垒里钻", "[demo
 }
 
 TEST_CASE("提前召唤：建造阶段一条 Summon，倒计时直接作废开打", "[demo]") {
-    // CLAUDE.md：「必须提供『提前召唤下一波』」。生波挂在「进攻阶段的第一拍」
-    // 而不是「倒计时走完」上，Summon 与倒计时两条路在那里汇合——这条测的
-    // 就是汇合真的成立（只走倒计时路径的话，Summon 会召出一个空波）。
+    // CLAUDE.md：「必须提供『提前召唤下一波』」。集结期之后本波**已经在集结点
+    // 待命**，Summon 要做的事因此只剩一件：把 phase 掰到 Assault，让待命中的
+    // 全队提前开打（不再需要「召出一波」——波在建造阶段一开始就生成了）。
     const game::MapData map = demo_map();
     const rts::StatsTable stats = demo_stats();
     game::DemoBattle a(map, stats, 7);
     REQUIRE(a.world().phase() == rts::WavePhase::Build);
+    REQUIRE(a.world().live_unit_count(rts::Side::Attacker) > 0);   // 集结期
 
     rts::Command c;
     c.kind = rts::CommandKind::Summon;
     c.side = rts::Side::Defender;
     a.submit_defender(&c, 1);
-    a.update(2);   // 第 1 tick 排空命令转阶段，第 2 tick 生波
+    a.update(2);   // 第 1 tick 排空命令转阶段
 
     REQUIRE(a.world().phase() == rts::WavePhase::Assault);
     REQUIRE(a.world().live_unit_count(rts::Side::Attacker) > 0);
@@ -558,13 +564,18 @@ TEST_CASE("驻守：开局的三名弓手登上真实的墙，并带上 stand_on
 //
 // 迷雾一开，敌军在画面上消失；CLAUDE.md 的情报划分要求「大致方向」仍是
 // **免费**的（要花钱买的是编成构成与精确分兵），否则玩家就是全盲乱找。
-TEST_CASE("免费方向提示：没生波时不报，生波后指向兵力最多的集结点", "[demo]") {
+TEST_CASE("免费方向提示：建造阶段就报（集结期），指向兵力最多的集结点", "[demo]") {
     const game::MapData map = demo_map();
     const rts::StatsTable stats = demo_stats();
     game::DemoBattle a(map, stats, 7);
 
-    // 建造阶段一个攻方单位都没有 ⇒ 不报方向（而不是报一个假的）。
-    REQUIRE(game::strongest_spawn(a.world().view(rts::Side::Defender)) < 0);
+    // **集结期让方向提示在建造阶段就可用**：本波已在集结点待命，玩家因此有
+    // 整个建造阶段 + 行军时间来调弓手（实力模型 §4：弓手集中是唯一大杠杆，
+    // 没有这个窗口它跨不过半圈）。「没生波时报一个假方向」是集结期之前要
+    // 防的退化；现在要防的是反过来——建造期**不报**。
+    REQUIRE(a.world().phase() == rts::WavePhase::Build);
+    const int lead0 = game::strongest_spawn(a.world().view(rts::Side::Defender));
+    REQUIRE(lead0 >= 0);
 
     a.update(370);
     const rts::WorldView v = a.world().view(rts::Side::Defender);
@@ -739,7 +750,7 @@ TEST_CASE("侦查面板：编成读数与绘制列表逐类对齐（都过同一
         }
     };
 
-    a.update(370);   // 刚生波，全在迷雾里
+    a.update(370);   // 刚开打（集结期：波在建造阶段一开始就生成待命），全在迷雾里
     REQUIRE(a.world().live_unit_count(rts::Side::Attacker) > 0);
     REQUIRE(game::sighted_composition(a.world().view(rts::Side::Defender)).empty());
     compare_at("刚生波（全在迷雾里）");
@@ -822,3 +833,245 @@ TEST_CASE("兵力集中：一路主攻拿大头，不是四面平摊", "[demo]")
     REQUIRE(w2 >= 0);
     REQUIRE(w1 != w2);   // 相邻两波的主攻方向不同
 }
+
+// ——集结期（2026-09-02，《地图生成器大改方案.md》§4 第一行）——
+//
+// 波在**建造阶段一开始**就在集结点生成、待命到开打。此前生波挂在进攻阶段的
+// 第一拍，于是建造阶段没有可侦查的对象、HUD「攻方 N」恒 0、方向提示只在
+// 行军那十几秒里可用——而弓手集中（实力模型 §4 的唯一大杠杆）跨不过半圈。
+TEST_CASE("集结期：建造阶段攻方已在集结点待命，不开打就不推进", "[demo]") {
+    const game::MapData map = demo_map();
+    const rts::StatsTable stats = demo_stats();
+    game::DemoBattle a(map, stats, 7);
+    const rts::Vec2 kc = rts::center_of(a.world().keep_pos());
+
+    const auto combat_dists = [&] {
+        // 每个活着的**地面战斗**攻方单位到堡垒的距离（Wraith 不在内——它的
+        // 活恰恰是在建造期干，见下一条测试）。**必须过滤攻方**：WorldView 是
+        // god 视角，不过滤的话守方弓手登墙的位移也会被算进来（第一版就是
+        // 这么红的）。
+        const rts::WorldView v = a.world().view(rts::Side::Attacker);
+        std::vector<float> out;
+        for (std::size_t k = 0; k < v.unit_alive().size(); ++k) {
+            if (!v.unit_alive()[k]) continue;
+            const rts::UnitType t = v.unit_type()[k];
+            if (rts::side_of(t) != rts::Side::Attacker) continue;
+            if (!rts::is_combat(t) || t == rts::UnitType::Phoenix) continue;
+            const float dx = v.unit_pos()[k].x - kc.x;
+            const float dy = v.unit_pos()[k].y - kc.y;
+            out.push_back(dx * dx + dy * dy);
+        }
+        return out;
+    };
+
+    REQUIRE(a.world().phase() == rts::WavePhase::Build);
+    const std::vector<float> d0 = combat_dists();
+    REQUIRE_FALSE(d0.empty());   // 集结期：t=0 波已在（首波全是 Ghoul）
+
+    a.update(200);   // 仍在建造期（首波 360 tick）
+    REQUIRE(a.world().phase() == rts::WavePhase::Build);
+    const std::vector<float> d1 = combat_dists();
+    REQUIRE(d1.size() == d0.size());   // 待命不是送死：一个都不该少
+    for (std::size_t k = 0; k < d0.size(); ++k) {
+        // 待命 = 不许靠近堡垒（容许浮点尾差，不许有任何实质位移）。
+        REQUIRE(d1[k] >= d0[k] - 1e-3f);
+    }
+
+    // 开打之后他们必须真的动起来——「待命」不能是「石化」。这张图太小，
+    // 40 tick 后前排已经接战减员（实测 t=600 已有 Ghoul 阵亡），所以只判
+    // 「幸存者里有人明显更近了」，不判人数不变。
+    a.update(400);   // 越过 360，开打后又走出 40+ tick
+    REQUIRE(a.world().phase() == rts::WavePhase::Assault);
+    const std::vector<float> d2 = combat_dists();
+    REQUIRE_FALSE(d2.empty());
+    const float lo0 = *std::min_element(d0.begin(), d0.end());
+    const float lo2 = *std::min_element(d2.begin(), d2.end());
+    REQUIRE(lo2 < lo0 - 0.5f);
+}
+
+// 需要「第 2 波 + 大行军距离」的两条测试（Wraith 集结期侦查、编队推进）
+// 共用的夹具：**池图第一张**（D≈55，小图上这两个判据都退化，见各测试注释）
+// **+ Ghoul 血量压成 1**——只为让第 1 波在墙下迅速清完、快进到自己要测的
+// 第 2 波，无任何平衡含义。
+//
+// 为什么不直接用池图原表跑：实测（2026-09-02）第 1 波会剩一个几十血的 Ghoul
+// 摸到堡垒脚下，而守方脚本没有人手猎杀它（枪卫已阵亡、弓手不下墙、游骑只摸
+// 攻城锤），它就在那慢慢磨 2400 血的堡垒，**第 2 波一万多 tick 都不来**——
+// 那是守方脚本的一个既有缺口（与集结期无关，主线上一样存在），这里绕开它。
+game::MapData pool_map_first() {
+    const std::filesystem::path pool =
+        rts::path_from_utf8(std::string(GAME_DATA_DIR) + "/maps/pool");
+    if (!std::filesystem::is_directory(pool)) return demo_map();   // 让它红在下面
+    std::vector<std::filesystem::path> files;
+    for (const auto& e : std::filesystem::directory_iterator(pool)) {
+        if (e.path().extension() == ".json") files.push_back(e.path());
+    }
+    if (files.empty()) return demo_map();
+    std::sort(files.begin(), files.end());
+    return game::MapLoader::from_file(rts::utf8_from_path(files.front()));
+}
+
+rts::StatsTable fragile_ghoul_stats() {
+    rts::StatsTable stats = demo_stats();
+    stats.unit[static_cast<std::size_t>(rts::UnitType::Ghoul)].max_hp = 1;
+    return stats;
+}
+
+// 集结期的另一半：别人待命的时候，`Wraith` 恰恰该在这段离开集结点去侦查
+// （它的判据 2026-09-02 起是「看见塔/防空/堡垒」，看见墙不算——墙在哪是
+// 免费信息）。这条钉「它在建造期真的动身了」。
+//
+// **夹具必须是池图**：demo_skirmish 只有 20×12，`Wraith` 视野 10 ⇒ 它从
+// 集结点出发不到一格就能看见那座 Tower，「动没动身」在那张图上量不出来
+// （实测：走近不到 1.5 格就已侦查到手掉头）。池图上它要走近 30 格才够到
+// 塔的视野圈，判据不会退化。
+TEST_CASE("集结期：Wraith 在建造阶段离开集结点去侦查", "[demo]") {
+    const game::MapData map = pool_map_first();
+    const rts::StatsTable stats = fragile_ghoul_stats();
+    game::DemoBattle a(map, stats, 7);
+    const rts::Vec2 kc = rts::center_of(a.world().keep_pos());
+
+    const auto wraith_d2 = [&]() -> float {
+        const rts::WorldView v = a.world().view(rts::Side::Attacker);
+        for (std::size_t k = 0; k < v.unit_alive().size(); ++k) {
+            if (!v.unit_alive()[k]) continue;
+            if (v.unit_type()[k] != rts::UnitType::Wraith) continue;
+            const float dx = v.unit_pos()[k].x - kc.x;
+            const float dy = v.unit_pos()[k].y - kc.y;
+            return dx * dx + dy * dy;
+        }
+        return -1.0f;
+    };
+
+    // 推进到第 2 波的建造期（Wraith 第 2 波起恒一）。集结期下「第 2 波生成」
+    // 发生在第 1 波清完的那一刻，不是进攻开始时。
+    float d2_spawn = -1.0f;
+    for (int t = 0; t < 20000 && d2_spawn < 0.0f; t += 10) {
+        a.update(10);
+        if (a.world().wave() == 2 &&
+            a.world().phase() == rts::WavePhase::Build) {
+            d2_spawn = wraith_d2();
+        }
+    }
+    REQUIRE(d2_spawn >= 0.0f);
+
+    // 建造期（260 tick）里它要明显离开集结点（0.12 格/tick，满程约 31 格；
+    // 判据取 8 格，把「被自己人卡住没动」与「真的去侦查了」分开）。
+    // 它可能被守军射死——那同样是「动身了」的一种结局。
+    const float d0 = std::sqrt(d2_spawn);
+    bool approached = false;
+    for (int t = 0; t < 260 && !approached; t += 10) {
+        a.update(10);
+        const float d = wraith_d2();
+        if (d < 0.0f) break;                       // 死在路上了
+        if (std::sqrt(d) < d0 - 8.0f) approached = true;
+    }
+    REQUIRE((approached || wraith_d2() < 0.0f));
+}
+
+// ——编队推进（2026-09-02，《地图生成器大改方案.md》§4 第三行）——
+//
+// 开打后按最慢兵种齐步：任一瞬间，地面战斗单位的「到堡垒距离」散布不得超过
+// 出生时的散布 + slack + 决策周期余量。没有编队时这个散布随行军线性放大
+// （`Knight` 0.15 vs `Ram` 0.045，55 格路程能甩开 30 格以上）——那是
+// 「一波分三批到、没有压迫感」的成因。
+//
+// **夹具必须用池图**：demo_skirmish 的集结点离堡垒只有 14 格，最快的单位
+// 几十 tick 就接战，散布还没来得及拉开——判据在它身上恒真（假绿）。池图
+// D≈55 格，无编队时散布必然超限（Knight 0.15 vs Ghoul 0.09，200 tick 就
+// 甩开 12 格）。Ghoul 压成 1 血只为快进掉第 1 波，见上面夹具的注释。
+TEST_CASE("编队推进：行军途中前锋不甩开最慢兵种", "[demo]") {
+    const game::MapData map = pool_map_first();
+    const rts::StatsTable stats = fragile_ghoul_stats();
+    REQUIRE(map.width() > 40);   // 池图没就位（退回小图）时让它红，不假绿
+    game::DemoBattle a(map, stats, 7);
+    const rts::Vec2 kc = rts::center_of(a.world().keep_pos());
+
+    // 地面战斗单位的到堡垒距离的（最小, 最大）。**过滤攻方**（WorldView 是
+    // god 视角，守方的枪卫游骑也在里面）。
+    const auto spread = [&]() -> std::pair<float, float> {
+        const rts::WorldView v = a.world().view(rts::Side::Attacker);
+        float lo = -1.0f, hi = -1.0f;
+        for (std::size_t k = 0; k < v.unit_alive().size(); ++k) {
+            if (!v.unit_alive()[k]) continue;
+            const rts::UnitType t = v.unit_type()[k];
+            if (rts::side_of(t) != rts::Side::Attacker) continue;
+            if (!rts::is_combat(t) || t == rts::UnitType::Phoenix) continue;
+            const float dx = v.unit_pos()[k].x - kc.x;
+            const float dy = v.unit_pos()[k].y - kc.y;
+            const float d = std::sqrt(dx * dx + dy * dy);
+            if (lo < 0.0f || d < lo) lo = d;
+            if (d > hi) hi = d;
+        }
+        return {lo, hi};
+    };
+
+    // 推进到第 2 波开打（第 2 波起编成里同时有 Knight 0.15 与 Ghoul 0.09，
+    // 不编队就会拉开）。记录出生散布做基线（落位环本身有 ±3 格）。
+    float spread0 = -1.0f;
+    for (int t = 0; t < 20000 && spread0 < 0.0f; t += 10) {
+        a.update(10);
+        if (a.world().wave() == 2 &&
+            a.world().phase() == rts::WavePhase::Build) {
+            const auto [lo, hi] = spread();
+            if (lo >= 0.0f) spread0 = hi - lo;
+        }
+    }
+    REQUIRE(spread0 >= 0.0f);
+
+    // 打过开打点，进入行军。全程盯散布——前锋一旦接战（离墙约 25 格内）
+    // 编队就解散（接战优先），所以只盯到那之前。
+    //
+    // **散布按路分别算**（按最近集结点分组），不是全图一刀切：两条路的行军
+    // 长度本来就不同（河可能切断其中一路，绕行 +7–13 格是地图给的、不是
+    // 编队失败），混在一起算会把「佯攻路绕桥」误报成「前锋脱队」。
+    constexpr float kSlack = 3.0f;   // 与 demo_driver.cpp 的 kFormationSlack 同步
+    const auto& spawns = a.world().view(rts::Side::Attacker).spawns();
+    for (int t = 0; t < 4000; t += 10) {
+        a.update(10);
+        if (a.defeated()) break;
+        const rts::WorldView v = a.world().view(rts::Side::Attacker);
+        float lo[8], hi[8];
+        int cnt[8] = {};
+        for (int s = 0; s < 8; ++s) { lo[s] = -1.0f; hi[s] = -1.0f; }
+        int alive_any = 0;
+        float lo_all = -1.0f;
+        for (std::size_t k = 0; k < v.unit_alive().size(); ++k) {
+            if (!v.unit_alive()[k]) continue;
+            const rts::UnitType ty = v.unit_type()[k];
+            if (rts::side_of(ty) != rts::Side::Attacker) continue;
+            if (!rts::is_combat(ty) || ty == rts::UnitType::Phoenix) continue;
+            ++alive_any;
+            const float dx = v.unit_pos()[k].x - kc.x;
+            const float dy = v.unit_pos()[k].y - kc.y;
+            const float d = std::sqrt(dx * dx + dy * dy);
+            if (lo_all < 0.0f || d < lo_all) lo_all = d;
+            std::size_t best = 0;
+            float best_d2 = -1.0f;
+            for (std::size_t s = 0; s < spawns.size(); ++s) {
+                const rts::Vec2 c = rts::center_of(spawns[s].pos);
+                const float sx = c.x - v.unit_pos()[k].x;
+                const float sy = c.y - v.unit_pos()[k].y;
+                const float sd2 = sx * sx + sy * sy;
+                if (best_d2 < 0.0f || sd2 < best_d2) { best_d2 = sd2; best = s; }
+            }
+            if (lo[best] < 0.0f || d < lo[best]) lo[best] = d;
+            if (d > hi[best]) hi[best] = d;
+            ++cnt[best];
+        }
+        if (alive_any == 0) break;         // 本波打完了
+        if (lo_all < 25.0f) break;         // 前锋接近接触线，编队使命完成
+        for (std::size_t s = 0; s < spawns.size() && s < 8; ++s) {
+            if (cnt[s] == 0) continue;
+            CAPTURE(s, cnt[s], lo[s], hi[s], spread0);
+            // 余量 +4.5 的三块来源：决策周期 8 tick 里最快兵种再冲 ~1.2 格、
+            // 队内落位环散布、以及**同一条路内部的绕地形**（flow 绕开林团/
+            // 岩块时欧氏距离暂时分叉，那是路径问题不是脱队）。判据的牙齿在
+            // 行军后段：无编队时 Knight 0.15 vs Ghoul 0.09 在 D≈55 上甩开
+            // 12–14 格，必然超限（已做破坏性验证：去掉止步逻辑后这里红）。
+            REQUIRE(hi[s] - lo[s] <= spread0 + kSlack + 4.5f);
+        }
+    }
+}
+
+

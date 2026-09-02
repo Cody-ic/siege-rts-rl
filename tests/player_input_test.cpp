@@ -568,14 +568,18 @@ TEST_CASE("克制提示：与机制交叉核对，且攻方无孤立节点", "[i
         REQUIRE(stats.of(rts::UnitType::Archer).range > 1.5f);
     }
 
-    SECTION("「Wraith 被任何机动单位猎杀」列的必须真的比它慢不了太多") {
+    SECTION("「Wraith 被任何机动单位猎杀」列的必须真的追得上它") {
         const game::CounterHint c = game::counters_of(rts::UnitType::Wraith);
         REQUIRE_FALSE(c.units.empty());
         const float wraith = stats.of(rts::UnitType::Wraith).speed;
         for (const rts::UnitType u : c.units) {
             CAPTURE(rts::ident_of(u), stats.of(u).speed, wraith);
-            // 追不上就谈不上猎杀。取 0.8 倍留出余量（拦截不必同速）。
-            REQUIRE(stats.of(u).speed >= wraith * 0.8f);
+            // **严格更快**才谈得上猎杀——同速永远追不上。这条判据此前是
+            // `>= speed * 0.8`：Wraith 0.19 vs Ranger 0.16 的时代它绿灯放行
+            // 了「猎杀在数值上不可能」那一整段（实力模型 §10 A 类事实），
+            // 余量余到把判据本身余没了。0.8 那档在「Wraith 0.12、列出的猎手
+            // 都严格更快」之后没有存在的理由。
+            REQUIRE(stats.of(u).speed > wraith);
         }
     }
 }
