@@ -94,6 +94,9 @@ Check.__new__.__defaults__ = (False,)
 # 2026-09-02：25 → 32。《地图生成器大改方案》§3.7 规划了第 26–32 条，
 # 其中 28/29/31 随第 2 步落地，26/27（地形，第 3 步）、30（河桥，第 4 步）、
 # 32（入口分布，第 5 步）先登记为**阻塞**占位——编号从 26 起、不重排。
+# 2026-09-02 第 3/4/5 步：26/27/30/32 全部落地，第 9 条同步解阻塞
+# （正面 = 城圈周长 8R，R 从墙格反推——「城区推不出来」的旧阻塞随
+# 「城圈 = 一整圈 initial_walls 实体」（2026-08-31 重构）消解）。
 SPEC_CHECK_COUNT = 32
 
 # 从 CHECKS 移走的条目：编号 -> 去哪了。见模块 docstring。
@@ -105,7 +108,7 @@ MOVED_TO_GENERATOR = {}
 
 # 从规范废除的条目：编号 -> 为什么。**编号留空不顺延**——顺延会把第 4–24 条
 # 全部重编号，波及 selftest 四十多处断言与两份文档，纯 churn 无收益；
-# 第 9 条阻塞留号的先例证明「表里有洞」是被接受的形态（有注释说明即可）。
+# 第 3/7/20 条废除留号的先例证明「表里有洞」是被接受的形态（有注释说明即可）。
 REMOVED = {
     3: "每种 corridor 恰好出现一次 —— 2026-08-31 组长拍板取缔「走廊」概念"
        "（城外地形完全随机散布，AoE4 式），`spawns[].corridor` 字段随 6.2"
@@ -733,6 +736,46 @@ def _walk_shortest_path(grid, dist, pos):
     return path
 
 
+def _min_path_width(grid, path):
+    """一条路径的「最窄处宽度」（第 27 条与 `route_features` 共用这一个量法）。
+
+    每格分别量水平、垂直两个方向的**可通行连续段长**（含自己，向两侧延伸到
+    不可通行为止），取两者的 min——要过这格，队伍在两个轴向上都得有地方站；
+    再沿整条路径取 min。通行口径是 `ground_passable`（**墙不算阻挡**，5.1：
+    墙是高代价可通行）——隘口量的是地形收窄，不是「哪里要拆墙」。
+
+    对角步不会把 ≥2 宽的口误报成 1：穿越收窄带的斜步，它的两个角格必有
+    一个在口内（口 ≥2 宽）、另一个在带外开阔处，两个都过得了。
+    """
+    def run(x, y, dx, dy):
+        n = 1
+        for sgn in (1, -1):
+            k = sgn
+            while (grid.in_bounds(x + dx * k, y + dy * k)
+                   and grid.ground_passable(x + dx * k, y + dy * k)):
+                n += 1
+                k += sgn
+        return n
+    return min(min(run(x, y, 1, 0), run(x, y, 0, 1)) for x, y in path)
+
+
+def _ring_face_set(cell, keep, r):
+    """环格所属的「面」（north/south/east/west 的集合）——与
+    `generate._ring_faces` **同一规则**：角格同属两个面。"""
+    x, y = cell
+    cx, cy = keep
+    faces = set()
+    if y == cy - r:
+        faces.add("north")
+    if y == cy + r:
+        faces.add("south")
+    if x == cx - r:
+        faces.add("west")
+    if x == cx + r:
+        faces.add("east")
+    return faces
+
+
 def check_cluster_unlock_wave(doc, grid):
     """第 28 条：解禁**按簇**——同簇所有点同 `unlock_wave`；簇解禁序按簇心到
     keep 的切比雪夫距离单调（2026-09-02 大改第 2 步，《方案》§3.3）。
@@ -878,11 +921,27 @@ def check_route_passby(doc, grid, th):
 def route_features(doc, grid):
     """逐集结点的路线特征（《方案》§3.1）：**派生量，进校验报告、不进地图文件**。
 
-    2026-09-02 第 1 步先落两项可算的：最短路长度、沿途 6 格内资源簇数。
-    地形相关项（最窄处宽度 / 路上 `Forest` 遮蔽比例 / 是否过桥）等第 3–5 步的
-    地形落地后再补——键先留好（`None` = 未落地），验收判据（§7：集结点之间
-    至少两项特征有显著差异）届时直接读这份结构。
+    五项：最短路长度、沿途 6 格内资源簇数（第 1 步落地）、最窄处宽度、
+    直线带 `Forest` 遮蔽比例、是否过桥（2026-09-02 第 3/4 步补齐）。
+    验收判据（§7：集结点之间至少两项特征有显著差异）直接读这份结构。
+
+    `forest_cover` 量的是 spawn→keep **直线带**（切比雪夫插值线 + 半宽 2）
+    里 `Forest` 的占比，不是沿最短路量——最短路会主动绕开森林，用它量
+    遮蔽会系统性偏低；而「这条进攻方向的走廊上有多少遮蔽」问的是直线带。
     """
+    def line_band(a, b, half=2):
+        n = gridmod.chebyshev(a, b)
+        cells = set()
+        for i in range(n + 1):
+            t = i / n if n else 0.0
+            cx = round(a[0] + t * (b[0] - a[0]))
+            cy = round(a[1] + t * (b[1] - a[1]))
+            for oy in range(-half, half + 1):
+                for ox in range(-half, half + 1):
+                    if grid.in_bounds(cx + ox, cy + oy):
+                        cells.add((cx + ox, cy + oy))
+        return cells
+
     clusters = _outer_clusters(doc)
     dist = grid.bfs_steps([grid.keep], grid.ground_passable)
     feats = []
@@ -892,10 +951,17 @@ def route_features(doc, grid):
             near = sum(1 for cl in clusters
                        if any(min(gridmod.chebyshev(p, c) for c in path) <= 6
                               for p in cl["points"]))
+            band = line_band(pos, grid.keep)
+            cover = round(sum(1 for x, y in band
+                              if grid.terrain_at(x, y) == "Forest")
+                          / len(band), 3) if band else 0.0
             feats.append({"spawn": pos, "path_len": dist[pos],
                           "clusters_near_path": near,
-                          "min_width": None, "forest_cover": None,
-                          "crosses_bridge": None})
+                          "min_width": _min_path_width(grid, path),
+                          "forest_cover": cover,
+                          "crosses_bridge": any(
+                              grid.terrain_at(x, y) == "Bridge"
+                              for x, y in path)})
         else:
             feats.append({"spawn": pos, "path_len": None,
                           "clusters_near_path": None,
@@ -1023,7 +1089,8 @@ def check_ram_march_fraction(doc, grid, th):
     ## 三个近似，都写明
 
     **1. 「城墙外沿」取最近的墙格。** 严格的「外沿」需要城区（内外之分），
-    而城区推导不出来（见第 9 条）。取最近墙格对本条足够：`Ram` 要拆的就是
+    而城区推导不出来（#29；第 9 条 2026-09-02 起也不再需要它——正面改按
+    城圈周长 8R 反推）。取最近墙格对本条足够：`Ram` 要拆的就是
     离它最近那段墙。
 
     **2. 距离取 8 邻接 BFS 的步数，对角步按 1 格算。** 与 CLAUDE.md 的
@@ -1209,6 +1276,209 @@ def check_forest_cohesion(doc, grid, th):
     return problems
 
 
+def check_defended_front(doc, grid, th):
+    """第 9 条：需人工设防的正面总长 ∈ `[front_length_min, front_length_max]`。
+
+    **2026-09-02 解阻塞（大改第 5 步）。** 旧阻塞（见 git 历史里本条目的
+    BLOCKED 注记）有两条：(a)「正面」的定义依赖城区，而城区从现有字段推
+    不出来（#29 第一条）；(b) 阈值待标定。它们随 2026-08-31 重构消解：
+    **城圈 = 一整圈 `initial_walls` 实体**（切比雪夫方环），「需人工设防的
+    正面」就是这一圈的周长 8R——R 从墙格到 keep 的最大切比雪夫距离反推，
+    不再需要城区。阈值 = 8×[8,10]（§3.5 的 R 区间）。
+
+    查的是「城圈不能大到守不过来、也不能小到贴着堡垒」。没有墙时自动通过
+    ——没有墙就没有要设防的正面（同第 8 条先例）。
+    """
+    if not grid.walls:
+        return []
+    r = max(gridmod.chebyshev(pos, grid.keep) for pos in grid.walls)
+    front = 8 * r
+    lo, hi = th.front_length_min, th.front_length_max
+    if lo <= front <= hi:
+        return []
+    return [f"需人工设防的正面总长 {front} 格（8 × 反推半径 R={r}）不在 "
+            f"[{lo}, {hi}]（profile {th.name}）—— 城圈太大守不过来、"
+            f"太小贴着堡垒（§3.5）"]
+
+
+def check_wild_blocked_fraction(doc, grid, th):
+    """第 26 条：争夺带阻挡率 ∈ `wild_blocked_fraction` 区间（2026-09-02
+    大改第 3 步，《方案》§3.2）。
+
+    **争夺带 = 城圈外 2 格到集结点环（含）**——「城外遭遇战」发生的环带。
+    城圈半径校验器不知道，从墙格到 keep 的最大切比雪夫距离反推（与第 9/32
+    条同一个反推）；阻挡口径沿用 §0：`Forest`+`Rock`+`Water`，`Bridge`
+    不算。阻挡率太低 = 城外一块白板，隘口与遮蔽都无从谈起；太高 = 行军
+    被地形主导，阵容差异被抹平。
+
+    没有墙（没有城圈可言）或带为空（城圈贴着集结点环）时本条无适用对象，
+    自动通过（同第 8/9 条「无墙自动通过」的先例）。
+    """
+    if not grid.walls or not grid.spawns:
+        return []
+    r = max(gridmod.chebyshev(pos, grid.keep) for pos in grid.walls)
+    outer = min(gridmod.chebyshev(pos, grid.keep) for pos in grid.spawns)
+    band = [c for c in grid.all_cells()
+            if r + 2 <= gridmod.chebyshev(c, grid.keep) <= outer]
+    if not band:
+        return []
+    blocked = sum(1 for x, y in band
+                  if grid.terrain_at(x, y) in ("Forest", "Rock", "Water"))
+    frac = blocked / len(band)
+    lo, hi = th.wild_blocked_fraction_min, th.wild_blocked_fraction_max
+    if lo <= frac <= hi:
+        return []
+    return [f"争夺带（城圈外 2 格到集结点环，共 {len(band)} 格）的阻挡率 "
+            f"{frac:.1%} 不在 [{lo:.0%}, {hi:.0%}]（profile {th.name}）—— "
+            f"太低城外是一块白板，太高行军被地形主导（§3.2）"]
+
+
+def check_route_width_classes(doc, grid, th):
+    """第 27 条：每条路线的最窄处 ∈ `route_width_range`（= 隘口）或更宽
+    （= 开阔），且**全图两类路线都有**（2026-09-02 大改第 3 步，§3.2）。
+
+    「哪条路窄」是地图设计语言的一部分：隘口路线给守方一个可读的设防点，
+    开阔路线给攻方一个可读的展开面；全隘口的图攻方展不开，全开阔的图
+    「隘口」这个词不存在。最窄处 < 下界是另一种东西——**1 格缝**：队伍要
+    单列才过得去，作为设防点不成立（§3.2 把它与隘口分开）。
+
+    宽度量法见 `_min_path_width`。集结点走不到 keep 的路线跳过——那归
+    第 4 条管。下界 < 0 = 本档弃用（fixture），直接通过。
+    """
+    lo, hi = th.route_width_range
+    if lo < 0:
+        return []
+    problems = []
+    dist = grid.bfs_steps([grid.keep], grid.ground_passable)
+    classes = set()
+    for pos, s in sorted(grid.spawns.items()):
+        if pos not in dist:
+            continue      # 不通归第 4 条
+        path = _walk_shortest_path(grid, dist, pos)
+        w = _min_path_width(grid, path)
+        if w < lo:
+            problems.append(
+                f"集结点 {list(pos)} 的路线最窄处只有 {w} 格（< {lo}）—— "
+                f"这是 1 格缝不是隘口：队伍要单列才过得去，「隘口」作为设防点"
+                f"不成立（§3.2）")
+        elif w <= hi:
+            classes.add("隘口")
+        else:
+            classes.add("开阔")
+    if not problems and len(classes) < 2:
+        problems.append(
+            f"全图路线只有「{next(iter(classes))}」这一类（最窄处都落在同一侧）"
+            f"—— 「哪条路窄」是地图的一部分：全隘口攻方展不开，全开阔则没有"
+            f"隘口可言，两类都要有（§3.2）")
+    return problems
+
+
+def check_river_bridges(doc, grid, th):
+    """第 30 条：桥宽 ≥ `bridge_width_min`；被河切断的集结点
+    ≤ `river_cut_spawns_max`（2026-09-02 大改第 4 步，《方案》§3.4）。
+
+    **桥宽的量法**：`Bridge` 的 4 连通分量；桥格有正交水邻的那个轴是
+    **流向轴**（桥格的流向邻居是水，生成器的护卫行保证这一点），桥宽 =
+    分量沿流向轴的跨度（矩形短边）。1 格宽的桥是「不受管理的随机隘口」
+    时代的产物——桥宽 2 才谈得上队伍过得去。
+
+    **被切集结点**：不踩 `Bridge` 的可达性里走不到 keep 的集结点数。河是
+    「受管理的地形切割」：切一个集结点是设计（那条路必须过桥，守方有
+    明确的设防点），全切是事故。
+
+    `bridge_width_min` ≤ 0 / `river_cut_spawns_max` < 0 = 本档弃用对应
+    半条（fixture），同 `static_vision_radius_max: -1` 的手法。
+    """
+    problems = []
+    bw = int(th.bridge_width_min)
+    if bw > 0:
+        seen = set()
+        for x, y in grid.all_cells():
+            if grid.terrain_at(x, y) != "Bridge" or (x, y) in seen:
+                continue
+            comp = grid.flood([(x, y)],
+                              lambda a, b: grid.terrain_at(a, b) == "Bridge",
+                              diagonal=False)
+            seen |= comp
+            votes = {"x": 0, "y": 0}
+            for cx, cy in comp:
+                if any(grid.in_bounds(nx, cy)
+                       and grid.terrain_at(nx, cy) == "Water"
+                       for nx in (cx - 1, cx + 1)):
+                    votes["x"] += 1
+                if any(grid.in_bounds(cx, ny)
+                       and grid.terrain_at(cx, ny) == "Water"
+                       for ny in (cy - 1, cy + 1)):
+                    votes["y"] += 1
+            if not votes["x"] and not votes["y"]:
+                continue      # 四邻无水——那是第 13 条的事，不归本条
+            flow = "x" if votes["x"] >= votes["y"] else "y"
+            coords = [c[0] if flow == "x" else c[1] for c in comp]
+            width = max(coords) - min(coords) + 1
+            if width < bw:
+                anchor = sorted(comp)[0]
+                problems.append(
+                    f"桥（{len(comp)} 格，起于 {list(anchor)}）沿流向轴只有 "
+                    f"{width} 格宽（要求 ≥ {bw}，profile {th.name}）—— 1 格宽"
+                    f"的桥是「不受管理的随机隘口」，队伍过不去（§3.4）")
+    cap = int(th.river_cut_spawns_max)
+    if cap >= 0 and grid.spawns:
+        def no_bridge(x, y):
+            return (grid.ground_passable(x, y)
+                    and grid.terrain_at(x, y) != "Bridge")
+        reach = grid.flood([grid.keep], no_bridge)
+        cut = sorted(pos for pos in grid.spawns if pos not in reach)
+        if len(cut) > cap:
+            problems.append(
+                f"{len(cut)} 个集结点不踩桥就走不到 keep（上限 {cap}，"
+                f"profile {th.name}）：{[list(p) for p in cut]} —— 河切一个是"
+                f"设计（那条路过桥、守方有可读的设防点），切多个是事故（§3.4）")
+    return problems
+
+
+def check_entrance_faces(doc, grid):
+    """第 32 条：入口分布——门与缺口不在同一个面，且 ≥ 3 个面有入口
+    （2026-09-02 大改第 5 步，《方案》§3.5，决定项 6 已拍板）。
+
+    佯攻要打的是「另一个入口」而不是「另一座门的塔」：门与缺口同面时，
+    守那个面的塔群同时看着两个入口，佯攻失去牵制对象；< 3 个面有入口时
+    攻方没有「换一面打」的选项。面按 `_ring_face_set` 归（与生成器
+    `place_ring_walls` 同一规则，角格同属两面）。
+
+    **只适用于「城圈 = 一整圈 initial_walls 实体」的图**：r = 墙格到 keep
+    的最大切比雪夫距离，环（cheb == r）上的墙格数 < 8r−2 说明它不是整环
+    实体图（fixture 的散墙、手绘残段都是），本条无适用对象，自动通过——
+    同第 8/9 条「没有墙自动通过」的先例，「不是那种图」也自动通过。
+    """
+    if not grid.walls:
+        return []
+    r = max(gridmod.chebyshev(pos, grid.keep) for pos in grid.walls)
+    ring = [c for c in grid.all_cells()
+            if gridmod.chebyshev(c, grid.keep) == r]
+    if sum(1 for c in ring if c in grid.walls) < 8 * r - 2:
+        return []
+    gate_faces, breach_faces = set(), set()
+    for c in ring:
+        faces = _ring_face_set(c, grid.keep, r)
+        w = grid.walls.get(c)
+        if w is None:
+            breach_faces |= faces
+        elif w["kind"] == "Gate":
+            gate_faces |= faces
+    problems = []
+    both = gate_faces & breach_faces
+    if both:
+        problems.append(
+            f"缺口与城门落在同一个面（{sorted(both)}）—— 守该面的塔群同时看着"
+            f"两个入口，佯攻失去牵制对象（§3.5：缺口必须放在没有门的面上）")
+    entrances = gate_faces | breach_faces
+    if len(entrances) < 3:
+        problems.append(
+            f"只有 {len(entrances)} 个面（{sorted(entrances)}）有入口（门或"
+            f"缺口）—— 攻方没有「换一面打」的选项，佯攻不成立（§3.5）")
+    return problems
+
+
 CHECKS = [
     Check(1, "size 落在给定区间", check_size_range, IMPLEMENTED, "",
           True),
@@ -1221,16 +1491,8 @@ CHECKS = [
     Check(6, "inner 资源点三种各 ≥ 1", check_inner_resources, IMPLEMENTED, ""),
     # 第 7 条已废除（2026-09-01，森林带机制移除，`REMOVED`），编号留空。
     Check(8, "初始城圈至少一处缺口", check_initial_breach, IMPLEMENTED, ""),
-    Check(9, "需人工设防的正面总长落在区间", None, BLOCKED,
-          "**它自己有两个阻塞，各记一次**（不是「唯一一条阻塞」——阻塞共几条以报告头为准）："
-          "(a) 「正面」的定义依赖城区，"
-          "而城区无法从现有字段推导（见 #29 第一条）；(b) 阈值本身也待标定。"
-          "**不要合并计数** —— 只解开一个它仍然写不出来。"
-          "**注意 2.1 当年定案没有解开它，反而把 (a) 变难了**：城区 mask 本来是"
-          "候选乙带来的，而乙已作废，所以现在没有任何一处会顺带产出城区，"
-          "要它就得为它单独改一次 6.2。第 8 条早已换掉判据、**不再需要城区**；"
-          "第 7 条也曾不需要城区，但已随 2.1 的订正整条废除（2026-09-01），"
-          "所以本条现在与第 7、8 条都不同源，只剩自己这一份阻塞"),
+    Check(9, "需人工设防的正面总长落在区间", check_defended_front,
+          IMPLEMENTED, "", True),
     Check(10, "Forest 不构成连续遮蔽通道", check_forest_corridor, IMPLEMENTED, ""),
     Check(11, "无不可达的 Plain 孤岛", check_plain_islands, IMPLEMENTED, ""),
     Check(12, "Water 不得无桥切断集结点通路", check_water_cuts_corridor,
@@ -1262,27 +1524,20 @@ CHECKS = [
           IMPLEMENTED, "", True),
     # —— 《地图生成器大改方案》§3.7 的新条目（2026-09-02）：编号从 26 起、
     # 不重排。28/29/31 随第 2 步落地；26/27（地形，第 3 步）、30（河桥，
-    # 第 4 步）、32（入口分布，第 5 步）先登记为阻塞占位，随各自那步实现 ——
-    # 阻塞条目不静默跳过（模块 docstring 三种状态那条纪律），占位的 note
-    # 写清它等的是哪一步。
-    Check(26, "争夺带阻挡率落在区间", None, BLOCKED,
-          "等第 3 步（地形三形态 + 隘口，《方案》§3.2）落地：阻挡率要有林子与"
-          "岩脊可算才有意义，阈值 [lo, hi] 本身也是占位（10–20%，类比 AoE4）"),
-    Check(27, "每条路线的最窄处或开阔标记", None, BLOCKED,
-          "等第 3 步（§3.2）：隘口是设计放置的，地形落地后「最窄处 ∈ [2,4] "
-          "或标记开阔、全图两类路线都有」才有可查的对象"),
+    # 第 4 步）、32（入口分布，第 5 步）随 2026-09-02 第 3/4/5 步落地 ——
+    Check(26, "争夺带阻挡率落在区间", check_wild_blocked_fraction,
+          IMPLEMENTED, "", True),
+    Check(27, "每条路线的最窄处或开阔标记", check_route_width_classes,
+          IMPLEMENTED, "", True),
     Check(28, "解禁按簇：同簇同波、簇序按簇心距离单调",
           check_cluster_unlock_wave, IMPLEMENTED, ""),
     Check(29, "城外簇类型配额与内环含金", check_cluster_type_quota,
           IMPLEMENTED, ""),
-    Check(30, "桥宽与被河切断的集结点数", None, BLOCKED,
-          "等第 4 步（河桥受管理，《方案》§3.4）：桥宽 ≥ 2 与被切集结点 ≤ 1 "
-          "都是那一步的生成策略改完才查得了的"),
+    Check(30, "桥宽与被河切断的集结点数", check_river_bridges,
+          IMPLEMENTED, "", True),
     Check(31, "每条最短路 6 格内至少一簇、簇不进集结区", check_route_passby,
           IMPLEMENTED, "", True),
-    Check(32, "入口分布：门与缺口不同面", None, BLOCKED,
-          "等第 5 步（城区 R 与缺口异面，《方案》§3.5）：缺口现在仍可能落在"
-          "门所在面，异面是那一步的生成策略改的"),
+    Check(32, "入口分布：门与缺口不同面", check_entrance_faces, IMPLEMENTED, ""),
     # 第 3 条**不在这张表里**：2026-08-31 组长拍板取缔「走廊」概念，该条随
     # `spawns[].corridor` 字段一起废除、编号留空（`REMOVED`，理由见模块 docstring）。
 ]
@@ -1475,14 +1730,17 @@ def main():
         # 它不落成一条检查，是因为「显著」是分布层面的判断，只能在报告里看。
         feats = route_features(doc, Grid(doc))
         if feats:
-            print("  路线特征（最窄处/遮蔽/过桥待第 3–5 步地形落地后补）：")
+            print("  路线特征（§3.1 派生量，进报告不进地图文件）：")
             for f in feats:
                 if f["path_len"] is None:
                     print(f"    集结点 {list(f['spawn'])}：走不到 keep（见第 4 条）")
                 else:
                     print(f"    集结点 {list(f['spawn'])}：最短路 "
                           f"{f['path_len']} 格，沿途 6 格内资源簇 "
-                          f"{f['clusters_near_path']} 个")
+                          f"{f['clusters_near_path']} 个，最窄处 "
+                          f"{f['min_width']} 格，直线带 Forest 遮蔽 "
+                          f"{f['forest_cover']:.1%}，"
+                          f"{'过' if f['crosses_bridge'] else '不过'}桥")
 
     n_impl = sum(1 for c in CHECKS if c.status == IMPLEMENTED)
     n_block = sum(1 for c in CHECKS if c.status == BLOCKED)

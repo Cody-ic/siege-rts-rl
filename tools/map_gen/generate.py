@@ -7,7 +7,10 @@
 - **随机**（按种子，从 `thresholds.json` 的 `generator` 段区间里抽）：
   城区半径、集结点数量与角度（2026-09-02 起在集结点环上按角度采样）、
   城内资源构成、内/外环资源簇数量与大小、
-  野外散布（森林斑块 / Rock 团块 / 水域与桥）、预置建筑、初始缺口
+  城外地形三形态（岩脊设计隘口 / 林子 / 小撮，§3.2，2026-09-02 第 3 步）、
+  受管理的河与桥（桥宽 ≥2、至多切断 1 个集结点，§3.4，第 4 步）与湖、
+  预置建筑、初始缺口（2026-09-02 第 5 步起两个缺口分占两个**无门面**，
+  §3.5）
   （「城墙残血分布」曾在此列，2026-09-01 起 `wall_hp_frac_range` 钉死
   [1.0, 1.0]——试玩反馈「新开局城墙不是满血」，见该键的 `_note_hp`）
 - 每张生成结果跑第 8 节校验器，**不通过就丢弃重生成**
@@ -136,6 +139,13 @@ class Canvas:
         self.cluster_records = []
         self.cluster_unlock_per_wave = 1   # place_outer_clusters 按 cfg 覆写
         self.spawn_angles = []     # place_spawns 填（°），外环簇的扇区排除要用
+        # —— 2026-09-02 大改第 3 步（设计隘口，§3.2）——
+        # `choke_gaps` = 设计隘口的口的格子（scatter_wild_terrain 填）：
+        # place_obstacles 不在这些格上放可破坏障碍（§3.6 拍板：清野不应等于
+        # 拆掉地图给的隘口）。`ridge_records` 是生成期簿记（哪条路线被收窄、
+        # 脊段与口各是哪些格），供 selftest 断言，不进地图文件。
+        self.choke_gaps = set()
+        self.ridge_records = []
 
     # -- 基本操作 ---------------------------------------------------------
 
@@ -280,6 +290,27 @@ def _outward(side):
     return {"north": (0, -1), "south": (0, 1), "west": (-1, 0), "east": (1, 0)}[side]
 
 
+def _ring_faces(cell, keep, R):
+    """环格所属的「面」（north/south/east/west 的集合）。
+
+    校验器第 32 条与本函数共用这一个归属规则。**角格同时属于两个面**
+    （它既在北边又在西边）——所以生成器放缺口时避开角格（下面
+    `place_ring_walls`），让「缺口在哪个面」永远有唯一答案。
+    """
+    x, y = cell
+    cx, cy = keep
+    faces = set()
+    if y == cy - R:
+        faces.add("north")
+    if y == cy + R:
+        faces.add("south")
+    if x == cx - R:
+        faces.add("west")
+    if x == cx + R:
+        faces.add("east")
+    return faces
+
+
 def place_ring_walls(cv, cfg, rng):
     """城圈 = 一整圈初始城墙**实体**（2026-08-31 重构：不是 `Rock` 地形）。
 
@@ -289,8 +320,13 @@ def place_ring_walls(cv, cfg, rng):
     * **一对相对城门**：随机挑一对相对边，各在其环中点放 `Gate`，
       **恒满血**——城门是结构上的既定薄弱点（木质、破坏速率更高），
       残破留给 Wall（§2.3「城圈必须残破」不延伸到门）。
-    * **设计缺口**：`initial_breaches` 个随机非门格**不摆墙**——那是攻方
+    * **设计缺口**：`initial_breaches` 个环格**不摆墙**——那是攻方
       第 1 波就能钻的洞（「AI 是否发现并利用已有缺口」从第 1 波就能测）。
+      **2026-09-02 大改第 5 步（《地图生成器大改方案》§3.5，决定项 6 已拍板）**：
+      缺口不再是随机非门格，而是**设计放在没有门的面上**（两个缺口时分占
+      两个无门面），且不放角格（角格同属两个面，归属歧义，见
+      `_ring_faces`）——门与缺口不同面、≥ 3 个面有入口（校验器第 32 条），
+      佯攻因此是打「另一个入口」而不是「另一座门的塔」。
     * 其余环格全 `Wall`，hp_frac 按区间取（round 到两位，对齐 `to_doc`）。
       **2026-09-01 起该区间钉死 [1.0, 1.0]**（组长试玩后拍板，池图与演示图
       手感一致；§2.3 的残血设计让位，见 thresholds.json `_note_hp`）。
@@ -306,9 +342,25 @@ def place_ring_walls(cv, cfg, rng):
     pair = rng.choice((("north", "south"), ("east", "west")))
     gate_cells = [gate_of[s] for s in pair]
     cv.gates = gate_cells
-    non_gate = [c for c in ring if c not in gate_cells]
+    gate_faces = set(pair)
+    free_faces = [f for f in ("north", "south", "east", "west")
+                  if f not in gate_faces]
+    # 缺口候选：不在门面、不是角格的环格（理由见 docstring 与 `_ring_faces`）。
+    non_gate = [c for c in ring
+                if c not in gate_cells
+                and _ring_faces(c, cv.keep, R)
+                and not (_ring_faces(c, cv.keep, R) & gate_faces)]
     n_breach = rng.randint(*cfg.initial_breaches)
-    breaches = set(rng.sample(non_gate, min(n_breach, len(non_gate))))
+    breaches = set()
+    for i in range(min(n_breach, len(non_gate))):
+        # 第 i 个缺口放在 free_faces 里第 i 个面上——两个缺口分占两个无门面，
+        # 四个面都有入口；只有一个缺口时也是三个面有入口（第 32 条）。
+        face = free_faces[i % len(free_faces)]
+        cands = [c for c in non_gate
+                 if _ring_faces(c, cv.keep, R) == {face} and c not in breaches]
+        if not cands:
+            break
+        breaches.add(rng.choice(cands))
     cv.breaches = sorted(breaches)
     hlo, hhi = cfg.wall_hp_frac_range
     for cell in ring:
@@ -632,30 +684,42 @@ def place_outer_clusters(cv, cfg, th, rng):
 def scatter_wild_terrain(cv, cfg, rng, spacing=8):
     """城外随机散布（2026-08-31 重构：取缔走廊后的核心一步，AoE4 式）。
 
-    森林斑块与 Rock 团块随机撒在城圈之外。硬约束：
+    **2026-09-02 大改第 3 步（《地图生成器大改方案》§3.2）：三种形态叠加**——
 
-    * **不碰墙/门格及其八邻**——树冠糊墙（2026-08-31 试玩那课）与岩壁贴墙
-      （第 17 条：墙不得落在 Rock 上）都要防；
-    * **不碰集结点八邻**（模块 docstring 留白 1 的手段，第 10 条恒过）；
-    * **团块是「半径填充式圆团」**（2026-09-01 改法，试玩反馈城外散布不美观）：
-      在种子的切比雪夫半径内按概率填充、只保留最大 4 连通块——旧的纯随机游走
-      产出的是细长蠕虫条带；圆团更接近 AoE4 的林地/岩壁团块观感。
-      团块中心之间有最小间距（`spacing`），且**任何新团块不得贴着已有的
-      Forest/Rock 生长**（已有的含先落地的团块，#117）——双重隔离，避免
-      几块糊成一团；
-    * 只落在 `Plain` 且非 `no_build` 的格上——资源点（已进 `occupied()`）
-      自然被避开。
+    * **岩脊（设计隘口）**：隘口是**设计放置**、不是随机筛（§5 决定项 4 已
+      拍板）。先算每条 spawn→keep 最短路，对其中 `ridges // 2` 条（1–2 条）
+      在内环带上横放一道岩脊线并留 `gap_width_range`（2–4）格的口——岩脊线
+      被口分成两段，「两条岩脊之间留隘口」因此自动成立；段数为奇时多出来的
+      一段做无口的孤脊（纯地形纹理）。其余路线保持开阔：「哪条路窄」是地图
+      的一部分，攻守双方都能读到（校验器第 27 条裁决）。
+    * **林子**：`woods` 个 `woods_size`（12–30）格的圆团，只放内环带与外环，
+      不贴墙、不贴集结点——职责是遮视野（侦查有价值、伏击有位置）。
+    * **小撮（现有）**：森林/岩石小团块，视觉「大散居」，不变。
+
+    硬约束沿用：不碰墙/门八邻、不碰集结点八邻、每块 4 连通、块间留一格
+    （新团块不得贴着已有的 Forest/Rock 生长 + 中心最小间距 `spacing`）、
+    只落在 `Plain` 且非 `no_build` 的格上，第 10/11/23 条照旧。
+    隘口的**口**保持开阔可读：口子格进 `forbidden`（不被后续地形盖住）
+    并记入 `cv.choke_gaps`（`place_obstacles` 也不放障碍，§3.6 拍板）。
+
+    阻挡率目标（争夺带 10–20%，第 26 条）**不由本函数单独保证**——水域在
+    之后才落地，占比要等水落地后才算得准，所以补足在 `topup_wild_terrain`
+    （paint 里排在 `place_water` 之后）。
 
     在 `place_outer_clusters` **之后**跑：那时资源点都已落地。
-    **2026-09-01 三续**：资源簇不再自带森林带（团队移除了「不可围墙」的
-    强制连通要求，见 `place_outer_clusters` docstring）——这里的森林/岩壁
-    现在是城外唯一的森林来源，纯装饰性，不承载任何结构约束。
     """
     R = cfg.city_radius
+    D = cfg.spawn_wall_distance
     kx, ky = cv.keep
+    # 四环骨架（§2）：内环争夺带 / 集结点环 / 外环。林子只放内环带与外环。
+    inner_lo, inner_hi = R + 4, R + D - 14
+    outer_lo, outer_hi = R + D + 14, cv.size // 2 - 3
 
     def cheb(p):
         return max(abs(p[0] - kx), abs(p[1] - ky))
+
+    def in_bands(p):
+        return inner_lo <= cheb(p) <= inner_hi or outer_lo <= cheb(p) <= outer_hi
 
     def zone(points, r=1):
         out = set()
@@ -678,10 +742,15 @@ def scatter_wild_terrain(cv, cfg, rng, spacing=8):
 
     centers = []
 
-    def blob(want):
-        """以随机种子为圆心填一个圆团，只保留与圆心 4 连通的部分。"""
+    def blob(want, ok=valid):
+        """以随机种子为圆心填一个圆团，只保留与圆心 4 连通的部分。
+
+        圆团而不是随机游走（2026-09-01，游走产物是细长蠕虫条带）；越靠外缘
+        概率越低，且必须贴着已长出的格——不贴的结果是一片内部带空洞的渣。
+        `ok` 是落格谓词（林子的环带限制由此进）。
+        """
         seeds = [c for c in cv.free_plain_cells()
-                 if valid(c) and c not in forbidden
+                 if ok(c) and c not in forbidden
                  and all(max(abs(c[0] - s[0]), abs(c[1] - s[1])) >= spacing
                          for s in centers)]
         if not seeds:
@@ -697,12 +766,10 @@ def scatter_wild_terrain(cv, cfg, rng, spacing=8):
         for c in cands:
             if len(cells) >= want:
                 break
-            # 越靠外缘概率越低（圆团而不是方团），且必须贴着已长出的格——
-            # 不贴的结果是一片内部带空洞的渣，而不是一个团块。
             d = max(abs(c[0] - sx), abs(c[1] - sy))
             if rng.random() > 1.0 - 0.35 * (d / radius) ** 2:
                 continue
-            if not valid(c):
+            if not ok(c):
                 continue
             if not any((c[0] + ox, c[1] + oy) in cells
                        for ox, oy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
@@ -712,6 +779,107 @@ def scatter_wild_terrain(cv, cfg, rng, spacing=8):
             centers.append((sx, sy))
         return cells
 
+    # ---- 岩脊（设计隘口）---------------------------------------------------
+    def try_ridge(path, gap_w, rock_n):
+        """在 path 上找一个穿越点，横放一道岩脊线（两段、中间留 gap_w 格的口）。
+
+        口的两侧岩段各 ≥ 3 格才读作「脊」（与「小撮 ≥ 3」同一条形态纪律），
+        所以 rock_n ≥ 6 由 `thresholds.Generator` 的加载断言保证。
+        返回 (脊段格, 口格) 或 None。
+        """
+        mid = (inner_lo + inner_hi) / 2
+        # 穿越点候选：路径在内环带里的格（两端留 2 格余量，脊段沿轴向
+        # 还要往外伸）。打乱后按「离带中距」排——隘口落在带的腹地，
+        # 不贴带的边缘。
+        cands = [i for i in range(1, len(path) - 1)
+                 if inner_lo + 2 <= cheb(path[i]) <= inner_hi - 2]
+        rng.shuffle(cands)
+        cands.sort(key=lambda i: abs(cheb(path[i]) - mid))
+        for i in cands:
+            p = path[i]
+            d = (path[i + 1][0] - path[i - 1][0], path[i + 1][1] - path[i - 1][1])
+            # 脊线垂直于行进的主方向：路径主要在 x 向走，脊就沿 y 向横放。
+            ax = (0, 1) if abs(d[0]) >= abs(d[1]) else (1, 0)
+            glo, ghi = -((gap_w - 1) // 2), gap_w // 2
+            seg_l = rock_n // 2
+            seg_r = rock_n - seg_l
+            rock = ([(p[0] + k * ax[0], p[1] + k * ax[1])
+                     for k in range(glo - seg_l, glo)]
+                    + [(p[0] + k * ax[0], p[1] + k * ax[1])
+                       for k in range(ghi + 1, ghi + 1 + seg_r)])
+            gap = [(p[0] + k * ax[0], p[1] + k * ax[1])
+                   for k in range(glo, ghi + 1)]
+            # 脊段每格：内环带内、空闲 Plain、不贴禁区；口保持开阔可读。
+            if not all(valid(c) and inner_lo <= cheb(c) <= inner_hi
+                       for c in rock):
+                continue
+            if not all(cv.at(*g) == "Plain" and cv.no_build[g[1]][g[0]] == 0
+                       for g in gap):
+                continue
+            return rock, gap
+        return None
+
+    def lone_ridge(rng_len):
+        """无口的孤脊：段数（`ridges_range`）为奇时多出来的那一段，纯地形纹理。"""
+        seeds = [c for c in cv.free_plain_cells()
+                 if valid(c) and inner_lo + 2 <= cheb(c) <= inner_hi - 2
+                 and all(max(abs(c[0] - s[0]), abs(c[1] - s[1])) >= spacing
+                         for s in centers)]
+        if not seeds:
+            return []
+        for _try in range(30):
+            sx, sy = rng.choice(seeds)
+            ax = rng.choice(((1, 0), (0, 1)))
+            half = rng_len // 2
+            cells = [(sx + k * ax[0], sy + k * ax[1])
+                     for k in range(-half, rng_len - half)]
+            if all(valid(c) and inner_lo <= cheb(c) <= inner_hi for c in cells):
+                centers.append((sx, sy))
+                return cells
+        return []
+
+    n_segments = cfg.ridges
+    n_narrow = min(n_segments // 2, len(cv.spawns) - 1)
+    if n_narrow > 0:
+        order = list(range(len(cv.spawns)))
+        rng.shuffle(order)
+        for si in order[:n_narrow]:
+            dist = _canvas_dist(cv)
+            pos = tuple(cv.spawns[si])
+            if pos not in dist:
+                continue      # 不通归第 4 条（校验器裁决）
+            path = _canvas_path(cv, dist, pos)
+            gap_w = rng.randint(*cfg.gap_width_range)
+            rock_n = rng.randint(*cfg.ridge_length)
+            placed = try_ridge(path, gap_w, rock_n)
+            if placed is None:
+                continue      # 这条路线放不出隘口；两类路线不齐时第 27 条否决
+            rock, gap = placed
+            for c in rock:
+                cv.set_terrain(*c, "Rock")
+            forbidden.update(zone(rock))
+            forbidden.update(gap)   # 口保持开阔可读（森林也不盖）
+            cv.choke_gaps.update(gap)
+            cv.ridge_records.append({"spawn": pos, "rock": rock, "gap": gap})
+    for _ in range(n_segments - 2 * n_narrow):
+        cells = lone_ridge(rng.randint(*cfg.ridge_length))
+        if len(cells) < 3:
+            continue
+        for c in cells:
+            cv.set_terrain(*c, "Rock")
+        forbidden.update(zone(cells))
+
+    # ---- 林子（12–30 格圆团，只放内环带与外环，遮视野）-------------------
+    for _ in range(cfg.woods):
+        cells = blob(rng.randint(*cfg.woods_size), ok=lambda p: valid(p)
+                     and in_bands(p))
+        if len(cells) < 3:
+            continue
+        for c in cells:
+            cv.set_terrain(*c, "Forest")
+        forbidden.update(zone(cells))
+
+    # ---- 小撮（现有形态，视觉「大散居」）-----------------------------------
     want = rng.randint(*cfg.forest_patches)
     for _ in range(want):
         cells = blob(rng.randint(*cfg.forest_patch_size))
@@ -730,12 +898,101 @@ def scatter_wild_terrain(cv, cfg, rng, spacing=8):
     return True
 
 
-def _connected_to_keep(cv):
-    """所有集结点都能走到 keep，且没有 Plain 孤岛（第 4/11/12 条的生成器侧自查）。
+def topup_wild_terrain(cv, cfg, th, rng):
+    """争夺带阻挡率补足（2026-09-02 大改第 3 步，§3.2）：三形态铺完、**水域
+    落地之后**，把争夺带（墙外 2 格到集结点环）里 Forest+Rock+Water 的占比
+    补到 strict 档 `wild_blocked_fraction` 区间下界之上（第 26 条的生成器侧）。
 
-    通行定义与 `grid.ground_passable` 一致：Plain/Forest/Bridge 可走，
-    Rock/Water 不可走（墙不是障碍，5.1）；8 邻不穿角。**这块逻辑刻意不在
-    `grid.py` 里**——Grid 从 doc 解码，而这里查的是在建的 Canvas。
+    为什么不能并进 `scatter_wild_terrain`：水是占比的一大块（一条河几百格），
+    而它在 paint 顺序里排在散布**之后**——散布阶段算出的占比必然是错的。
+    补量只补 `Forest`：它可通行，补多少都不可能切断通路（Rock 补量会撞上
+    第 11 条孤岛风险）。补不到下界就交给校验器否决换种子（生成器兜底、
+    校验器裁决，同本文件其余各步的分工）。
+
+    下界 ≤ 0 时本档弃用（只有假设中的自定义档会这么写；strict/fixture 一个
+    有下界一个恒真，见 thresholds.json）——不消费 rng 直接返回。
+    """
+    lo = th.wild_blocked_fraction_min
+    if lo <= 0:
+        return
+    R = cfg.city_radius
+    D = cfg.spawn_wall_distance
+    kx, ky = cv.keep
+    size = cv.size
+
+    def cheb(p):
+        return max(abs(p[0] - kx), abs(p[1] - ky))
+
+    band = [(x, y) for y in range(size) for x in range(size)
+            if R + 2 <= cheb((x, y)) <= R + D]
+    if not band:
+        return
+    band_set = set(band)
+    blocked = sum(1 for c in band if cv.at(*c) in ("Forest", "Rock", "Water"))
+    target = lo * len(band)
+    if blocked >= target:
+        return
+
+    def zone(points, r=1):
+        out = set()
+        for px, py in points:
+            for oy in range(-r, r + 1):
+                for ox in range(-r, r + 1):
+                    out.add((px + ox, py + oy))
+        return out
+
+    wall_zone = zone(p for _, p, _ in cv.walls)
+    spawn_zone = zone(cv.spawns)
+    existing_wild = [(x, y) for y in range(size) for x in range(size)
+                     if cv.at(x, y) in ("Forest", "Rock")]
+    forbidden = (wall_zone | spawn_zone | cv.occupied() | zone(existing_wild)
+                 | cv.choke_gaps)
+
+    def valid(p):
+        return (cv.inside(*p) and cv.at(*p) == "Plain"
+                and cv.no_build[p[1]][p[0]] == 0
+                and p not in forbidden and cheb(p) >= R + 2)
+
+    # 种子从**带内**采（`rng.choice(band)`）而不是全图均匀采——全图采样的
+    # 实测（2026-09-02）只有约 1/4 的种子落在带内，300 次补不到下界（实测
+    # 停在 5.7%），第 26 条把把否决。团块的生长也限在带内：补量的目标
+    # 就是争夺带，带出界的格既不算数也浪费有界次数。
+    for _try in range(300):
+        if blocked >= target:
+            break
+        p = rng.choice(band)
+        if not valid(p):
+            continue
+        want = rng.randint(4, 10)
+        cells = [p]
+        frontier = [p]
+        while len(cells) < want and frontier:
+            base = rng.choice(frontier)
+            nbrs = [(base[0] + ox, base[1] + oy)
+                    for ox, oy in ((1, 0), (-1, 0), (0, 1), (0, -1))]
+            rng.shuffle(nbrs)
+            nxt = next((c for c in nbrs
+                        if c not in cells and c in band_set and valid(c)), None)
+            if nxt is None:
+                frontier.remove(base)
+                continue
+            cells.append(nxt)
+            frontier.append(nxt)
+        if len(cells) < 3:
+            continue   # 粉尘斑块直接放弃——第 23 条会否掉它
+        for c in cells:
+            cv.set_terrain(*c, "Forest")
+        blocked += sum(1 for c in cells if c in band_set)
+        forbidden.update(zone(cells))
+
+
+def _canvas_dist(cv):
+    """keep 出发的 BFS 距离场（8 邻不穿角），通行定义与 `_connected_to_keep`
+    一致：Plain/Forest/Bridge 可走，Rock/Water 不可走（墙不是障碍，5.1）。
+
+    **这块逻辑刻意不在 `grid.py` 里**——Grid 从 doc 解码，而这里查的是在建的
+    Canvas。2026-09-02 第 3 步新增：隘口的设计放置（`scatter_wild_terrain`）
+    要先知道每条 spawn→keep 最短路，`_connected_to_keep` 同步改用它。
     """
     from collections import deque
     _PASS = ("Plain", "Forest", "Bridge")
@@ -743,9 +1000,87 @@ def _connected_to_keep(cv):
     def ok(x, y):
         return cv.inside(x, y) and cv.at(x, y) in _PASS
 
-    kx, ky = cv.keep
-    seen = {(kx, ky)}
-    q = deque([(kx, ky)])
+    dist = {cv.keep: 0}
+    q = deque([cv.keep])
+    while q:
+        x, y = q.popleft()
+        d = dist[(x, y)] + 1
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nx, ny = x + dx, y + dy
+            if ok(nx, ny) and (nx, ny) not in dist:
+                dist[(nx, ny)] = d
+                q.append((nx, ny))
+        for dx, dy in ((1, 1), (1, -1), (-1, 1), (-1, -1)):
+            nx, ny = x + dx, y + dy
+            if not (ok(nx, ny) and (nx, ny) not in dist):
+                continue
+            if ok(x + dx, y) and ok(x, y + dy):   # 不穿角
+                dist[(nx, ny)] = d
+                q.append((nx, ny))
+    return dist
+
+
+def _canvas_path(cv, dist, pos):
+    """沿距离场从 pos 走回 keep（梯度路径，`validate._walk_shortest_path`
+    的 Canvas 版）。最短路有无数条，这里沿梯度任取一条代表。"""
+    _PASS = ("Plain", "Forest", "Bridge")
+
+    def ok(x, y):
+        return cv.inside(x, y) and cv.at(x, y) in _PASS
+
+    def neigh(x, y):
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nx, ny = x + dx, y + dy
+            if ok(nx, ny):
+                yield nx, ny
+        for dx, dy in ((1, 1), (1, -1), (-1, 1), (-1, -1)):
+            nx, ny = x + dx, y + dy
+            if ok(nx, ny) and ok(x + dx, y) and ok(x, y + dy):
+                yield nx, ny
+
+    path = [pos]
+    cur = pos
+    while cur != cv.keep:
+        d = dist[cur]
+        nxt = next((nb for nb in neigh(*cur) if dist.get(nb) == d - 1), None)
+        if nxt is None:      # 不应发生：pos ∈ dist 已保证有 predecessor
+            break
+        path.append(nxt)
+        cur = nxt
+    return path
+
+
+def _connected_to_keep(cv):
+    """所有集结点都能走到 keep，且没有 Plain 孤岛（第 4/11/12 条的生成器侧自查）。
+
+    通行定义与 `grid.ground_passable` 一致：Plain/Forest/Bridge 可走，
+    Rock/Water 不可走（墙不是障碍，5.1）；8 邻不穿角。
+    """
+    seen = set(_canvas_dist(cv))
+    if not all(tuple(s) in seen for s in cv.spawns):
+        return False
+    for y in range(cv.size):
+        for x in range(cv.size):
+            if cv.at(x, y) == "Plain" and (x, y) not in seen:
+                return False
+    return True
+
+
+def _river_cut_spawns(cv):
+    """不踩桥就走不到 keep 的集结点列表（第 30 条「被河切断」的生成器侧）。
+
+    与 `_canvas_dist` 的唯一差别是 Bridge 也不算可通行——切断与否问的正是
+    「没有桥还过不过得去」（§3.4：被切 ≤ 1 是拍板值，被切的那条路线在
+    路线特征里标「过桥」）。
+    """
+    from collections import deque
+    _PASS = ("Plain", "Forest")
+
+    def ok(x, y):
+        return cv.inside(x, y) and cv.at(x, y) in _PASS
+
+    seen = {cv.keep}
+    q = deque([cv.keep])
     while q:
         x, y = q.popleft()
         for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
@@ -757,26 +1092,31 @@ def _connected_to_keep(cv):
             nx, ny = x + dx, y + dy
             if not (ok(nx, ny) and (nx, ny) not in seen):
                 continue
-            if ok(x + dx, y) and ok(x, y + dy):   # 不穿角
+            if ok(x + dx, y) and ok(x, y + dy):
                 seen.add((nx, ny))
                 q.append((nx, ny))
-    if not all(tuple(s) in seen for s in cv.spawns):
-        return False
-    for y in range(cv.size):
-        for x in range(cv.size):
-            if cv.at(x, y) == "Plain" and (x, y) not in seen:
-                return False
-    return True
+    return [tuple(s) for s in cv.spawns if tuple(s) not in seen]
 
 
-def place_water(cv, cfg, rng):
+def place_water(cv, cfg, th, rng):
     """水域与桥（**2026-09-01 新增**，模块 docstring 留白 1 作废）。
 
     * **湖**：`water_lakes_range` 个半径填充式团块（同 `scatter_wild_terrain`
-      的圆团画法），落在城外、不贴资源点与集结点；
-    * **河**：`rivers_range` 条边到边的正交随机游走（宽 1 格），每约 14 格
-      在平直段架一座桥（`Bridge`）——河不架桥会撞上第 12 条，而「靠丢弃
-      重生成碰运气」正是当年留白不画水的原因；
+      的圆团画法），落在城外、不贴资源点与集结点——**照旧**（§3.4）。
+    * **河（2026-09-02 大改第 4 步受管理，§3.4，决定项 5 已拍板）**：
+      - 河只允许穿过**内环带或外环**：不穿禁建环（`river_ok` 直接查
+        `no_build`）、不贴墙（墙外 ≥ 6 格）。注意集结点环那一圈**非禁建**
+        的格必然要过——边到边的河从外环进内环必须穿过它，「不穿禁建环」
+        管的是集结点周围 13 格的 no_build 环，不是整条环带；
+      - **被河切断的集结点 ≤ `river_cut_spawns_max`（1）**——不是「河不切
+        任何集结点」。生成策略：先拍「切哪一个（或不切）」，按它定河的
+        **弦**（法向角 φ 对准要切的集结点、弦高 h 卡在「切得到它而切不到
+        相邻集结点」的区间——相邻角差 ≥ 60° ⇒ 邻点投影 ≤ L·cos60° = L/2，
+        h 取比 L/2 大即可），落地后仍逐条复核（`_river_cut_spawns`），
+        超标整条撤销重试——生成器兜底、校验器（第 30 条）裁决；
+      - **桥宽 2**：`pick_bridges` 的贯穿带取两列（两条相邻、平直、同向的
+        带，水跨取交集、多出来的水格收窄成岸）——1 格宽的桥是「不受管理
+        的随机隘口」时代的产物，2 格宽才谈得上「队伍过得去」。
     * **每一块水体落地后跑一次 `_connected_to_keep` 自校验，失败整片撤销**
       （湖整个还原、河整条还原）。第 12 条因此仍然会做实事，但不再是
       丢弃率的主要来源——这是本函数敢存在的全部理由。
@@ -788,7 +1128,11 @@ def place_water(cv, cfg, rng):
         return True
 
     R = cfg.city_radius
+    D = cfg.spawn_wall_distance
     kx, ky = cv.keep
+    size = cv.size
+    bridge_width = max(1, int(th.bridge_width_min))
+    cut_cap = int(th.river_cut_spawns_max)
 
     def cheb(p):
         return max(abs(p[0] - kx), abs(p[1] - ky))
@@ -800,7 +1144,7 @@ def place_water(cv, cfg, rng):
                 res_zone.add((px + ox, py + oy))
 
     def water_ok(p, r_pad=0):
-        """水域可落的格：城外、Plain、不贴墙/集结点/资源点。
+        """湖的可落格：城外、Plain、不贴墙/集结点/资源点（**照旧**，§3.4）。
 
         `r_pad` 把离城与离集结点的距离要求再放宽——湖的**允许带**（斜接瓣
         能探到的范围）比目标半径大，播种时要按允许带留余量，否则种子贴着
@@ -811,6 +1155,16 @@ def place_water(cv, cfg, rng):
                 and cheb(p) >= R + 3 + r_pad
                 and all(max(abs(x - s[0]), abs(y - s[1])) >= 4 + r_pad
                         for s in cv.spawns)
+                and p not in res_zone
+                and p not in cv.occupied())
+
+    def river_ok(p):
+        """河的可落格（2026-09-02 第 4 步）：不穿禁建环（no_build 直接查）、
+        不贴墙（cheb ≥ R+6，即墙外 ≥ 6 格）、不压资源点八邻。"""
+        x, y = p
+        return (cv.inside(x, y) and cv.at(x, y) == "Plain"
+                and cheb(p) >= R + 6
+                and cv.no_build[y][x] == 0
                 and p not in res_zone
                 and p not in cv.occupied())
 
@@ -866,51 +1220,71 @@ def place_water(cv, cfg, rng):
                 cv.set_terrain(*c, "Plain")
 
     # ---- 河（含桥） ---------------------------------------------------------
-    def river_spine():
-        """边到边的正交随机游走（宽 1 的主干）。两端点离集结点 ≥ 8、离角 ≥ 6。"""
-        size = cv.size
-        edges = [("north", lambda t: (t, 0)), ("south", lambda t: (t, size - 1)),
-                 ("west", lambda t: (0, t)), ("east", lambda t: (size - 1, t))]
-        ea, eb = rng.sample(edges, 2)
+    def river_plan():
+        """拍「这条河切哪个集结点（或不切）」，给出弦的两端点。
 
-        def endpoint(make):
-            for _ in range(20):
-                t = rng.randint(6, size - 7)
-                p = make(t)
-                if all(max(abs(p[0] - s[0]), abs(p[1] - s[1])) >= 8
-                       for s in cv.spawns):
-                    return p
+        弦 = 直线 `p·n = h`（n 是法向）。切集结点 s：n 对准 s 的方向，
+        h ∈ (L·cos60°, L) —— s 的投影 ≈ L > h（被切），相邻集结点角差 ≥ 60°
+        投影 ≤ L/2 < h（不被切）；不切：h > L（整条弦在集结点环外侧，
+        只穿外环）。游走会偏离弦几格，落地后 `_river_cut_spawns` 复核兜底。
+        """
+        L = R + D
+        if cv.spawns and rng.random() < 0.5:
+            s = rng.choice(cv.spawns)
+            phi = math.atan2(s[1] - ky, s[0] - kx)
+            h = rng.randint(L // 2 + 2, min(L - 6, L // 2 + 14))
+        else:
+            phi = rng.uniform(0, 2 * math.pi)
+            h = rng.randint(L + 2, L + 10)
+        nx, ny = math.cos(phi), math.sin(phi)
+        mx, my = kx + nx * h, ky + ny * h
+        dx, dy = -ny, nx
+        pts = []
+        if abs(dx) > 1e-9:
+            for ex in (0, size - 1):
+                t = (ex - mx) / dx
+                ey = my + t * dy
+                if 0 <= ey <= size - 1:
+                    pts.append((ex, ey))
+        if abs(dy) > 1e-9:
+            for ey in (0, size - 1):
+                t = (ey - my) / dy
+                ex = mx + t * dx
+                if 0 <= ex <= size - 1:
+                    pts.append((ex, ey))
+        # 去重（角上会算两次），取相距最远的两个做端点。
+        pts = [(int(round(x)), int(round(y))) for x, y in pts]
+        uniq = sorted(set(pts))
+        if len(uniq) < 2:
             return None
+        best = max(((a, b) for a in uniq for b in uniq if a < b),
+                   key=lambda ab: abs(ab[0][0] - ab[1][0])
+                   + abs(ab[0][1] - ab[1][1]))
+        return best
 
-        start = endpoint(ea[1])
-        target_edge = eb[0]
-
-        def on_target(p):
-            return {"north": p[1] == 0, "south": p[1] == size - 1,
-                    "west": p[0] == 0, "east": p[0] == size - 1}[target_edge]
-
-        def target_dist(p):
-            return {"north": p[1], "south": size - 1 - p[1],
-                    "west": p[0], "east": size - 1 - p[0]}[target_edge]
-
-        if start is None or not water_ok(start):
+    def river_walk(start, goal):
+        """从弦的一端走到另一端的正交随机游走（70% 朝目标收缩）。"""
+        if not river_ok(start) or not river_ok(goal):
             return None
         path = [start]
         visited = {start}
         cur = start
-        for _step in range(4 * size):      # 有界：卡住就放弃这条河
-            if on_target(cur):
+
+        def dist_goal(p):
+            return math.hypot(p[0] - goal[0], p[1] - goal[1])
+
+        for _step in range(6 * size):      # 有界：卡住就放弃这条河
+            if cur == goal:
                 return path
             nxt = []
             for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
                 c = (cur[0] + dx, cur[1] + dy)
-                if c in visited or not water_ok(c):
+                if c in visited or not river_ok(c):
                     continue
                 nxt.append(c)
             if not nxt:
                 return None
-            # 倾向缩短到目标边的距离（70%），否则横向漂——河形因此弯曲但总体过河。
-            closer = [c for c in nxt if target_dist(c) < target_dist(cur)]
+            closer = [c for c in nxt if dist_goal(c) < dist_goal(cur)]
             cur = rng.choice(closer) if closer and rng.random() < 0.7 \
                 else rng.choice(nxt)
             path.append(cur)
@@ -922,92 +1296,138 @@ def place_water(cv, cfg, rng):
 
         **宽度沿两侧 jitter 而不是固定右舷**：河在边界附近折返时，「永远在
         同一侧加宽」会把水铺到地图外或压回主干另一侧，视觉上河贴着边走成
-        一条沟。加宽格同样要过 `water_ok`（于是加宽不会贴上湖/资源点/集结点）。
+        一条沟。加宽格同样要过 `river_ok`（于是加宽不会贴上湖/资源点/禁建环）。
         """
         w = set(spine)
         for x, y in spine:
             for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
                 c = (x + dx, y + dy)
-                if c not in w and water_ok(c) and rng.random() < 0.55:
+                if c not in w and river_ok(c) and rng.random() < 0.55:
                     w.add(c)
         return w
 
     def pick_bridges(spine, water):
-        """沿主干每隔约 14 格挑一处架桥：桥 = 垂直于河向、贯穿整段水宽的一排格。
+        """沿主干每隔约 14 格挑一处架桥：**桥宽 = `bridge_width` 列**（2026-09-02
+        第 4 步，strict 档 2）——取 bridge_width 条相邻、平直、同向的贯穿带，
+        水跨取**交集**，多出来的水格收窄成岸（`trim`），桥因此是规则的
+        水宽 × bridge_width 矩形（校验器第 30 条按矩形短边量桥宽）。
 
-        三个条件缺一不可，都是实测踩过的：
+        一条带能成桥的条件（都是实测踩过的）：
         * 主干在该处**平直**（前后三格共线）——弯道上垂直线扫出的是弯内侧的
           斜水，桥头接不上岸；
-        * 贯穿带的每一格都是水——否则桥断在水中央；
-        * 带两端伸出去的格必须是**岸**（不是水）——河折返贴到自己时，
-          不带这条的「桥」两端都泡在水里，不通路。
+        * 交集非空且带两端收得住（收窄后两端是岸）——否则桥断在水中央；
+        * 两端不能是湖（湖先落地，那里是水但不是河——桥搭进湖里不通岸）。
 
-        逐带筛完还有一道**联合复验**（相邻两条带互为水邻的洞），见函数末尾。
+        逐带筛完还有一道**终态复验**（按「全体桥格与收窄都已落地」的终态
+        算水邻，有一格四邻无水的整条作废）——相邻两条带互为水邻的洞是
+        2026-09-01 实测踩到的（`-n 30` 红 2 次），见函数末尾。
+
+        返回 (桥带列表, 收窄格集合)；一条都找不到时桥带列表为空。
         """
         n = len(spine)
+
+        def flow_dir(j):
+            """主干在 j 处的流向（前后三格共线才有），不正返 None。"""
+            a, b, c = spine[j - 1], spine[j], spine[j + 1]
+            if a[0] == b[0] == c[0]:
+                return (0, 1)     # 河沿 y 向流
+            if a[1] == b[1] == c[1]:
+                return (1, 0)
+            return None
+
+        def span(j, perp):
+            """j 处沿垂直方向的水跨：返回 (lo, hi)，水格 = b + off·perp，
+            off ∈ [-lo, hi]（含 0 = 主干格）。"""
+            b = spine[j]
+            lo = 0
+            while (b[0] - (lo + 1) * perp[0],
+                   b[1] - (lo + 1) * perp[1]) in water:
+                lo += 1
+            hi = 0
+            while (b[0] + (hi + 1) * perp[0],
+                   b[1] + (hi + 1) * perp[1]) in water:
+                hi += 1
+            return lo, hi
+
         want = max(1, n // 14)
-        out = []
+        strips = []          # (桥格集合, 收窄格集合)
         for k in range(want):
             i = min(n - 2, max(1, (2 * k + 1) * n // (2 * want)))
-            for j in range(i, min(i + 14, n - 1)):
-                a, b, c = spine[j - 1], spine[j], spine[j + 1]
-                if a[0] == b[0] == c[0]:
-                    perp = (1, 0)     # 河沿 y 向，桥沿 x 向
-                elif a[1] == b[1] == c[1]:
-                    perp = (0, 1)
-                else:
+            for j in range(i, min(i + 14, n - bridge_width)):
+                lanes = list(range(j, j + bridge_width))
+                dirs = [flow_dir(t) for t in lanes]
+                if any(d is None for d in dirs) or len(set(dirs)) > 1:
                     continue
-                strip = [b]
-                for sign in (1, -1):
-                    d = 1
-                    while (b[0] + sign * perp[0] * d,
-                           b[1] + sign * perp[1] * d) in water:
-                        strip.append((b[0] + sign * perp[0] * d,
-                                      b[1] + sign * perp[1] * d))
-                        d += 1
-                    bank = (b[0] + sign * perp[0] * d, b[1] + sign * perp[1] * d)
-                    # 岸必须在界内、不是水（湖已先落地，那里是水）。
-                    if not cv.inside(*bank) or bank in water \
-                            or cv.at(*bank) == "Water":
-                        break
-                else:
-                    # 第 13 条镜像：**每格**桥都要有正交的水邻——贯穿带的端格
-                    # 在加宽不齐的河段可能只有斜水邻，那种格混进桥里校验器会红，
-                    # 而整带筛成一格又跨不满水宽（桥断在水中央）。整条作废，
-                    # 去下一个平直段再试。
-                    strip_set = set(strip)
-                    if all(any((c[0] + ox, c[1] + oy) in water - strip_set
-                               for ox, oy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
-                           for c in strip):
-                        out.append(strip)
-                        break
-        # **联合复验（2026-09-01，实测踩到的洞）**：上面是逐带检查，而一条带
-        # 的水邻可能是**另一条带**的格——河折返时两条带可以在空间上相邻。
-        # 逐带检查时那格还是水（检查通过），两条带都落地后它变成了桥，
-        # 于是桥格四邻无水、第 13 条红（`-n 30` 实测 2 次，都是这个形态）。
-        # 联合再滤一遍：按「全体桥格都已落地」的终态算水邻，整条带有一格
-        # 不过就整条作废——每带独立贯穿水宽，扔掉一条不影响其余。
-        all_bridge = {c for strip in out for c in strip}
-        return [strip for strip in out
-                if all(any((c[0] + ox, c[1] + oy) in water - all_bridge
-                           for ox, oy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
-                       for c in strip)]
+                perp = (1, 0) if dirs[0] == (0, 1) else (0, 1)
+                # 交集要连**前后各一格护卫行**一起取：桥格的流向邻居
+                # （护卫行上的格）必须是水，否则端格四邻无水、第 13 条红。
+                # 桥带的水跨 = 所有行水跨的**交集** [-L, H]（L/H 取 min——
+                # 桥格必须每格都是水）；各行多出来的水格收窄成岸（trim）。
+                rows = [j - 1] + lanes + [j + bridge_width]
+                spans = {t: span(t, perp) for t in rows}
+                L = min(s[0] for s in spans.values())
+                H = min(s[1] for s in spans.values())
+                cells = set()
+                trim = set()
+                ok = True
+                for t in lanes:
+                    b = spine[t]
+                    lo_t, hi_t = spans[t]
+                    for off in range(-lo_t, hi_t + 1):
+                        c = (b[0] + off * perp[0], b[1] + off * perp[1])
+                        if -L <= off <= H:
+                            cells.add(c)
+                        else:
+                            trim.add(c)
+                    # 收窄后两端必须是岸：界内、不是湖（河以外的水）。
+                    # （自然岸或收窄格都行；收窄格落地后是 Plain。）
+                    for off in (-L - 1, H + 1):
+                        bank = (b[0] + off * perp[0], b[1] + off * perp[1])
+                        if not cv.inside(*bank):
+                            ok = False
+                        elif bank not in trim and cv.at(*bank) == "Water":
+                            ok = False    # 桥头是湖——桥搭进湖里不通岸
+                if ok and cells:
+                    strips.append((cells, trim))
+                    break
+        all_bridge = {c for cells, _ in strips for c in cells}
+        all_trim = {c for _, tr in strips for c in tr}
+        # **终态复验**：按「桥与收窄全部落地」的终态算每格桥的水邻——
+        # 一条带的水邻可能是另一条带的格（河折返时两带空间相邻），
+        # 逐带检查时那格还是水，两条带都落地后它变成了桥。
+        kept = []
+        for cells, trim in strips:
+            w_final = water - all_bridge - all_trim
+            if all(any((c[0] + ox, c[1] + oy) in w_final
+                       for ox, oy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+                   for c in cells):
+                kept.append((cells, trim))
+        return kept
 
     for _ in range(rng.randint(*cfg.rivers_range)):
         for _try in range(40):
-            spine = river_spine()
+            plan = river_plan()
+            if plan is None:
+                continue
+            spine = river_walk(*plan)
             if not spine or len(spine) < 12:
                 continue
             water = widen(spine)
-            bridges = pick_bridges(spine, water)
-            if not bridges:
+            strips = pick_bridges(spine, water)
+            if not strips:
                 continue
-            bridge_cells = {c for strip in bridges for c in strip}
+            bridge_cells = {c for cells, _ in strips for c in cells}
+            trim_cells = {c for _, tr in strips for c in tr}
+            water -= trim_cells
             for c in water:
                 cv.set_terrain(*c, "Bridge" if c in bridge_cells else "Water")
-            if _connected_to_keep(cv):
+            # 两道自校验：连通（第 12/4/11 条镜像）+ 被切集结点 ≤ 上限
+            # （第 30 条后半的生成器侧）。任一失败整条还原，换下一条。
+            if _connected_to_keep(cv) and (
+                    cut_cap < 0
+                    or len(_river_cut_spawns(cv)) <= cut_cap):
                 break
-            for c in water:      # 切断且桥没补上——整条还原，换下一条
+            for c in water:      # 切断且桥没补上/切了太多集结点——整条还原
                 cv.set_terrain(*c, "Plain")
     return True
 
@@ -1018,6 +1438,9 @@ def place_obstacles(cv, cfg, rng):
 
     **2026-09-01（#117）**：只在城外生成（cheb ≥ R+2，与野外散布同域），
     按同类 1–3 个组成彼此分离的小团（组间留两圈空地），不再全图均匀撒。
+    **2026-09-02 第 5 步（§3.6）**：不撒进设计隘口的口（`cv.choke_gaps`）——
+    清野不应等于拆掉地图给的隘口，隘口是地图设计语言的一部分（拍板
+    2026-09-02）。
     返回组列表供 selftest 断言分组不变量；`paint` 消费方忽略返回值。
     """
     lo, hi = cfg.obstacles
@@ -1035,6 +1458,7 @@ def place_obstacles(cv, cfg, rng):
         return (cv.inside(x, y) and cv.at(x, y) == "Plain"
                 and cv.no_build[y][x] == 0 and cell not in occupied
                 and cell not in group_zone
+                and cell not in cv.choke_gaps
                 and max(abs(x - kx), abs(y - ky)) >= radius + 2)
 
     while len(cv.obstacles) < want:
@@ -1111,6 +1535,12 @@ def _resolve(cfg, rng):
     rp_lo, rp_hi = cfg.rock_patches_range
     rock_patches = rng.randint(rp_lo, rp_hi)
 
+    wd_lo, wd_hi = cfg.woods_range
+    woods = rng.randint(wd_lo, wd_hi)
+
+    rg_lo, rg_hi = cfg.ridges_range
+    ridges = rng.randint(rg_lo, rg_hi)
+
     inner_resources = {t: rng.randint(v[0], v[1])
                         for t, v in cfg.inner_resources_range.items()}
 
@@ -1130,6 +1560,11 @@ def _resolve(cfg, rng):
         forest_patch_size=cfg.forest_patch_size,
         rock_patches=rock_patches,
         rock_patch_size=cfg.rock_patch_size,
+        woods=woods,
+        woods_size=cfg.woods_size,
+        ridges=ridges,
+        ridge_length=cfg.ridge_length,
+        gap_width_range=cfg.gap_width_range,
         water_lakes_range=cfg.water_lakes_range,
         water_lake_size=cfg.water_lake_size,
         rivers_range=cfg.rivers_range,
@@ -1144,8 +1579,9 @@ def paint(cv, cfg, th, rng):
     """把一次生成的全部步骤按**固定顺序**画进 `cv`（`generate_one` 与
     `build_reference_map.py` 共用，参考图「与随机图同一套生成逻辑」的落点）。
 
-    顺序 = 环墙 → 集结点 → 城内内容 → 城外资源簇 → 野外散布 → 水域 → 障碍。
-    改动顺序会影响 rng 消费序列，进而改变同一批种子的产出——只能整条改。
+    顺序 = 环墙 → 集结点 → 城内内容 → 城外资源簇 → 野外散布 → 水域 →
+    阻挡率补量 → 障碍。改动顺序会影响 rng 消费序列，进而改变同一批种子的
+    产出——只能整条改。
 
     **2026-09-02 大改第 1/2 步**：集结点改集结点环角度采样（不再有「抽哪几条
     边」这一步，`rng.sample(_SIDES, n)` 随之删除）；资源簇改按内/外环带
@@ -1155,7 +1591,9 @@ def paint(cv, cfg, th, rng):
     水域放在散布**之后**（2026-09-01）：散布落地在先，河与湖只落 `Plain`，
     遇到已长的森林/岩壁团块就绕开或整片撤销——反过来的话团块挖到河上只能
     整片弃权，那种失败的代价比河改道高（团块数量不算少，逐个重试的成本
-    更高）。
+    更高）。**阻挡率补量（`topup_wild_terrain`）再排在水域之后**
+    （2026-09-02 第 3 步）：水占争夺带阻挡率的一大块，占比要等水落地后
+    才算得准。
     """
     r = _resolve(cfg, rng)
     place_ring_walls(cv, r, rng)
@@ -1164,7 +1602,8 @@ def paint(cv, cfg, th, rng):
         raise GenerationFailed("城内放不下配置要求的内容（city_radius 太小？）")
     place_outer_clusters(cv, r, th, rng)
     scatter_wild_terrain(cv, r, rng)
-    place_water(cv, r, rng)
+    place_water(cv, r, th, rng)
+    topup_wild_terrain(cv, r, th, rng)
     place_obstacles(cv, r, rng)
     return r
 

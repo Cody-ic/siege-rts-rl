@@ -50,6 +50,11 @@ PROFILE_KEYS = frozenset({
     "forest_min_component_cells",
     "outer_gold_min",
     "route_cluster_window", "cluster_spawn_distance_min",
+    # 2026-09-02 大改第 3/4/5 步（《地图生成器大改方案》§3.7/§3.8）：
+    # 第 26 条争夺带阻挡率、第 27 条路线最窄处、第 30 条桥宽与河切集结点。
+    "wild_blocked_fraction_min", "wild_blocked_fraction_max",
+    "route_width_range",
+    "bridge_width_min", "river_cut_spawns_max",
 })
 
 GENERATOR_KEYS = frozenset({
@@ -60,6 +65,9 @@ GENERATOR_KEYS = frozenset({
     "initial_breaches", "wall_hp_frac_range",
     "forest_patches", "forest_patch_size",
     "rock_patches_range", "rock_patch_size",
+    # 2026-09-02 大改第 3 步（§3.2）：林子与岩脊/隘口的四组参数。
+    "woods_range", "woods_size",
+    "ridges_range", "ridge_length", "gap_width_range",
     "water_lakes_range", "water_lake_size", "rivers_range",
     "towers_range", "barracks_range", "obstacles", "max_attempts",
 })
@@ -112,20 +120,23 @@ class Profile:
         d = _strip_notes(raw, where)
         _require_keys(d, PROFILE_KEYS, where)
         self.name = name
-        for k in PROFILE_KEYS - {"spawn_wall_distance_range"}:
+        for k in PROFILE_KEYS - {"spawn_wall_distance_range", "route_width_range"}:
             setattr(self, k, _num(d, k, where))
 
         # 2026-09-02：第 2 条的判据从「贴边」改为「到最近墙格的距离 ∈ 区间」
         # （《地图生成器大改方案》§3.1），所以这是一个 [D_lo, D_hi] 区间键。
-        v = d["spawn_wall_distance_range"]
-        if (not isinstance(v, list) or len(v) != 2
-                or not all(isinstance(x, (int, float))
-                           and not isinstance(x, bool) for x in v)
-                or v[0] > v[1]):
-            raise ThresholdError(
-                f"{where}.spawn_wall_distance_range 应当是 [下界, 上界] 两个数"
-                f"且下界 ≤ 上界，实际是 {v!r}")
-        self.spawn_wall_distance_range = list(v)
+        # 第 27 条的 `route_width_range` 同形（§3.2，第 3 步）——下界 < 0 =
+        # 本档弃用该条（只有 fixture 用，同 `static_vision_radius_max: -1`）。
+        for rk in ("spawn_wall_distance_range", "route_width_range"):
+            v = d[rk]
+            if (not isinstance(v, list) or len(v) != 2
+                    or not all(isinstance(x, (int, float))
+                               and not isinstance(x, bool) for x in v)
+                    or v[0] > v[1]):
+                raise ThresholdError(
+                    f"{where}.{rk} 应当是 [下界, 上界] 两个数"
+                    f"且下界 ≤ 上界，实际是 {v!r}")
+            setattr(self, rk, list(v))
 
         # 区间必须非空。写反了（min > max）的症状是「所有地图都红」，
         # 而那看起来像地图坏了，不像配置坏了。
@@ -133,7 +144,9 @@ class Profile:
                        ("spawn_count_min", "spawn_count_max"),
                        ("episode_ticks_min", "episode_ticks_max"),
                        ("ram_march_fraction_min", "ram_march_fraction_max"),
-                       ("front_length_min", "front_length_max")):
+                       ("front_length_min", "front_length_max"),
+                       ("wild_blocked_fraction_min",
+                        "wild_blocked_fraction_max")):
             if getattr(self, lo) > getattr(self, hi):
                 raise ThresholdError(
                     f"{where}：{lo} ({getattr(self, lo)}) > {hi} "
@@ -159,6 +172,11 @@ class Generator:
     两个键作废，拆成 `inner_band_clusters`/`outer_band_clusters`/
     `outer_band_width`（资源簇按环分布，§3.3）；新增 `cluster_unlock_per_wave`
     （解禁按簇，每波开几簇——占位值，与实力模型一起标）。
+    **2026-09-02（大改第 3 步，§3.2）**：新增 `woods_range`/`woods_size`
+    （林子圆团）、`ridges_range`/`ridge_length`/`gap_width_range`
+    （岩脊线与设计隘口）；小撮计数收窄（森林 [20,30]、岩石 [10,16]）。
+    **同日第 5 步（§3.5）**：`city_radius_range` 收紧到 [8,10]（§9 已定），
+    size 推导自动跟着 R_hi 走（170），下面的加载断言负责对齐。
     """
 
     # 两个推导属性不在 GENERATOR_KEYS 里（它们不是配置键）：`size` 由四环公式
@@ -191,6 +209,8 @@ class Generator:
                   "outer_cluster_size", "initial_breaches",
                   "wall_hp_frac_range", "forest_patches", "forest_patch_size",
                   "rock_patches_range", "rock_patch_size",
+                  "woods_range", "woods_size",
+                  "ridges_range", "ridge_length", "gap_width_range",
                   "water_lakes_range", "water_lake_size", "rivers_range",
                   "towers_range", "barracks_range", "obstacles"):
             v = d[k]
@@ -219,6 +239,25 @@ class Generator:
                 f"{where}.outer_cluster_size 下界 {self.outer_cluster_size[0]} "
                 f"小于 3——主类型要 ≥ 2 点才是唯一众数、再加至少 1 个异类点，"
                 f"一簇至少 3 点（第 29 条按众数定簇类型）")
+
+        # 隘口与岩脊的配置一致性（2026-09-02 大改第 3 步，§3.2）：
+        # 生成器留的口必须落进校验器第 27 条的隘口区间（strict 档
+        # `route_width_range`），否则每张图都被第 27 条否决——同 size 那道
+        # 检查的理由：配置互相矛盾时症状是丢弃率 100%，指不出根因。
+        if strict.route_width_range[0] >= 0:
+            glo, ghi = self.gap_width_range
+            rlo, rhi = strict.route_width_range
+            if glo < rlo or ghi > rhi:
+                raise ThresholdError(
+                    f"{where}.gap_width_range [{glo}, {ghi}] 越出 strict 档 "
+                    f"route_width_range [{rlo}, {rhi}]——生成器留的口必须落进"
+                    f"第 27 条的隘口区间，否则每张图都被它否决")
+        # 一道岩脊线被隘口分成两段，每段 ≥ 3 格才读作「脊」（与「小撮 ≥ 3」
+        # 同一条形态纪律）⇒ 线长下界 6。
+        if self.ridge_length[0] < 6:
+            raise ThresholdError(
+                f"{where}.ridge_length 下界 {self.ridge_length[0]} 小于 6——"
+                f"隘口两侧各 ≥ 3 格才读作「脊」，线长至少 6")
 
         raw_inner = d["inner_resources_range"]
         if not isinstance(raw_inner, dict):
