@@ -325,6 +325,25 @@ if(Python3_FOUND)
     set_tests_properties(map_gen_validate_fixture_strict_is_red
                          PROPERTIES WILL_FAIL TRUE)
 
+    # **56 格参考图《边境要塞》走它自己的 `reference` 档**（2026-09-02 大改第 6 步，
+    # 《地图生成器大改方案》§3.9）：R=8、D=40 的完整四环在 56 格上客观放不下
+    # （无外环、无设计隘口，几何推导见 `build_reference_map.py` 的模块注记），
+    # strict 的 `spawn_wall_distance_range` [36,44] 对它不可能成立。
+    # 与 fixture 同一对钉子：自己的档必须绿 + strict 必须红——少了后者，
+    # 「reference 档」与「为这张图把检查关小」在 ctest 层面不可区分。
+    add_test(NAME map_gen_validate_reference
+             COMMAND "${Python3_EXECUTABLE}"
+                     "${CMAKE_SOURCE_DIR}/tools/map_gen/validate.py"
+                     --profile reference
+                     "${CMAKE_SOURCE_DIR}/game/data/maps/reference_border_keep_01.json")
+    add_test(NAME map_gen_validate_reference_strict_is_red
+             COMMAND "${Python3_EXECUTABLE}"
+                     "${CMAKE_SOURCE_DIR}/tools/map_gen/validate.py"
+                     --profile strict
+                     "${CMAKE_SOURCE_DIR}/game/data/maps/reference_border_keep_01.json")
+    set_tests_properties(map_gen_validate_reference_strict_is_red
+                         PROPERTIES WILL_FAIL TRUE)
+
     # **生成器真的生成几张图，并且每张都跑完整校验器**（第 9 节）。
     #
     # 干跑（不给 -o，不落盘）：这条 ctest 要的是「生成 → 校验 → 通过」这条链路

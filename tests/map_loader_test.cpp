@@ -188,8 +188,9 @@ TEST_CASE("格式不合法要抛，而不是读出一张看起来正常的图", 
     }
 
     SECTION("resources 缺 unlock_wave") {
-        // 必填——缺失与「刻意写 1」不可区分会让第 18 条校验（解禁波数序列按
-        // 距离单调）在少数图上悄悄少查一条，同 obstacles 必填的理由。
+        // 必填——缺失与「刻意写 1」不可区分会让解禁波校验（2026-09-02 起为
+        // 第 28 条「解禁按簇」；原第 18 条逐点版同日废除并入）在少数图上悄悄
+        // 少查一条，同 obstacles 必填的理由。
         std::string s = kMinimal;
         const std::string frag = ", \"unlock_wave\": 1";
         s.replace(s.find(frag), frag.size(), "");

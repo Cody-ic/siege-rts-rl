@@ -5,7 +5,7 @@
 
   "_note_values_are_placeholders": "**下面每一个数字都是占位值，一个都没有标定过。** 依据是 `地图与场景设计.md` §3 那张量级表（该表自己也标着「除前两行外全部是待定值」）。取它们只为让检查与生成器**能跑**，不构成对任何数值的承诺。真实值要等机制跑通后用成本产出矩阵一次性倒推，见 CLAUDE.md「关于数值」。",
 
-  "_note_two_profiles": "阈值分 profile，**但 profile 只改数值、不改「哪些条目跑」**——全部条目在任何 profile 下都执行（条数以 `py validate.py --list` 为准，刻意不写死）。`fixture` 存在的唯一理由是 `game/testdata/fixture_min.json` 是一张 7×5 的**最小夹具**、不是一张游戏地图，对它套用尺寸与行军不变量没有意义；而格式与拓扑检查对它完全适用。防止它退化成「关掉检查的后门」的手段是一条自检：**strict 下那张夹具必须红**（`selftest.py` 的「profile 不是无操作」一组）。",
+  "_note_two_profiles": "阈值分 profile，**但 profile 只改数值、不改「哪些条目跑」**——全部条目在任何 profile 下都执行（条数以 `py validate.py --list` 为准，刻意不写死）。`fixture` 存在的唯一理由是 `game/testdata/fixture_min.json` 是一张 7×5 的**最小夹具**、不是一张游戏地图，对它套用尺寸与行军不变量没有意义；而格式与拓扑检查对它完全适用。防止它退化成「关掉检查的后门」的手段是一条自检：**strict 下那张夹具必须红**（`selftest.py` 的「profile 不是无操作」一组）。**2026-09-02 新增第三档 `reference`**：56 格参考图《边境要塞》专用（《地图生成器大改方案》§3.9——R=8、D=40 的完整四环在 56 格上客观放不下：参考图**没有外环、没有设计隘口**，几何推导见 `build_reference_map.py` 的注记）。它同样不是后门：`strict` 下那张图必须红（ctest `map_gen_validate_reference_strict_is_red`），本档的弃用值写法与 fixture 同一条纪律。",
 
   "profiles": {
     "strict": {
@@ -93,6 +93,46 @@
       "_note_river_fixture": "**bridge_width_min 0 / river_cut_spawns_max -1 = 本档弃用第 30 条的两半**（判据分别是「≥」与「≤」，0 与 -1 都恒真/跳过，同 `outer_gold_min: 0` 与 `static_vision_radius_max: -1` 的手法）。",
       "outer_gold_min": 0,
       "_note_outer_gold_fixture": "**0 = 本档弃用本条**。夹具 7×5 上第 21 条（至少一个 outer 资源点）自身就贴着下限过，再要它凑出 2 个城外金点没有意义——同 `static_vision_radius_max: -1` 那条的理由。"
+    },
+
+    "reference": {
+      "_use": "**只给 56 格参考图《边境要塞》**（`game/data/maps/reference_border_keep_01.json`，`build_reference_map.py` 的产出，2026-09-02 大改第 6 步新增）。strict 档的 D=40 与四环结构在 56 格上客观放不下（半宽 28 < R 8 + D 40），本档是它在 56 格上的对应物：能保的判据一律保（行军占比、禁建环、正面 8R、阻挡率、簇配额与按簇解禁……），保不了的写成弃用值并逐条注明几何理由。防退化钉子在 ctest：`map_gen_validate_reference`（本档必须绿）与 `map_gen_validate_reference_strict_is_red`（strict 必须红）。",
+
+      "size_min": 56,
+      "size_max": 56,
+      "_note_size": "本档只服务这一张图，区间收成恰好 56（`build_reference_map.py` 的 `SIZE`）——宽区间会暗示「还有别的图用这档」，没有。",
+
+      "spawn_count_min": 2,
+      "spawn_count_max": 2,
+      "_note_spawn_count": "参考图恒 2 集结点（`build_reference_map.py` 的设计要求）。",
+
+      "spawn_wall_distance_range": [16, 20],
+      "_note_spawn_wall_distance": "D=40 在 56 格上客观不可达：集结点环 cheb R+D 必须 ≤ 半宽 28（keep 居中），R=8 ⇒ D ≤ 20；内环带 [R+4, R+D−14] 非空 ⇒ D ≥ 18。**生成器取中点 18**，[16,20] 吸收角度取整与城门/缺口的 ±1–2 格抖动（同 strict 档 [36,44] 的写法）。D=18 下行军 18 格 ≈ 400 tick，占 episode [1200,2400] 的 [0.17, 0.33]，落在本档行军占比区间内（与 strict 同值）。",
+
+      "route_cluster_window": 6,
+      "cluster_spawn_distance_min": 10,
+      "_note_route_cluster": "前半条（6 格窗口）与 strict 同值。后半条 **16 → 10**：56 格上 16 客观不可满足——顺路簇钉在 cheb R+15 而被钳入内环带（最外 cheb R+D−14=12），簇内点半径 4，于是簇的最近点到同向集结点（cheb R+D=26）的射向间距恒 ≈ 26−16=10。取 10 后「簇不进集结区」事实上由禁建环（no_build 13，第 14 条）承担——意图不变，只是 56 格上没有空间再宽出一圈。生成器侧同读本键（2026-09-02 起不再硬编码 16，见 `generate.place_outer_clusters`）。",
+
+      "static_vision_radius_max": 12,
+      "episode_ticks_min": 1200,
+      "episode_ticks_max": 2400,
+      "ram_march_fraction_min": 0.10,
+      "ram_march_fraction_max": 0.75,
+      "forest_min_component_cells": 3,
+      "front_length_min": 64,
+      "front_length_max": 80,
+      "wild_blocked_fraction_min": 0.10,
+      "wild_blocked_fraction_max": 0.20,
+      "_note_same_as_strict": "禁建环（12，权威值仍由数值表推导核对）、episode、行军占比、森林聚拢、正面总长（R=8 ⇒ 8R=64）、争夺带阻挡率（带 = 墙外 2 格到集结点环，56 格上这条带仍有约 2400 格，10–20% 可达）——**全部与 strict 同值**：这些是设计不变量，不随图大小变。",
+
+      "route_width_range": [-1, -1],
+      "_note_route_width": "**[-1,-1] = 本档弃用第 27 条**（同 fixture 的手法），理由是几何不可能、不是放宽：岩脊隘口要求脊段每格落在内环带内（`generate.try_ridge`），脊长 ≥ 6 ⇒ 带厚至少约 7 格，而 56 格上内环带厚 = D−18 ≤ 2（D ≤ 20 见上）。**参考图因此没有设计隘口**（《方案》§3.9 只预见了「无外环」，隘口放不下是落地时实测出来的第二条，已记进 §7 注记）。",
+
+      "bridge_width_min": 2,
+      "river_cut_spawns_max": 1,
+      "_note_river": "与 strict 同值——参考图不画水域（`build_reference_map.py`：56 格上河与湖摆不下形态），第 12/13/30 条在「无水」下自动通过，这两个数用不上但保持同值，免得将来参考图要水时忘了这里。",
+
+      "outer_gold_min": 2
     }
   },
 
