@@ -927,7 +927,14 @@ def check_v25_outer_gold(c):
                                         "front_length_max": 4096,
                                         "outer_gold_min": 0,
                                         "route_cluster_window": -1,
-                                        "cluster_spawn_distance_min": -1})
+                                        "cluster_spawn_distance_min": -1,
+                                        # 2026-09-02 第 3/4 步新键，弃用值同
+                                        # fixture 档（恒真 / 下界 < 0）。
+                                        "wild_blocked_fraction_min": 0.0,
+                                        "wild_blocked_fraction_max": 1.0,
+                                        "route_width_range": [-1, -1],
+                                        "bridge_width_min": 0,
+                                        "river_cut_spawns_max": -1})
     d2 = make_clean_doc()
     d2["resources"] = [
         {"type": "stone", "pos": [0, 0], "tier": "outer", "unlock_wave": 2}]
@@ -1070,7 +1077,8 @@ def check_v31_passby(c):
 
 def check_route_features_report(c):
     """路线特征（§3.1 派生量，进报告不进地图文件）：键齐全、`path_len` 等于
-    BFS 最短路长、沿途簇数按 6 格窗口数；未落地的三项留 `None`。"""
+    BFS 最短路长、沿途簇数按 6 格窗口数；地形三项 2026-09-02 第 3/4 步落地
+    ——`_big_doc(64)` 全 Plain：最窄处 = 图宽 64、直线带无 Forest、不过桥。"""
     doc = _big_doc(64)
     doc["resources"] += [_outer_res("gold", 30, 20, 1)]
     feats = validate.route_features(doc, Grid(doc))
@@ -1078,14 +1086,193 @@ def check_route_features_report(c):
     f = feats[0]
     c.eq(set(f), {"spawn", "path_len", "clusters_near_path",
                   "min_width", "forest_cover", "crosses_bridge"},
-         f"路线特征的键必须齐全（未落地项留 None），实际 {sorted(f)}")
+         f"路线特征的键必须齐全，实际 {sorted(f)}")
     c.eq(f["path_len"], 30,
          f"(32,2) 到 (32,32) 的最短路应是 30 格，实际 {f['path_len']}")
     c.eq(f["clusters_near_path"], 1,
          "簇点 (30,20) 在路径 2 格内，应数到 1 簇")
-    c.true(f["min_width"] is None and f["forest_cover"] is None
-           and f["crosses_bridge"] is None,
-           "地形相关三项第 3–5 步才落地，现在必须是 None")
+    c.eq(f["min_width"], 64,
+         f"全 Plain 图上最窄处应等于整条可通行段长（64），实际 {f['min_width']}")
+    c.eq(f["forest_cover"], 0.0,
+         f"直线带里一株 Forest 都没有，遮蔽应为 0.0，实际 {f['forest_cover']}")
+    c.eq(f["crosses_bridge"], False, "全 Plain 图不过桥")
+
+
+def _set_terrain(doc, cells, name):
+    """把 doc 里若干格改成指定地形（第 26/27/30 条用例的造图砖）。"""
+    idx = mapfile.TERRAIN_PALETTE.index(name)
+    rows = [list(r) for r in doc["layers"]["terrain"]["rows"]]
+    for x, y in cells:
+        rows[y][x] = str(idx)
+    doc["layers"]["terrain"]["rows"] = ["".join(r) for r in rows]
+    mapfile.stamp_content_hash(doc)
+
+
+def _ring64(r, keep=(32, 32)):
+    """64×64 图上 cheb == r 的整环格（第 9/26/32 条用例的造图砖）。"""
+    kx, ky = keep
+    return [(x, y) for x in range(64) for y in range(64)
+            if max(abs(x - kx), abs(y - ky)) == r]
+
+
+def check_v9_defended_front(c):
+    """第 9 条（2026-09-02 解阻塞，大改第 5 步）：正面 = 城圈周长 8R，R 从
+    墙格到 keep 的最大切比雪夫距离反推——不再需要城区。
+
+    keep (32,32)。半径 8 的整环 ⇒ 正面 64 ∈ [64, 80] 过；半径 5 ⇒ 40 < 64
+    必报；无墙自动通过（没有要设防的正面，同第 8 条先例）。
+    """
+    th = thresholds.load().profile("strict")
+    doc = _big_doc(64, walls_at=_ring64(8))
+    c.eq(validate.check_defended_front(doc, Grid(doc), th), [],
+         "半径 8 的整环：正面 64 应落在 [64, 80]")
+    doc = _big_doc(64, walls_at=_ring64(5))
+    probs = validate.check_defended_front(doc, Grid(doc), th)
+    c.true(probs and "40" in probs[0],
+           f"半径 5 的环正面只有 40 格（< 64）必须报，实际 {probs}")
+    doc = _big_doc(64)
+    c.eq(validate.check_defended_front(doc, Grid(doc), th), [],
+         "没有墙就没有要设防的正面——自动通过")
+
+
+def check_v26_wild_blocked_fraction(c):
+    """第 26 条：争夺带（城圈外 2 格到集结点环）阻挡率 ∈ 区间。
+
+    keep (32,32)、半径 8 整环、集结点 (32,2)（cheb 30）⇒ 带 = cheb ∈
+    [10, 30]。带内 (x+y) % 6 铺 Forest ≈ 16.7% ∈ [10%, 20%] 过；一株不铺
+    0%、% 2 铺 50% 都必报；无墙自动通过（同第 8/9 条先例）。
+    """
+    th = thresholds.load().profile("strict")
+
+    def band_cells():
+        return [(x, y) for x in range(64) for y in range(64)
+                if 10 <= max(abs(x - 32), abs(y - 32)) <= 30]
+
+    doc = _big_doc(64, walls_at=_ring64(8))
+    _set_terrain(doc, [p for p in band_cells() if (p[0] + p[1]) % 6 == 0],
+                 "Forest")
+    c.eq(validate.check_wild_blocked_fraction(doc, Grid(doc), th), [],
+         "带内 ≈16.7% 的 Forest 应落在 [10%, 20%]")
+    doc = _big_doc(64, walls_at=_ring64(8))
+    probs = validate.check_wild_blocked_fraction(doc, Grid(doc), th)
+    c.true(probs and "阻挡率" in probs[0],
+           f"一株不铺（0%）低于下界必须报，实际 {probs}")
+    doc = _big_doc(64, walls_at=_ring64(8))
+    _set_terrain(doc, [p for p in band_cells() if (p[0] + p[1]) % 2 == 0],
+                 "Forest")
+    probs = validate.check_wild_blocked_fraction(doc, Grid(doc), th)
+    c.true(probs and "阻挡率" in probs[0],
+           f"铺一半（50%）高于上界必须报，实际 {probs}")
+    doc = _big_doc(64)
+    c.eq(validate.check_wild_blocked_fraction(doc, Grid(doc), th), [],
+         "无墙 ⇒ 没有城圈可言，自动通过")
+
+
+def check_v27_route_width_classes(c):
+    """第 27 条：最窄处 ∈ [2,4] = 隘口、更宽 = 开阔，全图两类都要有。
+
+    keep (32,32)。Rock 墙段 y=20、x∈[0,40] 留 x∈[30,33] 的四格口：
+    集结点 (32,2) 的最短路穿口 ⇒ 隘口；集结点 (2,32) 的路线不碰墙段
+    ⇒ 开阔——两类齐，过。口收到 1 格 ⇒ 「1 格缝」必报；全开阔图必红
+    「两类都要有」；fixture 档 [-1,-1] 弃用 ⇒ 恒过。
+    """
+    th = thresholds.load().profile("strict")
+    fixture = thresholds.load().profile("fixture")
+    spawns2 = [{"id": 0, "pos": [32, 2]}, {"id": 1, "pos": [2, 32]}]
+
+    def make(gap):
+        doc = _big_doc(64)
+        doc["spawns"] = [dict(s) for s in spawns2]
+        mapfile.stamp_content_hash(doc)
+        _set_terrain(doc, [(x, 20) for x in range(41) if x not in gap], "Rock")
+        return doc
+
+    doc = make(set(range(30, 34)))
+    c.eq(validate.check_route_width_classes(doc, Grid(doc), th), [],
+         "一隘口（口宽 4）一开阔，两类齐，不该报")
+    probs = validate.check_route_width_classes(make({32}), Grid(make({32})), th)
+    c.true(any("缝" in p for p in probs),
+           f"口宽 1 是「1 格缝」不是隘口，必须报，实际 {probs}")
+    doc = _big_doc(64)
+    doc["spawns"] = [dict(s) for s in spawns2]
+    mapfile.stamp_content_hash(doc)
+    probs = validate.check_route_width_classes(doc, Grid(doc), th)
+    c.true(any("两类都要有" in p for p in probs),
+           f"全开阔图没有隘口路线，必须报，实际 {probs}")
+    doc = make(set(range(30, 34)))
+    c.eq(validate.check_route_width_classes(doc, Grid(doc), fixture), [],
+         "fixture 档 [-1,-1] = 弃用，隘口图也自动通过")
+
+
+def check_v30_river_bridges(c):
+    """第 30 条：桥宽 ≥ 2；不踩桥就走不到 keep 的集结点 ≤ 1。
+
+    keep (32,32)，河 = x=20 整列 Water。桥 (20,10)+(20,11)（流向轴 y、跨度
+    2）⇒ 过；只留一格 ⇒ 桥宽 1 必报。无桥时：左侧 1 个集结点被切 = 上限
+    1，过；左侧 2 个 ⇒ 必报。fixture 档（0 / -1）两半都弃用 ⇒ 恒过。
+    """
+    th = thresholds.load().profile("strict")
+    fixture = thresholds.load().profile("fixture")
+
+    def river_doc(spawns, bridge_cells):
+        doc = _big_doc(64)
+        doc["spawns"] = [dict(s) for s in spawns]
+        mapfile.stamp_content_hash(doc)
+        _set_terrain(doc, [(20, y) for y in range(64)], "Water")
+        _set_terrain(doc, bridge_cells, "Bridge")
+        return doc
+
+    s1 = [{"id": 0, "pos": [2, 32]}]
+    doc = river_doc(s1, [(20, 10), (20, 11)])
+    c.eq(validate.check_river_bridges(doc, Grid(doc), th), [],
+         "桥宽 2 且没有集结点被切（有桥可踩），不该报")
+    doc = river_doc(s1, [(20, 10)])
+    probs = validate.check_river_bridges(doc, Grid(doc), th)
+    c.true(any("宽" in p for p in probs),
+           f"桥宽 1（< 2）必须报，实际 {probs}")
+    doc = river_doc(s1, [])
+    c.eq(validate.check_river_bridges(doc, Grid(doc), th), [],
+         "无桥时左侧 1 个集结点被切 = 上限 1，不该报")
+    doc = river_doc(s1 + [{"id": 1, "pos": [2, 40]}], [])
+    probs = validate.check_river_bridges(doc, Grid(doc), th)
+    c.true(any("不踩桥" in p for p in probs),
+           f"2 个集结点被切（> 1）必须报，实际 {probs}")
+    doc = river_doc(s1 + [{"id": 1, "pos": [2, 40]}], [(20, 10)])
+    c.eq(validate.check_river_bridges(doc, Grid(doc), fixture), [],
+         "fixture 档 bridge_width_min 0 / cut -1 = 两半都弃用，恒过")
+
+
+def check_v32_entrance_faces(c):
+    """第 32 条：门与缺口不同面、≥ 3 个面有入口；非整环实体图跳过。
+
+    keep (32,32)、半径 8 整环：门北 (32,24) + 门南 (32,40)、缺口东 (40,30)
+    ⇒ 过；缺口挪进门面 (30,24) ⇒ 必报；无缺口 ⇒ 只 2 面有入口必报；
+    散墙（环上墙格 < 8r−2）⇒ 不是整环实体图，自动通过。
+    """
+    def ring_doc(gates, breaches, r=8):
+        doc = _big_doc(64)
+        doc["initial_walls"] = [
+            {"kind": "Gate" if p in gates else "Wall",
+             "pos": list(p), "hp_frac": 1.0}
+            for p in _ring64(r) if p not in breaches]
+        mapfile.stamp_content_hash(doc)
+        return doc
+
+    doc = ring_doc({(32, 24), (32, 40)}, {(40, 30)})
+    c.eq(validate.check_entrance_faces(doc, Grid(doc)), [],
+         "门南北 + 缺口东：门面与缺口面不相交、3 面有入口，不该报")
+    doc = ring_doc({(32, 24), (32, 40)}, {(30, 24)})
+    probs = validate.check_entrance_faces(doc, Grid(doc))
+    c.true(any("同一个面" in p for p in probs),
+           f"缺口落进门面必须报，实际 {probs}")
+    doc = ring_doc({(32, 24), (32, 40)}, set())
+    probs = validate.check_entrance_faces(doc, Grid(doc))
+    c.true(any("有入口" in p for p in probs),
+           f"只 2 个面有入口（< 3）必须报，实际 {probs}")
+    doc = _big_doc(64, walls_at=[(10, 10), (11, 10), (12, 10),
+                                 (20, 20), (21, 20), (40, 5)])
+    c.eq(validate.check_entrance_faces(doc, Grid(doc)), [],
+         "散墙不是整环实体图（环上墙格 < 8r−2），本条无适用对象")
 
 
 def check_v22_obstacle_placement(c):
@@ -1188,11 +1375,12 @@ def check_validator_on_clean_map(c):
                   if chk.status == validate.BLOCKED)
     n_pend = sum(1 for chk in validate.CHECKS
                  if chk.status == validate.PENDING)
-    c.eq((n_impl, n_block, n_pend), (24, 5, 0),
+    c.eq((n_impl, n_block, n_pend), (29, 0, 0),
          "条目状态计数变了：改动状态时要同步这条断言与 README 的进度表"
          "（2026-09-01：第 7 条废除，已实现数 22 → 21；2026-09-02：大改第 2 步"
          "新增第 28/29/31 条已实现 + 第 26/27/30/32 条阻塞占位 ⇒ 21+3 已实现、"
-         "1+4 阻塞）")
+         "1+4 阻塞；同日第 3/4/5 步：26/27/30/32 落地 + 第 9 条解阻塞"
+         " ⇒ 24+5 已实现、0 阻塞）")
 
 
 def check_profile_is_not_a_noop(c):
@@ -1854,6 +2042,64 @@ def check_generator_produces_valid_maps(c):
     c.true(any(m["type"] == "gold" for cl in inner_cls for m in cl["members"]),
            "内环（集结点环内侧）必须至少一簇含金（实力模型 §6.1）")
 
+    # —— 2026-09-02 大改第 3/4/5 步的 doc 层断言（§3.7 要求）——
+    # 校验器第 26/27/30/32 条已在 run() 里查过同一张图；这里钉的是「生成器
+    # 产出恒如此」这层承诺——run() 红是单张图的事，这里红是生成器策略破了。
+    grid = Grid(doc)
+
+    def cheb(p):
+        return max(abs(p[0] - kx), abs(p[1] - ky))
+
+    # 争夺带阻挡率 ∈ strict 区间（第 26 条的生成器侧）。
+    outer_d = min(cheb(tuple(s["pos"])) for s in doc["spawns"])
+    band = [(x, y) for y in range(doc["size"][1]) for x in range(doc["size"][0])
+            if r_ring + 2 <= cheb((x, y)) <= outer_d]
+    frac = sum(1 for x, y in band
+               if names[y][x] in ("Forest", "Rock", "Water")) / len(band)
+    c.true(th.wild_blocked_fraction_min <= frac <= th.wild_blocked_fraction_max,
+           f"争夺带阻挡率 {frac:.1%} 必须落在 "
+           f"[{th.wild_blocked_fraction_min}, {th.wild_blocked_fraction_max}]")
+
+    # 至少一条隘口路线（最窄处 ∈ route_width_range）——「哪条路窄」是地图的
+    # 一部分（第 27 条的生成器侧；开阔那一类由校验器查，这里钉隘口存在）。
+    feats = validate.route_features(doc, grid)
+    wlo, whi = th.route_width_range
+    c.true(any(f["min_width"] is not None and wlo <= f["min_width"] <= whi
+               for f in feats),
+           f"必须至少有一条隘口路线（最窄处 ∈ [{wlo}, {whi}]），实际 "
+           f"{[f['min_width'] for f in feats]}")
+
+    # 缺口必须放在没有门的面上（第 32 条的生成器侧，§3.5 决定项 6）。
+    def faces_of(p):
+        faces = set()
+        if p[1] == ky - r_ring:
+            faces.add("north")
+        if p[1] == ky + r_ring:
+            faces.add("south")
+        if p[0] == kx - r_ring:
+            faces.add("west")
+        if p[0] == kx + r_ring:
+            faces.add("east")
+        return faces
+    gate_faces = {f for gpos in gates for f in faces_of(gpos)}
+    wall_set = set(wall_pos)
+    breach_faces = {f for x in range(doc["size"][0])
+                    for y in range(doc["size"][1])
+                    if cheb((x, y)) == r_ring and (x, y) not in wall_set
+                    for f in faces_of((x, y))}
+    c.true(not (gate_faces & breach_faces),
+           f"缺口面 {sorted(breach_faces)} 与门面 {sorted(gate_faces)} 必须不相交")
+    c.true(len(gate_faces | breach_faces) >= 3,
+           f"有入口的面必须 ≥ 3，实际 {sorted(gate_faces | breach_faces)}")
+
+    # 桥宽 2 的结构签名：每个桥格都有正交桥邻（第 30 条的生成器侧）。
+    bset = {(x, y) for y in range(doc["size"][1]) for x in range(doc["size"][0])
+            if names[y][x] == "Bridge"}
+    for bx, by in bset:
+        c.true(any((bx + ox, by + oy) in bset
+                   for ox, oy in ((1, 0), (-1, 0), (0, 1), (0, -1))),
+               f"桥 {(bx, by)} 没有正交桥邻——桥宽必须 ≥ 2（§3.4）")
+
 
 def _ref_cfg(**over):
     """一组全钉死的生成配置，给直测生成器中间产物的用例用。区间全取单值
@@ -1887,6 +2133,13 @@ def _ref_cfg(**over):
         forest_patch_size=[3, 5],
         rock_patches_range=[6, 6],
         rock_patch_size=[3, 6],
+        # 2026-09-02 第 3 步（§3.2 三形态）：林子与岩脊。scatter 直接读它们，
+        # 缺一个属性 paint 就 AttributeError。
+        woods_range=[3, 3],
+        woods_size=[14, 20],
+        ridges_range=[2, 2],
+        ridge_length=[8, 10],
+        gap_width_range=[2, 3],
         water_lakes_range=[0, 0],
         water_lake_size=[0, 0],
         rivers_range=[0, 0],
@@ -2076,17 +2329,29 @@ def check_generator_cluster_invariants(c):
 
 
 def check_generator_wild_patches_are_small_and_separate(c):
-    """野外森林/岩壁应是各处分散的小撮，不能相邻粘成大团（#117）。"""
+    """野外 Forest/Rock 三形态（岩脊/林子/小撮，2026-09-02 第 3 步 §3.2）各自
+    是小块，不能相邻粘成大团（#117 的纪律在三形态下延续）。
+
+    上界按形态取：Forest = `woods_size` 上界（林子，30）；Rock =
+    `ridge_length` 上界（岩脊，15——一道设计隘口的两段脊隔着 ≥ 2 格的口，
+    8 连通意义下不相邻）。下界 3：更小的斑块生成器直接不落地（第 23 条的
+    生成器侧）。本用例的 Canvas 没有集结点 ⇒ 只出孤脊不出设计隘口
+    （`n_narrow` 为 0），设计隘口的口由 `check_generator_produces_valid_maps`
+    的路线宽度断言覆盖。
+    """
     cfg = SimpleNamespace(
-        city_radius=10,
+        city_radius=12, spawn_wall_distance=40,
         forest_patches=[12, 12], forest_patch_size=[3, 5],
-        rock_patches=6, rock_patch_size=[3, 6])
-    cv = generate.Canvas(72)
+        rock_patches=6, rock_patch_size=[3, 6],
+        woods=4, woods_size=[14, 30],
+        ridges=2, ridge_length=[8, 15],
+        gap_width_range=[2, 4])
+    cv = generate.Canvas(174)
     generate.scatter_wild_terrain(cv, cfg, random.Random(20260902))
 
     eight = ((1, 0), (-1, 0), (0, 1), (0, -1),
              (1, 1), (1, -1), (-1, 1), (-1, -1))
-    limits = {"Forest": 5, "Rock": 6}
+    limits = {"Forest": 30, "Rock": 15}
     for kind, upper in limits.items():
         remaining = {(x, y) for y in range(cv.size) for x in range(cv.size)
                      if cv.at(x, y) == kind}
@@ -2105,10 +2370,10 @@ def check_generator_wild_patches_are_small_and_separate(c):
                         comp.add(nb)
                         stack.append(nb)
             components.append(comp)
-        c.true(bool(components), f"{kind} 至少应生成一小撮")
+        c.true(bool(components), f"{kind} 至少应生成一块")
         for comp in components:
             c.true(3 <= len(comp) <= upper,
-                   f"{kind} 小撮大小应为 3--{upper}，实际 {sorted(comp)}")
+                   f"{kind} 块大小应为 3--{upper}，实际 {sorted(comp)}")
 
 
 def check_generator_inner_content(c):
@@ -2238,6 +2503,9 @@ def check_generator_obstacles_outside_and_grouped(c):
             c.true(not any(max(abs(x - sx), abs(y - sy)) <= 1
                            for sx, sy in cv.spawns),
                    f"障碍 {(x, y)} 压到集结点邻域")
+            c.true((x, y) not in cv.choke_gaps,
+                   f"障碍 {(x, y)} 落进了设计隘口的口——清野不应等于拆掉地图"
+                   f"给的隘口（§3.6，2026-09-02 第 5 步）")
         if len(cells) > 1:
             seen = {cells[0]}
             stack = [cells[0]]
@@ -2256,12 +2524,17 @@ def check_generator_water(c):
     桥的四邻有水（第 13 条的生成器侧镜像）、任何水体落地后集结点仍连通 keep
     （第 12 条镜像——自校验失败会整片撤销，所以产出恒满足）。
 
+    **2026-09-02 第 4 步（§3.4 河受管理）增补**：桥宽 2（每个桥格都有正交
+    桥邻）、河格只落允许域（cheb ≥ R+6、非 `no_build`——湖照旧不受这条管，
+    所以这组断言跑在「只开河、不开湖」的另一张画布上）、被河切断（不踩桥
+    走不到 keep）的集结点 ≤ 1。
+
     另钉住**零配置不消费 rng** 这条：参考图靠固定种子逐字节复现，
     `place_water` 在 range 全 0 时若悄悄抽一次数，同一批种子的产出就全漂了。
     """
     cfg = _ref_cfg(water_lakes_range=[2, 2], water_lake_size=[10, 14],
                    rivers_range=[1, 1])
-    cv, _ = _painted(cfg)
+    cv, r = _painted(cfg)
 
     waters = [(x, y) for y in range(cv.size) for x in range(cv.size)
               if cv.at(x, y) == "Water"]
@@ -2277,6 +2550,13 @@ def check_generator_water(c):
                         for ox, oy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
         c.true(has_water, f"桥 {(bx, by)} 的四邻没有 Water（第 13 条镜像）")
 
+    # 桥宽 2（第 30 条镜像）：每个桥格都有正交桥邻——1 格宽的桥两头孤。
+    bset = set(bridges)
+    for bx, by in bridges:
+        c.true(any((bx + ox, by + oy) in bset
+                   for ox, oy in ((1, 0), (-1, 0), (0, 1), (0, -1))),
+               f"桥 {(bx, by)} 没有正交桥邻——桥宽 2 要求每格都有相邻桥格")
+
     # 连通性（第 12/4/11 条镜像）。
     c.true(generate._connected_to_keep(cv),
            "水域落地后所有集结点必须仍能走到 keep（自校验失败的整片撤销在跑）")
@@ -2288,6 +2568,22 @@ def check_generator_water(c):
     res = {(x, y) for _, (x, y), _ in cv.resources}
     for wx, wy in waters + bridges:
         c.true((wx, wy) not in res, f"水域 {(wx, wy)} 盖住了资源点")
+
+    # —— 河的限域与切断上限（§3.4）：只开河、不开湖，水格就全是河格 ——
+    cfg_r = _ref_cfg(rivers_range=[1, 1])
+    cvr, rr = _painted(cfg_r, seed=5150)
+    kx, ky = cvr.keep
+    river_cells = [(x, y) for y in range(cvr.size) for x in range(cvr.size)
+                   if cvr.at(x, y) in ("Water", "Bridge")]
+    c.true(bool(river_cells), "rivers_range=[1,1] 时河必须落地")
+    for wx, wy in river_cells:
+        c.true(max(abs(wx - kx), abs(wy - ky)) >= rr.city_radius + 6,
+               f"河格 {(wx, wy)} 贴上了墙（cheb < R+6，§3.4 限域）")
+        c.true(cvr.no_build[wy][wx] == 0,
+               f"河格 {(wx, wy)} 压进了禁建环（§3.4：不穿禁建环）")
+    c.true(len(generate._river_cut_spawns(cvr)) <= 1,
+           f"被河切断（不踩桥走不到 keep）的集结点必须 ≤ 1，实际 "
+           f"{generate._river_cut_spawns(cvr)}")
 
     # 零配置 ⇒ 不消费 rng：同种子下两条路径的产出必须逐格相同。
     cv_a, _ = _painted(_ref_cfg(), seed=777)
@@ -2301,6 +2597,7 @@ def check_generator_water(c):
     generate.place_inner_content(cv_b, r_b, rng_b)
     generate.place_outer_clusters(cv_b, r_b, th, rng_b)
     generate.scatter_wild_terrain(cv_b, r_b, rng_b)
+    generate.topup_wild_terrain(cv_b, r_b, th, rng_b)
     generate.place_obstacles(cv_b, r_b, rng_b)   # 刻意不调 place_water
     c.true(cv_a.terrain == cv_b.terrain and cv_a.resources == cv_b.resources,
            "零配置的 place_water 不得消费 rng——否则参考图的固定种子复现会漂")
@@ -2451,6 +2748,12 @@ GROUPS = [
     ("第 29 条 簇类型配额与内环含金", check_v29_type_quota),
     ("第 31 条 路线顺路簇与簇到集结点距离", check_v31_passby),
     ("路线特征报告（§3.1 派生量）", check_route_features_report),
+    # —— 2026-09-02 大改第 3/4/5 步：第 9 条解阻塞 + 新条目 26/27/30/32 ——
+    ("第 9 条 需人工设防的正面总长", check_v9_defended_front),
+    ("第 26 条 争夺带阻挡率", check_v26_wild_blocked_fraction),
+    ("第 27 条 路线宽度分类（隘口/开阔）", check_v27_route_width_classes),
+    ("第 30 条 桥宽与被切集结点", check_v30_river_bridges),
+    ("第 32 条 入口分布（门与缺口异面）", check_v32_entrance_faces),
     # —— 生成器（第 9 节）——
     ("生成器产出合法地图 + 城圈完整性", check_generator_produces_valid_maps),
     ("生成器散布不得压墙/门与集结点邻域", check_generator_scatter_avoids),
