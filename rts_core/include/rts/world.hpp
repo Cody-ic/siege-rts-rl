@@ -417,6 +417,15 @@ struct WorldInit {
     // （见 `TierIncomePermille` 的注释），由外部给或改默认都行，机制不含任何数。
     TierIncomePermille tier_income_permille{};
 
+    // 人口上限（守方，2026-09-02）：`cap = pop_cap_base +
+    // pop_cap_per_keep_level × 堡垒等级`，默认 8+2K（`波次预算曲线与
+    // 堡垒等级曲线.md` §2.1 的推导；与造价 `c ∝ √B(L)`、兵种等级上限
+    // 是「必须一起落地」的三件，见 `数值设计与成本产出矩阵.md` §12.5）。
+    // **与数值表并列的外生输入**（同 `tier_income_permille` 先例）：
+    // 默认值是占位语义下的推导结果，由外部给或改默认都行，机制不含任何数。
+    std::int32_t pop_cap_base = 8;
+    std::int32_t pop_cap_per_keep_level = 2;
+
     // 数值表（`rts/stats.hpp`）。**这是外生数值进入仿真的唯一路径**：
     // 射程、伤害、速度、视野、破坏倍率全从这里读，机制不得在别处藏一个数。
     // 指纹由 `World` 自己从它算（不由调用方给，理由见 stats.hpp 文件头），
@@ -762,9 +771,24 @@ public:
     // 不同，不是漏抄）。`apply_one` 校验 `Train`、`WorldView` 给 UI 的提示都调它。
     std::int32_t unit_level_cap() const noexcept;
 
+    // 人口（守方，2026-09-02 落地，与造价 `c ∝ √B(L)` 同属「三件一起落地」）。
+    // `defender_pop()` = 存活守方单位数 + 在训占位（每座在训建筑占 1 格——
+    // 那名兵的钱已经付了，「顶满后先训上、等出了再补」不该是一条免费通道）。
+    // `defender_pop_cap()` = `pop_cap_base + pop_cap_per_keep_level × 堡垒等级`
+    // （`WorldInit`）。Keep 的定位与 `unit_level_cap()` 同一条不变量
+    // （构造期校验恰好一座），**不存在「无 Keep」的局**，所以 cap 总有值、
+    // 没有 -1 / nullopt 那种「无上限」哨兵——要关掉上限就把两个参数调大。
+    //
+    // **两者都是派生量，不是新状态**：现算自 `u_type_` / 槽位池 /
+    // `b_train_type_` / `b_level_`，不新增字段、不进 `state_hash`。
+    int defender_pop() const noexcept;
+    int defender_pop_cap() const noexcept;
+
     // 造价/耗时曲线：`Train` 选级征兵的唯一计算公式（同 `building_level_cap()`
-    // 那条「两处算法分叉是绿框骗人的来源」的纪律）。`cost_gold(L) = base × L`
-    // 是纯线性；`train_ticks(L)` 走千分比系数，语义与实现见
+    // 那条「两处算法分叉是绿框骗人的来源」的纪律）。`cost_gold(L) = round(
+    // base × √(1 + k(L−1)))`（`c ∝ √B(L)`，2026-09-02；与血量/伤害同一条
+    // `level_permille` 曲线、同一个 k），L=1 恒等于原价；
+    // `train_ticks(L)` 走千分比系数，语义与实现见
     // `stats.hpp` 的 `train_ticks_permille_per_level`。
     std::int64_t train_cost_gold(UnitType ut, std::int32_t level) const noexcept;
     std::int32_t train_ticks_at(UnitType ut, std::int32_t level) const noexcept;
@@ -919,6 +943,11 @@ private:
     // 与 `resources_` 本身的 pos / kind / unlock_wave 同例：建局参数经
     // `map_content_hash` 覆盖，逐项再喂一遍是第二个真相来源。
     TierIncomePermille tier_income_permille_{};
+    // 人口上限参数（`WorldInit::pop_cap_base` / `pop_cap_per_keep_level`）。
+    // **不进 `state_hash`**——与 `tier_income_permille_` 同例：建局参数经
+    // `map_content_hash` 覆盖，逐项再喂一遍是第二个真相来源。
+    std::int32_t pop_cap_base_ = 8;
+    std::int32_t pop_cap_per_keep_level_ = 2;
 
     // ——时间与波次——
     Tick tick_ = 0;

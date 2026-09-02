@@ -590,6 +590,10 @@ TEST_CASE("征兵选级：造价按等级涨、顶不过 unit_level_cap() 拒绝
     train.what = static_cast<std::uint8_t>(rts::UnitType::Archer);
     train.level = 2;
 
+    // **L=1 恒等原价**（c ∝ √B(L) 落地后这条不变量单独钉一条）：
+    // level_permille(1,·)=1000，不缩放——1 级兵不因为曲线落地而变贵。
+    REQUIRE(w.train_cost_gold(rts::UnitType::Archer, 1) == 30);
+
     // Keep 还在 1 级，unit_level_cap()==1（无除数，直接等于堡垒等级）：
     // level=2 顶不过，一分钱不扣、不进训练队列。
     //
@@ -606,16 +610,21 @@ TEST_CASE("征兵选级：造价按等级涨、顶不过 unit_level_cap() 拒绝
     level_keep_to(w, 2);
     REQUIRE(w.unit_level_cap() == 2);
 
-    // 现在通过：cost_gold(L) = base × L = 30 × 2 = 60 金（纯线性，不走
-    // apply_permille）；训练耗时 5 × (1 + 200‰×1) = 5×1.2 = 6 tick。
+    // 现在通过：cost_gold(L) = round(base × √(1 + k(L−1)))（c ∝ √B(L)，
+    // 与血量/伤害同一条 level_permille 曲线）。本用例 k=100：
+    // level_permille(2,100) = isqrt(1000×1100) = 1048，30×1048/1000 四舍五入
+    // = 31 金；训练耗时 5 × (1 + 200‰×1) = 5×1.2 = 6 tick。
     //
-    // **942 不是 940**：`level_keep_to(w, 2)` 那个 `advance(10)` 跨过了一次
+    // **971 不是 969**：`level_keep_to(w, 2)` 那个 `advance(10)` 跨过了一次
     // `income_period_ticks=10` 的结算边界，Keep 的金币地板 +2——同「Train：
-    // 扣金倒计时」既有用例踩过的那同一条（「补兵的钱永远会慢慢回来」正是
-    // 地板的本职，账要算上它，不是测试写错）。
+    // 扣金倒计时」既有用例踩过的那同一条（「补兵的钱永远会慢慢回来」
+    // 正是地板的本职，账要算上它，不是测试写错）。
+    const std::int64_t expect_cost =
+        rts::apply_permille(30, {rts::level_permille(2, 100)});
+    REQUIRE(expect_cost == 31);
     w.submit(rts::Side::Defender, &train, 1);
     w.advance(1);
-    REQUIRE(gold(w) == 942);   // 1000 + 2（地板） - 60
+    REQUIRE(gold(w) == 1000 + 2 - expect_cost);   // 1000 + 2（地板） − 31 = 971
     REQUIRE(w.live_unit_count() == 1);   // Archer 还在倒计时，没出兵
 
     // 同 「Train：扣金倒计时」既有用例的换算——N tick 倒计时要 N+1 次 advance
@@ -638,6 +647,103 @@ TEST_CASE("征兵选级：造价按等级涨、顶不过 unit_level_cap() 拒绝
         rts::apply_permille(20, {rts::level_permille(2, 100)});
     REQUIRE(expect_hp != 20);
     REQUIRE(w.unit_hp(trained) == expect_hp);
+}
+
+// ——人口上限（守方升级轴第一个输出，8+2K，2026-09-02 落地）——
+
+TEST_CASE("人口上限 8+2K：顶满拒训、在训占格、堡垒升级 +2 可再训", "[econ]") {
+    rts::WorldInit init = arena();
+    // 造价压到 1，免得金币先于人口成为约束——这条测的是人口，不是钱。
+    init.stats.unit[static_cast<std::size_t>(rts::UnitType::Archer)].cost_gold = 1;
+    init.stats.unit[static_cast<std::size_t>(rts::UnitType::Archer)].train_ticks = 5;
+    rts::World w(std::move(init));
+    w.place_bld(rts::BldType::Barrack, rts::GridPos{4, 3}, 50, 50);
+    w.place_bld(rts::BldType::Barrack, rts::GridPos{6, 1}, 50, 50);   // 两座才订得出两单
+    w.set_stock(rts::Resource::Stone, 1000);
+    w.set_stock(rts::Resource::Wood, 1000);
+    w.set_stock(rts::Resource::Gold, 10000);
+    w.spawn_unit(rts::UnitType::Mason, rts::center_of(w.keep_pos()), 1, 10, 10);
+
+    // cap = 8 + 2×1 = 10；已有 1（Mason）。攻方单位不占守方人口。
+    REQUIRE(w.defender_pop_cap() == 10);
+    REQUIRE(w.defender_pop() == 1);
+    w.spawn_unit(rts::UnitType::Ghoul, rts::Vec2{7.5f, 5.5f}, 1, 10, 10);
+    w.spawn_unit(rts::UnitType::Ghoul, rts::Vec2{7.0f, 5.5f}, 1, 10, 10);
+    REQUIRE(w.defender_pop() == 1);
+
+    // `spawn_unit` 是建局/调试通道，不过人口检查（检查在 `Train` 解算里）——
+    // 用它把人口垫到 9，正好剩 1 格。
+    for (int i = 0; i < 8; ++i) {
+        w.spawn_unit(rts::UnitType::Archer,
+                     rts::Vec2{3.5f + static_cast<float>(i) * 0.4f, 0.5f}, 1, 20, 20);
+    }
+    REQUIRE(w.defender_pop() == 9);
+
+    const rts::Command train1 = [&] {
+        rts::Command c = slot_cmd(rts::CommandKind::Train, rts::GridPos{4, 3}, w.width());
+        c.what = static_cast<std::uint8_t>(rts::UnitType::Archer);
+        c.level = 1;
+        return c;
+    }();
+    const rts::Command train2 = [&] {
+        rts::Command c = slot_cmd(rts::CommandKind::Train, rts::GridPos{6, 1}, w.width());
+        c.what = static_cast<std::uint8_t>(rts::UnitType::Archer);
+        c.level = 1;
+        return c;
+    }();
+
+    // 最后一格：第一单入训（在训也占 1 格），人口此刻顶满 10。
+    const std::int64_t g_full = gold(w);
+    w.submit(rts::Side::Defender, &train1, 1);
+    w.advance(1);
+    REQUIRE(gold(w) == g_full - 1);
+    REQUIRE(w.defender_pop() == 10);   // 9 存活 + 1 在训占位
+
+    // 顶满后第二单：静默拒绝（与「钱不够无操作」同款语义）——不扣钱、
+    // 第二座兵营不进训练队列。
+    w.submit(rts::Side::Defender, &train2, 1);
+    w.advance(1);
+    REQUIRE(gold(w) == g_full - 1);
+    const rts::WorldView v1 = w.view(rts::Side::Defender);
+    for (std::size_t k = 0; k < v1.bld_alive().size(); ++k) {
+        if (v1.bld_alive()[k] && v1.bld_pos()[k] == rts::GridPos{6, 1}) {
+            REQUIRE(v1.bld_train_type()[k] == rts::kNoTrain);
+        }
+    }
+
+    // 在训那名出兵之后人口仍是 10（占位换成了活人），依旧顶满。
+    w.advance(5);
+    REQUIRE(w.live_unit_count(rts::Side::Defender) == 10);
+    REQUIRE(w.defender_pop() == 10);
+    const std::int64_t g_done = gold(w);
+    w.submit(rts::Side::Defender, &train2, 1);
+    w.advance(1);
+    REQUIRE(gold(w) == g_done);   // 还是被拒
+
+    // 堡垒升 2 级：上限 +2（10 → 12），又能训了（跨过一次周期结算，金币
+    // 地板 +2 要算进账——同「征兵选级」用例那条）。
+    level_keep_to(w, 2);
+    REQUIRE(w.defender_pop_cap() == 12);
+    const std::int64_t g_up = gold(w);
+    w.submit(rts::Side::Defender, &train2, 1);
+    w.advance(1);
+    REQUIRE(gold(w) == g_up - 1);
+    REQUIRE(w.defender_pop() == 11);   // 10 存活 + 1 在训占位
+}
+
+TEST_CASE("人口上限是建局输入：base/per 可调、负值拒收", "[econ]") {
+    // 默认 8+2K 是推导出来的占位（`波次预算曲线与堡垒等级曲线.md` §2.1），
+    // 机制不含任何数——两个参数都从 `WorldInit` 进，同 `tier_income_permille`
+    // 那条先例。这条钉的是「外生输入」这个性质本身。
+    rts::WorldInit init = arena();
+    init.pop_cap_base = 3;
+    init.pop_cap_per_keep_level = 0;
+    rts::World w(std::move(init));
+    REQUIRE(w.defender_pop_cap() == 3);   // per=0：与堡垒等级脱钩
+
+    rts::WorldInit bad = arena();
+    bad.pop_cap_base = -1;
+    REQUIRE_THROWS_AS(rts::World(std::move(bad)), rts::ContractError);
 }
 
 TEST_CASE("Clear 解算成世界状态，脚本执行层读得到", "[econ]") {
