@@ -12,6 +12,7 @@
     py selftest.py
 """
 import io
+import math
 import os
 import random
 import sys
@@ -522,6 +523,12 @@ def make_clean_doc():
     （2026-09-01），这两格森林留着纯粹是历史遗留，不再对应任何检查，
     但留着也无害，就没有顺手删掉重新验证一遍每处依赖它的用例。
 
+    **2026-09-02：这个 outer 点的类型从 wood 改成 gold**——第 29 条（大改
+    第 2 步新增）要求「内环至少一簇含金」，而这张图按「集结点环内侧」分，
+    这个孤点簇落在内环。改成 gold 之后它同时满足第 21 条（有 outer）与
+    第 29 条（内环含金）；配额半边（三类簇数两两差 ≤ 1）在单簇图上恒过。
+    第 31 条在 fixture 档被弃用（阈值 -1，7×5 上 16 格客观不可满足）。
+
     `keep` 从 (3,2) 挪到了 (3,3)：原来它与金币资源点**同格**。那不违反任何已有
     条目（第 17 条按 §8.1 字面只管墙与集结点），但一张「干净地图」不该演示一个
     我们其实不希望出现的摆法。keep 与资源点重合值不值得单开一条，
@@ -535,7 +542,7 @@ def make_clean_doc():
         resources=[{"type": t, "pos": [i + 1, 2], "tier": "inner",
                    "unlock_wave": 1}
                    for i, t in enumerate(["stone", "wood", "gold"])]
-                  + [{"type": "wood", "pos": [5, 2], "tier": "outer",
+                  + [{"type": "gold", "pos": [5, 2], "tier": "outer",
                      "unlock_wave": 2}])
 
 
@@ -909,7 +916,7 @@ def check_v25_outer_gold(c):
 
     off = thresholds.Profile("strict", {"size_min": 4, "size_max": 96,
                                         "spawn_count_min": 1, "spawn_count_max": 6,
-                                        "spawn_edge_distance_max": 4,
+                                        "spawn_wall_distance_range": [0, 4096],
                                         "static_vision_radius_max": -1,
                                         "episode_ticks_min": 1200,
                                         "episode_ticks_max": 2400,
@@ -918,12 +925,167 @@ def check_v25_outer_gold(c):
                                         "forest_min_component_cells": 1,
                                         "front_length_min": 1,
                                         "front_length_max": 4096,
-                                        "outer_gold_min": 0})
+                                        "outer_gold_min": 0,
+                                        "route_cluster_window": -1,
+                                        "cluster_spawn_distance_min": -1})
     d2 = make_clean_doc()
     d2["resources"] = [
         {"type": "stone", "pos": [0, 0], "tier": "outer", "unlock_wave": 2}]
     c.true(not validate.check_outer_gold(d2, Grid(d2), off),
            "阈值为 0 时本条应恒真（fixture 那一档靠它）")
+
+
+
+def _outer_res(t, x, y, wave):
+    """一条 outer 资源条目（第 28/29/31 条用例的造图砖）。"""
+    return {"type": t, "pos": [x, y], "tier": "outer", "unlock_wave": wave}
+
+
+def check_v28_unlock_by_cluster(c):
+    """第 28 条：解禁**按簇**——同簇同波（一簇是一个决策单元），簇解禁序按
+    簇心到 keep 的切比雪夫距离单调。
+
+    `_big_doc(64)` 的 keep 在 (32,32)。近簇 (22,32)/(24,32)（簇心距 9）、
+    远簇 (8,32)/(10,32)（簇心距 23）；两簇最近点隔 12 格（> 8，不会并簇）。
+    """
+    near = [_outer_res("gold", 22, 32, 1), _outer_res("stone", 24, 32, 1)]
+    far = [_outer_res("wood", 8, 32, 2), _outer_res("wood", 10, 32, 2)]
+
+    doc = _big_doc(64)
+    doc["resources"] += [dict(r) for r in near + far]
+    c.eq(validate.check_cluster_unlock_wave(doc, Grid(doc)), [],
+         "同簇同波且簇序单调时不该报")
+
+    # 同簇拆波：一簇是一个决策单元，拆波 = 拆成几次半吊子的决策。
+    doc = _big_doc(64)
+    bad = [dict(r) for r in near + far]
+    bad[1]["unlock_wave"] = 2
+    doc["resources"] += bad
+    probs = validate.check_cluster_unlock_wave(doc, Grid(doc))
+    c.true(any("决策单元" in p for p in probs),
+           f"同簇两个波号必须报，实际 {probs}")
+
+    # 簇序反了：远的早解禁、近的晚解禁。
+    doc = _big_doc(64)
+    bad = [dict(r) for r in near + far]
+    for r in bad[:2]:
+        r["unlock_wave"] = 2
+    for r in bad[2:]:
+        r["unlock_wave"] = 1
+    doc["resources"] += bad
+    probs = validate.check_cluster_unlock_wave(doc, Grid(doc))
+    c.true(any("更远" in p for p in probs),
+           f"远簇比近簇早解禁必须报，实际 {probs}")
+
+
+def check_v29_type_quota(c):
+    """第 29 条：三类簇数两两之差 ≤ 1；簇类型 = 簇内点数的唯一众数；
+    内环（集结点环内侧）至少一簇含金。
+
+    集结点摆在 (32,20)（距 keep 12 格），于是内环 = 簇心 cheb < 12：
+    近簇在 (24..26, 32..34)（簇心 cheb 7），远簇在 x=9/55 与 y=9 一带
+    （簇心 cheb ≥ 23）。各簇内部点距 ≤ 8（一个分量）、跨簇 ≥ 14（不并簇）。
+    """
+    inner_gold = [_outer_res("gold", 24, 32, 1), _outer_res("gold", 26, 32, 1),
+                  _outer_res("stone", 25, 34, 1)]
+    out_stone = [_outer_res("stone", 8, 32, 2), _outer_res("stone", 10, 32, 2),
+                 _outer_res("gold", 9, 34, 2)]
+    out_wood = [_outer_res("wood", 54, 32, 2), _outer_res("wood", 56, 32, 2),
+                _outer_res("gold", 55, 34, 2)]
+    out_gold = [_outer_res("gold", 32, 8, 2), _outer_res("gold", 32, 10, 2),
+                _outer_res("wood", 34, 9, 2)]
+    out_gold2 = [_outer_res("gold", 8, 8, 2), _outer_res("gold", 10, 8, 2),
+                 _outer_res("stone", 9, 10, 2)]
+
+    def doc_with(clusters):
+        doc = _big_doc(64, spawn_at=[32, 20])
+        for cl in clusters:
+            doc["resources"] += [dict(r) for r in cl]
+        return doc
+
+    doc = doc_with([inner_gold, out_stone, out_wood, out_gold])
+    c.eq(validate.check_cluster_type_quota(doc, Grid(doc)), [],
+         "金2/石1/木1 + 内环含金，不该报")
+
+    # 配额破坏：金3/石1/木0，两两之差 3 > 1。
+    doc = doc_with([inner_gold, out_gold, out_gold2, out_stone])
+    probs = validate.check_cluster_type_quota(doc, Grid(doc))
+    c.true(any("两两之差" in p for p in probs),
+           f"三类簇数 3/1/0 必须报配额，实际 {probs}")
+
+    # 并列众数：簇的类型定不出来，配额无从计起。
+    tie = [_outer_res("gold", 44, 8, 2), _outer_res("gold", 46, 8, 2),
+           _outer_res("stone", 45, 10, 2), _outer_res("stone", 47, 10, 2)]
+    doc = doc_with([inner_gold, out_stone, out_wood, tie])
+    probs = validate.check_cluster_type_quota(doc, Grid(doc))
+    c.true(any("并列" in p for p in probs),
+           f"簇内 2 金 2 石并列必须报，实际 {probs}")
+
+    # 内环无金：买活的钱没有早解禁的来源（实力模型 §6.1）。
+    inner_stone = [_outer_res("stone", 24, 32, 1), _outer_res("stone", 26, 32, 1),
+                   _outer_res("wood", 25, 34, 1)]
+    doc = doc_with([inner_stone, out_stone, out_wood, out_gold])
+    probs = validate.check_cluster_type_quota(doc, Grid(doc))
+    c.true(any("内环" in p for p in probs),
+           f"内环簇不含金必须报，实际 {probs}")
+
+
+def check_v31_passby(c):
+    """第 31 条：每条 spawn→keep 最短路 `route_cluster_window` 格内至少一簇；
+    簇的点到任一集结点 ≥ `cluster_spawn_distance_min`。fixture 档两键皆 -1
+    （弃用，同 `static_vision_radius_max` 的手法）。
+
+    keep (32,32)、集结点 (32,2)：最短路沿 x=32 直下。簇点 (30,20)：到路径
+    2 格（≤ 6）、到集结点 18 格（≥ 16）——干净例。
+    """
+    strict = thresholds.load().profile("strict")
+    fixture = thresholds.load().profile("fixture")
+
+    doc = _big_doc(64)
+    doc["resources"] += [_outer_res("gold", 30, 20, 1)]
+    c.eq(validate.check_route_passby(doc, Grid(doc), strict), [],
+         "路径 6 格内有簇、点到集结点 ≥ 16，不该报")
+
+    # 顺路窗口内没有任何簇（点在 (10,20)，离路径 22 格）。
+    doc = _big_doc(64)
+    doc["resources"] += [_outer_res("gold", 10, 20, 1)]
+    probs = validate.check_route_passby(doc, Grid(doc), strict)
+    c.true(any("没有任何资源簇" in p for p in probs),
+           f"路径窗口内没有簇必须报，实际 {probs}")
+
+    # 簇落进集结区（(30,10) 到集结点 8 格 < 16；路径窗口那半条仍满足，
+    # 两条各验一侧）。
+    doc = _big_doc(64)
+    doc["resources"] += [_outer_res("gold", 30, 10, 1)]
+    probs = validate.check_route_passby(doc, Grid(doc), strict)
+    c.true(any("集结区" in p for p in probs),
+           f"簇点距集结点 8 格（< 16）必须报，实际 {probs}")
+
+    # fixture 档：同一张违规图两半都弃用 ⇒ 自动通过。
+    doc = _big_doc(64)
+    doc["resources"] += [_outer_res("gold", 30, 10, 1)]
+    c.eq(validate.check_route_passby(doc, Grid(doc), fixture), [],
+         "fixture 档两个键都是 -1 = 两半都弃用，违规图也该过")
+
+
+def check_route_features_report(c):
+    """路线特征（§3.1 派生量，进报告不进地图文件）：键齐全、`path_len` 等于
+    BFS 最短路长、沿途簇数按 6 格窗口数；未落地的三项留 `None`。"""
+    doc = _big_doc(64)
+    doc["resources"] += [_outer_res("gold", 30, 20, 1)]
+    feats = validate.route_features(doc, Grid(doc))
+    c.eq(len(feats), 1, "一个集结点一条特征")
+    f = feats[0]
+    c.eq(set(f), {"spawn", "path_len", "clusters_near_path",
+                  "min_width", "forest_cover", "crosses_bridge"},
+         f"路线特征的键必须齐全（未落地项留 None），实际 {sorted(f)}")
+    c.eq(f["path_len"], 30,
+         f"(32,2) 到 (32,32) 的最短路应是 30 格，实际 {f['path_len']}")
+    c.eq(f["clusters_near_path"], 1,
+         "簇点 (30,20) 在路径 2 格内，应数到 1 簇")
+    c.true(f["min_width"] is None and f["forest_cover"] is None
+           and f["crosses_bridge"] is None,
+           "地形相关三项第 3–5 步才落地，现在必须是 None")
 
 
 def check_v22_obstacle_placement(c):
@@ -1026,9 +1188,11 @@ def check_validator_on_clean_map(c):
                   if chk.status == validate.BLOCKED)
     n_pend = sum(1 for chk in validate.CHECKS
                  if chk.status == validate.PENDING)
-    c.eq((n_impl, n_block, n_pend), (21, 1, 0),
+    c.eq((n_impl, n_block, n_pend), (24, 5, 0),
          "条目状态计数变了：改动状态时要同步这条断言与 README 的进度表"
-         "（2026-09-01：第 7 条废除，已实现数 22 → 21）")
+         "（2026-09-01：第 7 条废除，已实现数 22 → 21；2026-09-02：大改第 2 步"
+         "新增第 28/29/31 条已实现 + 第 26/27/30/32 条阻塞占位 ⇒ 21+3 已实现、"
+         "1+4 阻塞）")
 
 
 def check_profile_is_not_a_noop(c):
@@ -1211,18 +1375,19 @@ def check_thresholds_loader(c):
     bad["profiles"]["strict"]["size_min"] = 200
     reject(bad, "size 区间是空的")
 
-    # **生成器的 size 不在校验器的 size 区间内。**
-    # 不拦的话生成器会产出一批第 1 条必然否决的图，而症状（丢弃率 100%）
-    # 指不出根因是配置自己互相矛盾。
+    # **推导出的 size 不在校验器的 size 区间内。**
+    # 2026-09-02 起 size 由四环公式推导（不再是配置键）；把 strict 的
+    # size_max 收到推导值以下，加载时必须红。不拦的话生成器会产出一批
+    # 第 1 条必然否决的图，而症状（丢弃率 100%）指不出根因是配置互相矛盾。
     bad = _json.loads(_json.dumps(base))
-    bad["generator"]["size"] = base["profiles"]["strict"]["size_max"] + 8
-    reject(bad, "generator.size 越出 strict 的 size 区间")
+    bad["profiles"]["strict"]["size_max"] = 100
+    reject(bad, "推导出的 size 越出 strict 的 size 区间")
 
-    # 2026-08-31：原「corridors 有重复项」case 随走廊概念一起删除；
-    # 替代它的结构检查是「集结点数上界不得超过方环的四条边」。
+    # 集结点上界：2026-08-31 时是「不得超过方环四条边」（4），2026-09-02 大改
+    # 第 1 步改角度采样后变成「不得超过 5」（相邻角差 ≥ 60°，6 个只剩恰好等分）。
     bad = _json.loads(_json.dumps(base))
-    bad["generator"]["spawn_count_range"] = [5, 5]
-    reject(bad, "spawn_count_range 上界超过 4 条边")
+    bad["generator"]["spawn_count_range"] = [6, 6]
+    reject(bad, "spawn_count_range 上界超过 5（60° 间隔的结构上限）")
 
     # inner 三种缺一（第 6 条要求各 ≥ 1）。
     bad = _json.loads(_json.dumps(base))
@@ -1323,34 +1488,58 @@ def check_v1_size_range(c):
            "有一条边越界就必须报 —— 一张 4×2000 的图面积正常而形状荒谬")
 
 
-def check_v2_spawn_count_and_edge(c):
-    """第 2 条：数量取**区间**，且集结点必须贴边。"""
+def check_v2_spawn_count_and_wall_distance(c):
+    """第 2 条：数量取**区间**，且每个集结点到最近墙格的距离 ∈
+    `spawn_wall_distance_range`（2026-09-02 大改第 1 步，原判据是「贴边」）。"""
     th = thresholds.load().profile("strict")
     size = th.size_min
+    d_lo, d_hi = th.spawn_wall_distance_range
 
     # 数量：区间而不是等于某个数。集结点数量是待定数值，而地图规范曾把它
     # 写成「定为 4」——那是把平衡旋钮当成结构结论。
-    # （2026-08-31：spawns 不再带 corridor，直接按数量铺。）
     doc = _big_doc(size)
     doc["spawns"] = [{"id": i, "pos": [2 + i * 3, 2]}
                      for i in range(th.spawn_count_min)]
     mapfile.stamp_content_hash(doc)
-    c.true(not validate.check_spawn_count_and_edge(doc, Grid(doc), th),
+    c.true(not validate.check_spawn_count_and_wall_distance(doc, Grid(doc), th),
            f"{len(doc['spawns'])} 个集结点应当落在 "
-           f"[{th.spawn_count_min}, {th.spawn_count_max}] 内")
+           f"[{th.spawn_count_min}, {th.spawn_count_max}] 内"
+           f"（没有墙时距离半条自动通过，同第 5/10 条的先例）")
 
     doc = _big_doc(size)
-    doc["spawns"] = [{"id": 0, "pos": [2, 2], "corridor": "open"}]
+    doc["spawns"] = [{"id": 0, "pos": [2, 2]}]
     mapfile.stamp_content_hash(doc)
     if th.spawn_count_min > 1:
-        c.true(validate.check_spawn_count_and_edge(doc, Grid(doc), th),
+        c.true(validate.check_spawn_count_and_wall_distance(doc, Grid(doc), th),
                "少于下界必须报")
 
-    # 贴边：集结点跑到地图中央 = 攻方在城边上凭空出现。
-    doc = _big_doc(size, spawn_at=[size // 2, size // 2 - 4])
-    probs = validate.check_spawn_count_and_edge(doc, Grid(doc), th)
-    c.true(any("边界" in p for p in probs),
-           "集结点离边界太远必须报，且报错要点出「边界」")
+    # 距离半条：造一排 y = cx−10 的墙，三个集结点放在墙外 d_mid 格（应当过）；
+    # 中间那个挪到墙外 10 格（低于 D_lo，必须报）。**不再查「到地图边界的
+    # 距离」**——集结点环上的点可以离边界很远，那是设计（§3.1）。
+    # 图要比 size_min 大：d_mid=40 的纵深在 56×56 上摆不下。
+    size = 128
+    cx = size // 2
+    ring = [{"kind": "Wall", "pos": [cx - 10 + i, cx - 10], "hp_frac": 1.0}
+            for i in range(21)]
+    d_mid = (int(d_lo) + int(d_hi)) // 2
+    ring_at = [(w["pos"][0], w["pos"][1]) for w in ring]
+
+    doc = _big_doc(size, walls_at=ring_at)
+    doc["spawns"] = [{"id": i, "pos": [cx + dx, cx - 10 - d_mid]}
+                     for i, dx in enumerate((-20, 0, 20))]
+    mapfile.stamp_content_hash(doc)
+    c.true(not validate.check_spawn_count_and_wall_distance(doc, Grid(doc), th),
+           f"集结点到最近墙格恰好 {d_mid} 格，应落在 [{d_lo}, {d_hi}] 内")
+
+    doc = _big_doc(size, walls_at=ring_at)
+    doc["spawns"] = [{"id": 0, "pos": [cx - 20, cx - 10 - d_mid]},
+                     {"id": 1, "pos": [cx, cx - 10 - 10]},
+                     {"id": 2, "pos": [cx + 20, cx - 10 - d_mid]}]
+    mapfile.stamp_content_hash(doc)
+    probs = validate.check_spawn_count_and_wall_distance(doc, Grid(doc), th)
+    c.true(any("墙" in p for p in probs),
+           "集结点离墙太近必须报，且报错要点出「墙」——贴边判据已作废，"
+           "报「边界」说明还在用旧判据")
 
 
 def check_v5_ram_march(c):
@@ -1590,7 +1779,7 @@ def check_generator_produces_valid_maps(c):
             c.eq(w["hp_frac"], 1.0, f"城门应恒满血，实际 {w['hp_frac']}")
 
     # 城外金矿 ≥ 2（thresholds 里 outer_gold_min 同值——生成器侧的结构保证
-    # 由前两簇强制 gold 承担，这里钉 doc 层）。
+    # 2026-09-02 起由主类型金→石→木轮转承担（首簇恒金），这里钉 doc 层）。
     outer_gold = sum(1 for r in doc["resources"]
                      if r["tier"] == "outer" and r["type"] == "gold")
     c.true(outer_gold >= 2, f"城外金矿 {outer_gold} 个，必须 ≥ 2（2026-08-31 试玩查出）")
@@ -1609,6 +1798,62 @@ def check_generator_produces_valid_maps(c):
     c.true(mines[0] in gold_inner,
            f"金矿场 {mines[0]} 必须精确踩在城内金点 {gold_inner} 上（第 24 条豁免）")
 
+    # —— 2026-09-02 大改第 1/2 步的 doc 层断言（§3.7 要求）——
+    # 集结点环：数量区间、相邻角差 ≥ 60°（含环绕）、到最近墙格 ∈ strict 档
+    # 距离区间。校验器第 2 条查数量与距离，角差是生成器侧承诺（§3.1），
+    # 没有第 8 节条目在查，钉在这里。
+    n_spawn = len(doc["spawns"])
+    c.true(th.spawn_count_min <= n_spawn <= th.spawn_count_max,
+           f"集结点 {n_spawn} 个，应落在 "
+           f"[{th.spawn_count_min}, {th.spawn_count_max}]")
+    angs = sorted(math.degrees(math.atan2(s["pos"][1] - ky, s["pos"][0] - kx))
+                  % 360.0 for s in doc["spawns"])
+    gaps = [b - a for a, b in zip(angs, angs[1:])] + [angs[0] + 360.0 - angs[-1]]
+    c.true(min(gaps) >= 60.0 - 1e-9,
+           f"相邻集结点角差 {[round(g, 1) for g in sorted(gaps)]} 必须 ≥ 60°")
+    d_lo, d_hi = th.spawn_wall_distance_range
+    for s in doc["spawns"]:
+        d_near = min(max(abs(s["pos"][0] - x), abs(s["pos"][1] - y))
+                     for x, y in wall_pos)
+        c.true(d_lo <= d_near <= d_hi,
+               f"集结点 {s['pos']} 到最近墙格 {d_near} 格，应落在 "
+               f"[{d_lo}, {d_hi}]（第 2 条判据）")
+
+    # 簇：同簇同波、簇解禁序按簇心距离单调、三类配额两两差 ≤ 1、内环含金。
+    # 校验器第 28/29 条已在 run() 里查过同一张图，这里钉「生成器产出恒如此」
+    # 这层（§3.7）——run() 红是单张图的事，这里红是生成器承诺破了。
+    clusters = validate._outer_clusters(doc)
+    for cl in clusters:
+        waves = {m["unlock_wave"] for m in cl["members"]}
+        c.eq(len(waves), 1,
+             f"簇（簇心 {list(cl['center'])}）必须同波解禁，实际 {sorted(waves)}")
+    ordered = sorted(clusters,
+                     key=lambda cl: max(abs(cl["center"][0] - kx),
+                                        abs(cl["center"][1] - ky)))
+    cl_waves = [min(m["unlock_wave"] for m in cl["members"]) for cl in ordered]
+    c.eq(cl_waves, sorted(cl_waves),
+         f"簇解禁波按簇心距离必须非降，实际 {cl_waves}")
+    primaries = {}
+    for cl in clusters:
+        tally = {}
+        for m in cl["members"]:
+            tally[m["type"]] = tally.get(m["type"], 0) + 1
+        top = max(tally.values())
+        winners = [t for t, v in tally.items() if v == top]
+        c.eq(len(winners), 1,
+             f"簇（簇心 {list(cl['center'])}）必须有唯一众数，实际 {tally}")
+        primaries[winners[0]] = primaries.get(winners[0], 0) + 1
+    qt = [primaries.get(t, 0) for t in ("gold", "stone", "wood")]
+    c.true(max(qt) - min(qt) <= 1,
+           f"三类簇数 {qt} 两两之差必须 ≤ 1（金→石→木轮转）")
+    spawn_ring_d = min(max(abs(s["pos"][0] - kx), abs(s["pos"][1] - ky))
+                       for s in doc["spawns"])
+    inner_cls = [cl for cl in clusters
+                 if max(abs(cl["center"][0] - kx), abs(cl["center"][1] - ky))
+                 < spawn_ring_d]
+    c.true(any(m["type"] == "gold" for cl in inner_cls for m in cl["members"]),
+           "内环（集结点环内侧）必须至少一簇含金（实力模型 §6.1）")
+
 
 def _ref_cfg(**over):
     """一组全钉死的生成配置，给直测生成器中间产物的用例用。区间全取单值
@@ -1618,16 +1863,24 @@ def _ref_cfg(**over):
     用例自己钉死的固定夹具，独立于 `build_reference_map.py` 的 `CFG` 与
     `thresholds.json` 的 `generator` 段；三处各自可以改而互不牵连。改这里
     的默认值前先看下面用它的用例是否硬编码了依赖这些具体数字的断言
-    （`inner.count("stone") == 2` 这类）。"""
+    （`inner.count("stone") == 2` 这类）。
+
+    **2026-09-02 大改第 1/2 步**：`size` 174 = 四环公式（2×(12+40+14+18+3)）
+    ——旧值 72 装不下集结点环（R+D = 52 > 36）；`outer_clusters_range`/
+    `outer_cluster_span` 换成 `inner_band_clusters`/`outer_band_clusters`/
+    `outer_band_width`/`cluster_unlock_per_wave`；`spawn_wall_distance` 是
+    生成器放置用的 D（真实配置里它从 strict 档区间中点推导，见
+    `thresholds.Generator`）。"""
     base = SimpleNamespace(
-        size=72, city_radius_range=[12, 12],
+        size=174, city_radius_range=[12, 12],
         spawn_count_range=[3, 3],
+        spawn_wall_distance=40,
         inner_resources_range={"stone": [2, 2], "wood": [1, 2], "gold": [2, 2]},
-        outer_clusters_range=[3, 3],
-        outer_cluster_size=[2, 3],
-        outer_cluster_span=20,   # 宽松值：size=72/city_radius=12 下与旧
-        # 「上界=地图边长//2-4=32」等效（12+4+20=36>32，被 min() 钉在 32），
-        # 不改变这批既有用例的既有行为，只是把新增的必填字段补上。
+        inner_band_clusters=[4, 4],
+        outer_band_clusters=[4, 4],
+        outer_band_width=18,
+        outer_cluster_size=[3, 4],
+        cluster_unlock_per_wave=1,
         initial_breaches=[1, 1],
         wall_hp_frac_range=[0.5, 0.5],
         forest_patches=[12, 12],
@@ -1703,53 +1956,123 @@ def check_generator_scatter_avoids(c):
 
 
 def check_generator_cluster_invariants(c):
-    """`place_outer_clusters` 的三条硬保证（2026-08-31 试玩查出）：
-    簇内点两两切比雪夫距离 ≥2（防「一整块石头」）、每簇 ≥2 种类型
-    （防全石簇）、全局城外金 ≥2（前两个成功落地的簇各强制一个）。
+    """`place_outer_clusters` 的硬保证（2026-09-02 大改第 2 步，§3.3）：
+    环带归属、顺路簇钉在集结点方向、外环簇避开 ±20° 扇区、主类型按
+    金→石→木轮转且为簇内唯一众数、内环含金、四类间距、簇心取整与
+    校验器（`grid.cluster_center`）逐格一致。
 
-    簇级断言直接吃 `place_outer_clusters` 的**返回值**（簇记录：kinds /
-    points / dist）——这是为可测性留的接口，`paint` 消费方忽略它。
-    簇成员关系不用任何「近似」，因为簇记录是函数自己报的。
+    簇级断言直接吃 `place_outer_clusters` 的**返回值**（簇记录：band /
+    primary / points / center）——这是为可测性留的接口，`paint` 消费方
+    忽略它。完整校验由 `check_generator_produces_valid_maps` 走 validate
+    覆盖。固定种子 424242：掉簇（整簇放不下）会让轮转序列断在这里，
+    那正是校验器第 29 条会拒图的情形，值得响。
     """
-    cfg = _ref_cfg(outer_clusters_range=[4, 4])
+    cfg = _ref_cfg()
     th = thresholds.load().profile("strict")
     cv = generate.Canvas(cfg.size)
     rng = random.Random(424242)
     r = generate._resolve(cfg, rng)
-    sides = rng.sample(list(generate._SIDES), r.spawn_count)
     generate.place_ring_walls(cv, r, rng)
-    generate.place_spawns(cv, r, th, rng, sides)
+    generate.place_spawns(cv, r, th, rng)
     generate.place_inner_content(cv, r, rng)
-    clusters = generate.place_outer_clusters(cv, r, rng)
+    clusters = generate.place_outer_clusters(cv, r, th, rng)
 
-    c.true(len(clusters) >= 2, f"落地的簇 {len(clusters)} 个，至少 2 个")
+    n_inner = sum(1 for cl in clusters if cl["band"] == "inner")
+    n_outer = sum(1 for cl in clusters if cl["band"] == "outer")
+    c.true(n_inner >= r.spawn_count,
+           f"内环簇 {n_inner} 个，应 ≥ 集结点数 {r.spawn_count}（每集结点一顺路簇）")
+    c.true(n_outer >= n_inner,
+           f"外环簇 {n_outer} 应 ≥ 内环簇 {n_inner}（_resolve 抽样后抬齐）")
 
-    # 全局城外金 ≥ 2：前两个成功落地的簇各强制一个（结构性保证的落点）。
-    outer = [(t, (x, y)) for t, (x, y), tier in cv.resources if tier == "outer"]
-    gold = sum(1 for t, _ in outer if t == "gold")
-    c.true(gold >= 2, f"城外金矿 {gold} 个，必须 ≥ 2")
-    forced = sum(kinds.count("gold") for cl in clusters
-                 for kinds in [cl["kinds"]])
-    c.true(forced >= 2, f"簇记录里金矿 {forced} 个，必须 ≥ 2（强制机制在跑）")
-
-    # 每簇 ≥ 2 种类型（防全石簇——2026-08-31 试玩「一整块石头」的根源）。
+    # 环带归属。簇心是落点均值（在名义中心半径 4 内偏移），断言留 4 格余量。
+    kx, ky = cv.keep
+    R, D = r.city_radius, r.spawn_wall_distance
     for cl in clusters:
-        c.true(len(set(cl["kinds"])) >= 2,
-               f"簇 {cl['points']} 只有 {sorted(set(cl['kinds']))} —— "
-               f"单种类簇必须不存在")
+        rho = max(abs(cl["center"][0] - kx), abs(cl["center"][1] - ky))
+        if cl["band"] == "inner":
+            c.true(R + 4 - 4 <= rho <= R + D - 14 + 4,
+                   f"内环簇心距 {rho} 应在 [R+4, R+D-14]（±4 均值余量）")
+        else:
+            c.true(R + D + 14 - 4 <= rho <= cv.size // 2 - 3 + 4,
+                   f"外环簇心距 {rho} 应在 [R+D+14, size//2-3]（±4 均值余量）")
 
-    # 簇内点两两切比雪夫距离 ≥ 2（防贴成一坨）。
+    def gap(a, b):
+        d = abs(a - b) % 360.0
+        return min(d, 360.0 - d)
+
+    spawn_angles = [math.degrees(math.atan2(s[1] - ky, s[0] - kx)) % 360.0
+                    for s in cv.spawns]
+    inner_angles = [math.degrees(math.atan2(cl["center"][1] - ky,
+                                            cl["center"][0] - kx)) % 360.0
+                    for cl in clusters if cl["band"] == "inner"]
+    # 顺路簇：每个集结点方向上都有一簇内环簇。±4° 抖动 + 均值偏移
+    # （atan(4/(R+15)) ≈ 8.5°）⇒ 断言 13°。
+    for sa in spawn_angles:
+        c.true(any(gap(sa, ia) <= 13.0 for ia in inner_angles),
+               f"集结点方向 {sa:.1f}° 附近应有一簇顺路内环簇，"
+               f"实际内环方向 {sorted(round(a, 1) for a in inner_angles)}")
+    # 外环簇避开每个集结点的 ±20° 扇区（均值偏移留余量，断言 > 16°）。
     for cl in clusters:
-        pts = cl["points"]
-        for i, (ax, ay) in enumerate(pts):
-            for bx, by in pts[i + 1:]:
-                c.true(max(abs(ax - bx), abs(ay - by)) >= 2,
-                       f"簇内 {(ax, ay)} 与 {(bx, by)} 贴邻（切比雪夫距离 1）")
+        if cl["band"] != "outer":
+            continue
+        a = math.degrees(math.atan2(cl["center"][1] - ky,
+                                    cl["center"][0] - kx)) % 360.0
+        c.true(all(gap(a, sa) > 16.0 for sa in spawn_angles),
+               f"外环簇心方向 {a:.1f}° 落进了某集结点的 ±20° 扇区")
 
-    # 簇距随离城距离递增（参考图设计语言：越远越散、越少）。
-    dists = [cl["dist"] for cl in clusters]
-    c.eq(dists, sorted(dists),
-         f"簇距 {dists} 必须随簇序（= 距带序号）递增")
+    # 主类型轮转：放置顺序 = 轮转顺序，固定种子下无一掉簇 ⇒ 序列恰为
+    # 金→石→木… 循环；首簇恒金 ⇒ 内环至少一簇含金（实力模型 §6.1）。
+    cycle = ("gold", "stone", "wood")
+    mains = [cl["primary"] for cl in clusters]
+    c.eq(mains, [cycle[i % 3] for i in range(len(mains))],
+         f"主类型序列必须按金→石→木轮转，实际 {mains}")
+    c.true(any(cl["band"] == "inner" and cl["primary"] == "gold"
+               for cl in clusters),
+           "内环带必须至少一簇金（首簇恒金的落点）")
+
+    # 簇内构成：主类型是唯一众数、每簇 ≥ 2 种、大小落在配置区间。
+    from collections import Counter
+    for cl in clusters:
+        tally = Counter(cl["kinds"])
+        top = tally[cl["primary"]]
+        c.true(all(v < top for t, v in tally.items() if t != cl["primary"]),
+               f"簇主类型 {cl['primary']} 必须是唯一众数，实际 {dict(tally)}")
+        c.true(len(tally) >= 2,
+               f"簇只有 {sorted(tally)}——单种类簇必须不存在（2026-08-31 试玩）")
+        c.true(r.outer_cluster_size[0] <= len(cl["points"]) <= r.outer_cluster_size[1],
+               f"簇大小 {len(cl['points'])} 应落在 {r.outer_cluster_size}")
+
+    # 间距与边界：簇内 ≥ 2、跨簇 ≥ 9（校验器按 ≤8 连边反推簇成员的前提）、
+    # 点到任一集结点 ≥ 16（第 31 条后半）、点在图内。
+    all_pts = [pt for cl in clusters for pt in cl["points"]]
+    for cl in clusters:
+        pts = set(cl["points"])
+        for pt in cl["points"]:
+            c.true(min(max(abs(pt[0] - q[0]), abs(pt[1] - q[1]))
+                       for q in all_pts if q != pt) >= 2,
+                   f"簇内点 {pt} 与邻居贴邻（切比雪夫 < 2）")
+            other_clusters = [q for q in all_pts if q not in pts]
+            c.true(min(max(abs(pt[0] - q[0]), abs(pt[1] - q[1]))
+                       for q in other_clusters) >= 9,
+                   f"跨簇点距 {pt} < 9——校验器反推簇成员会并错簇")
+            c.true(all(max(abs(pt[0] - s[0]), abs(pt[1] - s[1])) >= 16
+                       for s in cv.spawns),
+                   f"簇点 {pt} 落进集结区（到某集结点 < 16）")
+            c.true(cv.inside(*pt), f"簇点 {pt} 在地图外")
+    centers = [cl["center"] for cl in clusters]
+    for i in range(len(centers)):
+        for j in range(i + 1, len(centers)):
+            d = max(abs(centers[i][0] - centers[j][0]),
+                    abs(centers[i][1] - centers[j][1]))
+            c.true(d >= 4,
+                   f"簇心间距 {d}——名义 ≥ 12 减去两侧均值偏移各 ≤ 4，"
+                   f"再低就是两簇粘上了")
+
+    # 簇心取整与 grid.cluster_center 一致（校验器第 28 条复算的前提）。
+    for cl in clusters:
+        c.eq(cl["center"], gridmod.cluster_center(cl["points"]),
+             f"簇心必须按落点均值 half-up 取整：记录 {cl['center']} vs "
+             f"复算 {gridmod.cluster_center(cl['points'])}")
 
 
 def check_generator_wild_patches_are_small_and_separate(c):
@@ -1889,11 +2212,10 @@ def check_generator_obstacles_outside_and_grouped(c):
     cv = generate.Canvas(cfg.size)
     rng = random.Random(90901)
     r = generate._resolve(cfg, rng)
-    sides = rng.sample(list(generate._SIDES), r.spawn_count)
     generate.place_ring_walls(cv, r, rng)
-    generate.place_spawns(cv, r, th, rng, sides)
+    generate.place_spawns(cv, r, th, rng)
     generate.place_inner_content(cv, r, rng)
-    generate.place_outer_clusters(cv, r, rng)
+    generate.place_outer_clusters(cv, r, th, rng)
     generate.scatter_wild_terrain(cv, r, rng)
     groups = generate.place_obstacles(cv, r, rng)
 
@@ -1969,16 +2291,15 @@ def check_generator_water(c):
 
     # 零配置 ⇒ 不消费 rng：同种子下两条路径的产出必须逐格相同。
     cv_a, _ = _painted(_ref_cfg(), seed=777)
-    cv_b = generate.Canvas(72)
     cfg_off = _ref_cfg()
+    cv_b = generate.Canvas(cfg_off.size)
     th = thresholds.load().profile("strict")
     rng_b = random.Random(777)
     r_b = generate._resolve(cfg_off, rng_b)
-    sides = rng_b.sample(list(generate._SIDES), r_b.spawn_count)
     generate.place_ring_walls(cv_b, r_b, rng_b)
-    generate.place_spawns(cv_b, r_b, th, rng_b, sides)
+    generate.place_spawns(cv_b, r_b, th, rng_b)
     generate.place_inner_content(cv_b, r_b, rng_b)
-    generate.place_outer_clusters(cv_b, r_b, rng_b)
+    generate.place_outer_clusters(cv_b, r_b, th, rng_b)
     generate.scatter_wild_terrain(cv_b, r_b, rng_b)
     generate.place_obstacles(cv_b, r_b, rng_b)   # 刻意不调 place_water
     c.true(cv_a.terrain == cv_b.terrain and cv_a.resources == cv_b.resources,
@@ -2017,7 +2338,8 @@ def check_generator_discard_reporting_works(c):
     all_th = thresholds.load()
     cfg = all_th.generator
 
-    # 复制一份 strict 并把行军占比收紧到不可能满足（当前占位下真实占比约 17–33%）。
+    # 复制一份 strict 并把行军占比收紧到不可能满足（真实占比远高于此——
+    # 2026-09-02 第 1 步把集结点环推到墙外 40 格，行军段更长）。
     th = all_th.profile("strict")
 
     class Tightened:
@@ -2038,6 +2360,10 @@ def check_generator_discard_reporting_works(c):
     for k in thresholds.GENERATOR_KEYS:
         setattr(few, k, getattr(cfg, k))
     few.max_attempts = 3          # 有界：自检不该花几十秒
+    # 两个推导属性不在 GENERATOR_KEYS 里（thresholds.Generator 的注释有说明），
+    # 裸对象要手工补，否则 paint 里 AttributeError。
+    few.size = cfg.size
+    few.spawn_wall_distance = cfg.spawn_wall_distance
 
     try:
         generate.generate_valid(99, few, tight, tally)
@@ -2114,16 +2440,21 @@ GROUPS = [
     ("阈值读取层：手误不得静默落回默认值", check_thresholds_loader),
     ("Ram 速度只有一个真相来源", check_ram_speed_comes_from_stats_table),
     ("第 1 条 size 区间", check_v1_size_range),
-    ("第 2 条 集结点数量与贴边", check_v2_spawn_count_and_edge),
+    ("第 2 条 集结点数量与到墙距离", check_v2_spawn_count_and_wall_distance),
     ("第 5 条 Ram 行军占比", check_v5_ram_march),
     ("第 14 条 集结点到可建造格的距离", check_v14_spawn_buildable_distance),
     ("第 23 条 Forest 连通块不得碎成粉尘", check_v23_forest_cohesion),
     ("第 24 条 建筑摆放冲突", check_v24_building_placement),
     ("第 25 条 城外金矿下限", check_v25_outer_gold),
+    # —— 2026-09-02 大改第 1/2 步新增的三条（§3.3/§3.1）——
+    ("第 28 条 解禁按簇（同簇同波/簇序单调）", check_v28_unlock_by_cluster),
+    ("第 29 条 簇类型配额与内环含金", check_v29_type_quota),
+    ("第 31 条 路线顺路簇与簇到集结点距离", check_v31_passby),
+    ("路线特征报告（§3.1 派生量）", check_route_features_report),
     # —— 生成器（第 9 节）——
     ("生成器产出合法地图 + 城圈完整性", check_generator_produces_valid_maps),
     ("生成器散布不得压墙/门与集结点邻域", check_generator_scatter_avoids),
-    ("生成器资源簇不变量（间距/种类/金矿/距递增）", check_generator_cluster_invariants),
+    ("生成器资源簇不变量（环带/扇区/配额/间距）", check_generator_cluster_invariants),
     # 「生成器资源森林带自然转折且保持连通」随 `_carve_forest_belt` 一并删除
     # （2026-09-01，移除森林带机制）。
     ("生成器野外树石保持小撮且彼此分隔", check_generator_wild_patches_are_small_and_separate),

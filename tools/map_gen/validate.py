@@ -91,7 +91,10 @@ Check.__new__.__defaults__ = (False,)
 
 # 第 8 节要求的总条目数。写成常量而不是 len(CHECKS)，这样「漏写一条」会被
 # selftest 抓到 —— 用 len() 去校验 CHECKS 自己，等于用它证明它自己。
-SPEC_CHECK_COUNT = 25
+# 2026-09-02：25 → 32。《地图生成器大改方案》§3.7 规划了第 26–32 条，
+# 其中 28/29/31 随第 2 步落地，26/27（地形，第 3 步）、30（河桥，第 4 步）、
+# 32（入口分布，第 5 步）先登记为**阻塞**占位——编号从 26 起、不重排。
+SPEC_CHECK_COUNT = 32
 
 # 从 CHECKS 移走的条目：编号 -> 去哪了。见模块 docstring。
 #
@@ -663,6 +666,245 @@ def check_outer_gold(doc, grid, th):
 
 
 # --------------------------------------------------------------------------
+# 簇的推导（第 28/29/31 条共用）与路线特征
+#
+# 地图文件里**没有簇 id 字段**（C++ 侧读图的字段不动），但生成器保证：
+# 同簇任意两点切比雪夫距离 ≤ 8（都在簇心半径 `_OUTER_CLUSTER_RADIUS` = 4 内），
+# 不同簇任意两点 ≥ 9。所以「≤ 8 连边求连通分量」恰好就是簇——推导是精确的，
+# 不是近似。手写地图若不满足这条几何，分量仍然是一个合理的簇读法，
+# 而第 28/29/31 条的报告会指出具体是哪一簇/哪一点。
+# --------------------------------------------------------------------------
+
+_CLUSTER_LINK_DIST = 8
+
+
+def _outer_clusters(doc):
+    """把 `outer` 资源点分成簇：切比雪夫距离 ≤ 8 连边的连通分量。
+
+    每簇返回 {"members": [资源条目...], "points": [...], "center": (x, y)}；
+    簇心是落点均值的确定性取整（`grid.cluster_center`），与生成器排解禁波
+    用的簇心逐格一致。
+    """
+    members = [r for r in doc["resources"] if r["tier"] == "outer"]
+    n = len(members)
+    parent = list(range(n))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            if gridmod.chebyshev(tuple(members[i]["pos"]),
+                                 tuple(members[j]["pos"])) <= _CLUSTER_LINK_DIST:
+                pi, pj = find(i), find(j)
+                if pi != pj:
+                    parent[pi] = pj
+    groups = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(members[i])
+    out = []
+    for ms in groups.values():
+        pts = [tuple(m["pos"]) for m in ms]
+        out.append({"members": ms, "points": pts,
+                    "center": gridmod.cluster_center(pts)})
+    return out
+
+
+def _walk_shortest_path(grid, dist, pos):
+    """沿 BFS 距离场从 pos 走回 keep，返回路径格列表（含两端）。
+
+    `dist` 必须是 `grid.bfs_steps([grid.keep], grid.ground_passable)` 的产出。
+    最短路有无数条，这里沿梯度任取一条——第 31 条与路线特征问的都是
+    「最短路**附近**有什么」，梯度路径是其中一条代表。
+    """
+    path = [pos]
+    cur = pos
+    while cur != grid.keep:
+        d = dist[cur]
+        nxt = next((nb for nb in grid.neighbors(*cur, grid.ground_passable)
+                    if dist.get(nb) == d - 1), None)
+        if nxt is None:      # 不应发生：pos ∈ dist 已保证有 predecessor
+            break
+        path.append(nxt)
+        cur = nxt
+    return path
+
+
+def check_cluster_unlock_wave(doc, grid):
+    """第 28 条：解禁**按簇**——同簇所有点同 `unlock_wave`；簇解禁序按簇心到
+    keep 的切比雪夫距离单调（2026-09-02 大改第 2 步，《方案》§3.3）。
+
+    一簇是一个决策单元（「要不要去打这一簇」），同簇拆波解禁等于把一个决策
+    拆成几次半吊子的。第 18 条的逐点版**保留**（它拦「更晚解禁反而更近」的
+    点对），本条加的是簇这一层：同波是簇内的、单调是簇间的。
+    """
+    problems = []
+    clusters = _outer_clusters(doc)
+    for cl in clusters:
+        waves = {m["unlock_wave"] for m in cl["members"]}
+        if len(waves) > 1:
+            problems.append(
+                f"簇（簇心 {list(cl['center'])}，{len(cl['members'])} 点）的 "
+                f"unlock_wave 不止一个：{sorted(waves)} —— 一簇是一个决策单元，"
+                f"同簇拆波解禁把它拆成了几次半吊子的决策（§3.3）")
+    # 簇解禁序按簇心距离单调：按簇心距离排序后，波号必须非降。
+    ordered = sorted(clusters,
+                     key=lambda cl: (gridmod.chebyshev(cl["center"],
+                                                       tuple(doc["keep"])),
+                                     cl["center"]))
+    waves = [min(m["unlock_wave"] for m in cl["members"]) for cl in ordered]
+    for i in range(1, len(ordered)):
+        if waves[i] < waves[i - 1]:
+            a, b = ordered[i - 1], ordered[i]
+            problems.append(
+                f"簇（簇心 {list(b['center'])}，解禁波 {waves[i]}）比簇"
+                f"（簇心 {list(a['center'])}，解禁波 {waves[i - 1]}）离 keep "
+                f"更远，解禁却更早——「越晚解禁的越远」在簇这一层失效")
+    return problems
+
+
+def check_cluster_type_quota(doc, grid):
+    """第 29 条：类型配额——城外三类簇的簇数两两之差 ≤ 1；内环至少一簇含金
+    （2026-09-02 大改第 2 步，《方案》§3.3）。
+
+    簇的类型取簇内点数的**唯一众数**（生成器按金→石→木轮转分配主类型，
+    主类型点数恒严格多于其余）——不再纯随机 + 强制两金（实测旧池图 11/12
+    张金 ≥ 石）。
+
+    「内环至少一簇含金」是金币冗余框架（`攻守实力模型与平衡分析.md` §6.1）：
+    城内金只够不缩编，买活的钱要从城外金簇来，而早解禁的内环簇里必须有一簇
+    带金。内/外环按**集结点环**分界（簇心在集结点环内侧 = 内环）——校验器
+    不知道设计半径 R 与 D，但集结点环是 doc 里现成的，两个环带离它都有
+    14 格的间隔，按它分界不会误分。
+    """
+    clusters = _outer_clusters(doc)
+    if not clusters:
+        return []      # 一个 outer 都没有归第 21 条管
+    problems = []
+    counts = {}
+    for cl in clusters:
+        tally = {}
+        for m in cl["members"]:
+            tally[m["type"]] = tally.get(m["type"], 0) + 1
+        top = max(tally.values())
+        winners = [t for t, v in tally.items() if v == top]
+        if len(winners) > 1:
+            problems.append(
+                f"簇（簇心 {list(cl['center'])}）的类型 {sorted(winners)} 并列 "
+                f"{top} 点，定不出唯一主类型——类型配额按簇计数，"
+                f"簇的类型必须可读（§3.3）")
+            continue
+        primary = winners[0]
+        counts[primary] = counts.get(primary, 0) + 1
+    if not problems:
+        tally = [counts.get(t, 0) for t in sorted(mapfile.RESOURCE_TYPES)]
+        if max(tally) - min(tally) > 1:
+            problems.append(
+                f"城外三类簇数 {dict(zip(sorted(mapfile.RESOURCE_TYPES), tally))} "
+                f"两两之差超过 1——纯随机曾让金矿整个缺席或一边倒"
+                f"（2026-08-31 实测），配额轮转就是要按住这种方差")
+
+    keep = tuple(doc["keep"])
+    spawn_d = [gridmod.chebyshev(tuple(s["pos"]), keep) for s in doc["spawns"]]
+    inner = [cl for cl in clusters
+             if gridmod.chebyshev(cl["center"], keep) < min(spawn_d)]
+    # 内环一簇都没有时本半条无适用对象，自动通过（同第 5/10 条「没有墙
+    # 自动通过」的先例）——fixture 那张 5×7 最小图的「内环」只剩 keep 一格，
+    # 客观放不进簇。strict 档的图内环恒有簇（生成器 `inner_band_clusters`），
+    # 这条照常查。
+    if inner and not any(m["type"] == "gold" for cl in inner for m in cl["members"]):
+        problems.append(
+            "内环（集结点环内侧）没有一簇含金 —— 城内金只够不缩编，买活的钱"
+            "要从城外金簇来，而早解禁的内环必须有一簇带金（实力模型 §6.1）")
+    return problems
+
+
+def check_route_passby(doc, grid, th):
+    """第 31 条：「路过」约束——每条 spawn→keep 最短路 `route_cluster_window`
+    格内至少一簇；每簇（的点）到任一集结点 ≥ `cluster_spawn_distance_min`
+    （2026-09-02 大改第 2 步，《方案》§3.3）。
+
+    前半条是「攻其必救有纹理」的几何形式：攻方顺路就能拆到一簇，资源争夺
+    不需要专门绕路才会发生。最短路按 `ground_passable` 的 BFS（墙按高代价
+    可通行，5.1），沿梯度取一条代表路径，问有没有簇的点落在路径窗口内。
+    集结点走不到 keep 的图跳过前半条——那归第 4 条管。
+
+    后半条是反面：簇不能落在集结区里（§3.3「每簇到任一集结点 ≥ 16」），
+    否则「打集结区」与「抢资源」被强行焊成同一件事。16 > 禁建环 13，
+    所以它比第 14 条的禁建区更宽一圈。
+
+    两个数都收在阈值配置里（§10 的归口纪律），负数 = 本档弃用对应半条
+    （只有 `fixture` 用，同 `static_vision_radius_max: -1` 的手法）。
+    """
+    problems = []
+    clusters = _outer_clusters(doc)
+    window = th.route_cluster_window
+    if window >= 0 and clusters:
+        dist = grid.bfs_steps([grid.keep], grid.ground_passable)
+        for pos, s in sorted(grid.spawns.items()):
+            if pos not in dist:
+                continue      # 不通归第 4 条
+            path = _walk_shortest_path(grid, dist, pos)
+            hit = None
+            for cl in clusters:
+                if any(min(gridmod.chebyshev(p, c) for c in path) <= window
+                       for p in cl["points"]):
+                    hit = cl
+                    break
+            if hit is None:
+                problems.append(
+                    f"集结点 {list(pos)} 到 keep 的最短路（{dist[pos]} 格）"
+                    f"{window} 格内没有任何资源簇 —— 「攻其必救」要求每条进攻"
+                    f"路线顺路就有一簇可拆，否则资源争夺要专门绕路才会发生"
+                    f"（§3.3）")
+    d_min = th.cluster_spawn_distance_min
+    if d_min >= 0:
+        for cl in clusters:
+            for p in cl["points"]:
+                for pos, s in sorted(grid.spawns.items()):
+                    d = gridmod.chebyshev(p, pos)
+                    if d < d_min:
+                        problems.append(
+                            f"簇（簇心 {list(cl['center'])}）的点 {list(p)} 到集结点 "
+                            f"{list(pos)} 只有 {d} 格（要求 ≥ {d_min}）—— 簇落在"
+                            f"集结区里，「打集结区」与「抢资源」就被焊成了同一件事"
+                            f"（§3.3）")
+    return problems
+
+
+def route_features(doc, grid):
+    """逐集结点的路线特征（《方案》§3.1）：**派生量，进校验报告、不进地图文件**。
+
+    2026-09-02 第 1 步先落两项可算的：最短路长度、沿途 6 格内资源簇数。
+    地形相关项（最窄处宽度 / 路上 `Forest` 遮蔽比例 / 是否过桥）等第 3–5 步的
+    地形落地后再补——键先留好（`None` = 未落地），验收判据（§7：集结点之间
+    至少两项特征有显著差异）届时直接读这份结构。
+    """
+    clusters = _outer_clusters(doc)
+    dist = grid.bfs_steps([grid.keep], grid.ground_passable)
+    feats = []
+    for pos, s in sorted(grid.spawns.items()):
+        if pos in dist:
+            path = _walk_shortest_path(grid, dist, pos)
+            near = sum(1 for cl in clusters
+                       if any(min(gridmod.chebyshev(p, c) for c in path) <= 6
+                              for p in cl["points"]))
+            feats.append({"spawn": pos, "path_len": dist[pos],
+                          "clusters_near_path": near,
+                          "min_width": None, "forest_cover": None,
+                          "crosses_bridge": None})
+        else:
+            feats.append({"spawn": pos, "path_len": None,
+                          "clusters_near_path": None,
+                          "min_width": None, "forest_cover": None,
+                          "crosses_bridge": None})
+    return feats
+
+
+# --------------------------------------------------------------------------
 # 注册表
 # --------------------------------------------------------------------------
 
@@ -713,29 +955,41 @@ def check_size_range(doc, grid, th):
 
     **两条边分别查，不查面积**：一张 4×2000 的图面积正常而形状荒谬，
     而城区半径、行军距离全部按边长推。
+
+    **2026-09-02 文案改**（《地图生成器大改方案》§3.7）：边长由四个环相加
+    得出（`size = 2×(R + D + 14 + W_far + 3)`，§2）——D 与 W_far 才是
+    设计量，size 是它们的函数；不再「由城区半径 + 集结点到城墙推出」
+    （那是贴边时代的写法）。
     """
     problems = []
     for name, v in (("宽", doc["size"][0]), ("高", doc["size"][1])):
         if not (th.size_min <= v <= th.size_max):
             problems.append(
                 f"{name} = {v}，不在 [{th.size_min}, {th.size_max}] 内"
-                f"（profile {th.name}）—— §3 的边长由「城区半径 + 集结点到城墙的"
-                f"距离」推出，而后者受行军占比不变量约束（第 5 条）")
+                f"（profile {th.name}）—— §2 的边长由四个环相加得出"
+                f"（size = 2×(R + D + 14 + W_far + 3)），"
+                f"而 D 受行军占比不变量约束（第 5 条）")
     return problems
 
 
-def check_spawn_count_and_edge(doc, grid, th):
-    """第 2 条：集结点数量落在区间内，且每个都贴近地图边缘。
+def check_spawn_count_and_wall_distance(doc, grid, th):
+    """第 2 条：集结点数量落在区间内，且每个到最近**墙格**的距离 ∈
+    `spawn_wall_distance_range`。
 
     **数量取区间而不是等于某个数**：集结点数量是待定数值（CLAUDE.md
     「关于数值」），而地图规范曾把它写成「定为 4」——那是把平衡旋钮当成结构
     结论，是那条规则记下的唯一一次违反。区间表达「还没定」。
 
-    **2026-08-31 重构**：走廊概念取缔，「集结点数 = 走廊种类数」那条结构约束
-    作废（校验器第 3 条废除、编号留空），集结点不再携带性质标签。
+    **2026-09-02 大改第 1 步**（《地图生成器大改方案》§3.1）：判据从「贴近
+    地图边缘」改为「到最近墙格的切比雪夫距离 ∈ [D_lo, D_hi]」——集结点不再
+    贴边，而是落在集结点环（切比雪夫半径 R+D 的方环，按角度采样、任意角度）
+    上；D=40 是 §2.1 拍板值（集结期已随 #128 落地，「先落集结期再取 40」）。
+    集结点贴边的时代，到墙的距离是 size 的被动结果；现在 D 是独立设计量，
+    边长反而由它推出（第 1 条），所以本条直接查它。
 
-    「贴近边缘」查的是到四条边的最小距离：§2.2 的集结区在地图边缘，
-    集结点跑到地图中间意味着攻方在城边上凭空出现。
+    地图没有 `initial_walls` 时距离半条自动通过——没有墙就谈不上「到墙的
+    距离」，同第 5、10 条的先例；初始城圈的存在性由第 8 条管。数量半条
+    不受影响。
     """
     problems = []
     n = len(doc["spawns"])
@@ -743,14 +997,19 @@ def check_spawn_count_and_edge(doc, grid, th):
         problems.append(
             f"集结点 {n} 个，不在 [{th.spawn_count_min}, {th.spawn_count_max}] 内"
             f"（profile {th.name}）—— 它直接决定玩家每波要防几个方向")
+    if not grid.walls:
+        return problems
+    d_lo, d_hi = th.spawn_wall_distance_range
+    walls = sorted(grid.walls)
     for s in doc["spawns"]:
-        x, y = s["pos"]
-        d = min(x, y, grid.width - 1 - x, grid.height - 1 - y)
-        if d > th.spawn_edge_distance_max:
+        pos = (s["pos"][0], s["pos"][1])
+        d = min(gridmod.chebyshev(pos, w) for w in walls)
+        if not (d_lo <= d <= d_hi):
             problems.append(
-                f"集结点 {[x, y]} 距最近的地图边界 {d} 格，"
-                f"超过 {th.spawn_edge_distance_max} —— §2.2 的集结区在地图边缘，"
-                f"否则攻方等于在城边上凭空出现，侦查与行军时间窗口一起失效")
+                f"集结点 {list(pos)} 到最近墙格的切比雪夫距离为 {d}，"
+                f"不在 [{d_lo}, {d_hi}] 内（profile {th.name}）—— §3.1 的集结点"
+                f"环在城墙外 D 格处，过近则弓手调兵窗口被压没（§2.1），过远则"
+                f"行军吞掉整个 episode（第 5 条）")
     return problems
 
 
@@ -953,7 +1212,7 @@ def check_forest_cohesion(doc, grid, th):
 CHECKS = [
     Check(1, "size 落在给定区间", check_size_range, IMPLEMENTED, "",
           True),
-    Check(2, "集结点数量与距边界格数", check_spawn_count_and_edge,
+    Check(2, "集结点数量与到城墙的距离", check_spawn_count_and_wall_distance,
           IMPLEMENTED, "", True),
     # 第 3 条已废除（2026-08-31，走廊概念取缔，`REMOVED`），编号留空。
     Check(4, "每个集结点到 keep 有通路", check_spawn_reachable, IMPLEMENTED, ""),
@@ -1001,6 +1260,29 @@ CHECKS = [
     Check(24, "buildings 的摆放冲突", check_building_placement, IMPLEMENTED, ""),
     Check(25, "outer 资源里金矿不少于阈值", check_outer_gold,
           IMPLEMENTED, "", True),
+    # —— 《地图生成器大改方案》§3.7 的新条目（2026-09-02）：编号从 26 起、
+    # 不重排。28/29/31 随第 2 步落地；26/27（地形，第 3 步）、30（河桥，
+    # 第 4 步）、32（入口分布，第 5 步）先登记为阻塞占位，随各自那步实现 ——
+    # 阻塞条目不静默跳过（模块 docstring 三种状态那条纪律），占位的 note
+    # 写清它等的是哪一步。
+    Check(26, "争夺带阻挡率落在区间", None, BLOCKED,
+          "等第 3 步（地形三形态 + 隘口，《方案》§3.2）落地：阻挡率要有林子与"
+          "岩脊可算才有意义，阈值 [lo, hi] 本身也是占位（10–20%，类比 AoE4）"),
+    Check(27, "每条路线的最窄处或开阔标记", None, BLOCKED,
+          "等第 3 步（§3.2）：隘口是设计放置的，地形落地后「最窄处 ∈ [2,4] "
+          "或标记开阔、全图两类路线都有」才有可查的对象"),
+    Check(28, "解禁按簇：同簇同波、簇序按簇心距离单调",
+          check_cluster_unlock_wave, IMPLEMENTED, ""),
+    Check(29, "城外簇类型配额与内环含金", check_cluster_type_quota,
+          IMPLEMENTED, ""),
+    Check(30, "桥宽与被河切断的集结点数", None, BLOCKED,
+          "等第 4 步（河桥受管理，《方案》§3.4）：桥宽 ≥ 2 与被切集结点 ≤ 1 "
+          "都是那一步的生成策略改完才查得了的"),
+    Check(31, "每条最短路 6 格内至少一簇、簇不进集结区", check_route_passby,
+          IMPLEMENTED, "", True),
+    Check(32, "入口分布：门与缺口不同面", None, BLOCKED,
+          "等第 5 步（城区 R 与缺口异面，《方案》§3.5）：缺口现在仍可能落在"
+          "门所在面，异面是那一步的生成策略改的"),
     # 第 3 条**不在这张表里**：2026-08-31 组长拍板取缔「走廊」概念，该条随
     # `spawns[].corridor` 字段一起废除、编号留空（`REMOVED`，理由见模块 docstring）。
 ]
@@ -1188,6 +1470,19 @@ def main():
             total_failed += 1
             continue
         total_failed += _print_results(run(doc, th=th), str(path))
+        # 逐集结点的路线特征（§3.1）：派生量，只进报告、不进地图文件。
+        # 验收判据（《方案》§7）是「集结点之间至少两项特征有显著差异」——
+        # 它不落成一条检查，是因为「显著」是分布层面的判断，只能在报告里看。
+        feats = route_features(doc, Grid(doc))
+        if feats:
+            print("  路线特征（最窄处/遮蔽/过桥待第 3–5 步地形落地后补）：")
+            for f in feats:
+                if f["path_len"] is None:
+                    print(f"    集结点 {list(f['spawn'])}：走不到 keep（见第 4 条）")
+                else:
+                    print(f"    集结点 {list(f['spawn'])}：最短路 "
+                          f"{f['path_len']} 格，沿途 6 格内资源簇 "
+                          f"{f['clusters_near_path']} 个")
 
     n_impl = sum(1 for c in CHECKS if c.status == IMPLEMENTED)
     n_block = sum(1 for c in CHECKS if c.status == BLOCKED)

@@ -3,9 +3,10 @@
 
 §9 要的是**约束式生成，不是自由噪声**：
 
-- **固定**（配置给出）：地图尺寸（`size`，理由见下）
+- **固定**（配置给出/推导）：地图尺寸（`size`，2026-09-02 起由四环公式推导）
 - **随机**（按种子，从 `thresholds.json` 的 `generator` 段区间里抽）：
-  城区半径、集结点数量与选哪几条边、城内资源构成、外部资源簇数量与大小、
+  城区半径、集结点数量与角度（2026-09-02 起在集结点环上按角度采样）、
+  城内资源构成、内/外环资源簇数量与大小、
   野外散布（森林斑块 / Rock 团块 / 水域与桥）、预置建筑、初始缺口
   （「城墙残血分布」曾在此列，2026-09-01 起 `wall_hp_frac_range` 钉死
   [1.0, 1.0]——试玩反馈「新开局城墙不是满血」，见该键的 `_note_hp`）
@@ -36,10 +37,10 @@
 依然成立（课程学习需要控制变量），但已不适用于**默认对局用的地图池**。两者
 共用同一个生成器，只是消费方式不同。
 
-`size` 依然固定，理由见 `thresholds.json` 的 `_FINDING_size_vs_ram_speed`。
-**2026-09-01：72 → 144（用户/组长试玩后拍板）**——城区半径不动，扩大的
-全部是城外空间。行军占比不变量（第 5 条）随之上限放宽到 0.75，推导与实测
-见 thresholds.json 的 `_note_march` 与那条 FINDING 的续篇。
+`size` 依然固定（一个数，不是区间），**但 2026-09-02 起它是推导量**：
+`size = 2×(R + D + 14 + W_far + 3)`（《地图生成器大改方案》§2，D=40 已拍板、
+W_far=18 占位），推导在 `thresholds.py` 的 `Generator` 里完成。
+此前的手写历史（72 → 144）见 `thresholds.json` 的 `_FINDING_size_vs_ram_speed`。
 
 ## 为什么需要一批而不是一张
 
@@ -67,10 +68,12 @@
 1. **集结点八邻不放 `Forest` / `Rock` / 水域**，因此第 10 条在生成图上恒过
    （它的 `starts` 为空就 `continue`）。这不等于第 10 条无用——它保护的是
    手写地图，以及将来允许森林进集结点的更激进策略。
-2. **城圈是切比雪夫方环**（正方形），所以集结点（边缘候选点）最多四条边
-   各一个。**2026-08-31 重构**：走廊概念取缔后这条上限与走廊无关了，
-   变成纯几何事实——`thresholds.py` 在配置加载时拒绝 `spawn_count_range`
-   上界超过 4，`generate_one` 里 `rng.sample(_SIDES, n)` 是运行期的第二道防线。
+2. ~~**城圈是切比雪夫方环**（正方形），所以集结点（边缘候选点）最多四条边
+   各一个~~ **已于 2026-09-02 作废**（《地图生成器大改方案》§3.1，第 1 步）：
+   集结点改为在集结点环（切比雪夫半径 R+D 的方环）上**按角度采样**，任意
+   角度、相邻角差 ≥ 60°，数量 3–5。上界不再来自「方环四条边」，
+   而来自 60° 间隔（6 个就只剩恰好等分一种摆法），`thresholds.py` 的
+   `spawn_count_range` 上界检查随之从 4 改为 5。
 
 ~~不生成 `Water` / `Bridge`~~ **已于 2026-09-01 作废**：`place_water` 现在
 真的画湖与河（河必架桥），并且每一块水体落地后做一次集结点→keep 连通
@@ -91,11 +94,11 @@ from types import SimpleNamespace
 import mapfile
 import thresholds as thmod
 import validate as validatemod
+import grid as gridmod
 from grid import Grid
 
-# 城圈四条边。顺序固定 = 生成确定。名字用方位而不是索引：
-# `_SIDES[2]` 在报错信息里没有意义。集结点在这四条边的地图边缘上抽。
-_SIDES = ("north", "east", "south", "west")
+# 2026-09-02：`_SIDES`（四条边中点抽边）随《地图生成器大改方案》§3.1 删除——
+# 集结点改为在集结点环上按角度采样（`place_spawns`），不再有「四条边」这个形状。
 
 _TERRAIN_CHAR = {name: str(i) for i, name in enumerate(mapfile.TERRAIN_PALETTE)}
 
@@ -123,6 +126,16 @@ class Canvas:
         self.gates = []          # 城门的格（place_ring_walls 填，城内内容要用）
         self.breaches = []       # 设计缺口的格（同上）
         self.keep = (size // 2, size // 2)
+        # —— 2026-09-02 大改第 2 步（解禁按簇）——
+        # `resource_cluster[i]` = resources[i] 所属簇的序号（城内资源为 None）。
+        # `cluster_records[cid]` = place_outer_clusters 返回的簇记录（含簇心与
+        # 成员资源下标），`_resource_unlock_waves` 按簇心到 keep 的距离排名分波。
+        # 它们不进地图文件（簇成员关系校验器能从点位精确反推，见
+        # `validate._outer_clusters`），只是生成期簿记。
+        self.resource_cluster = []
+        self.cluster_records = []
+        self.cluster_unlock_per_wave = 1   # place_outer_clusters 按 cfg 覆写
+        self.spawn_angles = []     # place_spawns 填（°），外环簇的扇区排除要用
 
     # -- 基本操作 ---------------------------------------------------------
 
@@ -173,26 +186,45 @@ class Canvas:
     # -- 组装 -------------------------------------------------------------
 
     def _resource_unlock_waves(self):
-        """给每个资源点算 `unlock_wave`：`inner` 恒为 1；`outer` 按到 `keep`
-        的**实际**距离严格递增排名（第 2 起）——第 18 条查的正是这条单调性。
+        """给每个资源点算 `unlock_wave`：`inner` 恒为 1；`outer` **按簇**分波
+        （2026-09-02 大改第 2 步，《地图生成器大改方案》§3.3）——同簇所有点同波，
+        簇的解禁序按簇心到 keep 的切比雪夫距离单调（校验器第 28 条查的正是这条）。
 
-        **按点排名，不按簇**：即便 2026-09-01 三续把 `outer` 点的候选格收紧到
-        簇心切比雪夫半径 `_OUTER_CLUSTER_RADIUS` 内（移除森林带机制之后的
-        写法，同一簇内的点到 `keep` 的距离跨度已经很小），也没有改回"同一簇
-        共享一个波"——按簇心名义距离分配仍可能被半径内的随机取点小幅打乱
-        顺序，第 18 条要的是**逐点**严格单调，按点排名不依赖"簇内顺序也单调"
-        这条更强的假设，退化路径最稳。
+        **按簇排名是按点排名的替代**：旧写法逐点严格排名（同簇的点也被半径内的
+        随机取点拆到相邻两波），§3.3 要的是「同簇同波」——一簇是一个决策单元，
+        拆波解禁等于把「要不要去打这一簇」拆成四次半吊子的决策。
+
+        每波开几簇由 `cluster_unlock_per_wave` 控制（占位，与实力模型一起标），
+        但有一条硬约束优先于它：**第 18 条（逐点单调）仍然保留**。簇内点在簇心
+        半径 4 内、距离跨度可达 8 格，若两簇的「点距离区间」有交叠却被分到不同
+        波，交叠处就会出现「更晚解禁反而更近」的点对、第 18 条红。所以新波只在
+        「下一簇的最近点比已分波的所有点都远」时才开启——交叠的簇并入当前波
+        （此时每波簇数会超过配置值，这是刻意的：第 18 条是规范条目，每波几簇
+        是占位数值）。
         """
         kx, ky = self.keep
 
         def cheb(pos):
             return max(abs(pos[0] - kx), abs(pos[1] - ky))
 
-        outer_idx = [i for i, r in enumerate(self.resources) if r[2] == "outer"]
-        outer_idx.sort(key=lambda i: cheb(self.resources[i][1]))
         wave = {i: 1 for i, r in enumerate(self.resources) if r[2] == "inner"}
-        for rank, i in enumerate(outer_idx):
-            wave[i] = 2 + rank
+        per_wave = max(1, self.cluster_unlock_per_wave)
+        # 簇按簇心距离排名（簇心是落点后按 `grid.cluster_center` 算的，与校验器
+        # 从 doc 反推的簇心逐格一致，第 28 条因此看到的是同一个顺序）。
+        order = sorted(range(len(self.cluster_records)),
+                       key=lambda cid: (cheb(self.cluster_records[cid]["center"]),
+                                        cid))
+        cur_wave, in_wave, far_max = 2, 0, -1
+        for cid in order:
+            rec = self.cluster_records[cid]
+            dists = [cheb(self.resources[i][1]) for i in rec["resource_indices"]]
+            if in_wave >= per_wave and min(dists) > far_max:
+                cur_wave += 1
+                in_wave = 0
+            for i in rec["resource_indices"]:
+                wave[i] = cur_wave
+            far_max = max(far_max, max(dists))
+            in_wave += 1
         return wave
 
     def to_doc(self, map_id, name):
@@ -289,34 +321,44 @@ def place_ring_walls(cv, cfg, rng):
     return cv.gates, cv.breaches
 
 
-def place_spawns(cv, cfg, th, rng, sides):
-    """集结点：固定边缘候选点里随机抽几条边，周围铺 `no_build` 环。
+def place_spawns(cv, cfg, th, rng):
+    """集结点：集结点环上**按角度采样** 3–5 个，相邻角差 ≥ 60°，周围铺
+    `no_build` 环。
 
-    **2026-08-31 重构**：走廊取缔后集结点不再携带性质标签——「固定候选点」
-    这个形状保留（宏观层 PickSpawn 与分兵佯攻都挂在它上面），但每个点就是
-    一条边在地图边缘的中点，没有走廊、没有口。
+    **2026-09-02 大改第 1 步（《地图生成器大改方案》§3.1）**：不再是「四条边
+    中点贴边」。集结点环 = 以 keep 为心、切比雪夫半径 R+D 的方环，D 取 strict
+    档 `spawn_wall_distance_range` 的中点（当前 40——§2.1 拍板，集结期已随
+    #128 落地）。取**方环而不是圆环**的原因：城圈是切比雪夫方环，方环上每
+    一格到城圈环的切比雪夫距离**恰好**都是 D（圆环在对角方向会近到
+    0.7D−0.3R ≈ 24，校验器第 2 条的 [D_lo, D_hi] 区间根本装不下）——角度
+    采样采的是方向，落点是该方向射线与方环的交点。
+
+    相邻角差 ≥ 60° 用**分层抽样**保证（不拒绝采样，rng 消费有界）：把 360°
+    等分成 n 段，每段在 [段首+30°, 段尾−30°] 内均匀取一个角——相邻两角
+    （含首尾环绕）的差恒 ≥ 60°，且每个方位都可能出现。
 
     `no_build` 环是第 14 条那条**结构约束**的直接实现手段：
     「任何静态建筑的视野都不得覆盖集结区」。用禁建区表达它是最自然的做法——
     一座永久建筑若能照亮集结区，「这波要不要花钱侦查」就被一次性买断，
     `Scout`、`Wraith` 屏蔽、佯攻诱饵会一起失效（CLAUDE.md「集结区」）。
     """
-    margin = min(2, th.spawn_edge_distance_max)
     # 环宽取**校验器实际会用的那个上限**，而不是 thresholds.json 里手写的声明。
     # 第 14 条的上限从数值表推导（`Watch` 的视野），声明只是被核对的一方——
     # 这里若还读声明，就会出现「生成器按 8 铺环、校验器按 12 查」，每张图都被否决。
     table_max, _ = thmod.max_building_vision()
     ring = int(max(th.static_vision_radius_max, table_max)) + 1
     cx, cy = cv.keep
-    for side in sides:
-        if side == "north":
-            pos = (cx, margin)
-        elif side == "south":
-            pos = (cx, cv.size - 1 - margin)
-        elif side == "west":
-            pos = (margin, cy)
-        else:
-            pos = (cv.size - 1 - margin, cy)
+    L = cfg.city_radius + cfg.spawn_wall_distance
+    n = cfg.spawn_count
+    sector = 360.0 / n
+    angles = [i * sector + 30 + rng.uniform(0, sector - 60) for i in range(n)]
+    cv.spawn_angles = angles       # place_outer_clusters 的 ±20° 扇区排除要用
+    for ang in angles:
+        rad = math.radians(ang)
+        ca, sa = math.cos(rad), math.sin(rad)
+        # 射线与切比雪夫方环（半径 L）的交点：按主导轴缩放。
+        scale = L / max(abs(ca), abs(sa))
+        pos = (int(round(cx + ca * scale)), int(round(cy + sa * scale)))
         cv.spawns.append(pos)
         # 禁建环。**只标 no_build，不改地形** —— 集结点前的地面必须仍然可通行。
         for oy in range(-ring, ring + 1):
@@ -381,6 +423,7 @@ def place_inner_content(cv, cfg, rng):
                 return False
             pos = rng.choice(sorted(cands))
             cv.resources.append((kind, pos, "inner"))
+            cv.resource_cluster.append(None)   # 城内资源不属于任何簇
             placed.append((kind, pos))
 
     # 预置建筑（微随机化）。塔 2–3 座贴城门/缺口内侧；兵营 1–2 座在堡垒附近
@@ -414,113 +457,175 @@ def place_inner_content(cv, cfg, rng):
 
 
 # 簇内点的候选格：簇心切比雪夫半径内的空闲 Plain 格。半径决定「小聚居」
-# 有多紧——2026-09-01 三续（团队决定移除「不可围墙」的森林带机制，见
-# `place_outer_clusters` docstring 与 `地图与场景设计.md` §2.1 的订正）
-# 替代原来「点贴森林带近簇心一截」（`_BELT_POINT_WINDOW`）的写法，取值
-# 大致对应原窗口覆盖的范围。
+# 有多紧——取值 4 自 2026-09-01 三续起沿用至今，2026-09-02 大改第 2 步
+# （按环分布）没有动它（《地图生成器大改方案》§3.3：不变）。
+# 它同时是校验器反推簇成员的依据：簇内任意两点 ≤ 2×4 = 8，而不同簇的点
+# 被强制 ≥ 9（见 `place_outer_clusters`），连通分量（≤8 连边）恰好就是簇。
 _OUTER_CLUSTER_RADIUS = 4
 
 
-def place_outer_clusters(cv, cfg, rng, spawn_pts=None):
-    """外部资源簇：小聚居的资源点组。
+def place_outer_clusters(cv, cfg, th, rng):
+    """外部资源簇：**按环分布**的小聚居资源点组（2026-09-02 大改第 2 步，
+    《地图生成器大改方案》§3.3）。
 
-    CLAUDE.md「资源分布形态」要「大散居、小聚居、交错杂居」——簇内混种类、
-    簇间隔得开、各簇混合比例不同。**2026-08-31 重构追加三条硬保证**
-    （试玩反馈：一簇全石贴成 3×3 团、有图城外零金矿）：
+    四环骨架（§2）里的两环各放一批：
 
-    * **簇内点两两切比雪夫距离 ≥ 2**——「大片石头集中在一整块」的封法；
-    * **每簇 ≥ 2 种类型**——簇内抽签后只有一种就补第二种；
-    * **全局城外金 ≥ 2 点**——前两个**成功落地**的簇各强制一个 gold
-      （簇数下界 2 使这条结构性成立；万一簇全失败，第 25 条会把图否掉，
-      换种子重试——校验器是最终裁决）。
+    * **内环带** cheb ∈ [R+4, R+D−14]：`inner_band_clusters` 个近簇，早解禁。
+      其中**每个集结点一簇「顺路簇」**钉在该集结点方向上（角度抖动 ±4°）——
+      「每条 spawn→keep 最短路 6 格内至少一簇」（校验器第 31 条）的生成器侧
+      落点：最短路大体沿径向走，顺路簇就在线的旁边。水域/岩壁的绕行可能把
+      最终最短路推离超过 6 格——那种图由校验器否掉换种子（生成器兜底、
+      校验器裁决，同本文件其余各步的分工）。
+    * **外环带** cheb ∈ [R+D+14, 边缘−3]：`outer_band_clusters` 个远簇，
+      晚解禁；**不在任何集结点的 ±20° 扇区内**（§2.2 拍板：到了后期玩家
+      扩张要经过或绕过集结点环，但不该被迫打一场打不赢的仗）。远簇数
+      ≥ 近簇数（`_resolve` 抽样后抬齐）。
 
-    另加一条参考图的设计语言：**簇距随离城距离递增**（越远越散、越少）。
+    其余硬保证（校验器第 28/29/31 条的生成器侧）：
 
-    **2026-09-01 三续：移除「不可围墙」的森林带强制连通要求**（团队决定，
-    详见 `地图与场景设计.md` §2.1 的订正）。原机制是 §2.1.1 的结构约束：
-    每个 `outer` 资源点必须有一条 `Forest` 4 连通到地图边界的通道（校验器
-    第 7 条），实现是 `_carve_forest_belt` 沿主方向挖一条折线森林带、点贴
-    在带子靠近簇心的一截上（`_BELT_POINT_WINDOW`）。**移除的直接原因是
-    视觉效果**：即便经过两轮加固（#117 加折步、#121 因带子被 #119 拉长后
-    再加密折步、加大偏移上限），实测参考图与池图里这条带子在几十格长的
-    距离上侧向偏移仍只有 3–5 格——不管调多细的折步参数，玩家看到的仍然
-    基本是一条直线，试玩反馈直接指出了这一点。**代价是认下的，不是没想到**：
-    去掉这条通道之后，玩家理论上可以砌一整圈墙把外部资源点圈进城内，
-    2.1 原文论证的「龟缩退化解复活」风险不再有结构性屏障——团队认为一条
-    看起来还是直线的森林带，换来的「反龟缩」保护没有价值到值得保留，
-    情愿承担这个风险也要让地图更好看。城外森林现在完全交给
-    `scatter_wild_terrain` 的纯装饰性小撮散布。
+    * **类型配额**：每个簇有一个主类型（点数的唯一众数），主类型按
+      金→石→木轮转分配（第一簇恒金 ⇒ 内环至少一簇含金，金币冗余框架
+      `攻守实力模型与平衡分析.md` §6.1）；轮转使三类簇数两两之差 ≤ 1。
+      不再纯随机 + 强制两金（实测旧池图 11/12 张金 ≥ 石）。
+    * **簇内构成**：主类型点数 = 簇大小 − 1 或 − 2，其余 1–2 点取另外两种
+      各至多一个（保证主类型是唯一众数、且每簇 ≥ 2 种——旧约束沿用）。
+    * **不同簇的点两两切比雪夫距离 ≥ 9**：这让校验器能用「≤ 8 连边求连通
+      分量」从 doc **精确**反推簇成员（簇内任意两点 ≤ 2×`_OUTER_CLUSTER_RADIUS`
+      = 8），地图文件因此不需要新增簇 id 字段（C++ 侧读图的字段不动）。
+    * **每簇（的点）到任一集结点 ≥ 16**（第 31 条后半：不能在集结区里）。
+      16 > 禁建环 13，这条比「不落 no_build」更强，两点距离都要查。
+    * 簇心两两切比雪夫距离 ≥ 12（§3.3「解除每方位一簇的上限：按角度采样」
+      的配套——方位上限没了，间距约束接住「簇间隔得开」）。
+
+    簇内点两两切比雪夫距离 ≥ 2（防「一整块石头」）、每簇 ≥ 2 种：不变。
+
+    簇记录写进 `cv.cluster_records`（解禁分波要用簇心排名，见
+    `_resource_unlock_waves`），同时作为返回值供 selftest 断言簇级不变量；
+    `paint` 消费方忽略返回值。
     """
     R = cfg.city_radius
-    lo, hi = cfg.outer_cluster_size
-    spawn_pts = list(spawn_pts) if spawn_pts is not None else list(cv.spawns)
-    # **8 个方位**（2026-09-01：地图 144 后城外面积 ~4 倍，簇数上界跟着面积走，
-    # 只走 4 条对角线装不下；正方向簇与正方向集结点相邻时靠 spawn 距离限制
-    # 兜底）。方向列表洗牌后逐个尝试，失败的簇不留残点。
-    directions = [(1, 1), (1, -1), (-1, 1), (-1, -1),
-                  (1, 0), (-1, 0), (0, 1), (0, -1)]
-    rng.shuffle(directions)
+    D = cfg.spawn_wall_distance
+    inner_lo, inner_hi = R + 4, R + D - 14
+    outer_lo, outer_hi = R + D + 14, cv.size // 2 - 3
+    kx, ky = cv.keep
+    cv.cluster_unlock_per_wave = cfg.cluster_unlock_per_wave
 
-    n = min(cfg.outer_clusters, len(directions))
-    max_d = min(cv.size // 2 - 4, R + 4 + cfg.outer_cluster_span)
-    if max_d <= R + 4:
-        return []
-    stride = (max_d - (R + 4)) // n
-    placed_gold = 0
-    clusters = []
-    for i in range(n):
-        dx, dy = directions[i]
-        # 簇心：第 i 簇落在自己的距离带上（越远越散、越少）
-        dist = R + 4 + i * stride + rng.randint(0, min(2, stride))
-        cxx = cv.keep[0] + dx * dist
-        cyy = cv.keep[1] + dy * dist
-        if not cv.inside(cxx, cyy):
-            continue
+    def cheb(p):
+        return max(abs(p[0] - kx), abs(p[1] - ky))
 
-        size_n = rng.randint(lo, hi)
-        kinds = [rng.choice(("stone", "wood", "gold")) for _ in range(size_n)]
-        forced_gold = False
-        if placed_gold < 2:
-            kinds[rng.randrange(len(kinds))] = "gold"
-            forced_gold = True
-        if len(set(kinds)) < 2:
-            kinds[rng.randrange(len(kinds))] = rng.choice(
-                [k for k in ("stone", "wood", "gold") if k not in kinds])
+    def angle_of(p):
+        return math.degrees(math.atan2(p[1] - ky, p[0] - kx)) % 360.0
 
-        # **先攒局部列表，整簇成功才并入**——放不下弃整簇（滚回），
-        # 不留下「半个簇」的残点（半个簇仍过校验，但破坏「小聚居」的形状）。
+    def ang_gap(a, b):
+        d = abs(a - b) % 360.0
+        return min(d, 360.0 - d)
+
+    # 放置顺序 = 主类型轮转顺序：顺路簇（内环）→ 其余内环簇 → 外环簇。
+    # 第一簇恒金 ⇒ 内环至少一簇含金（§6.1 的金币冗余落在内环）。
+    _CYCLE = ("gold", "stone", "wood")
+    plans = []          # (band, angle 或 None=随机, dist 或 None=随机)
+    for ang in cv.spawn_angles:
+        # 顺路簇钉在集结点方向、内环带中距（±4° 抖动）。抖动不能大：最短路
+        # 被河/岩壁推开几格是常态（桥间隔 ~14 格），第 31 条的 6 格窗口里，
+        # 角度抖动与绕行**叠加**——实测 ±8° 抖动下丢弃率明显上升（2026-09-02，
+        # 种子基 1 干跑 40% 全红在第 31 条）。
+        plans.append(("inner", ang + rng.uniform(-4, 4), R + 15))
+    for _ in range(cfg.inner_band_clusters - len(cv.spawn_angles)):
+        plans.append(("inner", None, None))
+    for _ in range(cfg.outer_band_clusters):
+        plans.append(("outer", None, None))
+
+    centers = []        # 已落地簇的（名义）簇心
+    placed_points = []  # 已落地簇的全部点（跨簇 ≥ 9 要用）
+
+    def try_place(center, primary):
+        """整簇成功才并入；放不下弃整簇（滚回），不留「半个簇」的残点。"""
+        cxx, cyy = center
+        size_n = rng.randint(*cfg.outer_cluster_size)
+        # 异类点数 ≤ size_n − 2：主类型必须 ≥ 2 点才是簇内唯一众数（校验器
+        # 第 29 条按众数定簇类型）。size_n ≥ 3 由 thresholds.Generator 断言。
+        n_other = rng.randint(1, min(2, size_n - 2))
+        # 其余 1–2 点各取一种**不同**的非主类型——主类型因此恒为唯一众数
+        # （校验器第 29 条按众数定簇类型），且每簇 ≥ 2 种。
+        others = rng.sample([t for t in _CYCLE if t != primary], n_other)
+        kinds = [primary] * (size_n - n_other) + others
+        rng.shuffle(kinds)
         local = []
-        ok = True
         for k in kinds:
-            taken = cv.occupied() | {p for _, p in local}
             cands = []
-            for c in cv.free_plain_cells(center=(cxx, cyy),
+            for c in cv.free_plain_cells(center=center,
                                          radius=_OUTER_CLUSTER_RADIUS):
-                if c in taken or c in cands:
+                if c in cands or c in {p for _, p in local}:
                     continue
                 if cv.no_build[c[1]][c[0]] != 0:
                     continue
-                if any(max(abs(c[0] - s[0]), abs(c[1] - s[1])) <= 3
-                       for s in spawn_pts):
+                # 第 31 条后半：簇的点到任一集结点 ≥ 16（强于禁建环 13）。
+                if any(max(abs(c[0] - s[0]), abs(c[1] - s[1])) < 16
+                       for s in cv.spawns):
                     continue
+                # 簇内点两两 ≥ 2（防贴成一坨）。
                 if any(max(abs(c[0] - pp[0]), abs(c[1] - pp[1])) < 2
                        for _, pp in local):
                     continue
+                # 跨簇 ≥ 9：校验器按 ≤8 连边反推簇成员，这条保证反推精确。
+                if any(max(abs(c[0] - pp[0]), abs(c[1] - pp[1])) < 9
+                       for pp in placed_points):
+                    continue
                 cands.append(c)
             if not cands:
-                ok = False
-                break
+                return None
             local.append((k, rng.choice(sorted(cands))))
-        if not ok:
-            continue
+        return local
+
+    clusters = []
+    for i, (band, ang, _dist) in enumerate(plans):
+        primary = _CYCLE[i % 3]
+        lo, hi = (inner_lo, inner_hi) if band == "inner" else (outer_lo, outer_hi)
+        placed = None
+        for _try in range(80):
+            a = ang if ang is not None else rng.uniform(0, 360)
+            # 外环簇不得落在任何集结点的 ±20° 扇区内（§2.2 拍板）。
+            if band == "outer" and any(ang_gap(a, sa) <= 20.0
+                                       for sa in cv.spawn_angles):
+                if ang is not None:
+                    break    # 顺路簇不会走这条分支，防御而已
+                continue
+            d = _dist if _dist is not None else rng.randint(lo, hi)
+            d = max(lo, min(hi, d))
+            rad = math.radians(a)
+            center = (int(round(kx + math.cos(rad) * d)),
+                      int(round(ky + math.sin(rad) * d)))
+            if not cv.inside(*center) or not (lo <= cheb(center) <= hi):
+                continue
+            # 簇心间距 ≥ 12（方位上限解除后的「簇间隔得开」）。
+            if any(max(abs(center[0] - c0[0]), abs(center[1] - c0[1])) < 12
+                   for c0 in centers):
+                continue
+            local = try_place(center, primary)
+            if local is None:
+                continue
+            placed = (center, local)
+            break
+        if placed is None:
+            continue     # 整簇放弃；配额/环带计数因此破坏时校验器会否掉换种子
+        center, local = placed
+        cid = len(cv.cluster_records)
+        indices = []
         for k, pos in local:
+            indices.append(len(cv.resources))
             cv.resources.append((k, pos, "outer"))
-        if forced_gold:
-            placed_gold += 1
-        # 簇记录（供 selftest 断言簇级不变量用；`paint` 消费方忽略返回值）。
-        clusters.append({"kinds": [k for k, _ in local],
-                         "points": [p for _, p in local],
-                         "dist": dist})
+            cv.resource_cluster.append(cid)
+        centers.append(center)
+        placed_points.extend(p for _, p in local)
+        rec = {"kinds": [k for k, _ in local],
+               "points": [p for _, p in local],
+               "resource_indices": indices,
+               # 簇心按**落点均值**算（`grid.cluster_center`），不用名义中心——
+               # 校验器从 doc 反推出的就是这个值，第 28 条的单调性两边一致。
+               "center": gridmod.cluster_center([p for _, p in local]),
+               "band": band, "primary": primary}
+        cv.cluster_records.append(rec)
+        clusters.append(rec)
     return clusters
 
 
@@ -987,8 +1092,15 @@ def _resolve(cfg, rng):
     sc_lo, sc_hi = cfg.spawn_count_range
     spawn_count = rng.randint(sc_lo, sc_hi)
 
-    oc_lo, oc_hi = cfg.outer_clusters_range
-    outer_clusters = rng.randint(oc_lo, oc_hi)
+    ib_lo, ib_hi = cfg.inner_band_clusters
+    inner_band_clusters = rng.randint(ib_lo, ib_hi)
+
+    ob_lo, ob_hi = cfg.outer_band_clusters
+    outer_band_clusters = rng.randint(ob_lo, ob_hi)
+    # 外环簇数 ≥ 内环簇数（§3.3：远簇晚解禁，后期扩张的取舍要够多）。
+    # 抽到更少时抬齐而不是重抽——重抽会消费不确定次数的 rng，破坏
+    # 「同种子逐字节复现」的 rng 序列稳定性。
+    outer_band_clusters = max(outer_band_clusters, inner_band_clusters)
 
     tw_lo, tw_hi = cfg.towers_range
     towers = rng.randint(tw_lo, tw_hi)
@@ -1006,10 +1118,12 @@ def _resolve(cfg, rng):
         size=cfg.size,
         city_radius=city_radius,
         spawn_count=spawn_count,
+        spawn_wall_distance=cfg.spawn_wall_distance,
         inner_resources=inner_resources,
-        outer_clusters=outer_clusters,
+        inner_band_clusters=inner_band_clusters,
+        outer_band_clusters=outer_band_clusters,
         outer_cluster_size=cfg.outer_cluster_size,
-        outer_cluster_span=cfg.outer_cluster_span,
+        cluster_unlock_per_wave=cfg.cluster_unlock_per_wave,
         initial_breaches=cfg.initial_breaches,
         wall_hp_frac_range=cfg.wall_hp_frac_range,
         forest_patches=cfg.forest_patches,
@@ -1033,18 +1147,22 @@ def paint(cv, cfg, th, rng):
     顺序 = 环墙 → 集结点 → 城内内容 → 城外资源簇 → 野外散布 → 水域 → 障碍。
     改动顺序会影响 rng 消费序列，进而改变同一批种子的产出——只能整条改。
 
+    **2026-09-02 大改第 1/2 步**：集结点改集结点环角度采样（不再有「抽哪几条
+    边」这一步，`rng.sample(_SIDES, n)` 随之删除）；资源簇改按内/外环带
+    分布 + 按簇解禁（`place_outer_clusters` 需要 `th` 读
+    `spawn_wall_distance_range` 来定位两个环带，签名随之加参）。
+
     水域放在散布**之后**（2026-09-01）：散布落地在先，河与湖只落 `Plain`，
     遇到已长的森林/岩壁团块就绕开或整片撤销——反过来的话团块挖到河上只能
     整片弃权，那种失败的代价比河改道高（团块数量不算少，逐个重试的成本
     更高）。
     """
     r = _resolve(cfg, rng)
-    sides = rng.sample(list(_SIDES), r.spawn_count)
     place_ring_walls(cv, r, rng)
-    place_spawns(cv, r, th, rng, sides)
+    place_spawns(cv, r, th, rng)
     if not place_inner_content(cv, r, rng):
         raise GenerationFailed("城内放不下配置要求的内容（city_radius 太小？）")
-    place_outer_clusters(cv, r, rng)
+    place_outer_clusters(cv, r, th, rng)
     scatter_wild_terrain(cv, r, rng)
     place_water(cv, r, rng)
     place_obstacles(cv, r, rng)

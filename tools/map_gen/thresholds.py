@@ -42,19 +42,21 @@ SCHEMA = "map-thresholds/1"
 # 每个 profile 必须给齐的键。**白名单双向用**：缺了报「缺少」，多了报「认不出」。
 PROFILE_KEYS = frozenset({
     "size_min", "size_max",
-    "spawn_count_min", "spawn_count_max", "spawn_edge_distance_max",
+    "spawn_count_min", "spawn_count_max", "spawn_wall_distance_range",
     "static_vision_radius_max",
     "episode_ticks_min", "episode_ticks_max",
     "ram_march_fraction_min", "ram_march_fraction_max",
     "front_length_min", "front_length_max",
     "forest_min_component_cells",
     "outer_gold_min",
+    "route_cluster_window", "cluster_spawn_distance_min",
 })
 
 GENERATOR_KEYS = frozenset({
-    "size", "city_radius_range", "spawn_count_range",
-    "inner_resources_range", "outer_clusters_range",
-    "outer_cluster_size", "outer_cluster_span",
+    "city_radius_range", "spawn_count_range",
+    "inner_resources_range",
+    "inner_band_clusters", "outer_band_clusters", "outer_band_width",
+    "outer_cluster_size", "cluster_unlock_per_wave",
     "initial_breaches", "wall_hp_frac_range",
     "forest_patches", "forest_patch_size",
     "rock_patches_range", "rock_patch_size",
@@ -110,8 +112,20 @@ class Profile:
         d = _strip_notes(raw, where)
         _require_keys(d, PROFILE_KEYS, where)
         self.name = name
-        for k in PROFILE_KEYS:
+        for k in PROFILE_KEYS - {"spawn_wall_distance_range"}:
             setattr(self, k, _num(d, k, where))
+
+        # 2026-09-02：第 2 条的判据从「贴边」改为「到最近墙格的距离 ∈ 区间」
+        # （《地图生成器大改方案》§3.1），所以这是一个 [D_lo, D_hi] 区间键。
+        v = d["spawn_wall_distance_range"]
+        if (not isinstance(v, list) or len(v) != 2
+                or not all(isinstance(x, (int, float))
+                           and not isinstance(x, bool) for x in v)
+                or v[0] > v[1]):
+            raise ThresholdError(
+                f"{where}.spawn_wall_distance_range 应当是 [下界, 上界] 两个数"
+                f"且下界 ≤ 上界，实际是 {v!r}")
+        self.spawn_wall_distance_range = list(v)
 
         # 区间必须非空。写反了（min > max）的症状是「所有地图都红」，
         # 而那看起来像地图坏了，不像配置坏了。
@@ -130,8 +144,10 @@ class Generator:
     """§9 的固定项 + 随机项（区间/候选域）。
 
     **哪些留固定、哪些松开是一次刻意的取舍，不是"能松就松"**：`size` 依然固定
-    （见 `_note_size`/`_FINDING_size_vs_ram_speed` 的历史，它是唯一被生成器+
-    校验器批量实测过自洽性的值，松开等于把已解决的矛盾重新引进来）。
+    ——**但 2026-09-02 起它不再手写，而是由四环公式推导**
+    （《地图生成器大改方案》§2/§3.8：`size = 2×(R + D + 14 + W_far + 3)`，
+    D 与 W_far 才是设计量，size 是它们的函数；旧手写值的历史见
+    `_note_size`/`_FINDING_size_vs_ram_speed`）。
     **2026-08-31 重构（取缔走廊、城圈改城墙实体）**：`corridors` 候选域、
     `corridor_count_range`、`corridor_mouth_width_range` 三个键整个删除——
     走廊概念已废，替代它们的是 `spawn_count_range`（集结点数，与走廊解耦）
@@ -139,26 +155,40 @@ class Generator:
     `rock_patches_range`/`rock_patch_size`）。
     **2026-09-01**：新增水域三组（`water_lakes_range`/`water_lake_size`/
     `rivers_range`），生成器留白 1（不画 Water/Bridge）作废。
+    **2026-09-02（大改第 1/2 步）**：`outer_clusters_range`/`outer_cluster_span`
+    两个键作废，拆成 `inner_band_clusters`/`outer_band_clusters`/
+    `outer_band_width`（资源簇按环分布，§3.3）；新增 `cluster_unlock_per_wave`
+    （解禁按簇，每波开几簇——占位值，与实力模型一起标）。
     """
 
-    __slots__ = tuple(sorted(GENERATOR_KEYS))
+    # 两个推导属性不在 GENERATOR_KEYS 里（它们不是配置键）：`size` 由四环公式
+    # 推出（2026-09-02，§2/§3.8），`spawn_wall_distance` 是 strict 档
+    # spawn_wall_distance_range 的中点（生成器放置集结点用的 D）。
+    __slots__ = tuple(sorted(GENERATOR_KEYS)) + ("size", "spawn_wall_distance")
 
     def __init__(self, raw, strict):
         where = "generator"
         d = _strip_notes(raw, where)
         _require_keys(d, GENERATOR_KEYS, where)
 
-        self.size = _num(d, "size", where, kind=(int,))
         self.max_attempts = _num(d, "max_attempts", where, kind=(int,))
-        self.outer_cluster_span = _num(d, "outer_cluster_span", where, kind=(int,))
-        if self.outer_cluster_span < 1:
+        self.outer_band_width = _num(d, "outer_band_width", where, kind=(int,))
+        if self.outer_band_width < 1:
             raise ThresholdError(
-                f"{where}.outer_cluster_span = {self.outer_cluster_span} 应当 ≥ 1"
-                f"——它是簇距上界相对 `city_radius + 4` 的可加跨度，取 0 或负数会让"
-                f"最远一簇的上界不超过下界，`place_outer_clusters` 因此不放任何簇")
+                f"{where}.outer_band_width = {self.outer_band_width} 应当 ≥ 1"
+                f"——它是外环带宽度 W_far（§2.2 取 15–20），同时进边长推导，"
+                f"取 0 或负数会让外环带不存在")
+        self.cluster_unlock_per_wave = _num(
+            d, "cluster_unlock_per_wave", where, kind=(int,))
+        if self.cluster_unlock_per_wave < 1:
+            raise ThresholdError(
+                f"{where}.cluster_unlock_per_wave = "
+                f"{self.cluster_unlock_per_wave} 应当 ≥ 1——它控制每波解禁几簇，"
+                f"取 0 等于「永远不解禁城外资源」")
 
         for k in ("city_radius_range", "spawn_count_range",
-                  "outer_clusters_range", "outer_cluster_size", "initial_breaches",
+                  "inner_band_clusters", "outer_band_clusters",
+                  "outer_cluster_size", "initial_breaches",
                   "wall_hp_frac_range", "forest_patches", "forest_patch_size",
                   "rock_patches_range", "rock_patch_size",
                   "water_lakes_range", "water_lake_size", "rivers_range",
@@ -173,11 +203,22 @@ class Generator:
                     f"实际是 {v!r}")
             setattr(self, k, list(v))
 
-        # 集结点随机抽哪几条边，抽不出那么多就没意义（且会制造重复）。
-        if self.spawn_count_range[1] > 4:
+        # 2026-09-02：集结点环上按角度采样，相邻角差 ≥ 60°（《地图生成器大改
+        # 方案》§3.1）。上界 5：6 个就只剩恰好 60° 等分一种摆法，而 §3.1 拍板
+        # 的范围就是 3–5。
+        if self.spawn_count_range[1] > 5:
             raise ThresholdError(
                 f"{where}.spawn_count_range 上界 {self.spawn_count_range[1]} 超过 "
-                f"4 条边——城圈是方环，最多四个边缘候选点")
+                f"5——相邻角差 ≥ 60° 下 5 个是设计上限（§3.1）")
+
+        # 簇点数下界 ≥ 3（2026-09-02）：主类型必须是簇内**唯一众数**（校验器
+        # 第 29 条按众数定簇类型）且每簇 ≥ 2 种 ⇒ 主类型 ≥ 2 点 + 至少 1 个
+        # 异类点 = 3 点起步。下界 2 时「2 点 2 种」定不出主类型。
+        if self.outer_cluster_size[0] < 3:
+            raise ThresholdError(
+                f"{where}.outer_cluster_size 下界 {self.outer_cluster_size[0]} "
+                f"小于 3——主类型要 ≥ 2 点才是唯一众数、再加至少 1 个异类点，"
+                f"一簇至少 3 点（第 29 条按众数定簇类型）")
 
         raw_inner = d["inner_resources_range"]
         if not isinstance(raw_inner, dict):
@@ -195,19 +236,33 @@ class Generator:
                     f"实际是 {v!r}")
             self.inner_resources_range[t] = list(v)
 
-        # **生成器的 size 必须落在校验器的 size 区间内。**
-        # 不查的话，生成器会兴致勃勃地生成一批第 1 条必然否决的图，
-        # 而报告只会说「丢弃率 100%」——那是最难查的一种失败：
-        # 每一张图都合法，是配置自己互相矛盾。
+        # **2026-09-02 起 size 是推导量，不是配置键**（《地图生成器大改方案》
+        # §2/§3.8：「D 与 W_far 才是设计量，size 是它们的函数」）：
+        #   size = 2×(R + D + 14 + W_far + 3)
+        # R 取 city_radius_range 上界（最坏情形，随机到小半径时外环带只会更宽），
+        # D 取 strict 档 spawn_wall_distance_range 的中点（生成器恒按中点放
+        # 集结点），14 是集结点环两侧到内/外环带的间隔（对齐禁建环 13 + 1），
+        # 3 是外环带到地图边缘的余量。
+        d_lo, d_hi = strict.spawn_wall_distance_range
+        self.spawn_wall_distance = (d_lo + d_hi) // 2
+        self.size = int(2 * (self.city_radius_range[1]
+                             + self.spawn_wall_distance + 14
+                             + self.outer_band_width + 3))
+
+        # **生成器的 size 必须落在校验器的 size 区间内。**（推导值同此检查——
+        # 公式里任何一元改动都可能把 size 推出区间。）不查的话，生成器会
+        # 兴致勃勃地生成一批第 1 条必然否决的图，而报告只会说「丢弃率 100%」
+        # ——那是最难查的一种失败：每一张图都合法，是配置自己互相矛盾。
         if not (strict.size_min <= self.size <= strict.size_max):
             raise ThresholdError(
-                f"generator.size = {self.size} 不在 profiles.strict 的 size 区间 "
+                f"推导出的 size = {self.size}（= 2×(R {self.city_radius_range[1]}"
+                f" + D {self.spawn_wall_distance} + 14 + W_far "
+                f"{self.outer_band_width} + 3)）不在 profiles.strict 的 size 区间 "
                 f"[{strict.size_min}, {strict.size_max}] 内。\n"
                 f"  这两处必须一致，否则生成器会产出第 1 条必然否决的图，"
                 f"而症状（丢弃率 100%）指不出根因")
 
-        # 城区必须装进地图，且四周要留得下城外空间。留 4 格是最低限度
-        # （集结点自己 + 距边界的余量），真实余量由 spawn_edge_distance_max 管。
+        # 城区必须装进地图，且四周要留得下城外空间。
         # **按区间的上界检查**（最坏情形）——city_radius 现在是随机的，配置本身
         # 必须在它能抽到的最大值下仍然成立，否则某些种子会在运行时才炸。
         if self.city_radius_range[1] * 2 + 8 > self.size:

@@ -286,6 +286,23 @@ class Grid:
 # 要改的只有 derive_city_area() 一个函数。
 
 
+def cluster_center(points):
+    """一簇点的簇心：坐标均值的**四舍五入**（half-up），确定性取整。
+
+    生成器与校验器**共用这一个实现**（2026-09-02，大改第 2 步）：校验器第 28/29
+    条要从 doc 反推簇心（地图文件里没有簇 id 字段，见 `validate._outer_clusters`），
+    生成器又按簇心到 keep 的距离排解禁波——两边若各取一次整，均值 4.5 这种
+    边界上可能一个进一个舍，于是「同一张图」有两个簇心，第 28 条的单调性
+    会无缘无故变红。half-up 写成 `(2*sum + n) // (2*n)` 而不用 `round()`：
+    Python 的 `round` 是银行家舍入（4.5 → 4），这里要的是直觉上的四舍五入，
+    且整数运算没有任何浮点误差。
+    """
+    n = len(points)
+    sx = sum(p[0] for p in points)
+    sy = sum(p[1] for p in points)
+    return ((2 * sx + n) // (2 * n), (2 * sy + n) // (2 * n))
+
+
 def chebyshev(a, b):
     """两格之间的切比雪夫距离 `max(|dx|, |dy|)`。
 
