@@ -204,13 +204,11 @@ class Canvas:
         随机取点拆到相邻两波），§3.3 要的是「同簇同波」——一簇是一个决策单元，
         拆波解禁等于把「要不要去打这一簇」拆成四次半吊子的决策。
 
-        每波开几簇由 `cluster_unlock_per_wave` 控制（占位，与实力模型一起标），
-        但有一条硬约束优先于它：**第 18 条（逐点单调）仍然保留**。簇内点在簇心
-        半径 4 内、距离跨度可达 8 格，若两簇的「点距离区间」有交叠却被分到不同
-        波，交叠处就会出现「更晚解禁反而更近」的点对、第 18 条红。所以新波只在
-        「下一簇的最近点比已分波的所有点都远」时才开启——交叠的簇并入当前波
-        （此时每波簇数会超过配置值，这是刻意的：第 18 条是规范条目，每波几簇
-        是占位数值）。
+        每波开几簇由 `cluster_unlock_per_wave` 控制（占位，与实力模型一起标）。
+        **2026-09-02 第 6 步：撤掉「按点距并波」的兜底**——它存在只为迁就
+        第 18 条（逐点单调），而那条已废除并入第 28 条（簇级单调不蕴含点级
+        单调，两条结构性冲突，实测种子基 4001 曾因此白丢一张图）。现在严格按
+        簇心排名每 `per_wave` 簇开一波，与第 28 条的判据逐字同构。
         """
         kx, ky = self.keep
 
@@ -220,21 +218,18 @@ class Canvas:
         wave = {i: 1 for i, r in enumerate(self.resources) if r[2] == "inner"}
         per_wave = max(1, self.cluster_unlock_per_wave)
         # 簇按簇心距离排名（簇心是落点后按 `grid.cluster_center` 算的，与校验器
-        # 从 doc 反推的簇心逐格一致，第 28 条因此看到的是同一个顺序）。
+        # 从 doc 反推的簇心逐格一致）。**tie-break 也必须与校验器同构**
+        # （距离并列时按簇心坐标，不是落点顺序 cid）——2026-09-02 实测种子 1000：
+        # 两对簇心等距（cheb 23 与 62），生成器按 cid 分波、校验器按簇心坐标
+        # 排序，同距两簇波号一升一降，第 28 条红 2 处。两边 key 逐字相同后，
+        # 第 28 条看到的顺序与本函数的分波顺序就是同一个。
         order = sorted(range(len(self.cluster_records)),
                        key=lambda cid: (cheb(self.cluster_records[cid]["center"]),
-                                        cid))
-        cur_wave, in_wave, far_max = 2, 0, -1
-        for cid in order:
-            rec = self.cluster_records[cid]
-            dists = [cheb(self.resources[i][1]) for i in rec["resource_indices"]]
-            if in_wave >= per_wave and min(dists) > far_max:
-                cur_wave += 1
-                in_wave = 0
-            for i in rec["resource_indices"]:
+                                        self.cluster_records[cid]["center"]))
+        for rank, cid in enumerate(order):
+            cur_wave = 2 + rank // per_wave
+            for i in self.cluster_records[cid]["resource_indices"]:
                 wave[i] = cur_wave
-            far_max = max(far_max, max(dists))
-            in_wave += 1
         return wave
 
     def to_doc(self, map_id, name):
@@ -544,8 +539,10 @@ def place_outer_clusters(cv, cfg, th, rng):
     * **不同簇的点两两切比雪夫距离 ≥ 9**：这让校验器能用「≤ 8 连边求连通
       分量」从 doc **精确**反推簇成员（簇内任意两点 ≤ 2×`_OUTER_CLUSTER_RADIUS`
       = 8），地图文件因此不需要新增簇 id 字段（C++ 侧读图的字段不动）。
-    * **每簇（的点）到任一集结点 ≥ 16**（第 31 条后半：不能在集结区里）。
-      16 > 禁建环 13，这条比「不落 no_build」更强，两点距离都要查。
+    * **每簇（的点）到任一集结点 ≥ `cluster_spawn_distance_min`**（第 31 条
+      后半：不能在集结区里；strict 档 16 > 禁建环 13，比「不落 no_build」
+      更强）。**读阈值档、不硬编码**（2026-09-02 第 6 步：56 格参考图那一档
+      客观达不到 16，见 `build_reference_map.py` 的注记）。
     * 簇心两两切比雪夫距离 ≥ 12（§3.3「解除每方位一簇的上限：按角度采样」
       的配套——方位上限没了，间距约束接住「簇间隔得开」）。
 
@@ -611,9 +608,16 @@ def place_outer_clusters(cv, cfg, th, rng):
                     continue
                 if cv.no_build[c[1]][c[0]] != 0:
                     continue
-                # 第 31 条后半：簇的点到任一集结点 ≥ 16（强于禁建环 13）。
-                if any(max(abs(c[0] - s[0]), abs(c[1] - s[1])) < 16
-                       for s in cv.spawns):
+                # 第 31 条后半：簇的点到任一集结点的最小距离读阈值档
+                # （strict 16，强于禁建环 13）。**不再硬编码 16**（2026-09-02
+                # 第 6 步）：56 格参考图（`reference` 档，D=18）上 16 客观
+                # 不可满足——内环带最外点与集结点的射向间距恒 ≈ D−8。负值 =
+                # 本档弃用（fixture 手法），生成器不会遇到（只认 strict/
+                # reference 两档，都是正值）。
+                min_spawn_d = th.cluster_spawn_distance_min
+                if min_spawn_d >= 0 and any(
+                        max(abs(c[0] - s[0]), abs(c[1] - s[1])) < min_spawn_d
+                        for s in cv.spawns):
                     continue
                 # 簇内点两两 ≥ 2（防贴成一坨）。
                 if any(max(abs(c[0] - pp[0]), abs(c[1] - pp[1])) < 2
@@ -633,6 +637,12 @@ def place_outer_clusters(cv, cfg, th, rng):
     for i, (band, ang, _dist) in enumerate(plans):
         primary = _CYCLE[i % 3]
         lo, hi = (inner_lo, inner_hi) if band == "inner" else (outer_lo, outer_hi)
+        if lo > hi:
+            # 带为空集（2026-09-02：56 格参考图的外环带 [R+D+14, 半宽−3] 客观上
+            # 不存在——《方案》§3.9「参考图可以没有外环，注明」）。直接跳过这簇；
+            # 不跳的话 `rng.randint(lo, hi)` 会以 ValueError 炸掉，而那看起来
+            # 像程序错误，不像「这条带不存在」这个几何事实。
+            continue
         placed = None
         for _try in range(80):
             a = ang if ang is not None else rng.uniform(0, 360)
@@ -1524,7 +1534,11 @@ def _resolve(cfg, rng):
     # 外环簇数 ≥ 内环簇数（§3.3：远簇晚解禁，后期扩张的取舍要够多）。
     # 抽到更少时抬齐而不是重抽——重抽会消费不确定次数的 rng，破坏
     # 「同种子逐字节复现」的 rng 序列稳定性。
-    outer_band_clusters = max(outer_band_clusters, inner_band_clusters)
+    # **例外：ob_hi == 0 = 本图明确没有外环**（2026-09-02：56 格参考图，
+    # 外环带 [R+D+14, 半宽−3] 为空集，《方案》§3.9 明说允许并注明）。
+    # 不抬齐——抬了也放不下，反而把「没有外环」这个设计决定静默吞掉。
+    if ob_hi > 0:
+        outer_band_clusters = max(outer_band_clusters, inner_band_clusters)
 
     tw_lo, tw_hi = cfg.towers_range
     towers = rng.randint(tw_lo, tw_hi)

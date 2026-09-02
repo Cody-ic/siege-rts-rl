@@ -24,11 +24,14 @@
 那份配置就是 `thresholds.json`，读取层是 `thresholds.py`。有了归口，
 这几条就能实现，占位值随时改而代码不动。
 
-阈值分 `strict` 与 `fixture` 两档，**profile 只改数值、不改「哪些条目跑」**。
+阈值分 `strict` / `fixture` / `reference` 三档，**profile 只改数值、不改「哪些条目跑」**。
 `fixture` 存在的唯一理由是 `game/testdata/fixture_min.json` 是一张 7×5 的
 最小夹具、不是一张游戏地图：对它套用「边长 ≥ 64」或「行军占 episode 的 10–20%」
 没有意义，而格式与拓扑检查对它完全适用。**防止 profile 退化成后门的手段是
 一条自检**：strict 下那张夹具必须红（`selftest.py`「profile 不是无操作」一组）。
+`reference`（2026-09-02 大改第 6 步新增）是 56 格参考图《边境要塞》的档：
+R=8、D=40 的完整四环在 56 格上客观放不下（无外环、无设计隘口），
+strict 对它同样必须红（ctest `map_gen_validate_reference_strict_is_red`）。
 
 ## 批量报告：一个通用诊断能力，不再挂在某个编号下
 
@@ -41,7 +44,7 @@
 `MOVED_TO_GENERATOR` 因此空了，留着这个名字是为了 `selftest.py` 的覆盖性
 断言不用跟着改形状。
 
-## 废除的条目留号空表（第 3 条，2026-08-31；第 7、20 条，2026-09-01）
+## 废除的条目留号空表（第 3 条，2026-08-31；第 7、20 条，2026-09-01；第 18 条，2026-09-02）
 
 组长拍板取缔「走廊」概念，第 3 条（每种 corridor 恰好一次）随
 `spawns[].corridor` 字段一起废除。**编号留空不顺延**：顺延会把第 4–25 条
@@ -56,6 +59,13 @@
 2026-08-31 前经过候选甲/候选乙比较后**主动采纳**的机制，这次是重新权衡后
 的**主动移除**，两次都是明确决定，不是遗漏。
 
+第 18 条（解禁波逐点按到 keep 距离单调）2026-09-02 废除、并入第 28 条。
+大改第 2 步把解禁收成按簇（同簇同波、簇序按簇心单调）之后，两簇簇心
+近等距时远簇的近端点可以比近簇的远端点更靠 keep——簇级单调不蕴含点级
+单调，满足第 28 条的合法分波必然踩第 18 条（实测种子基 4001）。同簇同波
+本来就把一簇视为一个决策单元，逐点比较的对象随之不存在；「越晚解禁的
+越远」这条设计意图现在由第 28 条（簇心距离单调）独自守住。
+
 ## 一条防漂移的断言
 
 `CHECKS` 表加上 `MOVED_TO_GENERATOR` 与 `REMOVED` 必须正好覆盖
@@ -66,6 +76,7 @@
 用法:
     py validate.py <地图文件或目录> [更多...]
     py validate.py --profile fixture <最小夹具>
+    py validate.py --profile reference <56 格参考图>
     py validate.py --list          # 只列条目状态，不读地图
 """
 import argparse
@@ -97,6 +108,8 @@ Check.__new__.__defaults__ = (False,)
 # 2026-09-02 第 3/4/5 步：26/27/30/32 全部落地，第 9 条同步解阻塞
 # （正面 = 城圈周长 8R，R 从墙格反推——「城区推不出来」的旧阻塞随
 # 「城圈 = 一整圈 initial_walls 实体」（2026-08-31 重构）消解）。
+# 同日第 6 步：第 18 条（解禁波逐点单调）废除、并入第 28 条——总数不变，
+# 变的是 `REMOVED` 多登记一条（理由见模块 docstring 与 REMOVED 表）。
 SPEC_CHECK_COUNT = 32
 
 # 从 CHECKS 移走的条目：编号 -> 去哪了。见模块 docstring。
@@ -121,6 +134,16 @@ REMOVED = {
        "前经候选甲/候选乙比较后主动采纳的机制，这次是重新权衡后的主动移除，"
        "两次都是明确决定。「部分资源点在墙外」这条更基本的要求不受影响，"
        "现在完全由第 21 条守住。详见 `地图与场景设计.md` 2.1 的订正",
+    18: "resources 的解禁波数序列按距离单调（逐点比较）—— 2026-09-02 废除，"
+        "并入第 28 条。大改第 2 步把解禁收成**按簇**（§3.3：同簇同波、簇序按"
+        "簇心距离单调）之后，本条与第 28 条结构性冲突：簇级单调不蕴含点级"
+        "单调——两簇簇心近等距时，远簇的近端点可以比近簇的远端点更靠 keep"
+        "（实测种子基 4001 第 1 次尝试：解禁波 2 的点距 16 vs 解禁波 3 的点"
+        "距 15），此时满足第 28 条的合法分波必然踩本条。同簇同波本来就把"
+        "一簇视为一个决策单元，逐点比较的对象因此不存在了——本条的语义是"
+        "第 28 条的子集（簇心距离是点距离的汇总），保留它只会让每张合法图"
+        "都带一份丢弃率。生成器侧原为迁就本条做的「按点距并波」兜底"
+        "（`generate.py` 的 `_resource_unlock_waves`）同日一并撤掉",
     20: "第 7 与第 10 条的联合可满足性 —— 随第 7 条一起废除。本条问的是"
         "「森林通道必须存在」与「森林不得构成遮蔽道」两条合起来是否还有可行解，"
         "前一半（第 7 条）没了，「联合」这件事本身不再成立。此前它曾移出 `CHECKS`"
@@ -409,44 +432,6 @@ def check_placement_conflicts(doc, grid):
 
 
 OBSTACLE_TYPES = frozenset({"Stump", "Sapling", "Rubble"})
-
-
-def check_resource_unlock_wave(doc, grid):
-    """第 18 条：`resources` 的解禁波数序列按距离单调——解禁越晚的簇，离 keep 越远。
-
-    **此前缺的是字段，不是判据**（6.2 新增 `resources[].unlock_wave` 之后，
-    本条与第 19 条走的是同一条路：机制/字段先落地，校验器才有东西可查）。
-
-    判据逐字对应 CLAUDE.md「资源点随波数解禁」那句「越晚解禁的越远」：任取两个
-    资源点 A、B，若 `unlock_wave[A] < unlock_wave[B]`，则 A 到 `keep` 的距离
-    不得大于 B 到 `keep` 的距离——反过来（解禁更早却离得更远）才是那句话字面
-    描述的反例。**允许同波、允许同距离**，只拦"更晚解禁反而更近"这一种组合。
-
-    距离取切比雪夫（`grid.chebyshev`）。**这条与第 14 条取它的理由不同**——
-    第 14 条是为了在圆/方视野两种未决读法下都保守，本条不涉及视野，纯粹是
-    不想在同一份校验器里为"距离"另开一种量法。**注意切比雪夫与欧氏在个别
-    布局下会给出不同的相对顺序**（例如 (5,0) 与 (4,4) 到原点：切比雪夫下前者
-    更远，欧氏下后者更远），所以这条判据的结论依赖度量选择——地图作者摆点时
-    如果沿对角线方向拉开距离，要按切比雪夫（斜向移动的实际代价）想，不要按
-    直觉的欧氏距离想。
-    """
-    keep = tuple(doc["keep"])
-    resources = doc["resources"]
-    problems = []
-    for i, a in enumerate(resources):
-        for j, b in enumerate(resources):
-            if i == j or a["unlock_wave"] >= b["unlock_wave"]:
-                continue
-            da = gridmod.chebyshev(keep, tuple(a["pos"]))
-            db = gridmod.chebyshev(keep, tuple(b["pos"]))
-            if da > db:
-                problems.append(
-                    f"resources[{i}]（{a['type']} {list(a['pos'])}，解禁波 "
-                    f"{a['unlock_wave']}）到 keep 的距离 {da} 大于 "
-                    f"resources[{j}]（{b['type']} {list(b['pos'])}，解禁波 "
-                    f"{b['unlock_wave']}）的距离 {db}，但前者解禁反而更早——"
-                    f"「越往后越要往外走」这条节奏失效，解禁退化成随机给钱")
-    return problems
 
 
 def check_obstacle_types(doc, grid):
@@ -781,8 +766,10 @@ def check_cluster_unlock_wave(doc, grid):
     keep 的切比雪夫距离单调（2026-09-02 大改第 2 步，《方案》§3.3）。
 
     一簇是一个决策单元（「要不要去打这一簇」），同簇拆波解禁等于把一个决策
-    拆成几次半吊子的。第 18 条的逐点版**保留**（它拦「更晚解禁反而更近」的
-    点对），本条加的是簇这一层：同波是簇内的、单调是簇间的。
+    拆成几次半吊子的。**本条同时是「越晚解禁的越远」的唯一判据**——第 18 条
+    的逐点版已于同日废除并入本条（`REMOVED`，理由见模块 docstring）：
+    簇级单调不蕴含点级单调（簇心近等距的两簇，点距区间可以交叠），
+    两条同跑会结构性冲突，而同簇同波之后逐点比较的对象本来就不存在。
     """
     problems = []
     clusters = _outer_clusters(doc)
@@ -1506,8 +1493,9 @@ CHECKS = [
           check_entity_cells, IMPLEMENTED, ""),
     Check(17, "墙不在 Rock/Water 上、同格不叠墙、集结点不重合",
           check_placement_conflicts, IMPLEMENTED, ""),
-    Check(18, "resources 的解禁波数序列按距离单调", check_resource_unlock_wave,
-          IMPLEMENTED, ""),
+    # 第 18 条**不在这张表里**：2026-09-02 废除、并入第 28 条（簇级单调不蕴含
+    # 点级单调，两条结构性冲突；同簇同波后逐点比较的对象已不存在）。
+    # 编号留空（`REMOVED`，理由见模块 docstring）。
     Check(19, "Forest 与 Rock 不得出现在可破坏障碍列表里",
           check_obstacle_types, IMPLEMENTED, ""),
     # 第 20 条**不在这张表里**：它已按 §8.1 自己写的那句移到生成器的批量报告去了
@@ -1676,7 +1664,8 @@ def main():
     ap.add_argument("--list", action="store_true",
                     help="只列条目状态，不读地图")
     ap.add_argument("--profile", default="strict",
-                    help="阈值档，默认 strict；最小夹具用 fixture")
+                    help="阈值档，默认 strict；最小夹具用 fixture，"
+                         "56 格参考图用 reference")
     ap.add_argument("--thresholds", default=None,
                     help="阈值文件路径，默认 tools/map_gen/thresholds.json")
     a = ap.parse_args()

@@ -473,39 +473,9 @@ def check_v6_inner_resources(c):
            "金币只在 outer 侧仍应报 —— 保底看的是 inner")
 
 
-def check_v18_resource_unlock_wave(c):
-    """第 18 条：`resources` 的解禁波数序列按距离单调——解禁越晚的簇，离 keep 越远。
-
-    OBLONG 是 7×5（x: 0..6, y: 0..4），keep 取 (3,3)：
-      * `near` = (4,3)，切比雪夫距离 1
-      * `far`  = (6,0)，切比雪夫距离 3
-      * `tied` = (0,3)，切比雪夫距离 3（与 far 相等，不等于 near）
-    """
-    near = {"type": "wood", "pos": [4, 3], "tier": "outer", "unlock_wave": 2}
-    far = {"type": "stone", "pos": [6, 0], "tier": "outer", "unlock_wave": 3}
-    doc, g = _gv(OBLONG, keep=[3, 3], resources=[far, near])
-    c.true(not validate.check_resource_unlock_wave(doc, g),
-           "远的点解禁更晚、近的点解禁更早，顺序正确，不该报")
-
-    # 颠倒过来：近的反而解禁更晚。
-    bad_near = {**near, "unlock_wave": 3}
-    bad_far = {**far, "unlock_wave": 2}
-    doc, g = _gv(OBLONG, keep=[3, 3], resources=[bad_far, bad_near])
-    got = validate.check_resource_unlock_wave(doc, g)
-    c.eq(len(got), 1, "近的点解禁反而更晚必须报")
-
-    # 同波不该报——本条只拦"更晚解禁却更近"这一种组合，不要求严格递增。
-    doc, g = _gv(OBLONG, keep=[3, 3],
-                resources=[{**near, "unlock_wave": 2}, {**far, "unlock_wave": 2}])
-    c.true(not validate.check_resource_unlock_wave(doc, g), "同波不该报")
-
-    # 距离相等、解禁波不同：谁先谁后都不该报，因为判据只问"更远的是否更晚"，
-    # 距离相等时没有"更远"这一方。
-    tied = {"type": "gold", "pos": [0, 3], "tier": "outer", "unlock_wave": 5}
-    doc, g = _gv(OBLONG, keep=[3, 3], resources=[tied, far])
-    c.true(not validate.check_resource_unlock_wave(doc, g),
-           "(0,3) 与 (6,0) 到 keep(3,3) 的切比雪夫距离都是 3，距离相等时"
-           "解禁波不同不该报")
+# check_v18_resource_unlock_wave 已随第 18 条一起删除（2026-09-02）：
+# 该条废除、并入第 28 条（簇级单调不蕴含点级单调，两条结构性冲突），
+# 编号留空，`validate.REMOVED` 里有据可查。同 check_v3_corridors 先例。
 
 
 def make_clean_doc():
@@ -1375,12 +1345,13 @@ def check_validator_on_clean_map(c):
                   if chk.status == validate.BLOCKED)
     n_pend = sum(1 for chk in validate.CHECKS
                  if chk.status == validate.PENDING)
-    c.eq((n_impl, n_block, n_pend), (29, 0, 0),
+    c.eq((n_impl, n_block, n_pend), (28, 0, 0),
          "条目状态计数变了：改动状态时要同步这条断言与 README 的进度表"
          "（2026-09-01：第 7 条废除，已实现数 22 → 21；2026-09-02：大改第 2 步"
          "新增第 28/29/31 条已实现 + 第 26/27/30/32 条阻塞占位 ⇒ 21+3 已实现、"
          "1+4 阻塞；同日第 3/4/5 步：26/27/30/32 落地 + 第 9 条解阻塞"
-         " ⇒ 24+5 已实现、0 阻塞）")
+         " ⇒ 24+5 已实现、0 阻塞；同日第 6 步：第 18 条废除并入第 28 条"
+         " ⇒ 28 已实现）")
 
 
 def check_profile_is_not_a_noop(c):
@@ -1424,6 +1395,26 @@ def check_profile_is_not_a_noop(c):
         c.true(not r_fixture,
                f"它在 fixture 下必须全过（ctest 就是这么跑的），"
                f"实际红了：{sorted(r_fixture)}")
+
+    # 56 格参考图（2026-09-02 大改第 6 步新增的 `reference` 档）走同一类对照：
+    # 自己的档必须全过；strict 必须红，且**红在哪几条也是钉住的**——
+    # 第 2 条（D=18 ∉ [36,44]）、第 27 条（一格厚的内环带放不下岩脊隘口）、
+    # 第 31 条后半（簇到集结点 16 格在 56 格上客观不可达）。红的集合变了
+    # 说明几何前提变了，那时该回来重看这一档，而不是悄悄换一组红。
+    ref_path = os.path.join(_REPO, "game", "data", "maps",
+                            "reference_border_keep_01.json")
+    if os.path.exists(ref_path):
+        real = mapfile.load(ref_path)
+        r_strict = {chk.no for chk, ps in
+                    validate.run(real, th=all_th.profile("strict")) if ps}
+        r_ref = {chk.no for chk, ps in
+                 validate.run(real, th=all_th.profile("reference")) if ps}
+        c.eq(r_strict, {2, 27, 31},
+             f"参考图在 strict 下必须红、且只红在几何上客观不可达的"
+             f"{{2, 27, 31}}，实际红了：{sorted(r_strict)}")
+        c.true(not r_ref,
+               f"它在 reference 档下必须全过（ctest 就是这么跑的），"
+               f"实际红了：{sorted(r_ref)}")
 
 
 def check_chebyshev_is_conservative(c):
@@ -1924,8 +1915,21 @@ def check_generator_produces_valid_maps(c):
     c.true(counts.get("Rock", 0) > 0, "生成的图必须有 Rock（城外散布团块）")
     # 2026-09-01：留白 1 作废，Water/Bridge 真的进生成图。
     c.true(counts.get("Water", 0) > 0, "生成的图必须有 Water（湖/河，留白 1 已作废）")
-    c.true(counts.get("Bridge", 0) > 0,
-           "生成的图必须有 Bridge（rivers_range 下界 1 ⇒ 河必架桥）")
+    # **Bridge 不能在单张图上钉「必须有」**：§3.4 的河是「落地后逐条复核、
+    # 超标整河撤销」——河被撤掉的图只剩湖、没有桥，而它完全合法（2026-09-02
+    # 第 18 条废除后，种子基 1 的受理顺位后移，接到的 gen_00001005 正是这种：
+    # Water 51 格、Bridge 0）。「河必架桥」的恒有性由 Canvas 层那条
+    # （rivers_range=[1,1] ⇒ 有桥）钉住；这里钉的是**桥流水线没有静默失效**——
+    # 换一个种子基还没有桥才红（通常零额外成本：第一张图多半带河）。
+    has_bridge = counts.get("Bridge", 0) > 0
+    if not has_bridge:
+        doc2, _ = generate.generate_valid(2, cfg, th)
+        has_bridge = any(
+            cell == "Bridge" for row in generate._terrain_names(doc2)
+            for cell in row)
+    c.true(has_bridge,
+           "两个种子基接到的图都没有 Bridge —— 河/桥流水线疑似静默失效"
+           "（单张图没有 Bridge 是合法的：河可能被整河撤销，§3.4）")
 
     for s in doc["spawns"]:
         c.true("corridor" not in s,
@@ -2016,8 +2020,12 @@ def check_generator_produces_valid_maps(c):
         c.eq(len(waves), 1,
              f"簇（簇心 {list(cl['center'])}）必须同波解禁，实际 {sorted(waves)}")
     ordered = sorted(clusters,
-                     key=lambda cl: max(abs(cl["center"][0] - kx),
-                                        abs(cl["center"][1] - ky)))
+                     key=lambda cl: (max(abs(cl["center"][0] - kx),
+                                         abs(cl["center"][1] - ky)),
+                                     # tie-break 与校验器第 28 条/生成器逐字同构
+                                     # （簇心坐标）——等距两簇的波号顺序三处必须
+                                     # 是同一个，否则各自「单调」合起来互相红。
+                                     tuple(cl["center"])))
     cl_waves = [min(m["unlock_wave"] for m in cl["members"]) for cl in ordered]
     c.eq(cl_waves, sorted(cl_waves),
          f"簇解禁波按簇心距离必须非降，实际 {cl_waves}")
@@ -2724,7 +2732,8 @@ GROUPS = [
     ("第 15 条 content_hash", check_v15_hash),
     ("第 16 条 实体落在可建造格", check_v16_entity_cells),
     ("第 17 条 摆放冲突", check_v17_placement_conflicts),
-    ("第 18 条 resources 解禁波数按距离单调", check_v18_resource_unlock_wave),
+    # 第 18 条已废除（2026-09-02，并入第 28 条，见 validate.REMOVED），
+    # 其 selftest 组随之一并删除，同第 3/7 条那条先例。
     ("第 19 条 障碍类型不得是地形名", check_v19_obstacle_types),
     ("第 21 条 至少一个 outer 资源点", check_v21_has_outer),
     ("第 22 条 障碍摆放冲突", check_v22_obstacle_placement),
