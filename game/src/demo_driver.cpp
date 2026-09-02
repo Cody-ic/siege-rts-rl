@@ -278,23 +278,75 @@ void DemoBattle::spawn_wave() {
     for (int k = 0; k < phoenixes; ++k) roster.push_back(rts::UnitType::Phoenix);
     for (int k = 0; k < wraiths; ++k) roster.push_back(rts::UnitType::Wraith);
 
-    // 固定的落位偏移环（不掷点：demo 的确定性不该依赖「生成时的随机散布」）。
-    // 5×5、由内向外——编成位撤掉硬顶后单波会超过「集结点数 × 9」，原来的
-    // 3×3 环在高波次会让后来者与先来者叠在同一坐标上生成。
-    constexpr float kOff[][2] = {
-        {0.0f, 0.0f},   {1.0f, 0.0f},   {-1.0f, 0.0f},  {0.0f, 1.0f},
-        {0.0f, -1.0f},  {1.0f, 1.0f},   {-1.0f, -1.0f}, {1.0f, -1.0f},
-        {-1.0f, 1.0f},  {2.0f, 0.0f},   {-2.0f, 0.0f},  {0.0f, 2.0f},
-        {0.0f, -2.0f},  {2.0f, 1.0f},   {-2.0f, -1.0f}, {2.0f, -1.0f},
-        {-2.0f, 1.0f},  {1.0f, 2.0f},   {-1.0f, -2.0f}, {1.0f, -2.0f},
-        {-1.0f, 2.0f},  {2.0f, 2.0f},   {-2.0f, -2.0f}, {2.0f, -2.0f},
-        {-2.0f, 2.0f}};
-    constexpr std::size_t kOffCount = sizeof(kOff) / sizeof(kOff[0]);
-    for (std::size_t n = 0; n < roster.size(); ++n) {
-        const rts::Vec2 c = rts::center_of(spawns[n % spawns.size()].pos);
-        const float* off = kOff[(n / spawns.size()) % kOffCount];
-        const std::int64_t hp = hp_at(stats, roster[n], lv);
-        w_.spawn_unit(roster[n], rts::Vec2{c.x + off[0], c.y + off[1]}, lv, hp, hp);
+    // ——兵力集中：主攻一路 + 佯攻一路，**不再轮转平摊**——
+    //
+    // 2026-09-02 试玩反馈：「敌人从四面八方来，每个方位就一点点人，一点压迫感
+    // 都没有」。原写法是 `spawns[n % spawns.size()]` **轮转**派点 ⇒ 3–4 个集结点
+    // 各分到大致相等的兵力。实测第 5 波总共 10 人、每路 2.5 人，摊在 2R+1 = 27
+    // 格的受攻面上是 **0.09 人/格**——每 11 格墙才站 1 个敌人，「散兵游勇」是
+    // 准确的描述。而 CLAUDE.md §1 末行早就预言了这个形态：「一座周长 150 格的城
+    // 对 40 个攻方单位而言太稀，攻防会退化成散兵游勇」。
+    //
+    // 集中之后同一波的受攻面密度 ×4（见下面的比例）。**这是那条反馈里占比
+    // 最大的一项**——实测「集中兵力」贡献 ×4，而「把城缩小」只贡献 ×1.5。
+    //
+    // 顺带修好另外两件本来就该成立的事：
+    //
+    //   * **分兵佯攻此前结构上不可能**（轮转 ⇒ 各路恒等），而 CLAUDE.md
+    //     「集结区」把它列为攻方的欺骗手段之一
+    //   * **「免费方向提示 = 兵力最多的集结点」此前由整数取余决定**（2026-09-01
+    //     加的 HUD 那一行）——有主攻之后它才真的指向主攻
+    //
+    // **主攻方向按波数轮换**（`wave % 集结点数`），不掷点：demo 的确定性不该
+    // 依赖随机数，而轮换保证玩家不能靠「永远守北面」蒙混过关。
+    //
+    // **佯攻不比主攻多**：CLAUDE.md 说 AI 可以「把佯攻部队堆得比主攻更多」让
+    // 提示变成诱饵，但那是**宏观层要学的决策**；这里是它的无决策退化
+    // （比例固定），所以提示在 demo 里始终诚实。欺骗留给 RL。
+    const std::size_t n_spawn = spawns.size();
+    const auto main_spawn = static_cast<std::size_t>(wave) % n_spawn;
+    const std::size_t feint_spawn = (main_spawn + 1) % n_spawn;
+    constexpr int kMainPermille = 700;   // 主攻拿七成（占位比例）
+
+    // 固定的落位偏移环（不掷点，同上）。7×7 由内向外——集中之后单个集结点要
+    // 摆下几乎整波人，原来的 5×5（25 个）在高波次会让后来者与先来者叠在
+    // 同一坐标上生成。
+    std::vector<std::pair<float, float>> off_ring;
+    off_ring.reserve(49);
+    for (int r = 0; r <= 3; ++r) {
+        for (int dy = -r; dy <= r; ++dy) {
+            for (int dx = -r; dx <= r; ++dx) {
+                if (std::max(dx < 0 ? -dx : dx, dy < 0 ? -dy : dy) != r) continue;
+                off_ring.emplace_back(static_cast<float>(dx), static_cast<float>(dy));
+            }
+        }
+    }
+
+    // 逐兵种分配，而不是按 roster 下标切一刀——切一刀会把排在后面的 `Ram`
+    // 与 `Phoenix` 整体推给佯攻那一路，而 `Ram` 是破墙的主力，它必须跟主攻走。
+    int placed_at[2] = {0, 0};   // [0]=主攻路已摆几个，[1]=佯攻路
+    int seen_of_type[rts::kUnitTypeCount] = {};
+    for (const rts::UnitType t : roster) {
+        const auto ti = static_cast<std::size_t>(t);
+        const int idx = seen_of_type[ti]++;
+        int total = 0;
+        for (const rts::UnitType q : roster) total += (q == t) ? 1 : 0;
+
+        bool to_main = true;
+        if (t == rts::UnitType::Wraith) {
+            // 侦查单位走另一路：它的活是看清防线，跟着主攻挤在一起看不到别处。
+            to_main = false;
+        } else if (t != rts::UnitType::Ram && t != rts::UnitType::Phoenix) {
+            // `Ram`（破墙主力）与 `Phoenix`（空中、自己选目标）恒随主攻。
+            // 其余按七成切，且**向上取整给主攻**——只有 1 个时不会全跑去佯攻。
+            to_main = idx < (total * kMainPermille + 999) / 1000;
+        }
+        const std::size_t si = to_main ? main_spawn : feint_spawn;
+        const int slot = placed_at[to_main ? 0 : 1]++;
+        const auto& off = off_ring[static_cast<std::size_t>(slot) % off_ring.size()];
+        const rts::Vec2 c = rts::center_of(spawns[si].pos);
+        const std::int64_t hp = hp_at(stats, t, lv);
+        w_.spawn_unit(t, rts::Vec2{c.x + off.first, c.y + off.second}, lv, hp, hp);
     }
 }
 

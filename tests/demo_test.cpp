@@ -755,3 +755,70 @@ TEST_CASE("侦查面板：编成读数与绘制列表逐类对齐（都过同一
     REQUIRE(ever_seen);
     compare_at("已经看见敌人");
 }
+
+// 兵力必须**集中**，不能四面平摊。
+//
+// 2026-09-02 试玩反馈：「敌人从四面八方来，每个方位就一点点人，一点压迫感都
+// 没有」。根因是 `spawn_wave` 曾按 `spawns[n % spawns.size()]` **轮转**派点
+// ⇒ 各集结点分到的兵力恒等。实测第 5 波总共 10 人、每路 2.5 人。
+//
+// 这条同时钉住另外两件本来就该成立的事：**分兵佯攻此前结构上不可能**
+// （各路恒等），以及**「免费方向提示」此前由整数取余决定**——有主攻之后
+// 那行 HUD 才真的指向主攻。
+TEST_CASE("兵力集中：一路主攻拿大头，不是四面平摊", "[demo]") {
+    const game::MapData map = demo_map();
+    const rts::StatsTable stats = demo_stats();
+    game::DemoBattle a(map, stats, 7);
+    a.update(370);
+    const rts::WorldView v = a.world().view(rts::Side::Attacker);
+    const auto& spawns = v.spawns();
+    REQUIRE(spawns.size() >= 2);   // 只有一个集结点时这条测不出东西
+
+    // 每个攻方单位算给离它最近的集结点。
+    std::vector<int> tally(spawns.size(), 0);
+    int total = 0;
+    for (std::size_t k = 0; k < v.unit_alive().size(); ++k) {
+        if (!v.unit_alive()[k]) continue;
+        if (rts::side_of(v.unit_type()[k]) != rts::Side::Attacker) continue;
+        std::size_t best = 0;
+        float best_d2 = -1.0f;
+        for (std::size_t s = 0; s < spawns.size(); ++s) {
+            const rts::Vec2 c = rts::center_of(spawns[s].pos);
+            const float dx = c.x - v.unit_pos()[k].x;
+            const float dy = c.y - v.unit_pos()[k].y;
+            const float d2 = dx * dx + dy * dy;
+            if (best_d2 < 0.0f || d2 < best_d2) { best_d2 = d2; best = s; }
+        }
+        ++tally[best];
+        ++total;
+    }
+    REQUIRE(total > 0);
+
+    const int top = *std::max_element(tally.begin(), tally.end());
+    CAPTURE(total, top, spawns.size());
+    // **判据取「主攻占过半」而不是「恰好七成」**：比例是占位旋钮，会调；
+    // 「有没有一路是主攻」是结构，不会变。轮转派点下这条必然失败
+    //（各路恒等 ⇒ 最大一路只有 1/n ≤ 1/2）。
+    REQUIRE(top * 2 > total);
+
+    // 主攻方向必须**随波数轮换**：否则玩家永远守同一面就能蒙混过关。
+    const auto lead_of = [&](int wave_no) {
+        game::DemoBattle d(map, stats, 7);
+        d.update(370);
+        for (int i = 1; i < wave_no; ++i) {
+            for (int t = 0; t < 20000 &&
+                            !(d.world().wave() == i + 1 &&
+                              d.world().live_unit_count(rts::Side::Attacker) > 0);
+                 t += 10) {
+                d.update(10);
+            }
+        }
+        return game::strongest_spawn(d.world().view(rts::Side::Defender));
+    };
+    const int w1 = lead_of(1);
+    const int w2 = lead_of(2);
+    CAPTURE(w1, w2);
+    REQUIRE(w1 >= 0);
+    REQUIRE(w2 >= 0);
+    REQUIRE(w1 != w2);   // 相邻两波的主攻方向不同
+}
