@@ -305,10 +305,23 @@ struct ResourceSite {
     // **影响仿真**（CLAUDE.md「资源点随波数解禁」）：`World::wave()` 小于它时，
     // 就算已经盖好采集建筑也不入账，见 `tick_economy`。默认 1——`World::wave_`
     // 从 1 起，等于「从第一波就有」，城内保底资源点该给的正是这个默认值。
-    // 地图侧对应字段是 `resources[].unlock_wave`（`地图与场景设计.md` 6.2），
-    // **与 `tier` 是两个不相关的字段**：`tier` 是纯描述、不进这里（见
-    // `game::make_world_init` 的注释），解禁波数则必须进——这正是两者的分界。
+    // 地图侧对应字段是 `resources[].unlock_wave`（`地图与场景设计.md` 6.2）。
+    // **与 `tier` 是两条不相关的轴**：一个管什么时候开始产，一个管产多少。
     int unlock_wave = 1;
+    // **影响仿真**（2026-09-02，`地图生成器大改方案.md` §4 第四条）：
+    // `tick_economy` 付账时按它乘 `WorldInit::tier_income_permille` 的对应档。
+    // 但它描述的仍是**地图生成时的静态分层**——「这个点当前在墙内吗」
+    // 仍看当前墙况，两回事（见 `game::make_world_init` 的注释）。
+    ResourceTier tier = ResourceTier::Inner;
+};
+
+// 资源点 tier → 产出倍率（千分制，`tick_economy` 付账时乘在 `income_amount` 上）。
+// 默认值是**占位**（2026-09-02）：Outer 1.5× 的取值待实力模型校准
+// （`攻守实力模型与平衡分析.md`）。契约面是这个结构与 `WorldInit` 里那个字段，
+// 不是这两个数——校准后改默认值或建局时覆盖都行，机制不变。
+struct TierIncomePermille {
+    std::int64_t inner = kPermilleOne;   // 1.0×，城内保底不加成、不打折
+    std::int64_t outer = 1500;           // 1.5×，占位值（见上）
 };
 
 // 一座初始建筑。
@@ -398,6 +411,11 @@ struct WorldInit {
     // 本波名义等级 `L(w)` = 兵力预算 ÷ 编成位（决定 ⑨），观测里一切等级通道的分母。
     // 两条曲线都待标定，所以**由外部给**，`rts_core` 不知道任何曲线。
     std::int32_t nominal_level = kMinUnitLevel;
+
+    // 资源点两档 tier 的产出倍率（千分制，2026-09-02，`地图生成器大改方案.md` §4
+    // 第四条）。**与数值表并列的外生输入**：默认 Inner=1000 / Outer=1500 是占位值
+    // （见 `TierIncomePermille` 的注释），由外部给或改默认都行，机制不含任何数。
+    TierIncomePermille tier_income_permille{};
 
     // 数值表（`rts/stats.hpp`）。**这是外生数值进入仿真的唯一路径**：
     // 射程、伤害、速度、视野、破坏倍率全从这里读，机制不得在别处藏一个数。
@@ -897,6 +915,10 @@ private:
     std::uint64_t seed_ = 0;
     StatsTable stats_{};
     std::uint64_t stats_fp_ = 0;   // 建局时从 stats_ 算一次，之后只读
+    // tier 产出倍率（`WorldInit::tier_income_permille`）。**不进 `state_hash`**——
+    // 与 `resources_` 本身的 pos / kind / unlock_wave 同例：建局参数经
+    // `map_content_hash` 覆盖，逐项再喂一遍是第二个真相来源。
+    TierIncomePermille tier_income_permille_{};
 
     // ——时间与波次——
     Tick tick_ = 0;

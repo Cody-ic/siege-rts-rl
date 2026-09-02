@@ -66,6 +66,7 @@ World::World(WorldInit init)
       seed_(init.seed),
       stats_(init.stats),
       stats_fp_(init.stats.fingerprint()),
+      tier_income_permille_(init.tier_income_permille),
       nominal_level_(init.nominal_level),
       rng_(init.seed),
       fog_{FogLayer(init.width, init.height), FogLayer(init.width, init.height)} {
@@ -76,6 +77,9 @@ World::World(WorldInit init)
     }
     if (init.nominal_level < kMinUnitLevel) {
         throw ContractError("nominal_level 不得小于 kMinUnitLevel");
+    }
+    if (init.tier_income_permille.inner < 0 || init.tier_income_permille.outer < 0) {
+        throw ContractError("tier_income_permille 不得为负（负产出不是设计里的东西）");
     }
     for (const SpawnSite& s : spawns_) {
         if (!terrain_.in_bounds(s.pos.i, s.pos.j)) {
