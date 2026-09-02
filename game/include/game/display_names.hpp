@@ -37,6 +37,21 @@
 
 namespace game {
 
+// 八个方位。**给「免费方向提示」用**（CLAUDE.md「集结区」：兵力最多的那个
+// 集结点是免费情报），所以它是展示层的东西、不进仿真。
+//
+// 放在这个文件而不是就近写几个字面量，是为了吃到 `all_display_strings()`
+// 那条**机械遍历**：方位名一旦手抄进某张表，就又多了一处「加了字忘了登记
+// ⇒ 画的时候抛」的入口，而那个坑这个仓库已经险些踩过一次。
+enum class Compass : std::uint8_t { N, NE, E, SE, S, SW, W, NW };
+inline constexpr int kCompassCount = 8;
+
+std::string_view display_name(Compass c) noexcept;
+
+// 从 `from` 看向 `to` 是哪个方位。等距画面上玩家读的是「北/东北…」这类词，
+// 而 `gj` 增大是屏幕下方（南），`gi` 增大是屏幕右方（东）。
+Compass compass_of(rts::GridPos from, rts::GridPos to) noexcept;
+
 std::string_view display_name(Terrain t) noexcept;
 std::string_view display_name(ResourceType t) noexcept;
 std::string_view display_name(ResourceTier t) noexcept;

@@ -11,8 +11,12 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <string>
+
 #include "game/iso_projection.hpp"
 #include "game/player_input.hpp"
+#include "game/stats_loader.hpp"
+#include "rts/roster.hpp"
 #include "rts/stats.hpp"
 #include "rts/world.hpp"
 #include "rts/world_view.hpp"
@@ -497,5 +501,81 @@ TEST_CASE("造价提示：资源不够时红框，够了才绿（试玩报的 bu
         w.submit(rts::Side::Defender, &c, 1);
         w.advance(1);
         REQUIRE(w.stock(rts::Resource::Wood) == 7);   // 真生效了：扣了 3
+    }
+}
+
+// ——侦查面板：编成读数与克制提示——
+
+// 克制提示表必须**与机制一致**，而不只是「填了字」。
+//
+// 这张表是 `CLAUDE.md`「克制二部图」的玩家侧读数，用途是兑现「克制必须在 UI
+// 中完全透明」。它**不是**伤害倍率表（倍率仍只从三条正交轴的机制来），但其中
+// 几条是**机制决定的、不是选择**——那几条必须能与数值表/花名册交叉核对，
+// 否则面板会理直气壮地教玩家一件错事，而画面上完全看不出来。
+TEST_CASE("克制提示：与机制交叉核对，且攻方无孤立节点", "[input]") {
+    const rts::StatsTable stats = game::StatsLoader::from_file(
+        std::string(GAME_DATA_DIR) + "/stats_placeholder.json");
+
+    SECTION("攻方每一种都至少有一个克制者（CLAUDE.md：无孤立节点）") {
+        for (int i = 0; i < rts::kUnitTypeCount; ++i) {
+            const rts::UnitType t = rts::unit_at(i);
+            if (rts::side_of(t) != rts::Side::Attacker) continue;
+            const game::CounterHint c = game::counters_of(t);
+            CAPTURE(rts::ident_of(t));
+            REQUIRE((!c.units.empty() || !c.blds.empty()));
+        }
+    }
+
+    SECTION("守方五种不出现在表里（它们不是「来袭」）") {
+        for (int i = 0; i < rts::kUnitTypeCount; ++i) {
+            const rts::UnitType t = rts::unit_at(i);
+            if (rts::side_of(t) != rts::Side::Defender) continue;
+            const game::CounterHint c = game::counters_of(t);
+            CAPTURE(rts::ident_of(t));
+            REQUIRE(c.units.empty());
+            REQUIRE(c.blds.empty());
+        }
+    }
+
+    SECTION("列出的克制者必须全是守方的东西") {
+        for (int i = 0; i < rts::kUnitTypeCount; ++i) {
+            const game::CounterHint c = game::counters_of(rts::unit_at(i));
+            for (const rts::UnitType u : c.units) {
+                CAPTURE(rts::ident_of(u));
+                REQUIRE(rts::side_of(u) == rts::Side::Defender);
+            }
+        }
+    }
+
+    SECTION("「Spear 克 Knight」是机制决定的：反冲锋倍率必须真的 > 1") {
+        const game::CounterHint c = game::counters_of(rts::UnitType::Knight);
+        REQUIRE(c.units.size() == 1);
+        REQUIRE(c.units[0] == rts::UnitType::Spear);
+        // 倍率 ≤ 1000‰ 时枪阵根本不克骑兵，那时这条提示就是在骗玩家。
+        // （`数值设计与成本产出矩阵.md` §3 记过：占位 1800 曾经不够，现为 3200。）
+        REQUIRE(stats.global.anti_charge_permille > 1000);
+    }
+
+    SECTION("「只有 Flak 与墙上的 Archer 能对付 Phoenix」要求它真是空中单位") {
+        REQUIRE(rts::is_aerial(rts::UnitType::Phoenix));
+        const game::CounterHint c = game::counters_of(rts::UnitType::Phoenix);
+        // 建筑那一侧只能是 Flak：AA 只做单体狙击型、且只能对空（结构）。
+        REQUIRE(c.blds.size() == 1);
+        REQUIRE(c.blds[0] == rts::BldType::Flak);
+        // 单位那一侧是弓手（要登墙才够得着），且它必须是远程——近战打不到空军。
+        REQUIRE(c.units.size() == 1);
+        REQUIRE(c.units[0] == rts::UnitType::Archer);
+        REQUIRE(stats.of(rts::UnitType::Archer).range > 1.5f);
+    }
+
+    SECTION("「Wraith 被任何机动单位猎杀」列的必须真的比它慢不了太多") {
+        const game::CounterHint c = game::counters_of(rts::UnitType::Wraith);
+        REQUIRE_FALSE(c.units.empty());
+        const float wraith = stats.of(rts::UnitType::Wraith).speed;
+        for (const rts::UnitType u : c.units) {
+            CAPTURE(rts::ident_of(u), stats.of(u).speed, wraith);
+            // 追不上就谈不上猎杀。取 0.8 倍留出余量（拦截不必同速）。
+            REQUIRE(stats.of(u).speed >= wraith * 0.8f);
+        }
     }
 }

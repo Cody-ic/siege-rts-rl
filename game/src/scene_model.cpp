@@ -100,8 +100,16 @@ Facing SceneModel::run_direction(const MapData& map, rts::GridPos p,
     bool along_i = false;
     if (kind == RunKind::Wall) {
         along_i = is_wall_cell(map, x - 1, y) || is_wall_cell(map, x + 1, y);
-        // 墙板：沿 gi 用 SW、沿 gj 用 SE（实测，见头文件那张表）。
-        return along_i ? Facing::SW : Facing::SE;
+        // 墙板：沿 gi 用 NE、沿 gj 用 SE（实测，见头文件那张表）。
+        //
+        // **沿 gi 那一档 2026-09-01 由 SW 改成 NE。** 两者是同一条轴上互为 180°
+        // 的孪生朝向（墙板拼起来都无缝），差别在**内容有没有落在锚点上**：
+        // 四个朝向共用一个 `ground_anchor`，而 `SW`/`NW` 两张的内容偏离它
+        // （`Wall` +34.5 px 且右侧被画布切掉 228 px、`Gate` −32.5 px），
+        // `SE`/`NE` 两张是正的。于是水平墙线上门与墙**朝相反方向各偏一段**，
+        // 玩家看到的就是「南北那两座城门没和城墙对齐」（错开 67 px ≈ 0.26 格；
+        // 改后 5.5 px ≈ 0.02 格）。逐朝向的实测数字见头文件那张表。
+        return along_i ? Facing::NE : Facing::SE;
     }
     {
         // **桥的走向是「过河的方向」，不是「相邻桥格的方向」。**
@@ -126,6 +134,14 @@ Facing SceneModel::run_direction(const MapData& map, rts::GridPos p,
     // `tools/sprite_gen/README.md` 那节自己写着「这取决于模型自身的长轴朝向」，
     // 所以这张表只能逐模型实测，不能全局共用一份。
     return along_i ? Facing::SE : Facing::SW;
+}
+
+bool SceneModel::is_wall_corner(const MapData& map, rts::GridPos p) noexcept {
+    const int x = p.i;
+    const int y = p.j;
+    const bool along_i = is_wall_cell(map, x - 1, y) || is_wall_cell(map, x + 1, y);
+    const bool along_j = is_wall_cell(map, x, y - 1) || is_wall_cell(map, x, y + 1);
+    return along_i && along_j;
 }
 
 DrawLists SceneModel::build(const MapData& map) {
@@ -163,6 +179,16 @@ DrawLists SceneModel::build(const MapData& map) {
         keyed.push_back(Keyed{
             DrawItem{w.pos, sprite, run_direction(map, w.pos, RunKind::Wall)},
             Layer::Entity});
+        // 拐角格补一块竖板。`run_direction` 对「左右有墙」的格恒判横板（NE），
+        // 城圈四角（横竖两条边相交的格）因此只画了横的那一边、竖边缺一格，
+        // 画面上四个角是开的（机制上走不进来，穿角禁令拦着，纯视觉缺陷）。
+        // 拐角格额外再画一块竖板（SE）补上。门不在拐角（生成器把门放在边中点、
+        // 不在方环的角上），所以只对 Wall 补，不碰 Gate——补板的朝向表只对
+        // 墙板成立，门板是另一套素材。
+        if (sprite == kWall && is_wall_corner(map, w.pos)) {
+            keyed.push_back(Keyed{DrawItem{w.pos, kWall, Facing::SE},
+                                  Layer::Entity});
+        }
     }
 
     // 资源点的地表标记。**与叠加物同层**：同深度下叠加物先画（排序次级键的

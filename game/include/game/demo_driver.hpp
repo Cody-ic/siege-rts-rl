@@ -78,6 +78,10 @@ private:
     DefenderScript script_;
     int build_left_ = 0;      // 建造阶段剩余 tick（时长是占位常量，见 .cpp）
     bool wave_spawned_ = false;   // 本波的编成生了没（生波挂在进攻阶段的第一拍）
+    // 本波的 `Wraith` 侦查到手了没有（攻方迷雾里看见过任意一座守方建筑）。
+    // 逐波重置——每一波都要重新去看，而这正是「波次结构让 AI 的记忆天然过时」
+    // 那条设计的直接后果（玩家的新建筑是在波次之间造的）。
+    bool wave_scouted_ = false;
     bool defeated_ = false;   // Keep 被拆即败（丢失即败是设计，不是演示便宜）
     int since_decision_ = 0;
     std::vector<rts::UnitId> ids_;

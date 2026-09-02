@@ -16,7 +16,7 @@ CLAUDE.md「关于数值」要求区分这两类。这一堆量看着都像旋�
 | 量 | 它真正控制什么 | 类别 |
 |---|---|---|
 | `cost(等级) ∝ 战力(等级)` | 「40 杂兵 vs 8 精英」是不是真决策 | **结构** |
-| 编成位硬顶 40 | 单波单位数落在 RL 可训练区间 | **结构**（CLAUDE.md 明文） |
+| 编成位有硬顶 | 单波单位数落在 RL 可训练区间 | **结构**（CLAUDE.md 明文）,但**取值待定**:40 是随手标的,RL 实际支持的规模没测过(2026-09-01 用户定版),`slots_cap` 因此暂置 None、等实测后填回 |
 | 资源点分布形态 | 「围哪一簇」是不是真决策 | **结构**（已定,见地图规范） |
 | 波间隔 T × 收入率 | 守方每波预算 | **只有乘积进预算** ⇒ 一个自由度 |
 | 出矿速率 × 矿点密度 | 总收入 | 同上,只有乘积 |
@@ -81,9 +81,16 @@ PLACEHOLDER = {
     # 攻方
     "slots_base": 6.0,          # 编成位起步
     "slots_per_wave": 1.2,      # 编成位每波 +
-    "slots_cap": 40,            # **硬顶,这一条是结构**（CLAUDE.md）
+    "slots_cap": None,          # 硬顶。「有硬顶」是结构（CLAUDE.md）,但取值
+                                # 从未标定——40 是随手标的,RL 实际支持的规模
+                                # 没测过（2026-09-01 用户定版）。None = 暂不设,
+                                # 等 bindings/train 实测出可训练规模后填回;
+                                # 名义等级按预算反解 ⇒ 总战力 ≡ 兵力预算,
+                                # 上限只改「人数 × 等级」的分配、不改难度曲线
     "power_base": 6.0,          # 兵力预算系数
-    "power_alpha": 1.6,         # 兵力预算指数（超线性 ⇒ > 1,这一条是结构）
+    "power_alpha": 1.25,        # 兵力预算指数（超线性 ⇒ > 1,这一条是结构；
+                                # 1.6 -> 1.25 见《波次预算曲线与堡垒等级曲线.md》§1,
+                                # 低波段 1.6 太陡,而结构只要求 > 1）
     # 等级战力:战力倍率 = (1 + k(L-1))^(p+q)。k 与 p+q 都是数值。
     "level_k": 0.22,
     "level_pq": 1.0,
@@ -114,8 +121,10 @@ def load_stats():
 # ---------------------------------------------------------------------------
 
 def slots(w, P=PLACEHOLDER):
-    """编成位(w):线性,硬顶。"""
-    return min(float(P["slots_cap"]), P["slots_base"] + P["slots_per_wave"] * (w - 1))
+    """编成位(w):线性;硬顶只在 slots_cap 非 None 时生效（取值待实测,见 PLACEHOLDER）。"""
+    s = P["slots_base"] + P["slots_per_wave"] * (w - 1)
+    cap = P["slots_cap"]
+    return s if cap is None else min(float(cap), s)
 
 
 def power_budget(w, P=PLACEHOLDER):
@@ -243,7 +252,9 @@ def check_structure(P=PLACEHOLDER, waves=60):
             f"「攻其必救」全部失效（CLAUDE.md「两条硬性曲线要求」）")
 
     # 三、编成位必须真的打满,否则「多余兵力只能投等级」这条结构从不生效。
-    if slots(waves, P) < P["slots_cap"]:
+    #     slots_cap 为 None（取值待实测）时挂起——不是检查废了,是它检查的
+    #     那个数暂时不存在;填回取值时这条自动恢复。
+    if P["slots_cap"] is not None and slots(waves, P) < P["slots_cap"]:
         problems.append(
             f"第 {waves} 波编成位才 {slots(waves, P):.1f}，没到硬顶 "
             f"{P['slots_cap']} —— 「编成位耗尽后多余兵力只能投入等级」"
@@ -317,7 +328,9 @@ def main():
         for p in problems:
             print(f"  - {p}\n")
         return 1
-    print("结构检查全部通过（堆量堆级等效 / 拐点存在 / 编成位打满 / 预算超线性）。")
+    slot_note = ("编成位打满" if P["slots_cap"] is not None
+                 else "编成位硬顶未设、该条挂起")
+    print(f"结构检查全部通过（堆量堆级等效 / 拐点存在 / {slot_note} / 预算超线性）。")
     print("\n注意这只说明**机制存在**，不说明数值合适——本模型只算总量、不算对局，")
     print("「那一波会不会真的破城」要等 bindings/ + train/ 落地后跑真实对局。")
     return 0

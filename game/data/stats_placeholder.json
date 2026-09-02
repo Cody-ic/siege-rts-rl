@@ -104,8 +104,8 @@
       "splash_dmg_permille": 1000
     },
     "Shade": {
-      "max_hp": 90,
-      "damage": 14,
+      "max_hp": 140,
+      "damage": 26,
       "range": 5.0,
       "speed": 0.09,
       "vision": 7.0,
@@ -118,11 +118,13 @@
       "train_ticks": 0,
       "splash_dmg_permille": 1000,
       "_note": "damage 11->14：与Archer同射程(5.0)对射时必须占优，兑现『Shade压制墙头守军』（花名册被克表：Archer被克于Shade压制）。城墙高度惩罚(见global)仍能反打——同一场景下Archer站上完好城墙即翻盘，两条机制不冲突，是同一场景的两个阶段。",
-      "_note_2": "**上面那句原写「damage 10->14」且附「实测：Shade杀墙上Archer从15s拉长到约31s」，两处都不对，已订正。** 原值是 11 不是 10（git 可查）。而那两个秒数是用**改动前**的 damage=11 量的——11 时平地 13.64s / 墙上 30.61s，正好对上「15s」与「约31s」；改成 14 之后是平地 10.71s / 墙上 21.43s。也就是说：记录这处改动的注释，引的是改动前的数。跑 `py tools/balance/cost_output_matrix.py --scenarios` 可复现当前值。留着这条是因为「注释里的实测数字与当前表不符」这类错不会让任何检查变红，只能靠写下来。"
+      "_note_2": "**上面那句原写「damage 10->14」且附「实测：Shade杀墙上Archer从15s拉长到约31s」，两处都不对，已订正。** 原值是 11 不是 10（git 可查）。而那两个秒数是用**改动前**的 damage=11 量的——11 时平地 13.64s / 墙上 30.61s，正好对上「15s」与「约31s」；改成 14 之后是平地 10.71s / 墙上 21.43s。也就是说：记录这处改动的注释，引的是改动前的数。跑 `py tools/balance/cost_output_matrix.py --scenarios` 可复现当前值。留着这条是因为「注释里的实测数字与当前表不符」这类错不会让任何检查变红，只能靠写下来。",
+      "_note_2026_09_01": "90/14 -> 140/26。上面 _note 的『与Archer同射程对射必须占优』在 2026-08-31『守方血量翻倍』那轮被静默反转了——Archer 100->200 血而 Shade 的 14 伤是按 100 血标定的，矩阵实测交换比掉到 0.53x、方向反了（那轮改完没有重跑矩阵，这就是代价——正是本条上面两则注释各自警告过的事第三次发生）。26/140 下平地压制回到 ~1.5x；两条反制不动摇：Archer 站上完好城墙仍翻盘（高度 miss 300‰ × 减伤 700‰ 砍掉 Shade 一半输出），Ranger 冲脸仍 ~1.5x 占优。"
     },
     "Knight": {
-      "max_hp": 160,
-      "damage": 18,
+      "max_hp": 190,
+      "damage": 28,
+      "_note_2026_09_01": "160/18 -> 190/28，两条各自的理由：① 矩阵里『Knight 克 Ranger（骑兵对冲，遏制出城）』只有 1.09x——幅度薄到被克方靠数量就能翻盘，而这条克制是『遏制守方出城』的唯一载体（CLAUDE.md：无孤立节点，这一条尤其关键）；② 『巷战无助跑被 Spear 反克』这条设计主张（CLAUDE.md 机制性克制第一条的后半句）在数值上从未成立过，且被 2026-08-31『守方血量翻倍』（Spear 180->360）进一步埋深——28 伤下巷战才真的反转（Knight 15.4s vs Spear 16.3s，幅度薄但方向对了；巷战本就该是险胜不是碾压）。反向都复核过：开阔地满助跑 Spear 仍 ~1.8x 显著占优（枪阵克骑不动摇），Knight 克 Ranger 到 ~2.0x。",
       "range": 1.2,
       "speed": 0.15,
       "vision": 7.0,
@@ -136,20 +138,21 @@
       "splash_dmg_permille": 1000
     },
     "Phoenix": {
-      "max_hp": 120,
-      "damage": 30,
+      "max_hp": 190,
+      "damage": 38,
       "range": 3.0,
       "speed": 0.2,
       "vision": 9.0,
       "windup_ticks": 8,
-      "cooldown_ticks": 40,
+      "cooldown_ticks": 32,
       "vs_structure_permille": 800,
       "aoe_radius": 0.0,
       "proj_speed": 0.0,
       "cost_gold": 0,
       "train_ticks": 0,
       "splash_dmg_permille": 1000,
-      "_note": "vs_structure_permille=800（不是0）——墙/城门免疫是PhoenixBehavior::can_break_structure()的结构性override，与这个数值字段无关；这个字段管的是Phoenix攻击『非墙非门』建筑（Tower/Flak等）的伤害倍率，对应它『点杀防御塔』的定位，之前误设成0是把结构约束和数值字段搞混了。"
+      "_note": "vs_structure_permille=800（不是0）——墙/城门免疫是PhoenixBehavior::can_break_structure()的结构性override，与这个数值字段无关；这个字段管的是Phoenix攻击『非墙非门』建筑（Tower/Flak等）的伤害倍率，对应它『点杀防御塔』的定位，之前误设成0是把结构约束和数值字段搞混了。",
+      "_note_2026_09_01": "120/30/40 -> 190/38/32（试玩反馈：墙上弓手能打到它——那是设计内的位置性防空，但原值下单名弓手 12s 就能击落它，『手术刀』连一次俯冲都完不成）。判据是保住两条克制的量级差：单名墙上弓手击落需 ~19s（一次俯冲的窗口，三名弓手仍 ~6s ⇒ 位置性否定成立），Flak 击落只需 ~10s 而 Phoenix 拆掉 Flak 要 ~30s（Flak 仍是决定性硬克，『Phoenix 被克于 Flak』不动摇）。脆皮定位保留：190 血仍是攻方战斗单位里最低一档。"
     },
     "Wraith": {
       "max_hp": 60,
@@ -167,8 +170,8 @@
       "splash_dmg_permille": 1000
     },
     "Ram": {
-      "max_hp": 420,
-      "damage": 25,
+      "max_hp": 650,
+      "damage": 34,
       "range": 1.4,
       "speed": 0.045,
       "vision": 4.0,
@@ -181,13 +184,15 @@
       "train_ticks": 0,
       "splash_dmg_permille": 500,
       "_note": "速度刻意保持慢速（笨重感 + 全场最慢单位定义地图行军时间上限），不去凑地图规范§3假设的1.5-2格/s——地图边长应按这个速度反推，见《数值设计与成本产出矩阵.md》『Ram速度与地图尺寸的自洽』一节",
-      "_note_splash": "500‰（半价）——2026-08-31 试玩反馈：AOE 圈内『主目标（承诺时锁定的那个）』与『溅射到的其余单位』此前吃同一份 damage=25，等于一次前摇能对着一堆人重复扣满伤，感觉『和开了大招一样』。改成主目标满伤、溅射砍半后：3 名 100hp Archer 挤在缺口，一次命中总伤 25+13+13=51（原为 75）；vs_structure 不受影响（对建筑/障碍全额命中不分主副，是 CLAUDE.md『结构破坏规则』原文要求，没有跟着这次一起改）。500 是占位比例，没跑过批量仿真——`bindings/`+`train/` 长出真训练循环后应重新标定，闭式 1v1 工具测不出这个数（多目标场景，tools/balance/README.md『已知局限』）。"
+      "_note_2026_09_01": "420/25 -> 650/34（试玩反馈『攻方太弱』的 Ram 份额）：原值下单锤对基线墙 1200 血要敲 54s，而它在塔火下只活 ~15s——『头号集火目标』死在半路，『压倒性拆除效率』兑现不了。改后单锤 ~40s、双锤 ~20s 破一段基线墙，玩家必须集火或派 Ranger 出城摸锤（Ranger 单挑击杀从 ~29s 拉到 ~45s，克制仍在、只是不再白嫖——Ram 的 AOE 对机动单位本就大幅落空）。对单位的直击伤害仍低（34 每 4.5s），『对能散开的单位效率很差』不受影响。",
+      "_note_splash": "500‰（半价）——2026-08-31 试玩反馈：AOE 圈内『主目标（承诺时锁定的那个）』与『溅射到的其余单位』此前吃同一份 damage=25（本条写下时的旧值，现 34，比例结论不变），等于一次前摇能对着一堆人重复扣满伤，感觉『和开了大招一样』。改成主目标满伤、溅射砍半后：3 名 100hp Archer 挤在缺口，一次命中总伤 25+13+13=51（原为 75）；vs_structure 不受影响（对建筑/障碍全额命中不分主副，是 CLAUDE.md『结构破坏规则』原文要求，没有跟着这次一起改）。500 是占位比例，没跑过批量仿真——`bindings/`+`train/` 长出真训练循环后应重新标定，闭式 1v1 工具测不出这个数（多目标场景，tools/balance/README.md『已知局限』）。"
     }
   },
   "buildings": {
     "_note": "Flak 的 vision(9) > range(5) 是「视野否定半径 > 伤害半径」那条结构要求的占位实现——改数值时保持这个不等号，理由见 CLAUDE.md「空中单位」。Keep 的 cost 无意义（不可再建，结构），income 是兵力地板：数额要小到买不起一支军队、只够补最基本的兵。",
     "_note_2": "aoe_radius 只有 Tower 非零（齐射覆盖，克步兵一拥而上）。Flak 恒单体是结构（「AA 只做单体狙击型」）——机制侧对对空建筑忽略这个字段，这里填 0 只是与结构一致的诚实默认。",
     "_note_3": "proj_speed：Tower 的齐射箭雨略慢（散开的躲闪窗口 = 前摇 + 飞行），Flak 的狙击弩矢快（点杀窗口短是它的定位）。都是占位。",
+    "_note_4_upgrade_reprice": "2026-09-01 升级曲线重定价：非 Keep 十座的 upgrade_cost 降到造价 ~40%、upgrade_ticks 减半。原值照抄『再建一次』（_note_7 自认『能自洽的起点，不是标定值』），但每级的边际战力是常数——战力 B(L)=1+k(L-1) 线性 ⇒ 升一级只 +k(=0.22)份基准战力，而同样的钱加盖一座新楼是 +1 份 ⇒ 升级每份资源买到的战力只有新建的 ~1/4.5，理性玩家永远不点升级、这个机制形同虚设（正是它落地的动机『塔不随波次变强』没被兑现）。~40% 仍高于 0.22 的效率平价点：溢价买的是『不占新地块』（墙塔位置有限、墙根本不能加盖），升级与加盖于是各有取舍而不是谁碾压谁。Keep 刻意不动（200/200/400）：它卖的是三个上限、不是战力，是整条升级轴的节奏闸门。",
     "Keep": {
       "max_hp": 2400,
       "damage": 0,
@@ -218,9 +223,9 @@
       "income_amount": 0,
       "aoe_radius": 0.0,
       "proj_speed": 0.0,
-      "upgrade_cost_stone": 30,
-      "upgrade_cost_wood": 10,
-      "upgrade_ticks": 100
+      "upgrade_cost_stone": 12,
+      "upgrade_cost_wood": 4,
+      "upgrade_ticks": 50
     },
     "Gate": {
       "max_hp": 520,
@@ -235,9 +240,9 @@
       "income_amount": 0,
       "aoe_radius": 0.0,
       "proj_speed": 0.0,
-      "upgrade_cost_stone": 20,
-      "upgrade_cost_wood": 30,
-      "upgrade_ticks": 120
+      "upgrade_cost_stone": 8,
+      "upgrade_cost_wood": 12,
+      "upgrade_ticks": 60
     },
     "Tower": {
       "max_hp": 600,
@@ -252,9 +257,9 @@
       "income_amount": 0,
       "aoe_radius": 1.2,
       "proj_speed": 0.35,
-      "upgrade_cost_stone": 80,
-      "upgrade_cost_wood": 30,
-      "upgrade_ticks": 240
+      "upgrade_cost_stone": 32,
+      "upgrade_cost_wood": 12,
+      "upgrade_ticks": 120
     },
     "Flak": {
       "max_hp": 450,
@@ -269,9 +274,9 @@
       "income_amount": 0,
       "aoe_radius": 0.0,
       "proj_speed": 0.7,
-      "upgrade_cost_stone": 90,
-      "upgrade_cost_wood": 30,
-      "upgrade_ticks": 240
+      "upgrade_cost_stone": 36,
+      "upgrade_cost_wood": 12,
+      "upgrade_ticks": 120
     },
     "Watch": {
       "max_hp": 300,
@@ -286,9 +291,9 @@
       "income_amount": 0,
       "aoe_radius": 0.0,
       "proj_speed": 0.0,
-      "upgrade_cost_stone": 20,
-      "upgrade_cost_wood": 50,
-      "upgrade_ticks": 160
+      "upgrade_cost_stone": 8,
+      "upgrade_cost_wood": 20,
+      "upgrade_ticks": 80
     },
     "Barrack": {
       "max_hp": 700,
@@ -303,9 +308,9 @@
       "income_amount": 0,
       "aoe_radius": 0.0,
       "proj_speed": 0.0,
-      "upgrade_cost_stone": 60,
-      "upgrade_cost_wood": 60,
-      "upgrade_ticks": 300
+      "upgrade_cost_stone": 24,
+      "upgrade_cost_wood": 24,
+      "upgrade_ticks": 150
     },
     "Fence": {
       "max_hp": 200,
@@ -321,8 +326,8 @@
       "aoe_radius": 0.0,
       "proj_speed": 0.0,
       "upgrade_cost_stone": 0,
-      "upgrade_cost_wood": 15,
-      "upgrade_ticks": 30
+      "upgrade_cost_wood": 6,
+      "upgrade_ticks": 15
     },
     "Quarry": {
       "max_hp": 500,
@@ -338,9 +343,9 @@
       "aoe_radius": 0.0,
       "proj_speed": 0.0,
       "_note": "三座资源建筑的产出刻意拉开差距（此前占位表12/12/10几乎相同，未体现三条决策轴的性质差异）：石材是硬防御的启动资金，故意让它产出最慢——逼出『防御造价高到无法覆盖所有墙段』这条设计要求，而不是靠单纯造价数字劝退",
-      "upgrade_cost_stone": 40,
-      "upgrade_cost_wood": 30,
-      "upgrade_ticks": 200
+      "upgrade_cost_stone": 16,
+      "upgrade_cost_wood": 12,
+      "upgrade_ticks": 100
     },
     "Lumber": {
       "max_hp": 500,
@@ -356,9 +361,9 @@
       "aoe_radius": 0.0,
       "proj_speed": 0.0,
       "_note": "木材要流得快——它同时是维修燃料与应急工事(Fence)材料，『维修显著低于重建』这条反死亡螺旋对策要靠木材供给跟得上才成立",
-      "upgrade_cost_stone": 40,
-      "upgrade_cost_wood": 30,
-      "upgrade_ticks": 200
+      "upgrade_cost_stone": 16,
+      "upgrade_cost_wood": 12,
+      "upgrade_ticks": 100
     },
     "Mine": {
       "max_hp": 500,
@@ -374,9 +379,9 @@
       "aoe_radius": 0.0,
       "proj_speed": 0.0,
       "_note": "金币管人力，需要持续但不过量——高于石材（人力要能持续补）、低于木材（人力仍受训练时间与人口上限约束，不该无限快）",
-      "upgrade_cost_stone": 50,
-      "upgrade_cost_wood": 40,
-      "upgrade_ticks": 240
+      "upgrade_cost_stone": 20,
+      "upgrade_cost_wood": 16,
+      "upgrade_ticks": 120
     }
   },
   "obstacles": {

@@ -41,6 +41,37 @@ constexpr std::string_view kLiterals[] = {
 
 }  // namespace
 
+std::string_view display_name(Compass c) noexcept {
+    switch (c) {
+        case Compass::N:  return "北";
+        case Compass::NE: return "东北";
+        case Compass::E:  return "东";
+        case Compass::SE: return "东南";
+        case Compass::S:  return "南";
+        case Compass::SW: return "西南";
+        case Compass::W:  return "西";
+        case Compass::NW: return "西北";
+    }
+    return {};
+}
+
+Compass compass_of(rts::GridPos from, rts::GridPos to) noexcept {
+    const int dx = to.i - from.i;   // +x = 东
+    const int dy = to.j - from.j;   // +y = 南（`gj` 增大是屏幕下方）
+    const int ax = dx < 0 ? -dx : dx;
+    const int ay = dy < 0 ? -dy : dy;
+    // 斜向只在两轴分量接近时才取：一个分量不到另一个的一半就当正方向，
+    // 否则「几乎正北」也会被报成「东北」，方向提示就不好用了。
+    const bool diag_x = ax * 2 > ay;
+    const bool diag_y = ay * 2 > ax;
+    if (diag_x && diag_y) {
+        if (dy < 0) return dx > 0 ? Compass::NE : Compass::NW;
+        return dx > 0 ? Compass::SE : Compass::SW;
+    }
+    if (ax > ay) return dx > 0 ? Compass::E : Compass::W;
+    return dy > 0 ? Compass::S : Compass::N;
+}
+
 std::string_view display_name(Terrain t) noexcept {
     switch (t) {
         case Terrain::Plain:  return "平地";
@@ -204,6 +235,11 @@ const std::vector<std::string_view>& all_display_strings() {
         }
         for (int i = 0; i < kWallKindCount; ++i) {
             v.push_back(display_name(static_cast<WallKind>(i)));
+        }
+        // 方位名（免费方向提示用）。同样是机械遍历——手抄一份就又开了一个
+        // 「加了字忘了登记 ⇒ 画的时候抛」的入口。
+        for (int i = 0; i < kCompassCount; ++i) {
+            v.push_back(display_name(static_cast<Compass>(i)));
         }
         // 花名册三张表。**加进来的直接后果是字体要多载约 40 个码点**，
         // 而那正是它必须在这里出现的理由：PR D 一画实体就要显示单位名，

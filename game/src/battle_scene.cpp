@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdint>
 
+#include "rts/fog.hpp"
 #include "rts/roster.hpp"
 
 namespace game {
@@ -66,6 +67,31 @@ std::vector<DrawItem> BattleScene::sorted(const MapData& map,
                                           const rts::WorldView& view, rts::Tick now) {
     std::vector<DrawItem> out;
 
+    // ——迷雾：敌方的东西只在**当前可见**的格上出现——
+    //
+    // 2026-09-01。此前本函数把 god 视角（`WorldView` 本来就是，那是不变量 2）里的
+    // 一切原样画出，于是「编成构成」与「精确进攻方向」——CLAUDE.md 的情报划分里
+    // 明列为**需要侦查**的那两项——对玩家全部免费。后果不是「少了个效果」，是
+    // **整个侦查系统形同虚设**：`Scout`（25 金）与 `Watch` 没有任何理由被造出来，
+    // 「等 `Wraith` 走了再造防空」这类玩家欺骗手段也无从发生。
+    //
+    // 判据与来源逐字照 `rts_core/src/obs_pack.cpp` 那一段（硬要求 1 的落点，
+    // 也是全仓唯一的先例）：**只经 `view.fog()` 这一个来源读可见性**，
+    // 多一个来源就多一条绕过它的路；越界回落 `Unseen`。
+    //
+    // **只过滤敌方的动态实体。** 地形、地形叠加物、中立障碍、资源标记、己方一切
+    // 一律照画——地形不过迷雾（同 `obs_pack` 的 `Passable` 通道那条注释：地图长什么样
+    // 是免费信息），而把「从未探索」压黑是另一档设计（当前不做：城区半径 12–15 而
+    // 建筑视野零散，压黑会让自家城内出现环状暗带）。
+    //
+    // **单位不进记忆图**（`FogLayer` 只记建筑），所以离开视野的敌人是**消失**而不是
+    // 留一个残影——这正是三态设计的意思，不要在这里写 `!= Unseen` 把它压回两态。
+    const rts::FogLayer& fog = view.fog();
+    const rts::Side me = view.side();
+    const auto visible_at = [&fog](rts::GridPos g) {
+        return fog.in_bounds(g.i, g.j) && fog.at(g.i, g.j) == rts::Vis::Visible;
+    };
+
     // 地形叠加物（岩 / 林 / 桥）。**不含地图里的墙与障碍**——那两类活在仿真里，
     // 会被拆掉，从 `MapData` 画等于画一份不死的幽灵墙。
     for (int y = 0; y < map.height(); ++y) {
@@ -105,6 +131,13 @@ std::vector<DrawItem> BattleScene::sorted(const MapData& map,
     const auto b_max = view.bld_max_hp();
     for (std::size_t k = 0; k < b_alive.size(); ++k) {
         if (b_alive[k] == 0) continue;
+        // 建筑**全属守方**（`World::tick_vision` 那条判据的同一个事实），所以守方
+        // 视角下它们恒可见。这一句因此在今天不会挡掉任何东西——**但它不是死代码**：
+        // 它是「本函数尊重迷雾」与「本函数碰巧安全，因为只有一侧有建筑」的差别，
+        // 而 `AI vs AI` / 双视图那一项一旦拿攻方视角调用本函数，少了它就是一次
+        // 泄漏。攻方视角下记忆格里的建筑当前**不重建绘制**（`remembered_bld` 有数据，
+        // 但守方视角用不上，今天写了就是死代码），那是已知缺口、不是这一句的问题。
+        if (me != rts::Side::Defender && !visible_at(b_pos[k])) continue;
         DrawItem it;
         it.pos = b_pos[k];
         it.sprite = rts::ident_of(b_type[k]);
@@ -113,6 +146,18 @@ std::vector<DrawItem> BattleScene::sorted(const MapData& map,
         }
         it.hp_frac = hp_frac_of(b_hp[k], b_max[k]);
         out.push_back(it);
+        // 拐角格补竖板（同 `SceneModel::build` 那条纪律）：城圈四角横竖两条边
+        // 相交，`run_direction` 只给横板（NE），竖边缺一格、角在画面上是开的。
+        // 走向看**地图初始墙况**（同上面 run_direction 的那份注释），不是活墙——
+        // 拆墙不改剩余墙段的走向读法。补板不带血条（血条画在主板上，否则两板
+        // 重叠画两条）。
+        if (b_type[k] == rts::BldType::Wall &&
+            SceneModel::is_wall_corner(map, it.pos)) {
+            DrawItem corner = it;
+            corner.facing = Facing::SE;
+            corner.hp_frac = -1.0f;
+            out.push_back(corner);
+        }
     }
 
     // 中立障碍。
@@ -144,6 +189,11 @@ std::vector<DrawItem> BattleScene::sorted(const MapData& map,
     const auto u_mount = view.unit_mount();
     for (std::size_t k = 0; k < u_alive.size(); ++k) {
         if (u_alive[k] == 0) continue;
+        // 己方恒画、敌方要当前可见。**己方不过迷雾**是刻意的（同 `obs_pack`）：
+        // 自己的兵在哪不需要侦查，而按迷雾过滤己方会在视野边缘把自己的单位抹掉。
+        if (rts::side_of(u_type[k]) != me && !visible_at(rts::grid_of(u_pos[k]))) {
+            continue;
+        }
         DrawItem it;
         it.continuous = true;
         it.world = u_pos[k];
@@ -187,6 +237,10 @@ std::vector<DrawItem> BattleScene::sorted(const MapData& map,
     const auto p_src = view.proj_src_bld();
     const auto p_side = view.proj_side();
     for (std::size_t k = 0; k < p_pos.size(); ++k) {
+        // 同单位那条。**弹丸按它自己当前所在的格判**，不按射手也不按落点：
+        // 一支从迷雾里飞进视野的箭，进了视野就该看得见（否则它会在半空凭空出现，
+        // 反而更怪），而飞出视野就该消失。
+        if (p_side[k] != me && !visible_at(rts::grid_of(p_pos[k]))) continue;
         DrawItem it;
         it.continuous = true;
         it.world = p_pos[k];

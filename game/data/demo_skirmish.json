@@ -1,7 +1,15 @@
 {
-  "_note": "演示对局用的手写小图，不是 §9 的正式演示地图，也没有过 tools/map_gen 校验器（它不是训练地图）。一切坐标与 hp_frac 都是为了让 demo 好看：攻方要过桥、要面对一道带门的墙线、防空要护得住城心。按 CLAUDE.md「关于数值」这些都是占位。2026-08-31 重构：`spawns[].corridor` 字段已随「走廊」概念一起废除（本图经 mapfile 重序列化、content_hash 已重算）。 2026-08-31 试玩反馈：全部初始墙段改满血（原先有一段 0.55）——理由与 `reference_border_keep_01.json` 同一天的改动一致，见 `tools/map_gen/build_reference_map.py` 的注释。",
-  "buildings": [],
-  "content_hash": "sha256:d6ecc9900d4b18d391375d87d513deb13808e7994d22d065c6f39ef1d0cf6ef7",
+  "_note": "演示对局用的手写小图，不是 §9 的正式演示地图，也没有过 tools/map_gen 校验器（它不是训练地图）。一切坐标与 hp_frac 都是为了让 demo 好看：攻方要过桥、要面对一道带门的墙线、防空要护得住城心。按 CLAUDE.md「关于数值」这些都是占位。2026-08-31 重构：`spawns[].corridor` 字段已随「走廊」概念一起废除（本图经 mapfile 重序列化、content_hash 已重算）。 2026-08-31 试玩反馈：全部初始墙段改满血（原先有一段 0.55）——理由与 `reference_border_keep_01.json` 同一天的改动一致，见 `tools/map_gen/build_reference_map.py` 的注释。 2026-09-01：补一座 `Tower`(6,5)。`demo_init` 此前用固定偏移在 keep+(1,-2) 预置箭楼，那是单张固定地图时期的写法——换成随机地图池后它离墙线 10-13 格，而 `Tower.range` 只有 7，永远打不到墙线，已删除。池图与参考图自己的 `buildings` 里本就预置了 2-3 座位置正确的箭楼，**只有这张手写图是空的**，于是改由本字段补上（这正是 §4.4.0 给 `buildings` 定的用途：地图描述玩家开局已拥有的建筑）。位置取城门 (7,6) 内侧一格的上方；`Flak` 由 `demo_init` 按同一条规则落在 (6,6)，两座并排守着门。",
+  "buildings": [
+    {
+      "pos": [
+        6,
+        5
+      ],
+      "type": "Tower"
+    }
+  ],
+  "content_hash": "sha256:28f700cfed8a6261727be24550f71db4540cf4873100fbad3ff5809fd78959a2",
   "format": 1,
   "initial_walls": [
     {
