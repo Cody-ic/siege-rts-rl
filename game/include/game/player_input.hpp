@@ -212,6 +212,45 @@ rts::Command upgrade_command(rts::GridPos cell, int map_width);
 // 那反而比出生地更贴近玩家想知道的东西。
 int strongest_spawn(const rts::WorldView& view);
 
+// ——需侦查的情报：来袭编成——
+
+// 一种敌方单位，以及玩家**当前看得见**几个。
+struct SightedType {
+    rts::UnitType type{};
+    int count = 0;
+};
+
+// 玩家当前看得见的敌方编成，按花名册顺序（`rts::unit_at`）排列。
+//
+// **过迷雾，与 `BattleScene::sorted` 用同一个判据**（`view.fog()`、
+// 只算 `Vis::Visible`）——「编成构成」是 CLAUDE.md 情报划分里**需要侦查**的那一列，
+// 所以这个读数必须只反映玩家真的看见的东西。它与 `strongest_spawn`
+// （免费方向提示，**刻意不过迷雾**）正好是那张表的两侧，放在一起便于对照。
+//
+// 存在的理由：迷雾落地之后，玩家侦查到的编成**没有任何面板可读**，只能靠数
+// 精灵。而 CLAUDE.md 要求「玩家必须能快速读懂来袭编成才能应对」，并明写
+// 不透明会让「被 AI 针对」退化为「被系统坑」。
+std::vector<SightedType> sighted_composition(const rts::WorldView& view);
+
+// 「这种敌人被谁克」——`CLAUDE.md`「克制二部图」那张图的玩家侧读数。
+//
+// **这不是一张 N×N 伤害倍率表**，CLAUDE.md 明确禁止那个（「克制关系由三条
+// 正交属性轴推导，不要退化成平铺的 N×N 伤害倍率表」）。倍率仍然只从机制来
+// （`anti_charge_permille`、`is_aerial`、`vs_structure_permille`、溅射半径……）；
+// 这里给的是**设计意图的陈述**，用途是让玩家读得懂——而「克制必须在 UI 中
+// 完全透明」同样是 CLAUDE.md 的明文要求，两条不矛盾：一条管数值从哪来，
+// 一条管玩家能不能看见。
+//
+// 其中几条是**机制决定的、不是选择**，由 `tests/player_input_test.cpp` 与
+// 数值表交叉核对（例如「`Spear` 克 `Knight`」要求 `anti_charge_permille > 1000`、
+// 「只有 `Flak` 与墙上的 `Archer` 能打 `Phoenix`」要求 `Phoenix` 是空中单位）
+// ——**表若与机制漂移，那条测试会红**，而画面上看不出来。
+struct CounterHint {
+    std::span<const rts::UnitType> units;
+    std::span<const rts::BldType> blds;
+};
+CounterHint counters_of(rts::UnitType attacker) noexcept;
+
 }  // namespace game
 
 #endif  // GAME_PLAYER_INPUT_HPP

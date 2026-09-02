@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cstddef>
 
+#include "rts/fog.hpp"
 #include "rts/world.hpp"
 
 namespace game {
@@ -318,6 +319,69 @@ int strongest_spawn(const rts::WorldView& view) {
         if (tally[s] > tally[best]) best = s;
     }
     return static_cast<int>(best);
+}
+
+
+std::vector<SightedType> sighted_composition(const rts::WorldView& view) {
+    // 判据与 `BattleScene::sorted` 逐字相同：只经 `view.fog()` 一个来源、
+    // 只算 `Vis::Visible`。**两处必须一致**——若面板报出画面上看不见的单位，
+    // 那就等于把「编成构成」从「需侦查」偷偷挪回「免费」那一列。
+    const rts::FogLayer& fog = view.fog();
+    const rts::Side me = view.side();
+
+    int tally[rts::kUnitTypeCount] = {};
+    const auto u_alive = view.unit_alive();
+    const auto u_type = view.unit_type();
+    const auto u_pos = view.unit_pos();
+    for (std::size_t k = 0; k < u_alive.size(); ++k) {
+        if (u_alive[k] == 0) continue;
+        if (rts::side_of(u_type[k]) == me) continue;
+        const rts::GridPos g = rts::grid_of(u_pos[k]);
+        if (!fog.in_bounds(g.i, g.j) || fog.at(g.i, g.j) != rts::Vis::Visible) continue;
+        ++tally[static_cast<std::size_t>(u_type[k])];
+    }
+
+    // 按花名册顺序输出（`unit_at`），不按数量排——顺序必须**稳定**，
+    // 否则面板每帧重排，玩家读不了（同 `plain_variant` 那条「必须确定」）。
+    std::vector<SightedType> out;
+    for (int i = 0; i < rts::kUnitTypeCount; ++i) {
+        const rts::UnitType t = rts::unit_at(i);
+        const int n = tally[static_cast<std::size_t>(t)];
+        if (n > 0) out.push_back(SightedType{t, n});
+    }
+    return out;
+}
+
+CounterHint counters_of(rts::UnitType attacker) noexcept {
+    // `CLAUDE.md`「克制二部图」的攻方那一半，逐条对应。**静态存储期的小数组**，
+    // 不是 N×N 表：每条只列「被谁克」，而倍率一个都不在这里。
+    static constexpr rts::UnitType kArcher[] = {rts::UnitType::Archer};
+    static constexpr rts::UnitType kSpear[] = {rts::UnitType::Spear};
+    static constexpr rts::UnitType kRanger[] = {rts::UnitType::Ranger};
+    static constexpr rts::UnitType kMobile[] = {rts::UnitType::Ranger,
+                                                rts::UnitType::Scout};
+    static constexpr rts::BldType kTower[] = {rts::BldType::Tower};
+    static constexpr rts::BldType kFlak[] = {rts::BldType::Flak};
+
+    // 无 `default`：完备性靠 /w14062 与 -Wswitch（同 `display_names.cpp` 那一串）。
+    // 加一个兵种忘了给它填克制关系 ⇒ **编不过**，而不是画面上少一行。
+    switch (attacker) {
+        // ——攻方六种，逐条照二部图——
+        case rts::UnitType::Ghoul:   return {kArcher, kTower};   // 拉扯 + 齐射
+        case rts::UnitType::Shade:   return {kRanger, {}};       // 冲脸（+ 城墙高度惩罚）
+        case rts::UnitType::Knight:  return {kSpear, {}};        // 开阔地枪阵
+        case rts::UnitType::Phoenix: return {kArcher, kFlak};    // 位置性防空：Flak + 墙上弓手
+        case rts::UnitType::Wraith:  return {kMobile, {}};       // 任何机动单位猎杀
+        case rts::UnitType::Ram:     return {kRanger, {}};       // 快速切入
+        // ——守方五种不是「来袭」，面板不会问到它们——
+        case rts::UnitType::Archer:
+        case rts::UnitType::Spear:
+        case rts::UnitType::Ranger:
+        case rts::UnitType::Scout:
+        case rts::UnitType::Mason:
+            return {};
+    }
+    return {};
 }
 
 }  // namespace game

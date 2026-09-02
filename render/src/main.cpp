@@ -429,6 +429,62 @@ void draw_hud_backing(const render::FontSet& font,
         Color{18, 18, 24, 205});
 }
 
+// 侦查面板：**玩家当前看得见的**来袭编成 + 每种被谁克。画在右上角。
+//
+// 它是迷雾落地之后补的另一半：迷雾把编成藏起来了（那是设计——「编成构成」在
+// CLAUDE.md 的情报划分里属**需侦查**那一列），但侦查到之后玩家**没有任何面板
+// 可读**，只能靠数精灵。而 CLAUDE.md 同时要求「玩家必须能快速读懂来袭编成才能
+// 应对」、且「克制必须在 UI 中完全透明」——不透明会让「被 AI 针对」退化成
+// 「被系统坑」（那是它引 AoE2 那条社区批评时点名要避免的）。
+//
+// **看不见就整块不画**（而不是画一个空框）：「什么都没侦查到」与「敌人还没来」
+// 在玩家侧应当是同一个观感——都是「我不知道」，而一个空面板会读作「确认无敌人」。
+void draw_intel_panel(const render::FontSet& font, const rts::WorldView& view,
+                      int screen_w) {
+    const std::vector<game::SightedType> seen = game::sighted_composition(view);
+    if (seen.empty()) return;
+
+    std::vector<std::string> lines;
+    lines.push_back("已侦查");
+    for (const game::SightedType& s : seen) {
+        std::string line(game::display_name(s.type));
+        line += " ×" + std::to_string(s.count);
+        const game::CounterHint c = game::counters_of(s.type);
+        if (!c.units.empty() || !c.blds.empty()) {
+            line += "  克：";
+            bool first = true;
+            for (const rts::UnitType u : c.units) {
+                if (!first) line += "/";
+                line += std::string(game::display_name(u));
+                first = false;
+            }
+            for (const rts::BldType b : c.blds) {
+                if (!first) line += "/";
+                line += std::string(game::display_name(b));
+                first = false;
+            }
+        }
+        lines.push_back(line);
+    }
+
+    float max_w = 0.0f;
+    for (const std::string& s : lines) {
+        max_w = std::max(max_w, font.measure(s, kHudSize).x);
+    }
+    const float pad = 8.0f;
+    const float x = static_cast<float>(screen_w) - max_w - 14.0f;
+    DrawRectangleRec(Rectangle{x - pad, 12.0f - pad, max_w + pad * 2.0f,
+                               kHudLine * static_cast<float>(lines.size()) +
+                                   pad * 2.0f - 4.0f},
+                     Color{18, 18, 24, 205});
+    for (std::size_t k = 0; k < lines.size(); ++k) {
+        const Color col = (k == 0) ? Color{235, 235, 245, 255}
+                                   : Color{225, 195, 195, 255};
+        font.draw(lines[k], rts::Vec2{x, 12.0f + kHudLine * static_cast<float>(k)},
+                  kHudSize, col);
+    }
+}
+
 void draw_hud(const render::FontSet& font, const game::MapData& map,
               const game::DrawLists& lists) {
     char buf[320];
@@ -1034,6 +1090,9 @@ int run_game(const Options& opt) {
         if (shell.screen() == game::Screen::Battle && b != nullptr) {
             draw_battle_hud(*font, map, *b, paused, selected.size(),
                             train_level_sel);
+            // 侦查面板（右上角）：看得见的来袭编成 + 克制提示。
+            draw_intel_panel(*font, b->world().view(rts::Side::Defender),
+                             GetScreenWidth());
 
             // 弹出菜单：屏幕坐标，画在点开那一刻的位置。**造价写在选项里**——
             // 「点了没反应」最常见的真因是买不起，把价钱摆在眼前比事后猜便宜。

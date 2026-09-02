@@ -18,6 +18,7 @@
 #include "game/map_loader.hpp"
 #include "game/player_input.hpp"
 #include "game/stats_loader.hpp"
+#include "rts/roster.hpp"
 #include "rts/utf8_path.hpp"
 #include "rts/world_view.hpp"
 
@@ -697,4 +698,60 @@ TEST_CASE("开局的箭楼与防空都够得着墙线（实战尺度的池图）
     }
     REQUIRE(has_flak);
     REQUIRE(checked >= 2);   // 池图预置 2–3 座箭楼 + demo_init 的一座防空
+}
+
+// 侦查面板的编成读数必须**与画面一致**：面板报出的，正是绘制列表里画出来的。
+//
+// 这是整块面板的正确性判据。若面板走了一条不过迷雾的路（例如直接数
+// `unit_alive`），它就把「编成构成」从 CLAUDE.md 情报划分的**需侦查**那一列
+// 偷偷挪回**免费**那一列——而画面上一切正常，没有任何别的东西会红。
+TEST_CASE("侦查面板：编成读数与绘制列表逐类对齐（都过同一份迷雾）", "[demo]") {
+    const game::MapData map = demo_map();
+    const rts::StatsTable stats = demo_stats();
+    game::DemoBattle a(map, stats, 7);
+
+    const auto compare_at = [&](const char* when) {
+        const rts::WorldView v = a.world().view(rts::Side::Defender);
+        // 面板侧
+        int panel[rts::kUnitTypeCount] = {};
+        for (const game::SightedType& s : game::sighted_composition(v)) {
+            panel[static_cast<std::size_t>(s.type)] = s.count;
+            REQUIRE(s.count > 0);                                   // 不报 0
+            REQUIRE(rts::side_of(s.type) == rts::Side::Attacker);   // 只报敌方
+        }
+        // 画面侧
+        int drawn[rts::kUnitTypeCount] = {};
+        for (const game::DrawItem& it : game::BattleScene::sorted(map, v,
+                                                                  a.world().now())) {
+            if (!it.continuous) continue;
+            for (int i = 0; i < rts::kUnitTypeCount; ++i) {
+                const rts::UnitType t = rts::unit_at(i);
+                if (rts::side_of(t) != rts::Side::Attacker) continue;
+                if (it.sprite == rts::ident_of(t)) ++drawn[static_cast<std::size_t>(t)];
+            }
+        }
+        for (int i = 0; i < rts::kUnitTypeCount; ++i) {
+            const rts::UnitType t = rts::unit_at(i);
+            if (rts::side_of(t) != rts::Side::Attacker) continue;
+            CAPTURE(when, rts::ident_of(t));
+            REQUIRE(panel[static_cast<std::size_t>(t)] ==
+                    drawn[static_cast<std::size_t>(t)]);
+        }
+    };
+
+    a.update(370);   // 刚生波，全在迷雾里
+    REQUIRE(a.world().live_unit_count(rts::Side::Attacker) > 0);
+    REQUIRE(game::sighted_composition(a.world().view(rts::Side::Defender)).empty());
+    compare_at("刚生波（全在迷雾里）");
+
+    // 推进到真的看见了敌人，再比一次——只测「看不见」那一头会让
+    // 「面板永远返回空」也通过。
+    bool ever_seen = false;
+    for (int t = 0; t < 4000 && !ever_seen; t += 20) {
+        a.update(20);
+        ever_seen = !game::sighted_composition(
+                         a.world().view(rts::Side::Defender)).empty();
+    }
+    REQUIRE(ever_seen);
+    compare_at("已经看见敌人");
 }
