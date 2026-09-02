@@ -675,9 +675,10 @@ void draw_battle_hud(const render::FontSet& font, const game::MapData& map,
               std::string(game::display_name(game::compass_of(
                   w.keep_pos(), bv.spawns()[static_cast<std::size_t>(lead)].pos)));
     }
-    std::snprintf(buf, sizeof(buf), "守方 %d   攻方 %d   石 %d   木 %d   金 %d",
+    std::snprintf(buf, sizeof(buf), "守方 %d   攻方 %d   人口 %d/%d   石 %d   木 %d   金 %d",
                   w.live_unit_count(rts::Side::Defender),
                   w.live_unit_count(rts::Side::Attacker),
+                  bv.defender_pop(), bv.defender_pop_cap(),
                   static_cast<int>(w.stock(rts::Resource::Stone)),
                   static_cast<int>(w.stock(rts::Resource::Wood)),
                   static_cast<int>(w.stock(rts::Resource::Gold)));
@@ -897,6 +898,10 @@ int run_game(const Options& opt) {
         // 实测过——换成 const 就没有这个假警告。
         const float kW = 240.0f, kH = 30.0f, kGap = 4.0f;
         const auto& stats = shell.battle()->world().stats();
+        // 人口满（全局状态，与弹窗种类无关，所以在 switch 外算一次——case 里
+        // 声明变量会被 C2360 拦）。只被 `Train` 弹窗用：选项照常列出但全部
+        // 灰掉，并把原因印在标签里（同升级行印「先升堡垒」那条先例）。
+        const bool pop_full = game::train_pop_full(v);
         const auto push = [&](std::string label, bool legal, PopupKind action, int index) {
             const float y = p.anchor.y + static_cast<float>(out.size()) * (kH + kGap);
             out.push_back(PopupOption{Rectangle{p.anchor.x, y, kW, kH}, std::move(label),
@@ -989,11 +994,12 @@ int run_game(const Options& opt) {
                     const rts::UnitType ut = trainable[i];
                     // 造价随 `train_level_sel` 变——`[`/`]` 调的是这一格
                     // 弹窗里全部兵种共用的同一个等级，不是逐兵种各自的。
-                    std::snprintf(buf, sizeof(buf), "%s Lv%d (金%d)",
+                    std::snprintf(buf, sizeof(buf), "%s Lv%d (金%d)%s",
                                  std::string(game::display_name(ut)).c_str(),
                                  train_level_sel,
-                                 static_cast<int>(v.train_cost_gold(ut, train_level_sel)));
-                    push(buf, game::can_train_hint(v, p.cell) &&
+                                 static_cast<int>(v.train_cost_gold(ut, train_level_sel)),
+                                 pop_full ? " (人口满)" : "");
+                    push(buf, !pop_full && game::can_train_hint(v, p.cell) &&
                                  game::can_afford_train(v, ut, train_level_sel),
                         PopupKind::Train, static_cast<int>(i));
                 }

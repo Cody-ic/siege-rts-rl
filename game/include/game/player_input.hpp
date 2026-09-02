@@ -113,6 +113,14 @@ bool can_train_hint(const rts::WorldView& view, rts::GridPos cell);
 // 等级上限落地时追加的参数——顶不过上限直接算不够格，不单独开一个函数。
 bool can_afford_train(const rts::WorldView& view, rts::UnitType ut, std::int32_t level);
 
+// 人口满（守方）：存活守方单位 + 在训占位达到 `defender_pop_cap()`。
+// 它是**全局**状态不是逐格属性，所以不进 `can_train_hint`（那个管「这格
+// 能不能弹出菜单」）——满了菜单照样弹，选项灰掉并把原因印在标签里
+// （同 `upgrade_block` 把「先升堡垒」印在升级行那条先例：「为什么不能做」
+// 在画面上要有一个字）。机制侧 `World::apply_one` 的 `Train` 分支自己
+// 也查这一条，这里是给玩家看的同一份答案。
+bool train_pop_full(const rts::WorldView& view);
+
 // 征兵命令。`level` 是兵种等级上限落地时追加的（1..`unit_level_cap()` 任选，
 // 越高越贵——`view.train_cost_gold()` 查具体数额）。新兵不带任何归属概念：
 // 编队系统移除后，出兵即自主行动（`game/defender_script.hpp`）。

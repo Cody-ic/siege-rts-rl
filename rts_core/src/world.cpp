@@ -67,6 +67,8 @@ World::World(WorldInit init)
       stats_(init.stats),
       stats_fp_(init.stats.fingerprint()),
       tier_income_permille_(init.tier_income_permille),
+      pop_cap_base_(init.pop_cap_base),
+      pop_cap_per_keep_level_(init.pop_cap_per_keep_level),
       nominal_level_(init.nominal_level),
       rng_(init.seed),
       fog_{FogLayer(init.width, init.height), FogLayer(init.width, init.height)} {
@@ -80,6 +82,10 @@ World::World(WorldInit init)
     }
     if (init.tier_income_permille.inner < 0 || init.tier_income_permille.outer < 0) {
         throw ContractError("tier_income_permille 不得为负（负产出不是设计里的东西）");
+    }
+    if (init.pop_cap_base < 0 || init.pop_cap_per_keep_level < 0) {
+        throw ContractError("pop_cap_base / pop_cap_per_keep_level 不得为负"
+                            "（负的人口上限不是设计里的东西；要关掉上限就调大它们）");
     }
     for (const SpawnSite& s : spawns_) {
         if (!terrain_.in_bounds(s.pos.i, s.pos.j)) {
@@ -486,6 +492,11 @@ void World::apply_one(const Command& c) {
             // 依赖的检查，落在这里——同 `Upgrade` 对 `building_level_cap()`
             // 的既定纪律。
             if (c.level > unit_level_cap()) break;
+            // 人口上限（守方升级轴第一个输出）：满员静默拒绝，与「钱不够
+            // 无操作」同款语义。人口是派生量（现算，含在训占位），不是
+            // 新状态——见 `defender_pop()`。攻方不经 `Train` 出兵
+            // （Composition/波次生成走 `spawn_unit`），不受此限。
+            if (defender_pop() >= defender_pop_cap()) break;
             const UnitType ut = static_cast<UnitType>(c.what);
             const std::int64_t cost = train_cost_gold(ut, c.level);
             if (stock_[static_cast<std::size_t>(Resource::Gold)] < cost) break;
@@ -908,10 +919,46 @@ std::int32_t World::unit_level_cap() const noexcept {
     return b_level_[k];
 }
 
+int World::defender_pop() const noexcept {
+    // 存活守方单位 + 在训占位，各占 1 格。现算，不存——人口是纯派生量
+    // （`world.hpp` 的声明注释写了这条与「不进哈希」的理由）。
+    int n = 0;
+    for (std::size_t k = 0; k < unit_pool_.slot_count(); ++k) {
+        if (unit_pool_.alive_at(static_cast<std::uint16_t>(k)) &&
+            side_of(u_type_[k]) == Side::Defender) {
+            ++n;
+        }
+    }
+    for (std::size_t k = 0; k < bld_pool_.slot_count(); ++k) {
+        if (bld_pool_.alive_at(static_cast<std::uint16_t>(k)) &&
+            b_train_type_[k] != kNoTrain) {
+            ++n;
+        }
+    }
+    return n;
+}
+
+int World::defender_pop_cap() const noexcept {
+    // Keep 格位定位与 `unit_level_cap()` 逐字同款（构造期校验恰好一座，
+    // 存活期内不会被拆），公式不同：`cap = base + per × 堡垒等级`。
+    const std::size_t cell =
+        static_cast<std::size_t>(keep_.j) * static_cast<std::size_t>(width()) +
+        static_cast<std::size_t>(keep_.i);
+    const std::size_t k = static_cast<std::size_t>(bld_at_[cell] - 1);
+    return pop_cap_base_ + pop_cap_per_keep_level_ * b_level_[k];
+}
+
 std::int64_t World::train_cost_gold(UnitType ut, std::int32_t level) const noexcept {
-    // 纯线性，不走 `apply_permille`——那个函数钳到 >= 1 且四舍五入，两者对
-    // 「基础造价 × 整数等级」这种精确乘法没有必要，直接乘更诚实。
-    return stats_.of(ut).cost_gold * static_cast<std::int64_t>(level);
+    // `c ∝ √B(L)`（`数值设计与成本产出矩阵.md` §12.5，2026-09-02 落地）：
+    // `base × √(1 + k(L−1))`，与血量/伤害同一条 `level_permille` 曲线、
+    // 同一个 k（hp 与 dmg 两个系数相等由 StatsLoader 拦，取哪个都一样）。
+    // 取整走 `apply_permille`（`(x×p+500)/1000` 四舍五入、钳 >= 1）——
+    // 与 `train_ticks_at` 同款；旧注释「apply_permille 对精确乘法没有必要」
+    // 随线性公式一起退役，这里本来就不是精确乘法。
+    // L=1 恒等于原价：`level_permille(1,·) = 1000`，不缩放。
+    return apply_permille(
+        stats_.of(ut).cost_gold,
+        {level_permille(level, stats_.global.hp_permille_per_level)});
 }
 
 std::int32_t World::train_ticks_at(UnitType ut, std::int32_t level) const noexcept {

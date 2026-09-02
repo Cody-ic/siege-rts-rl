@@ -150,6 +150,12 @@ public:
     // 兵种等级上限（守方升级轴第三个输出）：直接等于堡垒等级，无除数——
     // 与上面 `building_level_cap()` 的公式来源本来就不同，见 `World` 的实现。
     std::int32_t unit_level_cap() const noexcept { return w_->unit_level_cap(); }
+    // 人口（守方）：存活守方单位 + 在训占位；上限 = `pop_cap_base +
+    // pop_cap_per_keep_level × 堡垒等级`（`WorldInit`）。**派生量、现算**，
+    // 不是新状态。构造期保证恰好一座 Keep，所以 cap 总有值——没有
+    // 「无上限」哨兵，HUD 直接按 x/y 画。
+    int defender_pop() const noexcept { return w_->defender_pop(); }
+    int defender_pop_cap() const noexcept { return w_->defender_pop_cap(); }
     // 造价/耗时曲线，`game/player_input.cpp` 的征兵查询调它，
     // 不在 `game/` 里重新推公式（同 `upgrade_cost_stone` 那条纪律）。
     std::int64_t train_cost_gold(UnitType ut, std::int32_t level) const noexcept {

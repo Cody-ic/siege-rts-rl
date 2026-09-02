@@ -142,6 +142,17 @@
 > 只读直通**：`stats()`（脚本与 flow field 按它算代价，与机制同一份表）与
 > `action_mask(id)`（掩码本来就是观测的一部分；不给这条，脚本就得捧着
 > `World&`，「脚本一律经 `WorldView`」那条纪律就名存实亡）。
+> **2026-09-02：守方升级轴三件齐。** 征兵造价从 `cost_gold × level` 改为
+> `c ∝ √B(L)`（`train_cost_gold` 走 `level_permille`，与血量/伤害同一条
+> 曲线、同一个 k）；人口上限 `8+2K` 落地（`WorldInit::pop_cap_base` /
+> `pop_cap_per_keep_level`，人口 = 存活守方单位 + 在训占位，`Train` 解算
+> 满员静默拒绝，攻方不受限）；兵种等级上限 = 堡垒等级此前已实现（#108/#114）。
+> `WorldView` 补 `defender_pop()` / `defender_pop_cap()` 两个查询。
+> **人口是派生量不是新状态**：两个查询现算自既有数组，没加字段、没动
+> `state_hash` 的喂入清单，`kWorldHashTag` 保持 `World/13`——机制变了
+> 所以记档，口径没变所以不进格。攻方 `demo_driver.cpp::wave_level` 的
+> 反解**不跟**（它假设人均 base·B(L)，但那是波次预算的反推、不是真扣钱；
+> §12.6：不能顺手改，差异归标定时校准）。
 
 两条要点：
 

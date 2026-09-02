@@ -159,6 +159,10 @@ bool can_afford_train(const rts::WorldView& view, rts::UnitType ut, std::int32_t
            view.train_cost_gold(ut, level);
 }
 
+bool train_pop_full(const rts::WorldView& view) {
+    return view.defender_pop() >= view.defender_pop_cap();
+}
+
 rts::Command train_command(rts::UnitType u, std::int32_t level,
                            rts::GridPos cell, int map_width) {
     rts::Command c = make(rts::CommandKind::Train, cell, map_width);

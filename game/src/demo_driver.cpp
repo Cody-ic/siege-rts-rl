@@ -205,6 +205,12 @@ int wave_slots(int wave) {
 std::int32_t wave_level(int wave, const rts::StatsTable& stats) {
     // k 从数值表读（hp 与 dmg 两个系数相等由 StatsLoader 拦，取哪个都一样），
     // 不在这里抄一份 0.22——机制里不许藏数，那条纪律对 demo 曲线同样适用。
+    //
+    // **这条反解假设人均造价 = base·B(L)（p = 1），而守方
+    // `World::train_cost_gold` 自 2026-09-02 起是 c ∝ √B(L)。不跟着改**：
+    // 这里是波次预算的反推（「兵力预算 ≡ 总战力」是 PR #124 建立的构造性
+    // 等式，攻方那条预算按定义就是战力预算），不是真扣钱——§12.6 明写
+    // 「不能顺手改，要单独想清楚」，两侧的差异归标定时校准。
     const double k =
         static_cast<double>(stats.global.hp_permille_per_level) / 1000.0;
     if (k <= 0.0) return 1;
