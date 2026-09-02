@@ -509,5 +509,9 @@ def mode_base():
 
 
 if __name__ == '__main__':
+    # 输出里有 ⇒ 等非 GBK 字符：Windows 中文控制台（cp936）下不转 UTF-8 会直接
+    # UnicodeEncodeError 崩在半截（2026-09-02 审 #126 时实测，towers 模式）。
+    if sys.stdout.encoding and sys.stdout.encoding.lower() not in ('utf-8', 'utf8'):
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     mode = sys.argv[1] if len(sys.argv) > 1 else 'grid'
     {'pool': mode_pool, 'towers': mode_towers, 'grid': mode_grid, 'base': mode_base}[mode]()
