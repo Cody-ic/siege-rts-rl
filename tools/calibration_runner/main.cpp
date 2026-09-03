@@ -68,6 +68,7 @@
 #include "game/map_loader.hpp"
 #include "game/stats_loader.hpp"
 #include "rts/action.hpp"
+#include "rts/cli_args.hpp"
 #include "rts/command.hpp"
 #include "rts/roster.hpp"
 #include "rts/utf8_path.hpp"
@@ -114,16 +115,17 @@ void print_help() {
         "  --help            本帮助\n";
 }
 
-bool parse_args(int argc, char** argv, Options& out) {
+bool parse_args(const std::vector<std::string>& args, Options& out) {
+    const int argc = static_cast<int>(args.size());
     const auto need = [&](int& i, const char* name) -> std::string {
         if (i + 1 >= argc) {
             std::cerr << "选项 " << name << " 需要一个参数\n";
             return {};
         }
-        return std::string(argv[++i]);
+        return args[static_cast<std::size_t>(++i)];
     };
     for (int i = 1; i < argc; ++i) {
-        const std::string a = argv[i];
+        const std::string a = args[static_cast<std::size_t>(i)];
         if (a == "--help" || a == "-h") {
             out.help = true;
         } else if (a == "--maps") {
@@ -1125,9 +1127,13 @@ void write_run(Json& j, const RunRecord& r) {
 
 int main(int argc, char** argv) {
     using namespace calib;
+    // **命令行必须先转 UTF-8**：Windows 的窄 argv 是 ANSI 代码页，而下面
+    // 一路都按 UTF-8 处理（`rts::path_from_utf8`）。少了这一步，仓库路径
+    // 含中文时进程直接 __fastfail（0xC0000409），理由见 `rts/cli_args.hpp`。
+    const std::vector<std::string> args = rts::utf8_args(argc, argv);
     Options opt;
     opt.maps_dir = std::string(GAME_DATA_DIR) + "/maps/pool";
-    if (!parse_args(argc, argv, opt)) {
+    if (!parse_args(args, opt)) {
         std::cerr << "（--help 看用法）\n";
         return 2;
     }
