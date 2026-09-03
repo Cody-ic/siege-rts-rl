@@ -119,7 +119,7 @@ public:
     MobilityKind mobility() const noexcept override { return MobilityKind::Charge; }
 };
 
-// 不死鸟：**唯一的空中单位**，手术刀而非胜利条件。
+// 不死鸟：空中单位，手术刀而非胜利条件。
 //
 // 这是 11 个类里唯一 override 结构性判定的：
 // **对城墙与城门破坏速率为 0**，且无法攻击核心建筑。CLAUDE.md 把它列为
@@ -139,19 +139,18 @@ public:
     bool can_break_structure() const noexcept override { return false; }
 };
 
-// 幽影窥使：**地面**、极快、大视野、无战力。
+// 幽影窥使：**空中**（2026-09-03 起）、极快、大视野、无战力。
 //
-// 「地面」是结构性决定（CLAUDE.md「空中单位」一节整段在论证它）：若它会飞，
-// 防空建筑就多了「否定侦查」这一每波都稳定生效的用途，玩家无脑造 AA 即可，
-// AA 的机会成本不再是两难。所以 `mobility()` 取 `LightFast` 而非 `Aerial`，
-// 且 `roster.hpp` 的 `is_aerial()` 对它返回 false——**两处必须一致**，
+// 「会飞」曾是反面教材（原论证：防空会因此每波都稳赚，AA 的机会成本不再是
+// 两难）；组内最终决定改为空中单位，移动机制与 `Phoenix` 同一套——`mobility()`
+// 取 `Aerial`，且 `roster.hpp` 的 `is_aerial()` 对它返回 true——**两处必须一致**，
 // 由测试钉住（`tests/unit_behavior_test.cpp`）。
 class WraithBehavior final : public UnitBehavior {
 public:
     UnitType type() const noexcept override { return UnitType::Wraith; }
     EngageRange engage_range() const noexcept override { return EngageRange::Melee; }
     StrikeForm strike_form() const noexcept override { return StrikeForm::Single; }
-    MobilityKind mobility() const noexcept override { return MobilityKind::LightFast; }
+    MobilityKind mobility() const noexcept override { return MobilityKind::Aerial; }
 };
 
 // 攻城锤：贴身、AOE、对建筑特攻，是玩家的头号集火目标。

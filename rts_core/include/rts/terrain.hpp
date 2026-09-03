@@ -52,7 +52,7 @@ inline constexpr int kTerrainCount = 5;
 
 static_assert(static_cast<int>(Terrain::Bridge) == kTerrainCount - 1);
 
-// 移动层。**只有两层，且第二层只有 `Phoenix`**（`rts/roster.hpp` 的 `is_aerial`）。
+// 移动层。**只有两层，第二层是 `Phoenix` 与 `Wraith`**（`rts/roster.hpp` 的 `is_aerial`）。
 //
 // 存在的理由是 4.1 末尾那句：「空中单位的位图里水是可通行的，这与『空军无视墙』
 // 用的是同一套按兵种类别的地形掩码。」把它做成参数，那套掩码就只有一处定义。
@@ -86,9 +86,10 @@ constexpr bool is_passable(Terrain t) noexcept {
 // 按移动层。
 //
 // **空中层对全部地形都通**，这不是偷懒的恒真分支而是结构性事实：
-// `Phoenix` 的唯一克制手段是位置性的防空（CLAUDE.md「空中单位」），
-// 地形不参与。写成参数化的一个函数，是为了让「空军的地形掩码是全 1」
-// 只有一处定义——寻路那侧（1c）不必自己判，也就不会各判一遍。
+// 空中单位（`Phoenix` / `Wraith`）的唯一克制手段是位置性的防空
+// （CLAUDE.md「空中单位」），地形不参与。写成参数化的一个函数，是为了让
+// 「空军的地形掩码是全 1」只有一处定义——寻路那侧（1c）不必自己判，
+// 也就不会各判一遍。
 constexpr bool is_passable(Terrain t, Mobility m) noexcept {
     switch (m) {
         case Mobility::Ground:

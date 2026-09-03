@@ -362,8 +362,6 @@ CounterHint counters_of(rts::UnitType attacker) noexcept {
     static constexpr rts::UnitType kArcher[] = {rts::UnitType::Archer};
     static constexpr rts::UnitType kSpear[] = {rts::UnitType::Spear};
     static constexpr rts::UnitType kRanger[] = {rts::UnitType::Ranger};
-    static constexpr rts::UnitType kMobile[] = {rts::UnitType::Ranger,
-                                                rts::UnitType::Scout};
     static constexpr rts::BldType kTower[] = {rts::BldType::Tower};
     static constexpr rts::BldType kFlak[] = {rts::BldType::Flak};
 
@@ -375,7 +373,7 @@ CounterHint counters_of(rts::UnitType attacker) noexcept {
         case rts::UnitType::Shade:   return {kRanger, {}};       // 冲脸（+ 城墙高度惩罚）
         case rts::UnitType::Knight:  return {kSpear, {}};        // 开阔地枪阵
         case rts::UnitType::Phoenix: return {kArcher, kFlak};    // 位置性防空：Flak + 墙上弓手
-        case rts::UnitType::Wraith:  return {kMobile, {}};       // 任何机动单位猎杀
+        case rts::UnitType::Wraith:  return {kArcher, kFlak};    // 会飞（2026-09-03 起）：只剩位置性防空
         case rts::UnitType::Ram:     return {kRanger, {}};       // 快速切入
         // ——守方五种不是「来袭」，面板不会问到它们——
         case rts::UnitType::Archer:

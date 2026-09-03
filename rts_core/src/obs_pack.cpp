@@ -48,8 +48,8 @@ void pack_globals(const WorldView& view, const ObsNorms& norms,
     globals[static_cast<std::size_t>(ObsGlobal::WaveLog)] =
         std::log2(1.0f + std::max(0.0f, w));
 
-    // 存活空军 ÷ 本波上限。**当前恒为 0**（空军还没进 demo 的编成），
-    // 见 `ObsNorms::aerial_cap` 那段注释。
+    // 存活空军 ÷ 本波上限。2026-09-03 起 `Wraith` 算空军（第 2 波起恒一进
+    // demo 编成），这条通道随它取值；见 `ObsNorms::aerial_cap` 那段注释。
     int aerial = 0;
     const auto alive = view.unit_alive();
     const auto type = view.unit_type();

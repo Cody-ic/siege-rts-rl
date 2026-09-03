@@ -74,9 +74,9 @@ struct ObsNorms {
     float cell_capacity = 4.0f;
     // `ObsGlobal::AerialAliveFrac` 的分母：本波空军上限。
     //
-    // **这条通道目前恒为 0**，因为空军（`Phoenix`）还没进 demo 的编成
-    // （`DemoBattle` 不生成它）。恒 0 不是 bug——读到它的人该知道那是
-    // 「空军还没进 demo」，而不是「打包器坏了」。
+    // 2026-09-03 起这条通道**不再恒为 0**：`Wraith` 改判空中单位，而它第 2 波起
+    // 恒一进 demo 编成（`DemoBattle`），于是通道值 = 存活窥使数 ÷ `aerial_cap`。
+    // `Phoenix` 仍不进 demo 编成。
     float aerial_cap = 4.0f;
 };
 

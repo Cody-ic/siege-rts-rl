@@ -59,9 +59,8 @@ TEST_CASE("Aerial 机动性与 is_aerial 必须互相蕴含", "[behavior]") {
     // 两处各自表达「会不会飞」，写不一致的后果是分裂的：寻路按 `mobility()` 走地面、
     // 防空按 `is_aerial()` 判目标，于是出现一个「走地面但只能被防空打」的单位。
     //
-    // 这条尤其针对 `Wraith`：CLAUDE.md 用一整节论证它**必须是地面单位**
-    // （若会飞，防空就多了「否定侦查」这一每波稳定生效的用途，AA 的机会成本
-    // 不再是两难）。而「幽影窥使」这个名字和蝙蝠造型都在往「会飞」上暗示。
+    // 这条尤其针对 `Wraith`：它 2026-09-03 由地面改为空中，两处是一起翻的；
+    // 「幽影窥使」这个名字和蝙蝠造型又都在往「会飞」上暗示，最容易被顺手改单边。
     for (int i = 0; i < rts::kUnitTypeCount; ++i) {
         const rts::UnitType t = rts::unit_at(i);
         const bool by_mobility =
@@ -72,17 +71,19 @@ TEST_CASE("Aerial 机动性与 is_aerial 必须互相蕴含", "[behavior]") {
 
 // ——第二组：结构约束的总数——
 
-TEST_CASE("只有一个空中单位，且是 Phoenix", "[behavior]") {
-    // CLAUDE.md：「`Phoenix` 是唯一的空中单位。`Wraith` 是地面单位——
-    // 这是结构性决定，不要改。」
+TEST_CASE("空中单位恰好两个：Phoenix 与 Wraith", "[behavior]") {
+    // 2026-09-03 设计变更（CLAUDE.md「空中单位」）：`Wraith` 改判空中。
+    // 钉总数——再多一个会飞的兵种，防空的价值结构就要重新论证。
     int n = 0;
     for (int i = 0; i < rts::kUnitTypeCount; ++i) {
         if (rts::behavior_of(rts::unit_at(i)).mobility() == rts::MobilityKind::Aerial) {
             ++n;
         }
     }
-    REQUIRE(n == 1);
+    REQUIRE(n == 2);
     REQUIRE(rts::behavior_of(rts::UnitType::Phoenix).mobility() ==
+            rts::MobilityKind::Aerial);
+    REQUIRE(rts::behavior_of(rts::UnitType::Wraith).mobility() ==
             rts::MobilityKind::Aerial);
 }
 

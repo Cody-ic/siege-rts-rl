@@ -120,21 +120,19 @@ TEST_CASE("守方单位在前、攻方在后，中间没有插队", "[roster]") 
     }
 }
 
-TEST_CASE("空中单位有且仅有一个，且是 Phoenix", "[roster]") {
-    // **这是 CLAUDE.md 里一条写死的结构性决定**，不是待平衡的数值：
-    // 若 `Wraith` 也会飞，防空建筑就同时具备「否定侦查」这一每波都稳定生效的用途，
-    // 玩家无脑造 AA 即可，AA 的机会成本不再构成两难——而那是本作「智斗」
-    // 最可读的载体。
+TEST_CASE("空中单位恰好两个：Phoenix 与 Wraith", "[roster]") {
+    // **2026-09-03 设计变更**：`Wraith` 由地面改为空中（移动机制同 `Phoenix`）。
+    // 原论证（AA 会因此每波稳赚、机会成本不再是两难）作为已知代价被接受，
+    // 推导与取舍见 CLAUDE.md「空中单位」。
     //
-    // 所以这条测试真正防的是**有人顺手给 Wraith 加上 is_aerial**：
-    // 那一行改动看起来无害（「侦查单位会飞很合理」），后果是三条设计一起失效。
+    // 这条测试钉的是**总数**：再多一个会飞的兵种，防空的价值结构就要重新论证。
     int aerial = 0;
     for (int i = 0; i < rts::kUnitTypeCount; ++i) {
         if (rts::is_aerial(rts::unit_at(i))) ++aerial;
     }
-    REQUIRE(aerial == 1);
+    REQUIRE(aerial == 2);
     REQUIRE(rts::is_aerial(rts::UnitType::Phoenix));
-    REQUIRE_FALSE(rts::is_aerial(rts::UnitType::Wraith));
+    REQUIRE(rts::is_aerial(rts::UnitType::Wraith));
 }
 
 TEST_CASE("守方没有空军", "[roster]") {

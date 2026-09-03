@@ -57,6 +57,10 @@ rts::StatsTable flow_stats() {
     us(t, rts::UnitType::Ghoul) = {30, 10, 1.2f, 0.25f, 4.0f, 2, 8, 1000, 0.0f, 0.0f};
     us(t, rts::UnitType::Ranger) = {18, 6, 1.2f, 0.50f, 5.0f, 2, 8, 1000, 0.0f, 0.0f};
     us(t, rts::UnitType::Wraith) = {14, 0, 0.0f, 0.50f, 6.0f, 0, 1, 0, 0.0f, 0.0f};
+    // `Shade` 在测试表里伤害取 0：2026-09-03 起 `Wraith` 会飞，地面「破不了
+    // 结构的兵种」这个测试载具由它接任（`can_break_structure()` 为真但
+    // dmg = 0 ⇒ 进格代价照样是 kInf，与 flow.cpp 同一判据）。
+    us(t, rts::UnitType::Shade) = {14, 0, 0.0f, 0.50f, 6.0f, 0, 1, 0, 0.0f, 0.0f};
     t.bld[static_cast<std::size_t>(rts::BldType::Keep)].max_hp = 200;
     t.bld[static_cast<std::size_t>(rts::BldType::Wall)].max_hp = 40;
     t.bld[static_cast<std::size_t>(rts::BldType::Gate)].max_hp = 20;
@@ -156,14 +160,14 @@ TEST_CASE("破不了结构的兵种：缺口是唯一的路，围死即不可达
     const rts::GridPos goal[1] = {rts::GridPos{10, 4}};
     const rts::GridPos probe{2, 4};
 
-    SECTION("有缺口：Wraith 从缺口绕") {
+    SECTION("有缺口：Shade 从缺口绕") {
         rts::World w(farena());
         for (int j = 1; j < 5; ++j) {
             w.place_bld(rts::BldType::Wall,
                         rts::GridPos{6, static_cast<std::int16_t>(j)}, 40, 40);
         }
         const rts::FlowField f = rts::FlowField::compute(
-            w.view(rts::Side::Attacker), rts::UnitType::Wraith, 0, goal);
+            w.view(rts::Side::Attacker), rts::UnitType::Shade, 0, goal);
         REQUIRE(f.reachable(probe));
         REQUIRE(f.step_of(probe) == rts::UnitAction::MoveE);   // 只有绕这一条
     }
@@ -174,9 +178,24 @@ TEST_CASE("破不了结构的兵种：缺口是唯一的路，围死即不可达
                         rts::GridPos{6, static_cast<std::int16_t>(j)}, 40, 40);
         }
         const rts::FlowField f = rts::FlowField::compute(
-            w.view(rts::Side::Attacker), rts::UnitType::Wraith, 0, goal);
+            w.view(rts::Side::Attacker), rts::UnitType::Shade, 0, goal);
         REQUIRE_FALSE(f.reachable(probe));
         REQUIRE(f.step_of(probe) == rts::UnitAction::Stop);
+    }
+    SECTION("Wraith 会飞：同一条封死的墙线照穿（2026-09-03 起）") {
+        // 上面两节是地面判据，这一节钉空军对照：墙线原样封死，`Wraith`
+        // 既可达、且代价就是直线行军（8 格 × 2 tick），墙在它的 field 里
+        // 不存在（`flow.cpp`：空军飞过一切，地形与实体都不挡）。
+        rts::World w(farena());
+        for (int j = 0; j < 5; ++j) {
+            w.place_bld(rts::BldType::Wall,
+                        rts::GridPos{6, static_cast<std::int16_t>(j)}, 40, 40);
+        }
+        const rts::FlowField f = rts::FlowField::compute(
+            w.view(rts::Side::Attacker), rts::UnitType::Wraith, 0, goal);
+        REQUIRE(f.reachable(probe));
+        REQUIRE(f.cost_at(probe) == 16.0f);
+        REQUIRE(f.step_of(probe) == rts::UnitAction::MoveSE);   // 格东直行
     }
 }
 
@@ -187,9 +206,9 @@ TEST_CASE("实体也挡斜角，等价两路的平局归格下标小的那条", 
     w.place_bld(rts::BldType::Wall, rts::GridPos{6, 1}, 40, 40);
     const rts::GridPos goal[1] = {rts::GridPos{7, 1}};
     const rts::FlowField f = rts::FlowField::compute(
-        w.view(rts::Side::Attacker), rts::UnitType::Wraith, 0, goal);
+        w.view(rts::Side::Attacker), rts::UnitType::Shade, 0, goal);
 
-    // (5,1) → (7,1) 被一格墙挡住：Wraith 破不了，斜擦墙角
+    // (5,1) → (7,1) 被一格墙挡住：Shade 破不了（测试表里伤害为 0），斜擦墙角
     // （(5,1)→(6,0) 与 (6,0)→(7,1)）也被穿角规则拦下——上下两条正交绕路
     // 各 4 步 × 2 tick = 8.0。少了穿角规则这里会变成 2 步斜向 ≈ 5.66。
     REQUIRE(f.cost_at(rts::GridPos{5, 1}) == 8.0f);
@@ -227,9 +246,9 @@ TEST_CASE("完工城门：守方按行军算，攻方按破门算，破不了的
             w.view(rts::Side::Attacker), rts::UnitType::Ghoul, 0, goal);
         REQUIRE(fa.cost_at(probe) == 40.0f);
         REQUIRE(fa.step_of(probe) == rts::UnitAction::MoveSE);
-        // 攻方 Wraith：破不了任何结构，整线不可达。
+        // 攻方 Shade：测试表里伤害为 0 破不了门，整线不可达。
         const rts::FlowField fw = rts::FlowField::compute(
-            w.view(rts::Side::Attacker), rts::UnitType::Wraith, 0, goal);
+            w.view(rts::Side::Attacker), rts::UnitType::Shade, 0, goal);
         REQUIRE_FALSE(fw.reachable(probe));
     }
     SECTION("工地状态的门对守方也不通（还没有门洞）") {
@@ -247,7 +266,7 @@ TEST_CASE("目标格上的建筑不挡可达性：斥候摸向 Keep 不因 Keep 
     rts::World w(farena());
     const rts::GridPos goal[1] = {rts::GridPos{0, 0}};   // Keep 本体所在格
     const rts::FlowField f = rts::FlowField::compute(
-        w.view(rts::Side::Attacker), rts::UnitType::Wraith, 0, goal);
+        w.view(rts::Side::Attacker), rts::UnitType::Shade, 0, goal);
     // 进目标格不付破坏代价：它对所有路径是同一个常数，且「到得了旁边」的
     // 兵种不因目标格上的建筑而整场不可达（头文件「目标格一律视为敞开」）。
     const float diag = 1.41421356f / 0.50f;

@@ -309,13 +309,14 @@ TEST_CASE("密度按 cell_capacity 归一，同格叠加", "[obspack]") {
     CHECK(b.at(kHalf, kHalf, rts::ObsChannel::AllyDensity) == 0.5f);
 }
 
-TEST_CASE("全局标量：wave 取 log2(1+w)，空军比例当前恒为 0", "[obspack]") {
+TEST_CASE("全局标量：wave 取 log2(1+w)，无空军时比例为 0", "[obspack]") {
     rts::World w(arena());
     Buf b;
     rts::pack_globals(w.view(rts::Side::Attacker), {}, b.glob);
     // 第 1 波 → log2(2) = 1
     CHECK(b.glob[static_cast<std::size_t>(rts::ObsGlobal::WaveLog)] == 1.0f);
-    // 没有空军 —— 这条通道现在恒 0，是「空军还没进 demo」而不是打包器坏了
+    // 这个世界里没有空军 ⇒ 比例为 0（2026-09-03 起 `Wraith` 算空军，
+    // demo 第 2 波起这条通道不再恒 0，见 `ObsNorms::aerial_cap` 注释）。
     CHECK(b.glob[static_cast<std::size_t>(rts::ObsGlobal::AerialAliveFrac)] == 0.0f);
 
     // 放一只不死鸟，比例应当变成 1/cap。

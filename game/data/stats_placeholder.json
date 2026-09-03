@@ -169,7 +169,8 @@
       "cost_gold": 0,
       "train_ticks": 0,
       "splash_dmg_permille": 1000,
-      "_note_2026_09_02": "speed 0.19 -> 0.12（《地图生成器大改方案.md》§4）。0.19 > Ranger 0.16 ⇒ 它看到就撤、守方谁也追不上，「猎杀 Wraith 让 AI 带错情报」数值上不可能（实力模型 §10 A 类事实）。方案原文写 0.13，但克制表（player_input.cpp counters_of）把 Scout 列为它的猎手之一，而 Scout 同压到 0.13 ⇒ 同速追不上；取 0.12 让 Ranger 0.16 与 Scout 0.13 都**严格更快**（player_input_test 那条交叉核对已收紧为严格大于）。vision 10 不动：它仍能站在射程外看见墙——但墙不再是侦查判据（demo_driver wave_scouted_ 只认塔/防空/堡垒），要看见布局就得压近到能被追上的距离。"
+      "_note_2026_09_02": "speed 0.19 -> 0.12（《地图生成器大改方案.md》§4）。0.19 > Ranger 0.16 ⇒ 它看到就撤、守方谁也追不上，「猎杀 Wraith 让 AI 带错情报」数值上不可能（实力模型 §10 A 类事实）。方案原文写 0.13，但克制表（player_input.cpp counters_of）把 Scout 列为它的猎手之一，而 Scout 同压到 0.13 ⇒ 同速追不上；取 0.12 让 Ranger 0.16 与 Scout 0.13 都**严格更快**（player_input_test 那条交叉核对已收紧为严格大于）。vision 10 不动：它仍能站在射程外看见墙——但墙不再是侦查判据（demo_driver wave_scouted_ 只认塔/防空/堡垒），要看见布局就得压近到能被追上的距离。",
+      "_note_2026_09_03": "Wraith 由地面改判空中单位（CLAUDE.md「空中单位」2026-09-03 变更）。上面的速度论证随之**失效**：地面单位不再够得着它，能猎杀它的只剩 Flak 与墙上 Archer，速度 0.12 的『严格更快』前提不再承载克制关系；数值本身暂未动，是否对标 Phoenix 的速度/生存曲线留待平衡工具复核。"
     },
     "Ram": {
       "max_hp": 650,
