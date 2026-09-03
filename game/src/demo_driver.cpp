@@ -844,6 +844,7 @@ void DemoBattle::update(int ticks) {
             withdraw_noncombat_attackers();
             w_.begin_next_wave(wave_level(w_.wave() + 1, w_.stats(), curve_));
             build_left_ = timing_.build_ticks;
+            build_start_ = w_.now();   // Summon 护栏的计时起点（见头文件）
             wave_scouted_ = false;   // 新的一波要重新侦查（记忆天然过时）
             // 守方一侧同理：上一波的编成不算情报（CLAUDE.md「波次结构使
             // AI 的记忆天然过时」，那条对玩家一样成立）。

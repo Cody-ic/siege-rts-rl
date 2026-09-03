@@ -301,6 +301,10 @@ TEST_CASE("提前召唤：建造阶段一条 Summon，倒计时直接作废开�
     REQUIRE(a.world().phase() == rts::WavePhase::Build);
     REQUIRE(a.world().live_unit_count(rts::Side::Attacker) > 0);   // 集结期
 
+    // demo 层有 2 tick 的召唤护栏（防上一波连打 N 溢出的最后一发吃掉新一波
+    // 的建造期），先推过护栏窗再提交——这条测试验的是「提前召唤」本身。
+    a.update(3);
+
     rts::Command c;
     c.kind = rts::CommandKind::Summon;
     c.side = rts::Side::Defender;
@@ -309,6 +313,27 @@ TEST_CASE("提前召唤：建造阶段一条 Summon，倒计时直接作废开�
 
     REQUIRE(a.world().phase() == rts::WavePhase::Assault);
     REQUIRE(a.world().live_unit_count(rts::Side::Attacker) > 0);
+}
+
+TEST_CASE("召唤护栏：建造期前 2 tick 的 Summon 被丢弃", "[demo]") {
+    // 连打 N 时最后一次按压可能溢出到下一波建造期的第 0~1 tick，没有护栏
+    // 的话新一波的建造期会被这一发瞬间吃掉（玩家视角：「建造时间没了」）。
+    // 护栏只挡这个窗口，之后的主动提前召唤照旧受理。
+    game::DemoBattle a(demo_map(), demo_stats(), 7);
+    REQUIRE(a.world().phase() == rts::WavePhase::Build);
+    REQUIRE_FALSE(a.summon_accepted_now());
+
+    rts::Command c;
+    c.kind = rts::CommandKind::Summon;
+    c.side = rts::Side::Defender;
+    a.submit_defender(&c, 1);   // 护栏窗内：应被静默丢弃
+    a.update(2);
+    REQUIRE(a.world().phase() == rts::WavePhase::Build);
+
+    REQUIRE(a.summon_accepted_now());   // 护栏窗已过
+    a.submit_defender(&c, 1);
+    a.update(2);
+    REQUIRE(a.world().phase() == rts::WavePhase::Assault);
 }
 
 TEST_CASE("败局定格：Keep 被拆后 update 不再推进", "[demo]") {

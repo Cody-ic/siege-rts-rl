@@ -506,11 +506,11 @@ void draw_intel_panel(const render::FontSet& font, const game::DemoBattle& battl
     draw_panel_lines(font, lines, screen_w);
 }
 
-// 侦查警报横幅（顶中）：「窥使入境」常驻警报 + 「斥候回报」一次性短闪。
+// 对局警报横幅（顶中）：「窥使入境」常驻警报 + 两种一次性短闪。
 //
 // 2026-09-03 试玩反馈：前期侦查阶段（敌窥使来探、我方斥候去看）在界面上
 // 没有任何专属提示——阶段行从「建造」直接跳到「进攻中」，玩家对侦查博弈
-// 感知不到。两条横幅各管一半：
+// 感知不到。两条侦查横幅各管一半，同日又加了第三条操作确认：
 //
 //   * **窥使入境**（Threat）：敌 `Wraith` 进入我方视野就亮，离开视野或被
 //     击落即灭。它亮着的这段时间是玩家唯一的反制窗口（击落 = 敌 AI 这波
@@ -519,23 +519,36 @@ void draw_intel_panel(const render::FontSet& font, const game::DemoBattle& battl
 //   * **斥候回报**（Report）：每波**第一次**看见敌人时闪几秒（触发与时长
 //     在调用点的状态里），说的是对称的那一半——你的斥候干活有了成果，
 //     并把视线引向右上角的侦查面板。
+//   * **提前召唤确认**（Summon）：N 键生效时闪几秒。此前 Summon 生效
+//     毫无反馈，建造期被瞬间掐掉时玩家无从分辨「自然开打」与「自己按的」
+//     ——这条闪就是那条分辨线（同日的「建造期消失」疑案）。
 //
 // 警报只报**看得见的**（判据 `game::enemy_wraith_sighted`，与侦查面板同源）：
 // 看不见的不报——那不是保守，是迷雾设计本身。
 //
 // 描边亮度随 tick 脉动（不用墙钟）：截图模式的画面由 tick 完全决定，
 // 用 `GetTime()` 会让同一 tick 的截图忽明忽暗、回归基线没法对。
-enum class ReconAlertStyle { Threat, Report };
+enum class AlertStyle { Threat, Report, Summon };
 
-void draw_recon_alert(const render::FontSet& font, int screen_w, rts::Tick now,
-                      ReconAlertStyle style) {
-    const bool threat = (style == ReconAlertStyle::Threat);
-    const std::string line1 = threat ? "幽影窥使入境" : "斥候回报：已看清敌袭编成";
-    const std::string line2 =
-        threat ? "击落它，别让它看清你的布防" : "编成与克制见右上侦查面板";
-    const Color backing = threat ? Color{46, 20, 54, 225} : Color{18, 42, 46, 225};
-    const Color ink1 = threat ? Color{240, 205, 255, 255} : Color{205, 240, 245, 255};
-    const Color ink2 = threat ? Color{215, 180, 230, 255} : Color{175, 215, 220, 255};
+void draw_alert_banner(const render::FontSet& font, int screen_w, rts::Tick now,
+                       AlertStyle style) {
+    const bool threat = (style == AlertStyle::Threat);
+    const bool summon = (style == AlertStyle::Summon);
+    const std::string line1 = threat ? "幽影窥使入境"
+                              : summon ? "已提前召唤下一波"
+                                       : "斥候回报：已看清敌袭编成";
+    const std::string line2 = threat ? "击落它，别让它看清你的布防"
+                              : summon ? "敌军即刻开拔"
+                                       : "编成与克制见右上侦查面板";
+    const Color backing = threat ? Color{46, 20, 54, 225}
+                          : summon ? Color{50, 38, 14, 225}
+                                   : Color{18, 42, 46, 225};
+    const Color ink1 = threat ? Color{240, 205, 255, 255}
+                       : summon ? Color{255, 230, 170, 255}
+                                : Color{205, 240, 245, 255};
+    const Color ink2 = threat ? Color{215, 180, 230, 255}
+                       : summon ? Color{235, 205, 140, 255}
+                                : Color{175, 215, 220, 255};
 
     const float w1 = font.measure(line1, kHudSize).x;
     const float w2 = font.measure(line2, kHudSize * 0.8f).x;
@@ -553,7 +566,9 @@ void draw_recon_alert(const render::FontSet& font, int screen_w, rts::Tick now,
     const int ph = static_cast<int>(now % 40);
     const int tri = ph < 20 ? ph : 40 - ph;
     const auto glow = static_cast<unsigned char>(120 + tri * 6);
-    const Color edge = threat ? Color{220, 150, 255, glow} : Color{140, 225, 235, glow};
+    const Color edge = threat ? Color{220, 150, 255, glow}
+                       : summon ? Color{255, 214, 120, glow}
+                                : Color{140, 225, 235, glow};
     DrawRectangleLinesEx(box, 1.5f, edge);
     font.draw(line1,
               rts::Vec2{x + (max_w - w1) * 0.5f, top}, kHudSize, ink1);
@@ -945,6 +960,10 @@ int run_game(const Options& opt) {
     // 新一局（`shell.attempt()` 变化）时在主循环里归零，与 `popup` 它们同处。
     bool recon_prev_sighted = false;
     rts::Tick recon_flash_until = 0;
+    // 提前召唤的确认闪：N 被 demo 层受理（`summon_accepted_now`）时点亮几秒。
+    // 「建造期没了」之前是无声的——闪一下让玩家知道是自己按的 N；
+    // 没闪却跳阶段，就是另有 bug，留着这个区分当自诊断。
+    rts::Tick summon_flash_until = 0;
     // 不用 constexpr：MSVC 对「只在内层 lambda 里用到的 constexpr 局部变量」
     // 误报 C4189（`popup_options` 那里实测过，同一处教训）。
     const rts::Tick kReconFlashTicks = 80;   // 4 秒 @ 20 Hz
@@ -1226,17 +1245,21 @@ int run_game(const Options& opt) {
             draw_intel_panel(*font, *b, GetScreenWidth());
 
             const rts::WorldView dv = b->world().view(rts::Side::Defender);
-            // 侦查警报（顶中）：窥使入境常驻亮 / 斥候回报每波首见闪几秒。
+            // 警报横幅（顶中）：提前召唤确认闪 > 窥使入境常驻 > 斥候回报闪。
             // **状态不在这里推进**（见 `advance_recon_alert`——截图模式一步
             // 推 N 个 tick，状态推进若绑在绘制上，截图会画出早已灭掉的闪）；
-            // 这里只按当前状态画。
+            // 这里只按当前状态画。召唤确认排最前：它是玩家自己操作的回执，
+            // 只亮几秒，另两条让位给它不会漏掉真正的新信息。
             const rts::Tick alert_now = b->world().now();
-            if (game::enemy_wraith_sighted(dv)) {
-                draw_recon_alert(*font, GetScreenWidth(), alert_now,
-                                 ReconAlertStyle::Threat);
+            if (alert_now < summon_flash_until) {
+                draw_alert_banner(*font, GetScreenWidth(), alert_now,
+                                  AlertStyle::Summon);
+            } else if (game::enemy_wraith_sighted(dv)) {
+                draw_alert_banner(*font, GetScreenWidth(), alert_now,
+                                  AlertStyle::Threat);
             } else if (alert_now < recon_flash_until) {
-                draw_recon_alert(*font, GetScreenWidth(), alert_now,
-                                 ReconAlertStyle::Report);
+                draw_alert_banner(*font, GetScreenWidth(), alert_now,
+                                  AlertStyle::Report);
             }
 
             // 弹出菜单：屏幕坐标，画在点开那一刻的位置。**造价写在选项里**——
@@ -1341,6 +1364,7 @@ int run_game(const Options& opt) {
             dragged_garrison.reset();
             recon_prev_sighted = false;
             recon_flash_until = 0;
+            summon_flash_until = 0;
         }
 
         const Vector2 mouse = GetMousePosition();
@@ -1388,6 +1412,11 @@ int run_game(const Options& opt) {
                 rts::Command c;
                 c.kind = rts::CommandKind::Summon;
                 c.side = rts::Side::Defender;
+                // 反馈必须与受理用同一条判据，否则会骗玩家（闪了却没开打，
+                // 或开打了却没闪）。护栏期内丢掉的 N 不闪——本来就没生效。
+                if (b->summon_accepted_now()) {
+                    summon_flash_until = b->world().now() + kReconFlashTicks;
+                }
                 b->submit_defender(&c, 1);
             }
             cam.update(GetFrameTime());
