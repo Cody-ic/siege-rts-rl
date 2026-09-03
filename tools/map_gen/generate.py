@@ -712,9 +712,12 @@ def scatter_wild_terrain(cv, cfg, rng, spacing=8):
     隘口的**口**保持开阔可读：口子格进 `forbidden`（不被后续地形盖住）
     并记入 `cv.choke_gaps`（`place_obstacles` 也不放障碍，§3.6 拍板）。
 
-    阻挡率目标（争夺带 10–20%，第 26 条）**不由本函数单独保证**——水域在
-    之后才落地，占比要等水落地后才算得准，所以补足在 `topup_wild_terrain`
-    （paint 里排在 `place_water` 之后）。
+    阻挡率目标（争夺带，第 26 条；区间见 `thresholds.json`，此处刻意不写数）
+    **不由本函数单独保证**——水域在之后才落地，占比要等水落地后才算得准，
+    所以补足在 `topup_wild_terrain`（paint 里排在 `place_water` 之后）。
+    **实测本函数在争夺带内只落约 1% 的阻挡格**（三形态大半落在带外的外环，
+    小撮又铺满全图），带内那 4–9% 全是补量画的——所以「城外疏密」这个旋钮
+    在 `wild_blocked_fraction_min` 上，不在本组的 `forest_patches` 上。
 
     在 `place_outer_clusters` **之后**跑：那时资源点都已落地。
     """
