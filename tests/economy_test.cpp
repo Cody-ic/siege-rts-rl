@@ -494,6 +494,33 @@ TEST_CASE("Upgrade：堡垒等级抬高其余建筑的上限，扣双资源、�
     }
 }
 
+TEST_CASE("堡垒被摧毁之后三个上限返回 0，而不是越界读", "[econ]") {
+    // **「World 存活期内 Keep 不会被拆」这个假设是错的**，而三个 cap 函数
+    // 原先都建在它上面。拆掉堡垒正是**败局的定义**，而 `World` 在那之后照常
+    // 存活——`DemoBattle::defeated()` 只是读它的死活，这一拍还没结束、渲染
+    // 还要画这一帧、runner 还要记这一波的收尾快照。
+    //
+    // 堡垒一死 `bld_at_[cell]` 归 0，而它是 `uint16_t` ⇒ `0 - 1` 提升成 int
+    // 的 −1 ⇒ 转 `size_t` 得 SIZE_MAX ⇒ `b_level_[SIZE_MAX]` 是**越界读**。
+    // 它不崩、只是读出一个随机数（实测 402666916），所以没有任何测试会红——
+    // 这条断言就是那个缺的守卫。
+    rts::World w(arena());
+    const rts::WorldView v0 = w.view(rts::Side::Defender);
+    REQUIRE(v0.defender_pop_cap() > 0);       // 还活着时是正常值
+    REQUIRE(w.unit_level_cap() == 1);
+
+    // 拆掉堡垒（`destroy_bld` 是公开的——1c 要用它）。
+    w.destroy_bld(w.bld_at(w.keep_pos()));
+    w.advance(1);
+
+    const rts::WorldView v = w.view(rts::Side::Defender);
+    // 返回 0 而不是随便一个数：**败局之后什么都不该造得出来**，
+    // 而 0 让三个消费者各自自然地拒绝，不必在调用处各加一条判空。
+    CHECK(v.defender_pop_cap() == 0);
+    CHECK(w.unit_level_cap() == 0);
+    CHECK(w.building_level_cap() == 0);
+}
+
 TEST_CASE("建筑升级定价：累计 ∝ √B(L) ⇒ 每石买到的战力与等级无关", "[econ]") {
     // 这一条钉的是**定价与它买到的东西同阶**，而不是某个价钱。
     //

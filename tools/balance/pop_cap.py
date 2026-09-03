@@ -118,10 +118,51 @@ def gold_sustainable(mines_outer, cost_gold, income_period, mine_income,
     return gold_per_wave / cost_gold / (1.0 - retention)
 
 
+def runner_report(path):
+    """读校准 runner 的 JSON，回答「三种资源里到底哪一种咬得住」。
+
+    起因是一条试玩反馈：「堡垒陷落时金币还剩 2000 左右」。这个模式存在的理由是
+    **那件事在 runner 的输出里此前完全不可见**——逐波记录里一个资源数都没有
+    （2026-09-03 补上 `stone/wood/gold_start|end`、`pop`、`pop_cap`、`train_bld`）。
+    """
+    with open(path, encoding='utf-8') as f:
+        d = json.load(f)
+    runs = d['runs']
+    print('== 三种资源哪一种咬得住（%s，%d 局）==' % (os.path.basename(path), len(runs)))
+    print('   判据：一种资源若在**波末**长期堆积，它就没有 sink ⇒ 它那条决策轴是死的')
+    print()
+    names = (('stone', '石'), ('wood', '木'), ('gold', '金'))
+    print('   资源  波末中位  波末最大  末波中位  「涨了」的波占比')
+    for key, cn in names:
+        ends = [w[key + '_end'] for r in runs for w in r['waves']]
+        last = [r['waves'][-1][key + '_end'] for r in runs]
+        up = sum(1 for r in runs for w in r['waves']
+                 if w[key + '_end'] > w[key + '_start'])
+        tot = sum(len(r['waves']) for r in runs)
+        ends.sort()
+        last.sort()
+        print('   %s     %7d  %8d  %8d   %d/%d'
+              % (cn, ends[len(ends) // 2], max(ends), last[len(last) // 2], up, tot))
+    print()
+    at_cap = sum(1 for r in runs for w in r['waves']
+                 if w['pop_cap_end'] > 0 and w['pop_end'] >= w['pop_cap_end'])
+    tot = sum(len(r['waves']) for r in runs)
+    print('   波末人口顶到上限：%d/%d 波' % (at_cap, tot))
+    tb = [w['train_bld_end'] for r in runs for w in r['waves']]
+    print('   出兵建筑数（Barrack + Keep）：中位 %d，最大 %d'
+          % (sorted(tb)[len(tb) // 2], max(tb)))
+    print('   ——一座一次只练一名，所以它是补员速率的分母。')
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--waves', type=int, default=20)
+    ap.add_argument('--runner', help='校准 runner 的 JSON：改判「哪种资源咬得住」')
     a = ap.parse_args()
+
+    if a.runner:
+        runner_report(a.runner)
+        return
 
     d = load()
     k = d['global']['hp_permille_per_level'] / 1000.0

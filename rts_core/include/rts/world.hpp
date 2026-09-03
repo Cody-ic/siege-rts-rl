@@ -708,6 +708,13 @@ public:
     // 站停 / 撞停归零、前摇冻结、落地耗尽（伤害倍率见 rts/combat_math.hpp）。
     float unit_charge(UnitId id) const;
 
+    // 这一格上的建筑句柄，**空格返回一个无效句柄**（`alive()` 对它是 false）。
+    // `bld_at_` 本来就是 O(1) 的格 → 槽位索引，而 `game/` 里有两处在
+    // `bld_pos()` 上线性扫一遍找同一个东西（`player_input.cpp` 的
+    // `bld_slot_at`、`defender_macro.cpp` 抄的那一份）——它们可以改走这里，
+    // 但那是另一件事，本函数先补上缺口。
+    BldId bld_at(GridPos cell) const noexcept;
+
     BldType bld_type(BldId id) const;
     GridPos bld_pos(BldId id) const;
     std::int64_t bld_hp(BldId id) const;
@@ -783,6 +790,11 @@ public:
     // `Upgrade` 与 `WorldView` 给 UI 的提示都调用它，不各自重推一遍
     // （同 `repair_wood_cost` 那条「两处算法分叉是绿框骗人的来源」的纪律）。
     std::int32_t building_level_cap() const noexcept;
+
+    // 堡垒的建筑槽位，**没有堡垒时 -1**。三个 cap 函数共用它。
+    // 「堡垒不会消失」这个假设是错的——拆掉它正是败局的定义，而 `World`
+    // 在那之后照常存活。实现处写了那次越界读的完整成因。
+    int keep_slot() const noexcept;
 
     // 当前允许的兵种等级上限——**直接等于堡垒等级，没有除数**（`波次预算曲线与
     // 堡垒等级曲线.md` §2：这条与 `building_level_cap()` 的公式来源本来就

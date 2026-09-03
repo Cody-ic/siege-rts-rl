@@ -903,25 +903,53 @@ std::uint16_t World::command_mask(Side side) const noexcept {
     return mask;
 }
 
-std::int32_t World::building_level_cap() const noexcept {
+// 堡垒的建筑槽位。**没有堡垒时返回 -1，这一条是 2026-09-03 修的一个越界读。**
+//
+// 三个 cap 函数原先都写着「`keep_` 处恰有一座 `Keep`（构造即校验），所以这个
+// 下标必然有效——World 存活期内 Keep 不会被拆」。**那句话是错的**：拆掉堡垒
+// 正是败局的**定义**，而 `World` 在那之后照常存活（`DemoBattle::defeated()`
+// 只是**读**它的死活，读完这一拍还没结束、渲染还要画这一帧）。
+//
+// 堡垒一死 `bld_at_[cell]` 就是 0，而 `bld_at_` 是 `uint16_t` ⇒ `0 - 1` 提升成
+// `int` 的 −1 ⇒ 转 `size_t` 是 SIZE_MAX ⇒ `b_level_[SIZE_MAX]` 是**越界读**（UB）。
+// 它一直没被发现，是因为没人在败局那一帧之后问过这三个数；2026-09-03 给校准
+// runner 加「逐波记人口/上限」时问了，当场读出 402666916 这种数。
+//
+// 返回 0 而不是随便一个数：**败局之后什么都不该造得出来**，而 0 让三个消费者
+// 各自自然地拒绝（`Train` 的 `c.level > 0`、`defender_pop() >= 0`、
+// `Upgrade` 的 `b_level_[k] >= 0`），不需要在调用处各加一条判空。
+BldId World::bld_at(GridPos cell) const noexcept {
+    if (cell.i < 0 || cell.j < 0 || cell.i >= width() || cell.j >= height()) {
+        return BldId{};
+    }
+    const std::size_t idx = static_cast<std::size_t>(cell.j) *
+                                static_cast<std::size_t>(width()) +
+                            static_cast<std::size_t>(cell.i);
+    if (idx >= bld_at_.size() || bld_at_[idx] == 0) return BldId{};
+    return bld_pool_.id_at(static_cast<std::uint16_t>(bld_at_[idx] - 1));
+}
+
+int World::keep_slot() const noexcept {
     const std::size_t cell =
         static_cast<std::size_t>(keep_.j) * static_cast<std::size_t>(width()) +
         static_cast<std::size_t>(keep_.i);
-    // `keep_` 处恰有一座 `Keep`（构造即校验），所以这个下标必然有效——
-    // World 存活期内 Keep 不会被拆（丢失即败，游戏在那之前已经结束）。
-    const std::size_t k = static_cast<std::size_t>(bld_at_[cell] - 1);
+    if (cell >= bld_at_.size() || bld_at_[cell] == 0) return -1;
+    return static_cast<int>(bld_at_[cell]) - 1;
+}
+
+std::int32_t World::building_level_cap() const noexcept {
+    const int slot = keep_slot();
+    if (slot < 0) return 0;   // 堡垒没了：见 `keep_slot()`
     const std::int32_t divisor = stats_.global.building_level_cap_divisor;
-    return (b_level_[k] + divisor - 1) / divisor;
+    return (b_level_[static_cast<std::size_t>(slot)] + divisor - 1) / divisor;
 }
 
 std::int32_t World::unit_level_cap() const noexcept {
-    // 同 `building_level_cap()` 的 Keep 槙位定位，公式不同：`兵种等级上限(K)
+    // 同 `building_level_cap()` 的 Keep 槽位定位，公式不同：`兵种等级上限(K)
     // = K`（`波次预算曲线与堡垒等级曲线.md` §2），没有除数。
-    const std::size_t cell =
-        static_cast<std::size_t>(keep_.j) * static_cast<std::size_t>(width()) +
-        static_cast<std::size_t>(keep_.i);
-    const std::size_t k = static_cast<std::size_t>(bld_at_[cell] - 1);
-    return b_level_[k];
+    const int slot = keep_slot();
+    if (slot < 0) return 0;
+    return b_level_[static_cast<std::size_t>(slot)];
 }
 
 int World::defender_pop() const noexcept {
@@ -944,13 +972,12 @@ int World::defender_pop() const noexcept {
 }
 
 int World::defender_pop_cap() const noexcept {
-    // Keep 格位定位与 `unit_level_cap()` 逐字同款（构造期校验恰好一座，
-    // 存活期内不会被拆），公式不同：`cap = base + per × 堡垒等级`。
-    const std::size_t cell =
-        static_cast<std::size_t>(keep_.j) * static_cast<std::size_t>(width()) +
-        static_cast<std::size_t>(keep_.i);
-    const std::size_t k = static_cast<std::size_t>(bld_at_[cell] - 1);
-    return pop_cap_base_ + pop_cap_per_keep_level_ * b_level_[k];
+    // Keep 格位定位与 `unit_level_cap()` 逐字同款，公式不同：
+    // `cap = base + per × 堡垒等级`。
+    const int slot = keep_slot();
+    if (slot < 0) return 0;
+    return pop_cap_base_ +
+           pop_cap_per_keep_level_ * b_level_[static_cast<std::size_t>(slot)];
 }
 
 std::int64_t World::train_cost_gold(UnitType ut, std::int32_t level) const noexcept {

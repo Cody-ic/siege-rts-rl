@@ -111,6 +111,7 @@ struct Options {
     int macro_conc = 1;     // 弓手驻守意愿集中到受威胁那一面
     int macro_seal = 1;     // 封设计缺口
     int macro_gath = 2;     // 每波最多铺几座采集建筑
+    int macro_gath_dist = 40;   // 工匠够得到的城外距离上界（格）
     // 攻方曲线（`game::WaveCurve`）。**形式也可换**，不只是系数。
     double power_base = 6.0;
     double power_alpha = 1.25;
@@ -151,6 +152,9 @@ void print_help() {
         "  --macro-conc <0|1>      弓手驻守意愿集中到受威胁那一面（默认 1）\n"
         "  --macro-seal <0|1>      先把地图自带的设计缺口砌上（默认 1）\n"
         "  --macro-gath <n>        每波最多铺几座采集建筑（默认 2）\n"
+        "  --macro-gath-dist <n>   工匠够得到的城外距离上界，格（默认 40）。\n"
+        "                          调到 60+ 才吃得到外环带那 37 个点——人类\n"
+        "                          玩家会去拿，而默认值下脚本根本够不着\n"
         "\n"
         "攻方曲线与波次节奏（都是 game::WaveCurve / WaveTiming 的字段；不给就是\n"
         "各自的默认值 = 提成参数之前那几个编译期常量）：\n"
@@ -305,6 +309,10 @@ bool parse_args(const std::vector<std::string>& args, Options& out) {
             const std::string vv = need(i, "--macro-seal");
             if (vv.empty()) return false;
             out.macro_seal = std::atoi(vv.c_str());
+        } else if (a == "--macro-gath-dist") {
+            const std::string vv = need(i, "--macro-gath-dist");
+            if (vv.empty()) return false;
+            out.macro_gath_dist = std::atoi(vv.c_str());
         } else if (a == "--macro-gath") {
             const std::string vv = need(i, "--macro-gath");
             if (vv.empty()) return false;
@@ -574,6 +582,18 @@ struct WaveRecord {
     std::map<std::string, int> bld_end;
     std::int64_t keep_hp_start = 0;
     std::int64_t keep_hp_end = 0;
+    // ——资源与人口（2026-09-03 追加）——
+    //
+    // 起因是一条试玩反馈：「堡垒陷落时金币还剩 2000 左右」。此前逐波记录里
+    // **一个资源数都没有**，于是「金币冗余」这件事在 runner 的输出里完全
+    // 不可见——只能靠人玩一局去感觉。三种资源、人口与人口上限、以及**能出兵
+    // 的建筑数**（一座一次只练一名，所以它是补员速率的分母）都记下来。
+    std::int64_t stone_start = 0, wood_start = 0, gold_start = 0;
+    std::int64_t stone_end = 0, wood_end = 0, gold_end = 0;
+    int pop_start = 0, pop_cap_start = 0;
+    int pop_end = 0, pop_cap_end = 0;
+    int train_bld_start = 0;   // 完工的 Barrack + Keep
+    int train_bld_end = 0;
 };
 
 struct RunRecord {
@@ -655,6 +675,20 @@ private:
 
     std::size_t volley_offset_ = 0;   // 已切给本波的位置
 };
+
+namespace {
+
+int count_train_blds(const rts::WorldView& v) {
+    int n = 0;
+    for (std::size_t k = 0; k < v.bld_alive().size(); ++k) {
+        if (v.bld_alive()[k] == 0 || v.bld_built()[k] == 0) continue;
+        const rts::BldType t = v.bld_type()[k];
+        if (t == rts::BldType::Barrack || t == rts::BldType::Keep) ++n;
+    }
+    return n;
+}
+
+}   // namespace
 
 std::map<std::string, int> BattleRecorder::count_units(rts::Side side) const {
     const rts::WorldView v = b_.world().view(side);
@@ -769,6 +803,16 @@ void BattleRecorder::begin_wave() {
     cur_.defender_start = count_units(rts::Side::Defender);
     cur_.bld_start = count_blds();
     cur_.keep_hp_start = keep_hp();
+    {
+        const rts::WorldView v = w.view(rts::Side::Defender);
+        const auto st = v.stock();
+        cur_.stone_start = st[static_cast<std::size_t>(rts::Resource::Stone)];
+        cur_.wood_start = st[static_cast<std::size_t>(rts::Resource::Wood)];
+        cur_.gold_start = st[static_cast<std::size_t>(rts::Resource::Gold)];
+        cur_.pop_start = v.defender_pop();
+        cur_.pop_cap_start = v.defender_pop_cap();
+        cur_.train_bld_start = count_train_blds(v);
+    }
     cur_.rams_spawned = cur_.attacker_start.count("Ram") != 0
                             ? cur_.attacker_start.at("Ram")
                             : 0;
@@ -993,6 +1037,16 @@ void BattleRecorder::observe() {
     cur_.defender_end = count_units(rts::Side::Defender);
     cur_.bld_end = count_blds();
     cur_.keep_hp_end = keep_hp();
+    {
+        const rts::WorldView v = b_.world().view(rts::Side::Defender);
+        const auto st = v.stock();
+        cur_.stone_end = st[static_cast<std::size_t>(rts::Resource::Stone)];
+        cur_.wood_end = st[static_cast<std::size_t>(rts::Resource::Wood)];
+        cur_.gold_end = st[static_cast<std::size_t>(rts::Resource::Gold)];
+        cur_.pop_end = v.defender_pop();
+        cur_.pop_cap_end = v.defender_pop_cap();
+        cur_.train_bld_end = count_train_blds(v);
+    }
 
     // ——开打那一拍——
     if (prev_phase_ == rts::WavePhase::Build &&
@@ -1214,6 +1268,30 @@ void write_wave(Json& j, const WaveRecord& w) {
     write_count_map(j, w.bld_start);
     j.key("bld_end");
     write_count_map(j, w.bld_end);
+    j.key("stone_start");
+    j.val(w.stone_start);
+    j.key("wood_start");
+    j.val(w.wood_start);
+    j.key("gold_start");
+    j.val(w.gold_start);
+    j.key("stone_end");
+    j.val(w.stone_end);
+    j.key("wood_end");
+    j.val(w.wood_end);
+    j.key("gold_end");
+    j.val(w.gold_end);
+    j.key("pop_start");
+    j.val(w.pop_start);
+    j.key("pop_cap_start");
+    j.val(w.pop_cap_start);
+    j.key("pop_end");
+    j.val(w.pop_end);
+    j.key("pop_cap_end");
+    j.val(w.pop_cap_end);
+    j.key("train_bld_start");
+    j.val(w.train_bld_start);
+    j.key("train_bld_end");
+    j.val(w.train_bld_end);
     j.key("keep_hp_start");
     j.val(w.keep_hp_start);
     j.key("keep_hp_end");
@@ -1338,6 +1416,7 @@ int main(int argc, char** argv) {
             mp.concentrate_archers = opt.macro_conc != 0;
             mp.seal_gaps = opt.macro_seal != 0;
             mp.gatherers_per_wave = opt.macro_gath;
+            mp.gatherer_max_dist = opt.macro_gath_dist;
             game::DefenderMacro macro(map, mp);
             std::vector<rts::Command> cmds;
             std::vector<game::UnitOrder> orders;
