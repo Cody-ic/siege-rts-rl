@@ -112,6 +112,7 @@ struct Options {
     int macro_seal = 1;     // 封设计缺口
     int macro_gath = 2;     // 每波最多铺几座采集建筑
     int macro_gath_dist = 40;   // 工匠够得到的城外距离上界（格）
+    std::string macro_gath_order = "map";   // map | near | stone
     // 攻方曲线（`game::WaveCurve`）。**形式也可换**，不只是系数。
     double power_base = 6.0;
     double power_alpha = 1.25;
@@ -155,6 +156,8 @@ void print_help() {
         "  --macro-gath-dist <n>   工匠够得到的城外距离上界，格（默认 40）。\n"
         "                          调到 60+ 才吃得到外环带那 37 个点——人类\n"
         "                          玩家会去拿，而默认值下脚本根本够不着\n"
+        "  --macro-gath-order <map|near|stone>  先铺哪一种资源点（默认 map =\n"
+        "                          地图文件顺序，既不看种类也不看距离）\n"
         "\n"
         "攻方曲线与波次节奏（都是 game::WaveCurve / WaveTiming 的字段；不给就是\n"
         "各自的默认值 = 提成参数之前那几个编译期常量）：\n"
@@ -309,6 +312,14 @@ bool parse_args(const std::vector<std::string>& args, Options& out) {
             const std::string vv = need(i, "--macro-seal");
             if (vv.empty()) return false;
             out.macro_seal = std::atoi(vv.c_str());
+        } else if (a == "--macro-gath-order") {
+            const std::string vv = need(i, "--macro-gath-order");
+            if (vv.empty()) return false;
+            if (vv != "map" && vv != "near" && vv != "stone") {
+                std::cerr << "--macro-gath-order 只认 map|near|stone\n";
+                return false;
+            }
+            out.macro_gath_order = vv;
         } else if (a == "--macro-gath-dist") {
             const std::string vv = need(i, "--macro-gath-dist");
             if (vv.empty()) return false;
@@ -594,6 +605,14 @@ struct WaveRecord {
     int pop_end = 0, pop_cap_end = 0;
     int train_bld_start = 0;   // 完工的 Barrack + Keep
     int train_bld_end = 0;
+    // 破口那一刻：全场塔数 vs **打得到破口的**塔数（切比雪夫 <= Tower.range）。
+    //
+    // 2026-09-04 追加，起因是一次 A/B 打出个反直觉的结果：给守方多喂石材
+    // （优先铺外环带的采石场）让塔数从 11 涨到 16（+45%），而中位陷落波只从
+    // 4.0 挪到 4.5。「多出来的塔到底在不在打得着的地方」此前无从判断——
+    // 逐波记录里只有塔的**总数**，没有它们与战斗发生处的关系。
+    int towers_total_at_breach = 0;
+    int towers_covering_breach = 0;
 };
 
 struct RunRecord {
@@ -913,6 +932,23 @@ void BattleRecorder::scan_breach() {
         cur_.breach_kind = std::string(rts::ident_of(wall_kind_[k]));
         cur_.breach_i = static_cast<int>(p.i);
         cur_.breach_j = static_cast<int>(p.j);
+        {
+            const float rng = v.stats().of(rts::BldType::Tower).range;
+            int total = 0;
+            int cover = 0;
+            for (std::size_t t = 0; t < v.bld_alive().size(); ++t) {
+                if (v.bld_alive()[t] == 0 || v.bld_built()[t] == 0) continue;
+                if (v.bld_type()[t] != rts::BldType::Tower) continue;
+                ++total;
+                const rts::GridPos tp = v.bld_pos()[t];
+                const int dx = static_cast<int>(tp.i) - static_cast<int>(p.i);
+                const int dy = static_cast<int>(tp.j) - static_cast<int>(p.j);
+                const int d = std::max(dx < 0 ? -dx : dx, dy < 0 ? -dy : dy);
+                if (static_cast<float>(d) <= rng) ++cover;
+            }
+            cur_.towers_total_at_breach = total;
+            cur_.towers_covering_breach = cover;
+        }
         for (GateWindow& gw : cur_.gate_windows) {
             gw.at_breach = count_archers_on(gw);
         }
@@ -1268,6 +1304,10 @@ void write_wave(Json& j, const WaveRecord& w) {
     write_count_map(j, w.bld_start);
     j.key("bld_end");
     write_count_map(j, w.bld_end);
+    j.key("towers_total_at_breach");
+    j.val(w.towers_total_at_breach);
+    j.key("towers_covering_breach");
+    j.val(w.towers_covering_breach);
     j.key("stone_start");
     j.val(w.stone_start);
     j.key("wood_start");
@@ -1417,6 +1457,11 @@ int main(int argc, char** argv) {
             mp.seal_gaps = opt.macro_seal != 0;
             mp.gatherers_per_wave = opt.macro_gath;
             mp.gatherer_max_dist = opt.macro_gath_dist;
+            if (opt.macro_gath_order == "near") {
+                mp.gather_order = game::MacroParams::GatherOrder::NearestFirst;
+            } else if (opt.macro_gath_order == "stone") {
+                mp.gather_order = game::MacroParams::GatherOrder::StoneFirst;
+            }
             game::DefenderMacro macro(map, mp);
             std::vector<rts::Command> cmds;
             std::vector<game::UnitOrder> orders;

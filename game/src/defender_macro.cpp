@@ -231,8 +231,29 @@ void DefenderMacro::decide(const rts::World& w, std::vector<rts::Command>& cmds,
     // 必须踩在对应种类的资源点上」那条查掉了，这里不重复推。
     {
         const auto& sites = v.resources();
-        for (std::size_t k = 0; k < sites.size(); ++k) {
+        // 铺设顺序。**它不是无关紧要的**：三种资源里只有石材是紧的
+        // （§4.5 实测），所以「先铺哪一种」决定新增收入落在活的那条轴上
+        // 还是死的那两条上。固定序（`stable_sort` + 事先算好的键），
+        // 不用任何未定序容器——纪律 3。
+        std::vector<int> order(sites.size());
+        for (std::size_t k = 0; k < order.size(); ++k) order[k] = static_cast<int>(k);
+        if (p_.gather_order != MacroParams::GatherOrder::MapOrder) {
+            const bool stone_first =
+                p_.gather_order == MacroParams::GatherOrder::StoneFirst;
+            std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
+                const rts::ResourceSite& sa = sites[static_cast<std::size_t>(a)];
+                const rts::ResourceSite& sb = sites[static_cast<std::size_t>(b)];
+                if (stone_first) {
+                    const int ka = sa.kind == rts::Resource::Stone ? 0 : 1;
+                    const int kb = sb.kind == rts::Resource::Stone ? 0 : 1;
+                    if (ka != kb) return ka < kb;
+                }
+                return cheb(sa.pos, keep_) < cheb(sb.pos, keep_);
+            });
+        }
+        for (const int oi : order) {
             if (!room()) break;
+            const std::size_t k = static_cast<std::size_t>(oi);
             const rts::ResourceSite& s = sites[k];
             if (v.wave() < s.unlock_wave) continue;
             if (cheb(s.pos, keep_) > p_.gatherer_max_dist) continue;
