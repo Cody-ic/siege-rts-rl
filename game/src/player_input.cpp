@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cstddef>
 
+#include "rts/action.hpp"
 #include "rts/fog.hpp"
 #include "rts/world.hpp"
 
@@ -360,6 +361,34 @@ std::vector<SightedType> sighted_composition(const rts::WorldView& view) {
         if (n > 0) out.push_back(SightedType{t, n});
     }
     return out;
+}
+
+bool enemy_wraith_sighted(const rts::WorldView& view) {
+    // 复用而不是重写：面板的可见性判据若改，这里跟着改，两处不会各存一份。
+    for (const SightedType& s : sighted_composition(view)) {
+        if (s.type == rts::UnitType::Wraith) return true;
+    }
+    return false;
+}
+
+bool combat_engaged(const rts::World& w) {
+    // 攻击四位在枚举末尾连续（`AtkNear`..`AtkWall`，`rts/action.hpp` 有
+    // static_assert 钉住 `AtkWall == kUnitActionCount - 1`），一个区间掩码
+    // 判完，不用逐位点名。
+    constexpr std::uint16_t kAttackBits = static_cast<std::uint16_t>(
+        ((1u << (rts::kUnitActionCount -
+                 static_cast<int>(rts::UnitAction::AtkNear))) -
+         1u)
+        << static_cast<unsigned>(rts::UnitAction::AtkNear));
+    std::vector<rts::UnitId> ids;
+    for (const rts::Side side : {rts::Side::Defender, rts::Side::Attacker}) {
+        ids.clear();
+        w.enumerate_units(side, ids);
+        for (const rts::UnitId id : ids) {
+            if ((w.action_mask(id) & kAttackBits) != 0) return true;
+        }
+    }
+    return false;
 }
 
 CounterHint counters_of(rts::UnitType attacker) noexcept {

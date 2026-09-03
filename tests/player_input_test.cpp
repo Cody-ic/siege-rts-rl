@@ -622,3 +622,60 @@ TEST_CASE("克制提示：与机制交叉核对，且攻方无孤立节点", "[i
         REQUIRE(stats.of(rts::UnitType::Archer).range > 1.5f);
     }
 }
+
+TEST_CASE("窥使警报的判定：只报看得见的窥使，与侦查面板同一判据", "[input]") {
+    rts::WorldInit init = iarena();
+    // 一只窥使 + 一只步兵，分两格放，好让「看见步兵」与「看见窥使」可分别构造。
+    init.units.push_back(
+        rts::UnitInit{rts::UnitType::Wraith, rts::Vec2{3.5f, 2.5f}, 1, 10, 10});
+    init.units.push_back(
+        rts::UnitInit{rts::UnitType::Ghoul, rts::Vec2{8.5f, 4.5f}, 1, 10, 10});
+    rts::World w(std::move(init));
+
+    // 全图未探索：没有警报——「敌人还没来」与「什么都没侦查到」在玩家侧是
+    // 同一个观感（同 `draw_intel_panel` 那条「看不见就整块不画」）。
+    REQUIRE_FALSE(game::enemy_wraith_sighted(w.view(rts::Side::Defender)));
+
+    // 看见的是步兵那格：有情报、但没有窥使警报。警报只在窥使**本人**入镜时
+    // 响，否则它与侦查面板就没有分工了（面板管「看见了什么」，警报管「现在
+    // 是能反制的窗口」）。
+    w.fog_mut(rts::Side::Defender).mark_visible(8, 4, 0);
+    REQUIRE_FALSE(game::enemy_wraith_sighted(w.view(rts::Side::Defender)));
+
+    // 窥使入镜：响；且它必须同时出现在侦查面板里——两处一个判据，报出画面
+    // 上看不见的单位就等于把「需侦查」偷偷挪回「免费」那一列。
+    w.fog_mut(rts::Side::Defender).mark_visible(3, 2, 0);
+    const rts::WorldView v = w.view(rts::Side::Defender);
+    REQUIRE(game::enemy_wraith_sighted(v));
+    const std::vector<game::SightedType> seen = game::sighted_composition(v);
+    REQUIRE(seen.size() == 2);
+    REQUIRE(seen[0].type == rts::UnitType::Ghoul);   // 面板按花名册顺序输出
+    REQUIRE(seen[1].type == rts::UnitType::Wraith);
+}
+
+TEST_CASE("交战判定：攻击四位任一亮起即算接战，够不着时不算", "[input]") {
+    // 放在第 3 行：第 2 行有块 Rock（iarena），别让地形走进射程判定里。
+    const auto arena_with = [](float ghoul_x) {
+        rts::WorldInit init = iarena();
+        init.stats.unit[static_cast<std::size_t>(rts::UnitType::Archer)].range = 4.0f;
+        init.stats.unit[static_cast<std::size_t>(rts::UnitType::Archer)].damage = 5;
+        init.stats.unit[static_cast<std::size_t>(rts::UnitType::Ghoul)].range = 1.5f;
+        init.stats.unit[static_cast<std::size_t>(rts::UnitType::Ghoul)].damage = 5;
+        init.units.push_back(
+            rts::UnitInit{rts::UnitType::Archer, rts::Vec2{2.5f, 3.5f}, 1, 20, 20});
+        init.units.push_back(
+            rts::UnitInit{rts::UnitType::Ghoul, rts::Vec2{ghoul_x, 3.5f}, 1, 20, 20});
+        return init;
+    };
+
+    // 相距 6 格：谁都够不着谁（弓手射程 4）——这是行军，不是交战。
+    rts::World far(arena_with(8.5f));
+    far.advance(1);
+    REQUIRE_FALSE(game::combat_engaged(far));
+
+    // 步兵压到 2 格：弓手的 AtkNear/AtkWeak 亮（`Ghoul` 射程 1.5 够不着弓手
+    // ——单侧亮也算，「接战」不需要双方互殴）。
+    rts::World near(arena_with(4.5f));
+    near.advance(1);
+    REQUIRE(game::combat_engaged(near));
+}
