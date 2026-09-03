@@ -72,6 +72,7 @@
 #include "game/map_loader.hpp"
 #include "game/stats_loader.hpp"
 #include "rts/action.hpp"
+#include "rts/cli_args.hpp"
 #include "rts/command.hpp"
 #include "rts/roster.hpp"
 #include "rts/utf8_path.hpp"

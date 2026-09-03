@@ -1,5 +1,3 @@
-#pragma once
-
 // 把平台给的命令行转成 UTF-8。**每个吃命令行路径的 exe 都必须先过这一道。**
 //
 // ## 为什么需要它（2026-09-03，一次真实崩溃）
@@ -31,6 +29,9 @@
 // 那一份与本函数的重复面仅限 `CommandLineToArgvW` + `WideCharToMultiByte`
 // 这二十行，改动它属于 `render/` 的活，记在这里免得下次有人以为漏了。
 
+#ifndef RTS_CLI_ARGS_HPP
+#define RTS_CLI_ARGS_HPP
+
 #include <string>
 #include <vector>
 
@@ -47,3 +48,5 @@ namespace rts {
 std::vector<std::string> utf8_args(int argc, char** argv);
 
 }   // namespace rts
+
+#endif   // RTS_CLI_ARGS_HPP
