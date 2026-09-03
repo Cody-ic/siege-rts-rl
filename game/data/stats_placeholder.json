@@ -11,7 +11,8 @@
   "_note_8": "2026-08-31 试玩反馈第二轮（**纯数值改动，不进 schema 版本号**——写成时是 stats/7，同日 §1.4 落地后 schema 进到 stats/8，与本条无关）：守方移动单位血量普遍偏低、城墙也偏脆，配合当时偏紧的波次节奏，开局手感过差。两处调整：`Archer`/`Spear`/`Ranger`/`Scout`/`Mason` 的 `max_hp` 翻倍（100→200 / 180→360 / 130→260 / 50→100 / 60→120——`Scout`/`Mason` 本零战力，翻倍只延长其被杀所需时间，`is_combat()` 仍为假，结构不变）；`Wall.max_hp` +50%（800→1200）。**`Gate` 未同步调整，仍是 520**——用户原话点名的是「城墙」，花名册里 `Wall`/`Gate` 是两个独立条目，这次按字面只改 `Wall`；副作用是 `Gate`/`Wall` 的血量比从 0.65 被动拉到约 0.43，城门相对更脆（既定薄弱点这条设计意图没被削弱，只是被动加深了）——CLAUDE.md「可升级，只加血量，与 Wall 同倍率」那条管的是 `Upgrade` 命令按等级涨的量，不管这次的基线值调整，两者不冲突；若这个副作用不是预期效果，需团队另外决定是否让 `Gate` 同步 +50%。这批改动会连带变动 `StatsTable::fingerprint()`，既有回放需要重录，是设计的、不是坏了（见 `rts/stats.hpp`）。波次节奏改动见 `game/src/demo_driver.cpp` 的 `kBuildTicksPlaceholder`/`kFirstBuildTicksPlaceholder`；「所有城墙初始满血」只改了两张手写地图（`demo_skirmish.json`、`reference_border_keep_01.json`），训练地图集 `thresholds.json` 的 `wall_hp_frac_range` 残血生成未动——理由见 `tools/map_gen/build_reference_map.py` 同一天的注释：训练侧的残血墙多样性是独立于这次演示手感调整的既有设计。",
   "_note_9": "schema stats/8 -> stats/9：兵种等级上限落地（CLAUDE.md『守方的一条升级轴：堡垒等级』三个输出里的第三个——人口上限那一个仍未做）。两条新增，都在 `global`：`train_ticks_permille_per_level`（训练/升级耗时随等级增长的千分比系数，`train_ticks(L) = base × (1 + k×(L-1)/1000)`，**语义是线性、不开方**——训练耗时不参与 `p−q=0` 那组要求 TTK/破坏速率不随等级漂移的不变量，没有理由跟着开方；占位 150，对应《波次预算曲线与堡垒等级曲线.md》§3 建议的 β=0.15）与 `unit_upgrade_radius`（已有部队批量升级时「须在 Barrack/Keep」的在场判定半径，格，占位 2.0，比 `mason_work_radius`=1.6 略宽——工匠贴着工地干活，而这里是一整支部队站在建筑周围，给的空间略大）。造价 `cost_gold(L) = base × L` 是纯线性，不需要新系数（同文档 §3）。已有部队的升级完工**按比例换算血量，不补满**——与建筑升级『完工即满血』刻意不同，理由见 `rts_core/src/mechanics.cpp` 的 `finish_unit_upgrade`。",
   "_note_10": "schema stats/9 -> stats/10：编队系统移除（2026-09），就地升级机制（`UpgradeForce`/`barrack_near`/`u_upgrade_left_`/`finish_unit_upgrade`）随之删除，`unit_upgrade_radius` 失去唯一消费者而从 schema 删掉——用户定版：升级机制保留，但只体现在招募时选等级（`Command.level`），等级逐单兵挂在 `u_level_` 上，存量兵不就地升。`train_ticks_permille_per_level` 保留（Train 命令的耗时曲线仍在用它）。",
-  "_note_11": "schema stats/10 -> stats/11：玩家可拆除完工建筑，基础石材与木材返还 80%；未完工建筑使用 Cancel 并固定全额返还。原 cancel_refund_permille 改为 demolish_refund_permille，正式值 800。",
+  "_note_12": "**Gate.max_hp 520 -> 900（2026-09-03，组长定版「75% 上下」）。纯数值改动，不进 schema 版本号。** 原比例 Gate:Wall = 520:1200 = 1:2.3，而 flow field 把墙当「代价 = 血 ÷ 破坏速率」的可通行格 ⇒ 门永远比墙便宜 2.3 倍 ⇒ **攻方没有任何理由砸墙**，「压制墙头 → 破墙 → 缺口攻防」的中段整个不发生。校准 runner 首批 36 局实测印证：33 局走设计缺口，唯一 3 次破墙还贴着缺口旁边。CLAUDE.md 要的是「城门是结构上的既定薄弱点」，不是「城门是唯一入口」。900 = 墙的 75%：单只 Ram 破门 30 s vs 破墙 40 s，门仍明显更快，但绕到另一面砸墙第一次成为**可比较**的选项——那是「佯攻有意义」与「入口不止两座门」的前提。**两处耦合不要一起动**：① 升级倍率仍与 Wall 同（CLAUDE.md「同倍率是为了保住『门破得更快』这个比例」），改的只是基础值之比；② Ram 对步兵的效率优势是同一个乘数、不受影响，但它「头号集火目标」的身份会略弱化，因为步兵砸门也不再那么慢。造价与工时未动（门偏木仍是设计）。",
+    "_note_11": "schema stats/10 -> stats/11：玩家可拆除完工建筑，基础石材与木材返还 80%；未完工建筑使用 Cancel 并固定全额返还。原 cancel_refund_permille 改为 demolish_refund_permille，正式值 800。",
   "units": {
     "Archer": {
       "max_hp": 200,
@@ -230,7 +231,7 @@
       "upgrade_ticks": 50
     },
     "Gate": {
-      "max_hp": 520,
+      "max_hp": 900,
       "damage": 0,
       "range": 0.0,
       "vision": 2.0,

@@ -57,6 +57,8 @@
 #include <filesystem>
 
 #include "rts/cli_args.hpp"
+
+#include "game/defender_macro.hpp"
 #include <iostream>
 #include <map>
 #include <stdexcept>
@@ -93,6 +95,31 @@ struct Options {
     std::string out_path;   // 空 = stdout
     bool compact = false;
     bool help = false;
+    // **守方宏观决策层**（`game::DefenderMacro`）。默认关，于是
+    // 「不给这个开关」跑出来的数与 #135 首批那 36 局逐字可比。
+    // 开了之后守方会封缺口 / 建塔 / 征兵 / 升堡垒 / 修 / 铺城外矿，
+    // 也就是从「什么都不做」变成「一个会玩的脚本玩家」。
+    bool macro = false;
+    int macro_period = 20;   // 决策周期（tick）。1 秒一次，与玩家手速同量级
+    // 波次节奏（`game::WaveTiming`）。组长点出「波间隔是平衡关键」：它同时管
+    // 每波收入与「能安全施工多久」。默认值 = demo 原来的两个编译期常量。
+    int build_ticks = 260;
+    int first_build_ticks = 360;
+    // 守方宏观策略的几个旋钮，开成命令行是为了能做 A/B 与参数搜索。
+    int macro_recall = 1;   // 敌人进城把弓手叫下墙
+    int macro_conc = 1;     // 弓手驻守意愿集中到受威胁那一面
+    int macro_seal = 1;     // 封设计缺口
+    int macro_gath = 2;     // 每波最多铺几座采集建筑
+    // 攻方曲线（`game::WaveCurve`）。**形式也可换**，不只是系数。
+    double power_base = 6.0;
+    double power_alpha = 1.25;
+    std::string power_form = "power";   // power|linear|log|sat
+    double power_half = 20.0;
+    double slots_base = 6.0;
+    double slots_per_wave = 1.2;
+    int slots_cap = 0;
+    int phoenix_per_waves = 0;
+    int phoenix_cap = 1;
 };
 
 void print_help() {
@@ -205,6 +232,75 @@ bool parse_args(const std::vector<std::string>& args, Options& out) {
             out.out_path = v;
         } else if (a == "--compact") {
             out.compact = true;
+        } else if (a == "--macro") {
+            out.macro = true;
+        } else if (a == "--power-base") {
+            const std::string vv = need(i, "--power-base");
+            if (vv.empty()) return false;
+            out.power_base = std::atof(vv.c_str());
+        } else if (a == "--power-alpha") {
+            const std::string vv = need(i, "--power-alpha");
+            if (vv.empty()) return false;
+            out.power_alpha = std::atof(vv.c_str());
+        } else if (a == "--power-form") {
+            const std::string vv = need(i, "--power-form");
+            if (vv.empty()) return false;
+            out.power_form = vv;
+        } else if (a == "--power-half") {
+            const std::string vv = need(i, "--power-half");
+            if (vv.empty()) return false;
+            out.power_half = std::atof(vv.c_str());
+        } else if (a == "--slots-base") {
+            const std::string vv = need(i, "--slots-base");
+            if (vv.empty()) return false;
+            out.slots_base = std::atof(vv.c_str());
+        } else if (a == "--slots-per-wave") {
+            const std::string vv = need(i, "--slots-per-wave");
+            if (vv.empty()) return false;
+            out.slots_per_wave = std::atof(vv.c_str());
+        } else if (a == "--slots-cap") {
+            const std::string vv = need(i, "--slots-cap");
+            if (vv.empty()) return false;
+            out.slots_cap = std::atoi(vv.c_str());
+        } else if (a == "--phoenix-per-waves") {
+            const std::string vv = need(i, "--phoenix-per-waves");
+            if (vv.empty()) return false;
+            out.phoenix_per_waves = std::atoi(vv.c_str());
+        } else if (a == "--phoenix-cap") {
+            const std::string vv = need(i, "--phoenix-cap");
+            if (vv.empty()) return false;
+            out.phoenix_cap = std::atoi(vv.c_str());
+        } else if (a == "--macro-recall") {
+            const std::string vv = need(i, "--macro-recall");
+            if (vv.empty()) return false;
+            out.macro_recall = std::atoi(vv.c_str());
+        } else if (a == "--macro-conc") {
+            const std::string vv = need(i, "--macro-conc");
+            if (vv.empty()) return false;
+            out.macro_conc = std::atoi(vv.c_str());
+        } else if (a == "--macro-seal") {
+            const std::string vv = need(i, "--macro-seal");
+            if (vv.empty()) return false;
+            out.macro_seal = std::atoi(vv.c_str());
+        } else if (a == "--macro-gath") {
+            const std::string vv = need(i, "--macro-gath");
+            if (vv.empty()) return false;
+            out.macro_gath = std::atoi(vv.c_str());
+        } else if (a == "--build-ticks") {
+            const std::string vv = need(i, "--build-ticks");
+            if (vv.empty()) return false;
+            out.build_ticks = std::atoi(vv.c_str());
+            if (out.build_ticks < 1) out.build_ticks = 1;
+        } else if (a == "--first-build-ticks") {
+            const std::string vv = need(i, "--first-build-ticks");
+            if (vv.empty()) return false;
+            out.first_build_ticks = std::atoi(vv.c_str());
+            if (out.first_build_ticks < 1) out.first_build_ticks = 1;
+        } else if (a == "--macro-period") {
+            const std::string vv = need(i, "--macro-period");
+            if (vv.empty()) return false;
+            out.macro_period = std::atoi(vv.c_str());
+            if (out.macro_period < 1) out.macro_period = 1;
         } else {
             std::cerr << "未知选项: " << a << "（--help 看用法）\n";
             return false;
@@ -1184,7 +1280,26 @@ int main(int argc, char** argv) {
 
         for (const std::uint64_t seed : opt.seeds) {
             const auto ts = std::chrono::steady_clock::now();
-            game::DemoBattle battle(map, stats, seed);
+            game::WaveTiming timing;
+            timing.build_ticks = opt.build_ticks;
+            timing.first_build_ticks = opt.first_build_ticks;
+            game::WaveCurve curve;
+            curve.power_base = opt.power_base;
+            curve.power_alpha = opt.power_alpha;
+            curve.power_half = opt.power_half;
+            curve.slots_base = opt.slots_base;
+            curve.slots_per_wave = opt.slots_per_wave;
+            curve.slots_cap = opt.slots_cap;
+            curve.phoenix_per_waves = opt.phoenix_per_waves;
+            curve.phoenix_cap = opt.phoenix_cap;
+            if (opt.power_form == "linear") {
+                curve.power_form = game::WaveCurve::PowerForm::Linear;
+            } else if (opt.power_form == "log") {
+                curve.power_form = game::WaveCurve::PowerForm::Log;
+            } else if (opt.power_form == "sat") {
+                curve.power_form = game::WaveCurve::PowerForm::Saturating;
+            }
+            game::DemoBattle battle(map, stats, seed, timing, curve);
             BattleRecorder rec(map, battle);
             rec.observe();   // 开第 1 波（t=0 已在集结）
 
@@ -1193,11 +1308,41 @@ int main(int argc, char** argv) {
             run.seed = seed;
             run.truncated = false;
             int ticks = 0;
+            // 守方宏观决策层（可选）。**它经 `submit_defender` 入队**，与人类玩家
+            // 同一条路，所以不绕开任何机制、也不做玩家做不到的事。
+            game::MacroParams mp;
+            mp.defend_breach = opt.macro_recall != 0;
+            mp.concentrate_archers = opt.macro_conc != 0;
+            mp.seal_gaps = opt.macro_seal != 0;
+            mp.gatherers_per_wave = opt.macro_gath;
+            game::DefenderMacro macro(map, mp);
+            std::vector<rts::Command> cmds;
+            std::vector<game::UnitOrder> orders;
             while (!battle.defeated() &&
                    battle.world().wave() <= opt.max_waves) {
                 if (opt.max_ticks > 0 && ticks >= opt.max_ticks) {
                     run.truncated = true;
                     break;
+                }
+                if (opt.macro) {
+                    if (ticks % opt.macro_period == 0) {
+                        cmds.clear();
+                        orders.clear();
+                        macro.decide(battle.world(), cmds, orders);
+                        if (!cmds.empty()) {
+                            battle.submit_defender(cmds.data(), cmds.size());
+                        }
+                    }
+                    // **临时指令每拍重发**：驻守走的是意愿通道（意愿清空即下墙），
+                    // 隔 20 tick 才发一次会让弓手在中间那 19 拍被放下来。
+                    // 开拔指令重发是幂等的（到达即清除）。
+                    for (const game::UnitOrder& o : orders) {
+                        if (o.garrison) {
+                            battle.issue_garrison_order(o.ids, o.target);
+                        } else {
+                            battle.issue_move_order(o.ids, o.target);
+                        }
+                    }
                 }
                 battle.update(1);
                 rec.observe();
@@ -1224,7 +1369,18 @@ int main(int argc, char** argv) {
             std::cerr << file << " seed " << seed << ": "
                       << (run.defeated ? "DEFEATED" : "survived") << " @ wave "
                       << run.final_wave << ", " << run.total_ticks << " ticks, "
-                      << secs << " s\n";
+                      << secs << " s";
+            if (opt.macro) {
+                const game::MacroStats& ms = macro.stats();
+                std::cerr << " | macro wall=" << ms.walls_built
+                          << " tower=" << ms.towers_built
+                          << " gath=" << ms.gatherers_built
+                          << " train=" << ms.units_trained
+                          << " upg=" << ms.upgrades
+                          << " rep=" << ms.repairs
+                          << " recall=" << ms.breach_recalls;
+            }
+            std::cerr << "\n";
         }
     }
     std::cerr << "total: " << runs.size() << " runs, " << total_seconds
