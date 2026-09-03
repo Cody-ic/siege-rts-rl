@@ -27,9 +27,12 @@
   于是「多招几个」与「招高级的」在金币上等价，只在**人口**上不等价：
   一名 L 级弓手占 1 人口却顶 √B(L) 名 1 级弓手。**人口一咬住，就该升级而不是加人。**
   所以模型里弓手只记「1 级当量」`A_eff`，金币开销 ∝ A_eff、人口开销 = A_eff / √B(K)。
-- 建筑造价 `80 + 32(L−1)` 是**线性**的，而塔的火力 ∝ √B(L)。两者不同阶 ⇒
-  升级严格劣于多建（§一的实测：第 20 波升到 12 级要多花 3.2 倍石材只省 2.3 倍塔）。
-  **这正是 `数值设计` §12 给单位修掉、却没给建筑修的那条。** 见 `--fix` 档。
+- 建筑造价曾是 `80 + 32(L−1)`（**线性**），而塔的火力 ∝ √B(L)（**开方**）。
+  两者不同阶 ⇒ 升级严格劣于多建（`upgrade` 档实测：第 20 波升到 12 级要多花
+  2.4 倍石材）。**这正是 `数值设计` §12 给单位修掉、却没给建筑修的那条。**
+  **2026-09-03 已修**（`World::bld_upgrade_cost_stone()`：累计定价
+  `= cost + up × (√B(L) − 1)`，正式表取 `up == cost` ⇒ 每石买到的火力与
+  等级无关）。所以 `sqrt` 现在是**现行定价**、`linear` 是决策史。
 
 ## 玩家水平进模型的唯一一个量
 
@@ -53,7 +56,12 @@ import economy_race as er
 G, Bd, U = sr.G, sr.Bd, sr.U
 
 TOWER_BUILD_S, TOWER_BUILD_W = Bd['Tower']['cost_stone'], Bd['Tower']['cost_wood']
+# 现行语义下这是**累计曲线的标度**、不是单价（`rts/stats.hpp` 的
+# `BldStats::upgrade_cost_stone`，stats/12）。正式表取 = cost_stone。
 TOWER_UP_S, TOWER_UP_W = Bd['Tower']['upgrade_cost_stone'], Bd['Tower']['upgrade_cost_wood']
+# 2026-09-03 之前的单价，**只给 `linear` 对照档用**。刻意不从表里读——表里
+# 已经没有这个数了，而并排对照的价值恰恰在于能把旧定价原样重算一遍。
+TOWER_UP_S_LEGACY = 32
 KEEP_UP_S, KEEP_UP_W = Bd['Keep']['upgrade_cost_stone'], Bd['Keep']['upgrade_cost_wood']
 CAP_DIV = G['building_level_cap_divisor']
 ARCHER_GOLD = U['Archer']['cost_gold']
@@ -103,7 +111,7 @@ class Prices:
     """一处改价、全模型跟着走。`--fix` 档只动这里，不动数值表。"""
 
     def __init__(self, keep_up=KEEP_UP_S, tower_build=TOWER_BUILD_S,
-                 tower_up_mode='linear', tower_up=TOWER_UP_S,
+                 tower_up_mode='sqrt', tower_up=TOWER_UP_S,
                  cap_div=CAP_DIV, pop_base=POP_BASE, pop_per_k=POP_PER_K,
                  archer_gold=ARCHER_GOLD):
         self.keep_up = keep_up
@@ -116,11 +124,16 @@ class Prices:
         self.archer_gold = archer_gold
 
     def tower_cost(self, ld):
-        """一座 `ld` 级塔的总石材（建 + 升到该级）。"""
+        """一座 `ld` 级塔的总石材（建 + 升到该级）。
+
+        `sqrt` = **现行**（`World::bld_upgrade_cost_stone()`）：累计
+        `cost + up × (√B(L) − 1)`；`up == cost` 时退化成 `cost × √B(L)`
+        ⇒ 每石买到的火力与等级无关。
+        `linear` = 2026-09-03 之前的定价，留作对照（历史常数，不读表）。
+        """
         if self.tower_up_mode == 'sqrt':
-            # 与单位同构：造价 ∝ √B(L) ⇒ 每石买到的火力与等级无关
-            return self.tower_build * sq(ld)
-        return self.tower_build + (ld - 1) * self.tower_up
+            return self.tower_build + self.tower_up * (sq(ld) - 1.0)
+        return self.tower_build + (ld - 1) * TOWER_UP_S_LEGACY
 
     def bld_cap(self, K):
         return max(1, math.ceil(K / self.cap_div))
@@ -304,35 +317,52 @@ def cross_wave(rows):
 
 
 def mode_upgrade(a):
-    print('== 一、建筑升级在现价下是不是划算 ==')
-    print('   塔：建 %d 石，升 %d 石/级（**线性**）；火力 ∝ √B(L)（**开方**）'
-          % (TOWER_BUILD_S, TOWER_UP_S))
+    """建筑升级划不划算：**旧定价（决策史）与现行定价并排**。
+
+    2026-09-03 之前是线性单价，最优档恒为 1 级；现在是累计 ∝ √B(L)。
+    两张表都打，因为「为什么改」只有并排才看得出来。
+    """
+    print('== 一、建筑升级划不划算（旧定价 vs 现行定价）==')
+    print('   塔：建 %d 石；火力 ∝ √B(L)（**开方**）' % TOWER_BUILD_S)
     print('   判据：同样的石材，买「多座低级塔」还是「少座高级塔」拦得住')
-    px = Prices()
+    print('   旧：升 %d 石/级（**线性**，2026-09-03 前）' % TOWER_UP_S_LEGACY)
+    print('   现：累计 = %d + %d × (√B(L) − 1)（标度 = 造价 ⇒ 每石的火力与等级无关）'
+          % (TOWER_BUILD_S, TOWER_UP_S))
+    px_old = Prices(tower_up_mode='linear')
+    px_new = Prices()   # 默认就是现行
     for w in (10, 20):
-        print(f'\n   第 {w} 波（门边 6 名弓手当量）：')
-        print('    L_d  需塔/门  单座石材  总石材(2门)  相对 L_d=1')
-        base = None
+        print('')
+        print(f'   第 {w} 波（门边 6 名弓手当量）：')
+        print('    L_d  需塔/门  ── 旧定价 ──────────  ── 现行 ──────────')
+        print('                   单座   总(2门)  相对   单座   总(2门)  相对')
+        b_old = b_new = None
+        best_old = best_new = None
         for ld in range(1, 13):
             d = demand(w, ld, 6)
             if d is None:
                 continue
-            tot = 2 * d * px.tower_cost(ld)
-            base = base or tot
-            print(f'    {ld:3d}   {d:5d}    {px.tower_cost(ld):7.0f}   {tot:9.0f}'
-                  f'      {tot/base:5.2f}x')
-    print('\n   ⇒ 单调上升 ⇒ **最优档恒为 1 级，「建筑等级上限」这个输出是装饰品**。')
-    print('   成因与 `数值设计与成本产出矩阵.md` §12 给单位修掉的那条同型：')
-    print('   造价线性、战力开方 ⇒ 每石买到的火力 ∝ 1/√L，堆量严格占优。')
-    print('\n   同一张表，改成 塔造价 ∝ √B(L)（`--fix` 档）：')
-    pf = Prices(tower_up_mode='sqrt')
-    for w in (10, 20):
-        best = min(((ld, demand(w, ld, 6)) for ld in range(1, 13)),
-                   key=lambda x: 2 * x[1] * pf.tower_cost(x[0]) if x[1] else 9e9)
-        ld, d = best
-        b1 = 2 * demand(w, 1, 6) * pf.tower_cost(1)
-        print(f'    第 {w} 波：最优 L_d={ld}，需 {d} 座/门，'
-              f'总石材 {2*d*pf.tower_cost(ld):.0f}（L_d=1 要 {b1:.0f}）')
+            t_old, t_new = 2 * d * px_old.tower_cost(ld), 2 * d * px_new.tower_cost(ld)
+            b_old = b_old or t_old
+            b_new = b_new or t_new
+            if best_old is None or t_old < best_old[1]:
+                best_old = (ld, t_old)
+            if best_new is None or t_new < best_new[1]:
+                best_new = (ld, t_new)
+            print(f'    {ld:3d}   {d:5d}   {px_old.tower_cost(ld):6.0f} {t_old:8.0f}'
+                  f'  {t_old/b_old:5.2f}x {px_new.tower_cost(ld):6.0f} {t_new:8.0f}'
+                  f'  {t_new/b_new:5.2f}x')
+        print(f'    最优：旧 L_d={best_old[0]}（{best_old[1]:.0f} 石）  '
+              f'现行 L_d={best_new[0]}（{best_new[1]:.0f} 石）')
+    print()
+    print('   ⇒ 旧定价单调上升 ⇒ **最优档恒为 1 级，「建筑等级上限」这个输出是装饰品**。')
+    print('     成因与 `数值设计与成本产出矩阵.md` §12 给单位修掉的那条同型：')
+    print('     造价线性、战力开方 ⇒ 每石买到的火力 ∝ 1/√L，堆量严格占优。')
+    print('   ⇒ 现行定价下最优档移到高位**且总石材更低**——每石的火力已经与等级')
+    print('     无关，剩下的差是「少数强塔」在入口赛跑里赢得比 √ 更快（`demand`')
+    print('     是个 ceil，而拦住主攻群是个阈值问题）。')
+    print('     升级不因此碾压新建：非 Keep 的等级受 `ceil(K/2)` 约束，而抬高它')
+    print('     要花 Keep 的钱——那笔溢价在机制里收，不在单价里收（收两遍正是')
+    print('     旧定价把这个输出收成装饰品的原因）。')
 
 
 def mode_margin(a):

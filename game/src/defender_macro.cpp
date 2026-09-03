@@ -332,6 +332,29 @@ void DefenderMacro::decide(const rts::World& w, std::vector<rts::Command>& cmds,
         }
     }
 
+    // 6b) 环内侧那一圈。**同时数一下受威胁那一段还有没有摆得下的空位**——
+    //     那个数决定下面 6c 要不要改升级（「先铺开、再升高」，见头文件那条）。
+    //
+    // **「饱和」只算受威胁那一段，不算整环。** 整环有 8(R−1) ≈ 88 个塔位、
+    // 一万石都填不满，拿它当判据的话 6c 是死代码。而一座塔离受威胁的那段墙
+    // 超过自己的射程就打不到那里的攻方——所以真正会被填满、也真正相关的，
+    // 是**离受威胁墙段一个射程以内**那一段弧（十几格）。判据从 `Tower.range`
+    // 推、不写死一个半径。
+    rts::GridPos threat_wall = keep_;
+    if (!wall_cells_.empty()) {
+        int best_d = 0;
+        for (std::size_t kk = 0; kk < wall_cells_.size(); ++kk) {
+            const int dd = cheb(wall_cells_[kk], threat);
+            if (kk == 0 || dd < best_d) {
+                best_d = dd;
+                threat_wall = wall_cells_[kk];
+            }
+        }
+    }
+    const int near_r =
+        static_cast<int>(v.stats().of(rts::BldType::Tower).range);
+    bool ring_saturated = false;
+    int free_spots_seen = 0;
     if (!tower_spots_.empty()) {
         const rts::BldStats& ts = v.stats().of(rts::BldType::Tower);
         std::vector<int> order(tower_spots_.size());
@@ -341,20 +364,71 @@ void DefenderMacro::decide(const rts::World& w, std::vector<rts::Command>& cmds,
                    cheb(tower_spots_[static_cast<std::size_t>(b)], threat);
         });
         int placed_here = 0;
+        int free_spots = 0;
         for (const int si : order) {
-            if (!room()) break;
-            if (placed_here >= p_.max_towers_per_entry) break;
             const rts::GridPos c = tower_spots_[static_cast<std::size_t>(si)];
             if (bld_slot_at(v, c) >= 0) continue;
             if (!can_place_hint(v, rts::BldType::Tower, c)) continue;
+            // **`ground_unit_on` 不算进「饱和」**：那是本拍恰好有人站着，
+            // 下一拍就没了。把它当饱和会让「有人路过」变成「该升级了」，
+            // 而升级是不可逆的花钱——判据要用地形与占位，不用一瞬间的站位。
+            if (cheb(c, threat_wall) <= near_r) ++free_spots;
+            if (!room()) continue;
+            if (placed_here >= p_.max_towers_per_entry) continue;
             if (ground_unit_on(v, c)) continue;
-            if (tower_left < ts.cost_stone || wood < ts.cost_wood) break;
+            if (tower_left < ts.cost_stone || wood < ts.cost_wood) continue;
             tower_left -= ts.cost_stone;
             stone -= ts.cost_stone;
             wood -= ts.cost_wood;
             cmds.push_back(build_command(rts::BldType::Tower, c, mw));
             ++stats_.towers_built;
             ++placed_here;
+        }
+        free_spots_seen = free_spots;
+        ring_saturated = (free_spots == 0);
+    } else {
+        ring_saturated = true;   // 一个候选位都没有（内环退化）也算饱和
+    }
+    stats_.near_free_spots = free_spots_seen;
+
+    // —— 6c) 环饱和了就升级已有建筑 ——
+    //
+    // 塔优先（升级买火力），其次是受威胁那一面的墙（升级买血量，而入口攻防
+    // 就是一场「墙先破还是攻方先死」的赛跑）。等级上限由 `Keep` 给出，顶到了
+    // 就不发——`World` 会静默拒绝，而静默拒绝的命令是查不出来的浪费。
+    if (p_.upgrade_when_saturated && ring_saturated) {
+        const std::int32_t cap = v.building_level_cap();
+        const auto bt = v.bld_type();
+        const auto bp = v.bld_pos();
+        const auto blv = v.bld_level();
+        const auto ba = v.bld_alive();
+        const auto bb = v.bld_built();
+        const auto bwork = v.bld_work_left();
+        const auto bup = v.bld_upgrade_left();
+        // 两轮：先塔后墙。**顺序即规范**（固定序，不排序——`bld_pos` 的槽位序
+        // 本身是确定的，而按距离排序时距离相等的那些顺序不稳）。
+        for (int pass = 0; pass < 2 && room(); ++pass) {
+            const rts::BldType want =
+                pass == 0 ? rts::BldType::Tower : rts::BldType::Wall;
+            for (std::size_t k = 0; k < bt.size(); ++k) {
+                if (!room()) break;
+                if (!ba[k] || !bb[k]) continue;
+                if (bt[k] != want) continue;
+                if (blv[k] >= cap) continue;          // 顶到上限，别发
+                if (bwork[k] > 0 || bup[k] > 0) continue;   // 有工程在推进
+                // 墙只升受威胁那一面的（全环 8R 格，全升是把钱摊薄成无效）。
+                if (want == rts::BldType::Wall && cheb(bp[k], threat) > ring_r_) {
+                    continue;
+                }
+                const std::int64_t us = v.bld_upgrade_cost_stone(bt[k], blv[k]);
+                const std::int64_t uw = v.bld_upgrade_cost_wood(bt[k], blv[k]);
+                if (tower_left < us || wood < uw) break;
+                tower_left -= us;
+                stone -= us;
+                wood -= uw;
+                cmds.push_back(upgrade_command(bp[k], mw));
+                ++stats_.bld_upgrades;
+            }
         }
     }
 

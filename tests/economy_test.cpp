@@ -421,7 +421,19 @@ TEST_CASE("Demolish：完工建筑返还八成基础材料，工地与堡垒不�
 
 TEST_CASE("Upgrade：堡垒等级抬高其余建筑的上限，扣双资源、工匠在场才推进",
           "[econ]") {
-    rts::World w(arena());
+    // **等级系数必须在这里配上，否则这个用例是空的。** 它此前跑在
+    // `hp_permille_per_level = 0` 的表上（`econ_stats()` 的诚实默认），
+    // 于是「升一级」在数值上什么都没买——血量不变、伤害不变——而它照旧
+    // 扣钱、照旧 +1 级，所以断言全绿而机制没被验到。
+    //
+    // 取 3000 不是随手挑的：`√B(2) = √(1 + 3.0) = 2` **精确**，于是
+    // 「升到 2 级」把累计定价与血量都恰好翻倍，下面那些数照旧成立
+    // （Tower 的标度 20 ⇒ 1→2 那一步 40 − 20 = 20），而它们现在是在
+    // 一条真的开着的等级轴上成立的。
+    rts::WorldInit init = arena();
+    init.stats.global.hp_permille_per_level = 3000;
+    init.stats.global.dmg_permille_per_level = 3000;   // 必须与 hp 相等（p−q=0）
+    rts::World w(std::move(init));
     w.set_stock(rts::Resource::Stone, 1000);
     w.set_stock(rts::Resource::Wood, 1000);
     const rts::BldId tower =
@@ -448,6 +460,17 @@ TEST_CASE("Upgrade：堡垒等级抬高其余建筑的上限，扣双资源、�
     REQUIRE(wood(w) == 900);
 
     // 现在上限是 2，Tower（1 级）可以升了：扣 20/10，没工匠不推进。
+    //
+    // **20/10 是算出来的，不是表里那两个数**（stats/12 起它们是累计曲线的
+    // 标度，不是单价）：`累计(2) − 累计(1) = round(20×2) − 20 = 20`。
+    // 这里照旧写死 20/10，因为上面把系数选成了「√B(2) 恰好 = 2」；
+    // 换系数这两个数就得跟着变，所以顺手把公式也断言一遍。
+    REQUIRE(w.bld_upgrade_cost_stone(rts::BldType::Tower, 1) == 20);
+    REQUIRE(w.bld_upgrade_cost_wood(rts::BldType::Tower, 1) == 10);
+    const std::int64_t tower_max_before = [&] {
+        const rts::WorldView v = w.view(rts::Side::Defender);
+        return v.bld_max_hp()[bld_slot(v, rts::BldType::Tower)];
+    }();
     w.submit(rts::Side::Defender, &upgrade_tower, 1);
     w.advance(1);
     REQUIRE(stone(w) == 880);   // 900 - 20
@@ -460,6 +483,82 @@ TEST_CASE("Upgrade：堡垒等级抬高其余建筑的上限，扣双资源、�
     w.advance(10);   // 远超 3 工时
     REQUIRE(w.bld_level(tower) == 2);
     REQUIRE(w.bld_upgrade_left(tower) == 0);
+    // **升级真的买到了东西。** 这一条是上面那段注释的落点：没有它，
+    // 「等级 +1」与「花的钱换到了什么」之间没有任何断言连着，
+    // 一张 k = 0 的表照样全绿。
+    {
+        const rts::WorldView v = w.view(rts::Side::Defender);
+        const std::size_t k = bld_slot(v, rts::BldType::Tower);
+        REQUIRE(v.bld_max_hp()[k] == tower_max_before * 2);   // √B(2) = 2
+        REQUIRE(v.bld_hp()[k] == v.bld_max_hp()[k]);          // 完工即满血
+    }
+}
+
+TEST_CASE("建筑升级定价：累计 ∝ √B(L) ⇒ 每石买到的战力与等级无关", "[econ]") {
+    // 这一条钉的是**定价与它买到的东西同阶**，而不是某个价钱。
+    //
+    // 背景：2026-09-03 之前非 `Keep` 的升级是「每级一个常数」⇒ 累计造价线性、
+    // 而血量与伤害都 `∝ √B(L)` ⇒ 每石买到的战力 `∝ 1/√L`，**堆量严格占优、
+    // 最优档恒为 1 级**，于是「堡垒等级 → 建筑等级上限」这个输出从未被使用
+    // （`攻守配平的数学模型.md` §2.2）。修法与 `数值设计与成本产出矩阵.md`
+    // §12 给单位那条同型（`c ∝ √B(L)`）。
+    //
+    // 它不会被别的测试覆盖：价钱错了仿真照样跑、回放照样一致，只有「最优
+    // 决策」变了——那不是任何断言看得见的东西。
+    rts::WorldInit init = arena();
+    init.stats.global.hp_permille_per_level = 220;   // 与正式表同值
+    init.stats.global.dmg_permille_per_level = 220;
+    // 标度 = 造价，就是「每石买到的战力与等级无关」那个取值。
+    rts::BldStats& ts = init.stats.bld[static_cast<std::size_t>(rts::BldType::Tower)];
+    ts.cost_stone = 80;
+    ts.upgrade_cost_stone = 80;
+    rts::World w(std::move(init));
+
+    std::int64_t cum = ts.cost_stone;
+    for (std::int32_t L = 1; L <= 20; ++L) {
+        const double power =
+            static_cast<double>(rts::level_permille(L, 220)) / 1000.0;
+        const double per = static_cast<double>(cum) / power;
+        INFO("L=" << L << " 累计 " << cum << " 石，战力 " << power << "x，每份 "
+                  << per);
+        // 1% 的余量给整数舍入（每一步都是两个已取整的累计值之差）。
+        REQUIRE(per > static_cast<double>(ts.cost_stone) * 0.99);
+        REQUIRE(per < static_cast<double>(ts.cost_stone) * 1.01);
+        cum += w.bld_upgrade_cost_stone(rts::BldType::Tower, L);
+    }
+
+    // 一步的价钱：**永不为负**，且大势是缩小（`√` 的增量在缩小）。
+    //
+    // 头号失败形态是「负价钱 = 升级倒赚」——「差分」这个实现形态天生带着它，
+    // 所以那一条钉死。
+    //
+    // **但「逐级单调不增」不成立，这条第一版就是这么红的（L=8 那步 6 > 上一步
+    // 5），而它红得对。** 每一步是两个**已取整**的累计值之差，于是精确增量
+    // 8.36 / 7.6 / 7.0 … 落成 8 8 7 7 6 6 5 6 5 5 5——±1 的抖动是取整噪声，
+    // 不是定价错了。真正被承诺的是**累计曲线**（上面那段已经逐级钉过），
+    // 逐级的差分只承诺「不为负」与「大势缩小」。把噪声写进断言，就是让一条
+    // 结构测试随任何一次系数改动变红。
+    const std::int64_t first = w.bld_upgrade_cost_stone(rts::BldType::Tower, 1);
+    std::int64_t prev = first;
+    for (std::int32_t L = 2; L <= 20; ++L) {
+        const std::int64_t step = w.bld_upgrade_cost_stone(rts::BldType::Tower, L);
+        INFO("L=" << L << " 这一步 " << step << "，上一步 " << prev);
+        REQUIRE(step >= 0);
+        REQUIRE(step <= prev + 1);   // 允许 1 石的取整抖动，不允许反弹上涨
+        prev = step;
+    }
+    // 大势：走到高位那一步必须明显比第一步便宜（等级越高，一级买到的战力越少）。
+    REQUIRE(w.bld_upgrade_cost_stone(rts::BldType::Tower, 20) < first);
+
+    // **`Keep` 走另一条（线性），这不是漏抄**：它卖的是三个线性上限
+    // （人口 8+2K / 建筑等级 ceil(K/2) / 兵种等级 K），线性输出配线性定价
+    // 本来就同阶。所以它每一级都是表里那个常数，不随等级衰减。
+    const rts::BldStats& ks =
+        w.view(rts::Side::Defender).stats().of(rts::BldType::Keep);
+    for (std::int32_t L = 1; L <= 20; ++L) {
+        REQUIRE(w.bld_upgrade_cost_stone(rts::BldType::Keep, L) == ks.upgrade_cost_stone);
+        REQUIRE(w.bld_upgrade_cost_wood(rts::BldType::Keep, L) == ks.upgrade_cost_wood);
+    }
 }
 
 TEST_CASE("Upgrade 与 Repair 互斥：同一时刻只能有一件工程在推进", "[econ]") {

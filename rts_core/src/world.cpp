@@ -461,12 +461,17 @@ void World::apply_one(const Command& c) {
                 break;
             }
             const BldStats& s = stats_.of(b_type_[k]);
-            if (stock_[static_cast<std::size_t>(Resource::Stone)] < s.upgrade_cost_stone ||
-                stock_[static_cast<std::size_t>(Resource::Wood)] < s.upgrade_cost_wood) {
+            // **定价走 `bld_upgrade_cost_*()`，不读表里那个常数**：非 `Keep`
+            // 的累计造价要与它买到的战力同阶（`∝ √B(L)`），否则最优档恒为
+            // 1 级、这个输出是装饰品。理由见 `world.hpp` 那两条声明。
+            const std::int64_t up_s = bld_upgrade_cost_stone(b_type_[k], b_level_[k]);
+            const std::int64_t up_w = bld_upgrade_cost_wood(b_type_[k], b_level_[k]);
+            if (stock_[static_cast<std::size_t>(Resource::Stone)] < up_s ||
+                stock_[static_cast<std::size_t>(Resource::Wood)] < up_w) {
                 break;
             }
-            stock_[static_cast<std::size_t>(Resource::Stone)] -= s.upgrade_cost_stone;
-            stock_[static_cast<std::size_t>(Resource::Wood)] -= s.upgrade_cost_wood;
+            stock_[static_cast<std::size_t>(Resource::Stone)] -= up_s;
+            stock_[static_cast<std::size_t>(Resource::Wood)] -= up_w;
             // 工期 <= 0（未标定表的诚实默认）当场完工——与 `Build` 同一条先例。
             // 完工逻辑与 `tick_economy` 里工时归零那一刻的分支逐字相同，
             // 这里直接调用，不留一个「倒计时为 0 但还没结算」的中间态。
@@ -968,6 +973,47 @@ std::int32_t World::train_ticks_at(UnitType ut, std::int32_t level) const noexce
     const std::int64_t ticks =
         (stats_.of(ut).train_ticks * linear + kPermilleOne / 2) / kPermilleOne;
     return static_cast<std::int32_t>(ticks);
+}
+
+namespace {
+
+// 「把 `base` 缩放到 L 级」——与 `train_cost_gold` 逐字同式（`base × √B(L)`）。
+//
+// **`base <= 0` 直接返回 0，不走 `apply_permille`**：那个函数把结果钳到 >= 1
+// （0 伤害凭空造出一种免疫，`combat_math.hpp`），而这里 0 是有意义的取值——
+// `Fence` 的石材标度就是 0（它是纯木制应急工事）。钳成 1 会让它每级收 1 石，
+// 数额可忽略但语义是错的：那会凭空给一座木制建筑安上石材开销。
+std::int64_t level_scaled_cost(std::int64_t base, std::int32_t level,
+                               std::int32_t per_level) noexcept {
+    if (base <= 0) return 0;
+    return apply_permille(base, {level_permille(level, per_level)});
+}
+
+}   // namespace
+
+// 建筑升级定价。理由、两条分支的出处与那笔溢价为什么只收一次，全在
+// `world.hpp` 的声明处——这里只写实现。
+//
+// **两级累计值之差，而不是「增量公式」**：定价是累计曲线
+// `cost + up × (√B(L) − 1)` 的差分，所以逐级加起来必然精确等于累计值。
+// 直接写增量再取整会让「逐级升到 L」与「累计定价」在舍入上分叉，
+// 于是那条「每石买到的火力与等级无关」的性质在某些等级上悄悄不成立。
+std::int64_t World::bld_upgrade_cost_stone(BldType bt,
+                                          std::int32_t from_level) const noexcept {
+    const BldStats& s = stats_.of(bt);
+    if (bt == BldType::Keep) return s.upgrade_cost_stone;
+    const std::int32_t k = stats_.global.hp_permille_per_level;
+    return level_scaled_cost(s.upgrade_cost_stone, from_level + 1, k) -
+           level_scaled_cost(s.upgrade_cost_stone, from_level, k);
+}
+
+std::int64_t World::bld_upgrade_cost_wood(BldType bt,
+                                         std::int32_t from_level) const noexcept {
+    const BldStats& s = stats_.of(bt);
+    if (bt == BldType::Keep) return s.upgrade_cost_wood;
+    const std::int32_t k = stats_.global.hp_permille_per_level;
+    return level_scaled_cost(s.upgrade_cost_wood, from_level + 1, k) -
+           level_scaled_cost(s.upgrade_cost_wood, from_level, k);
 }
 
 // ——状态哈希——

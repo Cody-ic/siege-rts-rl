@@ -811,6 +811,43 @@ public:
     std::int64_t train_cost_gold(UnitType ut, std::int32_t level) const noexcept;
     std::int32_t train_ticks_at(UnitType ut, std::int32_t level) const noexcept;
 
+    // 建筑升级的定价，`Upgrade` 解算与 UI 提示的**唯一**计算处（同上一条纪律）。
+    // 返回「从 `from_level` 升到 `from_level + 1`」那一步的石/木，`from_level`
+    // 是这座建筑**当前**的等级。
+    //
+    // ## 为什么不是表里那个常数
+    //
+    // **定价必须与升级买到的东西同阶，否则两个选项里有一个被结构性地淘汰。**
+    // 非 `Keep` 十座的升级买的是血量与伤害，两者都 `∝ √B(L)`
+    // （`combat_math.hpp` 的 `level_permille`，`p = q = 0.5`）；而表里那个
+    // 常数令累计造价 `= cost + up × (L−1)` 是**线性**的。两者不同阶 ⇒
+    // 每石买到的火力 `∝ 1/√L` ⇒ **堆量严格占优，最优档恒为 1 级**，于是
+    // 「堡垒等级 → 建筑等级上限」这个输出从未被使用（实测见
+    // `攻守配平的数学模型.md` §2.2：第 20 波升到 12 级要多花 2.4 倍石材）。
+    //
+    // 这与 `数值设计与成本产出矩阵.md` §12 给**单位**修掉的是同一条
+    // （`c ∝ √B(L)`，2026-09-02）——当时只改了单位，建筑漏了。所以这里
+    // 逐字照那条办：累计定价 `= cost + up × (√B(L) − 1)`，一步的价钱是
+    // 相邻两级累计值之差。`up == cost` 时**每石买到的火力与等级无关**，
+    // 那就是正式表取的值；`up ≠ cost` 是留给标定的偏置旋钮，不是结构。
+    //
+    // ## `Keep` 走另一条（线性），这不是漏抄
+    //
+    // 它的升级卖的是**三个线性上限**（人口 `8+2K`、建筑等级 `ceil(K/2)`、
+    // 兵种等级 `K`），不是战力。线性输出配线性定价本来就同阶，所以它读表里
+    // 那个常数不变——同 `unit_level_cap()` 与 `building_level_cap()`
+    // 「公式来源本来就不同」那条先例。
+    //
+    // 它同时是「升级严格贵于新建」那笔溢价的**唯一**收费处：非 `Keep` 的
+    // 升级受 `building_level_cap()` 约束，而抬高它要花 `Keep` 的钱。
+    // 溢价在机制里已经收过一遍，再在单价上收第二遍就是把这个输出收成装饰品
+    // ——2026-09-01 那次「降到造价 40%」正是这么落的（它算的是线性战力，
+    // 那个前提在 2026-08-31 就被 `p = q = 0.5` 换掉了）。
+    std::int64_t bld_upgrade_cost_stone(BldType bt,
+                                       std::int32_t from_level) const noexcept;
+    std::int64_t bld_upgrade_cost_wood(BldType bt,
+                                      std::int32_t from_level) const noexcept;
+
     // ——状态哈希——
     //
     // 回放比对的基元。**喂入顺序固定**，见 `src/world.cpp` 里那段清单。

@@ -141,7 +141,29 @@ void print_help() {
         "  --limit <n>       只跑字典序前 n 张图，0 = 全部（默认 0）\n"
         "  --out <文件>      JSON 输出文件（默认 stdout）\n"
         "  --compact         紧凑 JSON（默认缩进）\n"
-        "  --help            本帮助\n";
+        "  --help            本帮助\n"
+        "\n"
+        "守方宏观层（不给 --macro 时守方只有单兵脚本、不建不招不升，量到的是\n"
+        "「守方什么都不做」而不是数值失衡）：\n"
+        "  --macro                 接上 game::DefenderMacro\n"
+        "  --macro-period <n>      几 tick 决策一次（默认 20）\n"
+        "  --macro-recall <0|1>    敌人进城拉弓手下墙（默认 1）\n"
+        "  --macro-conc <0|1>      弓手驻守意愿集中到受威胁那一面（默认 1）\n"
+        "  --macro-seal <0|1>      先把地图自带的设计缺口砌上（默认 1）\n"
+        "  --macro-gath <n>        每波最多铺几座采集建筑（默认 2）\n"
+        "\n"
+        "攻方曲线与波次节奏（都是 game::WaveCurve / WaveTiming 的字段；不给就是\n"
+        "各自的默认值 = 提成参数之前那几个编译期常量）：\n"
+        "  --power-form <power|linear|log|sat>   兵力预算的曲线形式\n"
+        "  --power-base <x> --power-alpha <x>    base x w^alpha（power 档）\n"
+        "  --power-half <x>                      半饱和波数（sat 档）\n"
+        "  --slots-base <x> --slots-per-wave <x> 编成位线性项\n"
+        "  --slots-cap <n>                       编成位硬顶，0 = 不封顶\n"
+        "  --phoenix-per-waves <n> --phoenix-cap <n>  空军放开节奏与上限\n"
+        "  --build-ticks <n> --first-build-ticks <n>  建造阶段时长\n"
+        "\n"
+        "注：--seeds 1,2,3 目前等于同一局跑三遍——攻方一条随机分支都没有\n"
+        "（编成按曲线、方向按取余），实测 36/36 局同图同结果。见本工具 README。\n";
 }
 
 bool parse_args(const std::vector<std::string>& args, Options& out) {
@@ -1377,7 +1399,7 @@ int main(int argc, char** argv) {
                           << " tower=" << ms.towers_built
                           << " gath=" << ms.gatherers_built
                           << " train=" << ms.units_trained
-                          << " upg=" << ms.upgrades
+                          << " upg=" << ms.upgrades << " bupg=" << ms.bld_upgrades
                           << " rep=" << ms.repairs
                           << " recall=" << ms.breach_recalls;
             }

@@ -392,8 +392,18 @@ TEST_CASE("升级提示：升堡垒抬高上限；在途升级与在途维修都
 TEST_CASE("升级造价：石与木都要够（同「绿框骗人」那一类）", "[input]") {
     rts::WorldInit init = iarena();
     rts::BldStats& ws = init.stats.bld[static_cast<std::size_t>(rts::BldType::Wall)];
+    // stats/12 起这两个数是**累计曲线的标度**、不是单价：一步的价钱是
+    // `累计(L+1) − 累计(L)`，累计 `= cost + up × (√B(L) − 1)`
+    // （`World::bld_upgrade_cost_stone()`，理由在那儿）。
+    //
+    // 系数取 3000 使 `√B(2) = √(1+3.0) = 2` **精确**，于是 1→2 那一步恰好
+    // 等于标度本身，下面那两个 30/10 照旧成立。**这里要的不是那两个数，
+    // 是「UI 报的价钱与世界实际扣的钱是同一个数」**——所以下面还照着
+    // `World` 的公式对一遍，而不是只对表里的常数。
     ws.upgrade_cost_stone = 30;
     ws.upgrade_cost_wood = 10;
+    init.stats.global.hp_permille_per_level = 3000;
+    init.stats.global.dmg_permille_per_level = 3000;   // 必须与 hp 相等（p−q=0）
     rts::World w(init);
     w.place_bld(rts::BldType::Wall, rts::GridPos{4, 2}, 40, 40);
     // 先把上限抬起来，否则下面测到的是 LevelCap 而不是造价。
@@ -405,6 +415,14 @@ TEST_CASE("升级造价：石与木都要够（同「绿框骗人」那一类）
     const rts::WorldView v0 = w.view(rts::Side::Defender);
     REQUIRE(game::upgrade_cost_stone(v0, wall) == 30);
     REQUIRE(game::upgrade_cost_wood(v0, wall) == 10);
+    // **UI 报价 = 世界扣款，同一个公式的同一次调用。** 这条不是重复：
+    // `game::upgrade_cost_*` 曾经直接读表里那个常数，改成按等级缩放之后
+    // 照旧读表就会让弹窗报一个与实际扣款不同的价钱——而那种分歧不会让
+    // 任何别的测试变红。
+    REQUIRE(game::upgrade_cost_stone(v0, wall) ==
+            w.bld_upgrade_cost_stone(rts::BldType::Wall, 1));
+    REQUIRE(game::upgrade_cost_wood(v0, wall) ==
+            w.bld_upgrade_cost_wood(rts::BldType::Wall, 1));
     // 空地：两个造价都是 0，但那不等于「买得起」——同 `can_afford_repair`
     // 那条，不能顺着 0 把一个无效目标判成合法。
     REQUIRE(game::upgrade_cost_stone(v0, rts::GridPos{8, 1}) == 0);

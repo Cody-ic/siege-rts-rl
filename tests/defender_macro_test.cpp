@@ -241,6 +241,64 @@ TEST_CASE("宏观层：给堡垒配的近卫塔真的够得着堡垒", "[macro]"
     CHECK(guards >= 1);
 }
 
+TEST_CASE("宏观层：受威胁那一段塔位摆满了才改升级", "[macro]") {
+    // 这一条钉的是**判据的作用域**，不是某个数。
+    //
+    // 「摆满了就改升级」第一版按**整环**判，而整环有 8(R−1) ≈ 88 个塔位、
+    // 一万石都填不满 ⇒ 那一段是死代码。改成只算「离受威胁墙段一个 `Tower.range`
+    // 以内」那段弧（十几格），它才会真的被填满。
+    //
+    // 这里把塔价压到 1 石、把上限除数压到 1、堡垒升级压到 10 石，让那段弧在
+    // 几千拍内填满——**这些数是测试夹具**，不是对正式表的主张。
+    const game::MapData map = pool_map();
+    rts::StatsTable stats = pool_stats();
+    stats.bld[static_cast<std::size_t>(rts::BldType::Tower)].cost_stone = 1;
+    stats.bld[static_cast<std::size_t>(rts::BldType::Tower)].cost_wood = 1;
+    stats.bld[static_cast<std::size_t>(rts::BldType::Tower)].build_ticks = 1;
+    stats.bld[static_cast<std::size_t>(rts::BldType::Keep)].upgrade_cost_stone = 10;
+    stats.bld[static_cast<std::size_t>(rts::BldType::Keep)].upgrade_cost_wood = 10;
+    stats.bld[static_cast<std::size_t>(rts::BldType::Keep)].upgrade_ticks = 1;
+    stats.global.building_level_cap_divisor = 1;   // 一级堡垒开一级建筑上限
+
+    game::MacroParams p;
+    p.max_commands_per_decision = 40;
+    game::DefenderMacro macro(map, p);
+    game::DemoBattle b(map, stats, /*seed=*/1);
+    run_with_macro(b, macro, 4000);
+
+    INFO("弧内剩余塔位 " << macro.stats().near_free_spots << "，建筑升级 "
+                         << macro.stats().bld_upgrades << " 次，塔 "
+                         << macro.stats().towers_built << " 座");
+    // **判据是「弧填满之后升级真的发生了」这个蕴含关系**，不是「一定填得满」
+    // ——后者是经济速度问题，会随任何一次造价/收入改动变红（同「近卫塔」
+    // 那条的教训）。
+    if (macro.stats().near_free_spots == 0) {
+        CHECK(macro.stats().bld_upgrades > 0);
+    } else {
+        // 没填满就不该升级：那正是「先铺开、再升高」。
+        CHECK(macro.stats().bld_upgrades == 0);
+    }
+}
+
+TEST_CASE("宏观层：关掉开关就一次建筑升级都不发", "[macro]") {
+    // 回归护栏：`upgrade_when_saturated` 是**结构性开关**（A/B 用），
+    // 关掉之后哪怕弧已经填满、钱也够，也不许有任何建筑升级。
+    const game::MapData map = pool_map();
+    rts::StatsTable stats = pool_stats();
+    stats.bld[static_cast<std::size_t>(rts::BldType::Tower)].cost_stone = 1;
+    stats.bld[static_cast<std::size_t>(rts::BldType::Tower)].cost_wood = 1;
+    stats.bld[static_cast<std::size_t>(rts::BldType::Tower)].build_ticks = 1;
+    stats.global.building_level_cap_divisor = 1;
+
+    game::MacroParams p;
+    p.upgrade_when_saturated = false;
+    p.max_commands_per_decision = 40;
+    game::DefenderMacro macro(map, p);
+    game::DemoBattle b(map, stats, /*seed=*/1);
+    run_with_macro(b, macro, 4000);
+    CHECK(macro.stats().bld_upgrades == 0);
+}
+
 TEST_CASE("宏观层：命令真的被世界接受了，不是静默拒绝", "[macro]") {
     // `World` 对下不了的命令**不报错、只是不执行**，所以「发了多少条」不能当
     // 「做成了多少件」。踩过一次：塔位候选是环内侧那一圈，正是自家单位聚集的

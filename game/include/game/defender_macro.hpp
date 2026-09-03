@@ -135,6 +135,21 @@ struct MacroParams {
     // 也打不过），压平攻方兵力曲线**几乎无效**（alpha 1.25 → 0.40 只把中位陷落
     // 波从 3 挪到 3–4）。**堵不住的不是火力不够，是那一圈没有火力。**
     int keep_guard_towers = 2;
+
+    // **环上没地方摆新塔了就改升级已有的。**
+    //
+    // 这一条补的是「机制落地了但没人用」——`CommandKind::Upgrade` 与
+    // `building_level_cap()` 都在，而本层此前只升堡垒、**一次都没升过别的建筑**，
+    // 于是「堡垒等级 → 建筑等级上限」这个输出在仿真里从未被消费过
+    // （同 CLAUDE.md 记的那次「升级落地了但玩家点不到」）。
+    //
+    // 顺序是**先铺开、再升高**，不是随便定的：2026-09-03 重定价之后
+    // 每石买到的火力与等级无关（`World::bld_upgrade_cost_stone()`），
+    // 于是石材上两者等价、差别在别处——新塔**多覆盖一片墙**，升级只是把
+    // 同一片打得更疼。所以有空位时新建更值，空位耗尽后升级是唯一出口。
+    // （反过来的证据也在：`balance_solver.py upgrade` 里少数强塔在入口赛跑
+    // 上赢得比 √ 更快，但那是「同一个门口」的比较，不含覆盖面。）
+    bool upgrade_when_saturated = true;
 };
 
 // 一次决策要下的**辅助性临时指令**（到达即失效、回归自主），不进
@@ -154,7 +169,12 @@ struct MacroStats {
     int towers_built = 0;
     int gatherers_built = 0;
     int units_trained = 0;
-    int upgrades = 0;
+    int upgrades = 0;       // 升堡垒（那条轴的闸门）
+    int bld_upgrades = 0;   // 升其余建筑（塔 / 受威胁那一面的墙）
+    // 受威胁墙段一个射程以内还剩几个空塔位。**诊断用**：它是 6c「该改升级了」
+    // 的判据，而那个判据一旦永远 > 0，升级那一段就是死代码（整环 88 个位子
+    // 正是这么被否掉的，见 .cpp）。
+    int near_free_spots = 0;
     int repairs = 0;
     int garrison_wishes = 0;
     int breach_recalls = 0;   // 「把弓手叫下墙」下过几次
