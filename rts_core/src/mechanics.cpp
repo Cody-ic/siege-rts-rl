@@ -866,6 +866,9 @@ void World::impact_projectile(const ProjSpec& p) {
         case TgtKind::None: {
             // 齐射：AOE 砸锁定落点，圈内不分敌我、空中不挨砸（箭雨对地）。
             const float r2 = p.aoe * p.aoe;
+            // 校准诊断（2026-09-02）：记这发的实际命中数——`volley_hits_`
+            // 的消费者是 §7 runner（见 `World::volley_hits()` 那段注释）。
+            std::int32_t hits = 0;
             for (std::size_t t = 0; t < unit_pool_.slot_count(); ++t) {
                 if (!unit_pool_.alive_at(static_cast<std::uint16_t>(t))) continue;
                 if (is_aerial(u_type_[t])) continue;
@@ -874,7 +877,9 @@ void World::impact_projectile(const ProjSpec& p) {
                 deal_damage(TgtKind::Unit,
                             unit_pool_.id_at(static_cast<std::uint16_t>(t)).raw(),
                             dmg_vs_unit(t), p.side);
+                ++hits;
             }
+            volley_hits_.push_back(hits);
             return;
         }
     }

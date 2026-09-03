@@ -55,6 +55,18 @@ py tools/balance/siege_race.py base      # 逐波轨迹
 **已订正（2026-09-02）**：第 1、2 条按下文修订后的表述为准，原表述见
 `攻守实力模型与平衡分析.md` §8 第 1 条的问题列。
 
+## §7 校准 runner 已落地（2026-09-02）
+
+`攻守实力模型与平衡分析.md` §7 要的 runner 在 `tools/calibration_runner/`
+（C++ 可执行文件，链接 game + rts_core，无渲染、无第三方依赖）：多种子跑
+`DemoBattle` + `DefenderScript`，逐波记破口时刻、`Ram` 到墙血量与塔火、
+塔 AOE 逐发命中数（rts_core 里的唯一埋点 `World::volley_hits()`）、
+`Phoenix` 目标序列、门边 13 格墙弓手数、守方损失、堡垒血量与波长，输出
+机器可读 JSON。用法与字段全表见该目录 README；首批数据的量级与「待封缺口」
+的拟合结论见 `攻守实力模型与平衡分析.md` §7.1。本目录的 Python 模型脚本
+（`siege_race.py` 等）是**闭式聚合模型**，runner 是**逐单位仿真**——两者
+互为对照，后者是前者的校准来源。
+
 ## `budget_curves.py` 里三条结构结论
 
 推导写在该文件头部，这里只留结论（同一件事写在两处必然漂移，所以不复制论证）：

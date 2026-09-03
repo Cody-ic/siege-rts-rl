@@ -197,6 +197,54 @@ TEST_CASE("齐射弹雨飞向锁定落点：飞行期间跑掉的躲开，站着
     REQUIRE(w.unit_hp(runner) == 30);
 }
 
+TEST_CASE("齐射命中日志：每发记圈内实际挨打数，单体弹丸不记", "[proj]") {
+    // 校准埋点（2026-09-02，`World::volley_hits()`）：§7 runner 靠它拟合
+    // 塔 AOE 的 `aoe_mult`，所以这条把「每一发齐射记一行圈内实际命中数、
+    // 单体箭矢不记」钉住。数值与站位只用来说明命中数怎么数，无平衡含义。
+    rts::WorldInit init = arena();
+    bs(init.stats, rts::BldType::Tower) = {50, 14, 7.0f, 5.0f, 0, 90};
+    bs(init.stats, rts::BldType::Tower).aoe_radius = 1.5f;
+    bs(init.stats, rts::BldType::Tower).proj_speed = 0.25f;
+    rts::World w(std::move(init));
+    w.place_bld(rts::BldType::Tower, rts::GridPos{4, 4}, 50, 50);
+    // 三名站定的 Ghoul：两名在锁定落点圈内、一名远在圈外。
+    const rts::UnitId in1 =
+        w.spawn_unit(rts::UnitType::Ghoul, rts::Vec2{7.5f, 4.5f}, 1, 30, 30);
+    const rts::UnitId in2 =
+        w.spawn_unit(rts::UnitType::Ghoul, rts::Vec2{7.5f, 5.6f}, 1, 30, 30);
+    w.spawn_unit(rts::UnitType::Ghoul, rts::Vec2{11.5f, 4.5f}, 1, 30, 30);
+
+    const std::vector<rts::UnitAction> stop3{rts::UnitAction::Stop,
+                                             rts::UnitAction::Stop,
+                                             rts::UnitAction::Stop};
+    w.submit_actions(rts::Side::Attacker, stop3.data(), stop3.size());
+    // t1 承诺（锁定最近者 in1）+ 前摇 0 当场放箭，弹雨飞 3.0 ÷ 0.25 = 12 tick。
+    w.advance(13);
+    REQUIRE(w.live_proj_count() == 0);
+    REQUIRE(w.volley_hits().size() == 1);   // 一发齐射 = 一行
+    REQUIRE(w.volley_hits()[0] == 2);       // 圈内两名都挨打，圈外的没数进去
+    REQUIRE(w.unit_hp(in1) == 30 - 14);
+    REQUIRE(w.unit_hp(in2) == 30 - 14);
+
+    // 第二发：只剩 in1 还活着且站定在圈内 ⇒ 记 1。杀 in2，等冷却（90 tick）
+    // 之后第二发弹雨还要飞 12 tick 才落地。
+    w.kill_unit(in2);
+    w.advance(90 + 13);
+    REQUIRE(w.volley_hits().size() == 2);
+    REQUIRE(w.volley_hits()[1] == 1);
+    REQUIRE(w.unit_hp(in1) == 30 - 14 - 14);
+
+    // 单体弹丸（这里用 Flak 打空中 Phoenix）不碰这列数。
+    rts::WorldInit init2 = arena();
+    bs(init2.stats, rts::BldType::Flak) = {40, 9, 6.0f, 6.0f, 0, 90};
+    rts::World w2(std::move(init2));
+    w2.place_bld(rts::BldType::Flak, rts::GridPos{4, 4}, 40, 40);
+    w2.spawn_unit(rts::UnitType::Phoenix, rts::Vec2{8.5f, 4.5f}, 1, 24, 24);
+    w2.advance(1);
+    REQUIRE(w2.live_proj_count() == 0);   // 前摇 0 + 弹速 0：当场命中
+    REQUIRE(w2.volley_hits().empty());    // 单体路径不记
+}
+
 TEST_CASE("Flak 弩矢追踪空中目标：建筑单体路径也真有弹丸", "[proj]") {
     rts::WorldInit init = arena();
     bs(init.stats, rts::BldType::Flak) = {40, 9, 6.0f, 6.0f, 0, 90};

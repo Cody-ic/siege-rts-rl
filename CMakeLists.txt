@@ -92,6 +92,10 @@ add_subdirectory(rts_core)
 # 正是错了才发现的那种。放在这里它们就一定被测到。理由详见 game/CMakeLists.txt 开头。
 add_subdirectory(game)
 
+# §7 校准 runner（tools/calibration_runner，2026-09-02）：纯 C++、无渲染，
+# 无条件构建的理由与 game/ 相同——tests/ 给它挂了一条冒烟 ctest。
+add_subdirectory(tools/calibration_runner)
+
 # 不变量 2 与 3 的构建侧落地：RTS_BUILD_RENDER 默认 OFF，于是训练构建**根本不配置**
 # render/ 这个子目录——不是"编译了但不链接"，而是它连 CMake 层面都不参与。
 # 这条同时缩小了需要在服务器 GCC 上编译的代码面。
