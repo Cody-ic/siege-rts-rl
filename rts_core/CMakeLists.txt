@@ -37,6 +37,7 @@ int probe_${_stem}() { return 0; }
 endforeach()
 
 add_library(rts_core STATIC
+    src/cli_args.cpp
     src/rng.cpp
     src/terrain.cpp
     src/fog.cpp
