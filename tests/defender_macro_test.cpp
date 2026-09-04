@@ -276,12 +276,37 @@ TEST_CASE("斥候侦查是二元的：到达集结点掷一次，死了什么都
         CHECK(b.scout_report().empty());
     }
 
-    SECTION("必活：到了就拿到完整编成") {
+    SECTION("必活：到了就拿到它看见的编成") {
         game::DefenderSetup setup;
         setup.scout_death_permille = 0;   // 必活
         game::DemoBattle b(map, stats, /*seed=*/1, {}, {}, setup);
         game::DefenderMacro macro(map);
-        run_with_macro(b, macro, 6000);
+        // **逐拍轮询到第一次 Success 为止**，不跑满固定拍数再查：`scout_outcome_`
+        // 逐波重置为 `None`，固定拍数的终点可能落在「新一波还没被探到」的
+        // 窗口里——那不是侦查失败，只是计时撞上了波次边界（2026-09-05 所见即报
+        // 改动后实测红过一次：波2 于 t=4017 探到、波3 于 t≈5400 重置）。
+        std::vector<rts::Command> cmds;
+        std::vector<game::UnitOrder> orders;
+        int t = 0;
+        for (; t < 6000; ++t) {
+            if (t % 20 == 0) {
+                cmds.clear();
+                orders.clear();
+                macro.decide(b.world(), cmds, orders);
+                if (!cmds.empty()) b.submit_defender(cmds.data(), cmds.size());
+            }
+            for (const game::UnitOrder& o : orders) {
+                if (o.garrison) {
+                    b.issue_garrison_order(o.ids, o.target);
+                } else {
+                    b.issue_move_order(o.ids, o.target);
+                }
+            }
+            b.update(1);
+            if (b.defeated()) break;
+            if (b.scout_outcome() == game::DemoBattle::ScoutOutcome::Success) break;
+        }
+        INFO("跑到第 " << t << " 拍");
         // 「场上有没有斥候」是这条用例最容易挂掉的前提，所以把它印出来——
         // 它第一次红就是这么定位的（工匠把非战斗人口预算吃光了，
         // 斥候一名都招不出来，见 `defender_macro.cpp` 那段注释）。
@@ -296,10 +321,11 @@ TEST_CASE("斥候侦查是二元的：到达集结点掷一次，死了什么都
                      << b.scout_report().size() << " 种");
         REQUIRE(b.scout_outcome() == game::DemoBattle::ScoutOutcome::Success);
         REQUIRE_FALSE(b.scout_report().empty());
-        // **报告是全波编成**，不是「视野里那几个」：斥候此刻就站在集结点上，
-        // 而集结期整波部队都在那里待命。
+        // **所见即报**：报告是斥候视野圈内看见的那部分编成（分兵之后「站在
+        // 集结点上 = 整波都在」不再成立），所以这里只钉「报出来的东西非空」，
+        // 不拿它与场上总数比大小。
         int reported = 0;
-        for (const game::SightedType& t : b.scout_report()) reported += t.count;
+        for (const game::SightedType& ty : b.scout_report()) reported += ty.count;
         int actual = 0;
         std::vector<rts::UnitId> foes;
         b.world().enumerate_units(rts::Side::Attacker, foes);
@@ -560,3 +586,4 @@ TEST_CASE("宏观层：命令真的被世界接受了，不是静默拒绝", "[m
     // （塔位候选正是自家单位聚集的那一圈，而 `World::Build` 拒绝有人站着的格）。
     CHECK(issued <= (bld1 - bld0) + 8);
 }
+

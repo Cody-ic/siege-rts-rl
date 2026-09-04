@@ -548,7 +548,7 @@ void draw_alert_banner(const render::FontSet& font, int screen_w, rts::Tick now,
             edge_rgb = Color{220, 150, 255, 0};
             break;
         case AlertStyle::Report:
-            line1 = "斥候回报：已看清敌袭编成";
+            line1 = "斥候回报：探到敌军集结";
             line2 = "编成与克制见右上侦查面板";
             backing = Color{18, 42, 46, 225};
             ink1 = Color{205, 240, 245, 255};
