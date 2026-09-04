@@ -1542,6 +1542,14 @@ int main(int argc, char** argv) {
                           << " gath=" << ms.gatherers_built
                           << " train=" << ms.units_trained
                           << " upg=" << ms.upgrades << " bupg=" << ms.bld_upgrades
+                          << " brk=" << ms.barracks_built
+                          << " flak=" << ms.flaks_built
+                          << " fence=" << ms.fences_built
+                          << " clr=" << ms.clears_ordered
+                          << " [A" << ms.trained_archer << " S"
+                          << ms.trained_spear << " R" << ms.trained_ranger
+                          << " M" << ms.trained_mason << " Sc"
+                          << ms.trained_scout << "]"
                           << " rep=" << ms.repairs
                           << " recall=" << ms.breach_recalls;
             }

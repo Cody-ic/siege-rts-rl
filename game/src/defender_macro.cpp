@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "game/player_input.hpp"
+#include "rts/fog.hpp"
 #include "rts/world_view.hpp"
 
 namespace game {
@@ -44,6 +45,39 @@ bool ground_unit_on(const rts::WorldView& v, rts::GridPos cell) {
         if (rts::grid_of(up[k]) == cell) return true;
     }
     return false;
+}
+
+// **过迷雾**数一数看得见的敌方单位。
+//
+// 这是本层唯一的敌情来源（除了免费的方向提示与总兵力），刻意如此：
+// `WorldView` 是 god 视角（那是不变量 2），所以「不作弊」必须靠**主动只读
+// 迷雾**来保证，而不是靠没人去读。判据与 `rts_core/src/obs_pack.cpp` 的
+// 硬要求 1 逐字同款——越界回落 `Unseen`，只有 `Visible` 算看得见
+// （`!= Unseen` 会把「记忆里的」也算进来，那对**单位**是错的：迷雾里只记
+// 建筑，单位不进记忆）。
+struct VisibleFoe {
+    int knight = 0;
+    int ram = 0;
+    int total = 0;
+};
+
+VisibleFoe census_visible_foes(const rts::WorldView& v) {
+    VisibleFoe out;
+    const rts::FogLayer& fog = v.fog();
+    const auto ut = v.unit_type();
+    const auto up = v.unit_pos();
+    const auto ua = v.unit_alive();
+    for (std::size_t k = 0; k < ut.size(); ++k) {
+        if (!ua[k]) continue;
+        if (rts::side_of(ut[k]) != rts::Side::Attacker) continue;
+        const rts::GridPos g = rts::grid_of(up[k]);
+        if (!fog.in_bounds(g.i, g.j)) continue;
+        if (fog.at(g.i, g.j) != rts::Vis::Visible) continue;
+        ++out.total;
+        if (ut[k] == rts::UnitType::Knight) ++out.knight;
+        if (ut[k] == rts::UnitType::Ram) ++out.ram;
+    }
+    return out;
 }
 
 }   // namespace
@@ -225,6 +259,60 @@ void DefenderMacro::decide(const rts::World& w, std::vector<rts::Command>& cmds,
         }
     }
 
+    // —— 2b) 兵营：补员速率的分母 ——
+    //
+    // `World` 的 `Train` 一座建筑一次只练一名，所以出兵口的**数量**直接就是
+    // 每 `train_ticks` 能补几名。此前脚本一座兵营都不建 ⇒ 全场只有 `Keep`
+    // 一个口 ⇒ 打光一波补不回来（实测波末存活中位 2，而人口上限抬到 25
+    // 也照旧是 2——瓶颈在这儿，不在上限）。
+    //
+    // 摆位取「堡垒与受威胁那面之间」：CLAUDE.md 说「离前线越近补员越快、
+    // 也越容易被点掉，位置即决策」，这里选偏前但仍在环内的一圈。
+    if (p_.barracks_target > 0) {
+        int have = 0;
+        {
+            const auto bt2 = v.bld_type();
+            const auto ba2 = v.bld_alive();
+            for (std::size_t k = 0; k < bt2.size(); ++k) {
+                if (ba2[k] && bt2[k] == rts::BldType::Barrack) ++have;
+            }
+        }
+        if (have < p_.barracks_target) {
+            const rts::BldStats& bs = v.stats().of(rts::BldType::Barrack);
+            // 候选：离堡垒 3..ring−3 且朝受威胁那一面的格。按「到受威胁方向
+            // 的距离」升序取第一个能落地的。固定序：先按半径、再按格序扫。
+            rts::GridPos best{};
+            bool found = false;
+            int best_d = 0;
+            for (int rad = 3; rad <= std::max(3, ring_r_ - 3); ++rad) {
+                for (int x = 0; x < map_w_; ++x) {
+                    for (int y = 0; y < map_h_; ++y) {
+                        const rts::GridPos c{static_cast<std::int16_t>(x),
+                                             static_cast<std::int16_t>(y)};
+                        if (cheb(c, keep_) != rad) continue;
+                        if (bld_slot_at(v, c) >= 0) continue;
+                        if (!can_place_hint(v, rts::BldType::Barrack, c)) continue;
+                        if (ground_unit_on(v, c)) continue;
+                        const int d = cheb(c, threat);
+                        if (!found || d < best_d) {
+                            found = true;
+                            best_d = d;
+                            best = c;
+                        }
+                    }
+                }
+                if (found) break;   // 就近的一圈里找到了就别再往外找
+            }
+            if (found && room() && stone >= bs.cost_stone && wood >= bs.cost_wood) {
+                stone -= bs.cost_stone;
+                wood -= bs.cost_wood;
+                tower_left = std::max<std::int64_t>(0, tower_left - bs.cost_stone);
+                cmds.push_back(build_command(rts::BldType::Barrack, best, mw));
+                ++stats_.barracks_built;
+            }
+        }
+    }
+
     // —— 3) 城外采集建筑 ——
     //
     // 只在已解禁、且工匠往返得了的距离内建。`can_place_hint` 已经把「采集建筑
@@ -295,13 +383,77 @@ void DefenderMacro::decide(const rts::World& w, std::vector<rts::Command>& cmds,
         }
     }
 
-    // —— 5) 征兵 ——
+    // —— 5) 征兵：按目标编成，不再只招弓手 ——
     //
-    // 弓手是门前唯一可移动的火力，而它每波近乎全灭（实测），所以补员是流量开销、
-    // 每轮都要发。等级取上限（`train_at_cap_level`，理由见头文件）。
+    // 顺序是**工匠 → 斥候 → 战斗兵**，而工匠排第一不是笔误：建造、维修、升级
+    // 三件工程全靠它推进，所以它是这一层其余每一条的**产能前提**。开局只有
+    // 1 名、此前从不补，实测后果是堡垒升级永远排不上工时（头文件 `mason_target`）。
+    //
+    // 战斗兵按 `mix_*` 的目标比例挑「当前最欠的那一种」，再叠一层**过迷雾**的
+    // 反应（看见骑士加枪卫、看见攻城锤加游骑，两条直接抄克制二部图）。
+    // 等级取上限（`train_at_cap_level`，理由见头文件）。
     {
         const std::int32_t lv =
             p_.train_at_cap_level ? std::max<std::int32_t>(1, v.unit_level_cap()) : 1;
+
+        // 现有编成普查（只数活着的己方单位；在训的那一名由 `defender_pop()`
+        // 占人口，但它是什么兵种要读 `b_train_type_`，这里不细分——一名的
+        // 误差比多一条状态便宜）。
+        int have_archer = 0, have_spear = 0, have_ranger = 0;
+        int have_mason = 0, have_scout = 0;
+        {
+            std::vector<rts::UnitId> ids;
+            w.enumerate_units(rts::Side::Defender, ids);
+            for (const rts::UnitId id : ids) {
+                switch (w.unit_type(id)) {
+                    case rts::UnitType::Archer: ++have_archer; break;
+                    case rts::UnitType::Spear: ++have_spear; break;
+                    case rts::UnitType::Ranger: ++have_ranger; break;
+                    case rts::UnitType::Mason: ++have_mason; break;
+                    case rts::UnitType::Scout: ++have_scout; break;
+                    default: break;
+                }
+            }
+        }
+
+        // 过迷雾的反应：看得见的骑士/攻城锤把对应兵种的**权重**抬一档，
+        // 然后**归一化**回 1000。
+        //
+        // **相加 + 弓手拿余数是错的，第一版就是那么写的**：骑士与攻城锤几乎
+        // 每波都同时可见 ⇒ 两档反应叠起来是 +600 ⇒ 目标份额变成
+        // A50/S500/R450，弓手被压到零（实测第 20 波场上 Ar3 Sp5 Ra2）。
+        // 而弓手是**墙上唯一吃高度优势的输出**，把它压没等于放弃三阶段攻防的
+        // 第一段。归一化之后同样的局面给 A406/S312/R281——反应仍然明显，
+        // 但它抢的是份额、不是把基础编成清零。
+        const VisibleFoe foe = census_visible_foes(v);
+        int want_archer = std::max(
+            0, 1000 - p_.mix_spear_permille - p_.mix_ranger_permille);
+        int want_spear = p_.mix_spear_permille;
+        int want_ranger = p_.mix_ranger_permille;
+        if (foe.knight > 0) want_spear += p_.react_permille;
+        if (foe.ram > 0) want_ranger += p_.react_permille;
+        {
+            const int sum = want_archer + want_spear + want_ranger;
+            if (sum > 0) {
+                want_archer = want_archer * 1000 / sum;
+                want_spear = want_spear * 1000 / sum;
+                want_ranger = want_ranger * 1000 / sum;
+            }
+        }
+
+        // 「当前最欠的那一种」= 实际占比与目标占比的差最大的那个。
+        // **固定序的三元比较**，不排序也不用容器——纪律 3。
+        const auto pick_combat = [&](int a, int sp, int rg) {
+            const int n = a + sp + rg;
+            if (n == 0) return rts::UnitType::Archer;   // 一个战斗兵都没有：先要输出
+            const int da = want_archer - a * 1000 / n;
+            const int ds = want_spear - sp * 1000 / n;
+            const int dr = want_ranger - rg * 1000 / n;
+            if (ds >= da && ds >= dr) return rts::UnitType::Spear;
+            if (dr >= da && dr >= ds) return rts::UnitType::Ranger;
+            return rts::UnitType::Archer;
+        };
+
         const auto bt = v.bld_type();
         const auto bpos = v.bld_pos();
         const auto balive = v.bld_alive();
@@ -315,13 +467,37 @@ void DefenderMacro::decide(const rts::World& w, std::vector<rts::Command>& cmds,
             if (!balive[k] || !bbuilt[k]) continue;
             if (bt[k] != rts::BldType::Barrack && bt[k] != rts::BldType::Keep) continue;
             if (btrain[k] > 0) continue;   // 这一座正在练兵，排不进第二个
-            const std::int64_t cost = v.train_cost_gold(rts::UnitType::Archer, lv);
-            if (cost <= 0 || gold < cost) break;
             if (!can_train_hint(v, bpos[k])) continue;
+
+            // 挑兵种：产能与情报的绝对缺口优先，**但受非战斗人口上界约束**。
+            // 没有那条上界时，开局 3 个空位会被 2 工匠 + 1 斥候吃光，
+            // 一个战斗兵都招不上（头文件 `noncombat_max_permille`）。
+            const int noncombat_cap = cap * p_.noncombat_max_permille / 1000;
+            const int noncombat_now = have_mason + have_scout;
+            rts::UnitType ut;
+            if (have_mason < p_.mason_target && noncombat_now < noncombat_cap) {
+                ut = rts::UnitType::Mason;
+            } else if (have_scout < p_.scout_target &&
+                       noncombat_now < noncombat_cap) {
+                ut = rts::UnitType::Scout;
+            } else {
+                ut = pick_combat(have_archer, have_spear, have_ranger);
+            }
+
+            const std::int64_t cost = v.train_cost_gold(ut, lv);
+            if (cost <= 0 || gold < cost) break;
             gold -= cost;
             ++pop;
-            cmds.push_back(train_command(rts::UnitType::Archer, lv, bpos[k], mw));
+            cmds.push_back(train_command(ut, lv, bpos[k], mw));
             ++stats_.units_trained;
+            switch (ut) {
+                case rts::UnitType::Archer: ++have_archer; ++stats_.trained_archer; break;
+                case rts::UnitType::Spear: ++have_spear; ++stats_.trained_spear; break;
+                case rts::UnitType::Ranger: ++have_ranger; ++stats_.trained_ranger; break;
+                case rts::UnitType::Mason: ++have_mason; ++stats_.trained_mason; break;
+                case rts::UnitType::Scout: ++have_scout; ++stats_.trained_scout; break;
+                default: break;
+            }
         }
     }
 
@@ -354,6 +530,41 @@ void DefenderMacro::decide(const rts::World& w, std::vector<rts::Command>& cmds,
             wood -= ts.cost_wood;
             cmds.push_back(build_command(rts::BldType::Tower, c, mw));
             ++stats_.towers_built;
+            ++have;
+        }
+    }
+
+    // —— 6a2) 防空 ——
+    //
+    // **此前一座都不建 ⇒ `Phoenix` 全程无人可挡**，而「每座 AA 意味着该位置
+    // 少一座对地火力」这组两难被 CLAUDE.md 称作「本作智斗最可读的载体」——
+    // 在训练里它一次都没发生过。它也是「Flak 视野否定覆盖率」那项核验的前提。
+    //
+    // **排在环塔之前**是有意的：两者抢同一份石材，而那正是那个机会成本本身。
+    // 若排在后面，钱永远先被环塔花完，取舍就退化成「有余钱才防空」。
+    // 摆位与近卫塔同一组候选（离堡垒 4–6）——`Flak` 射程 5、视野 9，
+    // 摆在城心一带能罩住堡垒与内城，而空军的目标正是塔与工人。
+    if (p_.flak_target > 0 && !keep_guard_spots_.empty()) {
+        const rts::BldStats& fs = v.stats().of(rts::BldType::Flak);
+        int have = 0;
+        {
+            const auto bt2 = v.bld_type();
+            const auto ba2 = v.bld_alive();
+            for (std::size_t k = 0; k < bt2.size(); ++k) {
+                if (ba2[k] && bt2[k] == rts::BldType::Flak) ++have;
+            }
+        }
+        for (const rts::GridPos c : keep_guard_spots_) {
+            if (!room() || have >= p_.flak_target) break;
+            if (bld_slot_at(v, c) >= 0) continue;
+            if (!can_place_hint(v, rts::BldType::Flak, c)) continue;
+            if (ground_unit_on(v, c)) continue;
+            if (tower_left < fs.cost_stone || wood < fs.cost_wood) break;
+            tower_left -= fs.cost_stone;
+            stone -= fs.cost_stone;
+            wood -= fs.cost_wood;
+            cmds.push_back(build_command(rts::BldType::Flak, c, mw));
+            ++stats_.flaks_built;
             ++have;
         }
     }
@@ -455,6 +666,65 @@ void DefenderMacro::decide(const rts::World& w, std::vector<rts::Command>& cmds,
                 cmds.push_back(upgrade_command(bp[k], mw));
                 ++stats_.bld_upgrades;
             }
+        }
+    }
+
+    // —— 6d) 破口处放木栅 ——
+    //
+    // CLAUDE.md「保留一个廉价应急防御层（木栅栏、临时箭塔），可在波次进行中
+    // 即时放置」的落点，此前一座都没造过。它同时是**木材唯一的大宗出口**
+    // （15 木/座，而木材实测堆到 3000+，`资源点分布与经济平衡.md` §4.5——
+    // 「木材是死轴」那条结论有一半可能就是「脚本不用它」）。
+    //
+    // 只在**交战期**、只在**环上缺墙的格**放：木栅补的是形状里的洞，
+    // 不该拿它去铺满城内。它挡不住多久，但「立刻生效」正是它与石墙的分工
+    // （石材买永久结构、代价是时间；木材买立刻生效的临时结构）。
+    if (p_.build_fence_at_breach && v.phase() == rts::WavePhase::Assault) {
+        if (v.wave() != fence_wave_) {
+            fence_wave_ = v.wave();
+            fence_this_wave_ = 0;
+        }
+        const rts::BldStats& fs = v.stats().of(rts::BldType::Fence);
+        // 环上现在缺墙的格 = 本波被打穿的 + 地图自带的设计缺口。逐格现算，
+        // 不缓存——墙况每拍都在变。
+        for (const rts::GridPos c : wall_cells_) {
+            if (!room()) break;
+            if (fence_this_wave_ >= p_.fence_per_wave) break;
+            if (bld_slot_at(v, c) >= 0) continue;   // 墙还在（或已经补上了）
+            if (!can_place_hint(v, rts::BldType::Fence, c)) continue;
+            if (ground_unit_on(v, c)) continue;
+            if (stone < fs.cost_stone || wood < fs.cost_wood) break;
+            stone -= fs.cost_stone;
+            wood -= fs.cost_wood;
+            ++fence_this_wave_;
+            cmds.push_back(build_command(rts::BldType::Fence, c, mw));
+            ++stats_.fences_built;
+        }
+    }
+
+    // —— 6e) 清野 ——
+    //
+    // 破坏可破坏障碍产一次性资源（`Stump`/`Sapling` 出木、`Rubble` 出石），
+    // 此前一次都没下过。`Clear` 是**全局标记**、不按编队——任何闲着的、能
+    // 破坏结构的单位都会响应，所以这里只负责「标出来」，不管派谁去。
+    // 只标城外一圈以内的：远的走过去的时间不值那点资源，而且要穿集结区。
+    if (p_.clear_obstacles) {
+        const auto op = v.obstacle_pos();
+        const auto oa = v.obstacle_alive();
+        // **「已经标过」读 `World` 的那一份，不自己记一份。**
+        // `o_clear_ordered_` 是个只进不退的标记，而 `WorldView` 正好暴露了它
+        // （`obstacle_clear_ordered()`）。第一版我在这里存了个本地 vector——
+        // 那是「同一件事写在两处然后漂移」的又一例：障碍被清掉、槽位回收给
+        // 新障碍时，本地那份就开始说谎。不查它的后果是每个决策周期把同一批
+        // 障碍重标一遍（同「塔位每周期重发、一局刷 2776 条」那个坑）。
+        const auto ordered = v.obstacle_clear_ordered();
+        for (std::size_t k = 0; k < op.size(); ++k) {
+            if (!room()) break;
+            if (!oa[k]) continue;
+            if (k < ordered.size() && ordered[k] != 0) continue;
+            if (cheb(op[k], keep_) > p_.clear_max_dist) continue;
+            cmds.push_back(clear_command(op[k], mw));
+            ++stats_.clears_ordered;
         }
     }
 

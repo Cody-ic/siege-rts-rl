@@ -241,6 +241,114 @@ TEST_CASE("宏观层：给堡垒配的近卫塔真的够得着堡垒", "[macro]"
     CHECK(guards >= 1);
 }
 
+TEST_CASE("宏观层：编成覆盖克制二部图守方那半（不是只招弓手）", "[macro]") {
+    // **这一条钉的是 CLAUDE.md 对脚本守方的判据**，不是一个平衡数：
+    //
+    // > 脚本要写到什么程度有一条判据：**克制二部图里已写死的战术行为
+    // > （如 `Ghoul ──► Archer 拉扯`）必须进脚本**，因为那是设计意图、
+    // > 不该指望涌现。
+    //
+    // 守方那半张图是 `Spear` 克开阔地骑兵、`Ranger` 摸攻城锤。单兵层
+    // （`DefenderScript`）这两条行为**早就有**，而宏观层此前**只招弓手**
+    // ⇒ 那两条行为一次都没机会发生。后果不只是配平读数偏低：**攻方 RL 的
+    // 陪练里没有它们**，学出来的策略会过拟合到「只会打弓手的守方」——
+    // 而那正是脚本守方存在的全部理由所反对的。
+    //
+    // 判据是「**每一种都出现过**」，不是「各多少个」：比例是旋钮
+    // （`mix_*` / `react_permille`），会随标定漂；「有没有」是结构。
+    const game::MapData map = pool_map();
+    rts::StatsTable stats = pool_stats();
+    // 把兵便宜到不受经济速度影响——这是测试夹具，不是对正式表的主张
+    // （同「近卫塔」那条的教训：别让结构测试随任何一次数值改动变红）。
+    for (const rts::UnitType u : {rts::UnitType::Archer, rts::UnitType::Spear,
+                                  rts::UnitType::Ranger, rts::UnitType::Mason,
+                                  rts::UnitType::Scout}) {
+        stats.unit[static_cast<std::size_t>(u)].cost_gold = 1;
+        stats.unit[static_cast<std::size_t>(u)].train_ticks = 2;
+    }
+    game::DefenderMacro macro(map);
+    game::DemoBattle b(map, stats, /*seed=*/1);
+    // **要跨过几波**：人口上限 10 而开局就有 7 人，空位很少，三个兵种都露面
+    // 需要几轮伤亡腾位子。3000 拍只够两波，第一版就是那么红的
+    // （而那次红得对——它报出了「开局空位被工匠斥候吃光」那个真缺陷）。
+    run_with_macro(b, macro, 12000);
+
+    const game::MacroStats& ms = macro.stats();
+    INFO("A" << ms.trained_archer << " S" << ms.trained_spear << " R"
+             << ms.trained_ranger << " M" << ms.trained_mason << " Sc"
+             << ms.trained_scout);
+    CHECK(ms.trained_spear > 0);    // 克骑兵那一条
+    CHECK(ms.trained_ranger > 0);   // 摸攻城锤那一条
+    // 工匠不是战力，是**产能**：建造 / 维修 / 升级三件工程全靠它推进，
+    // 而开局只有 1 名。不补的话堡垒升级的 400 tick 工时永远排不上队。
+    CHECK(ms.trained_mason > 0);
+}
+
+TEST_CASE("宏观层：木栅只在交战期放，且只补环上缺墙的格", "[macro]") {
+    // 木栅是 CLAUDE.md「廉价应急防御层，可在波次进行中即时放置」的落点，
+    // 也是木材唯一的大宗出口。**但它不该在建造期铺**——那样它就从「应急」
+    // 变成「另一种便宜的墙」，而石墙与木栅的分工（石材买永久结构、代价是
+    // 时间；木材买立刻生效的临时结构）正是靠这个时机边界成立的。
+    const game::MapData map = pool_map();
+    const rts::StatsTable stats = pool_stats();
+    game::DefenderMacro macro(map);
+    game::DemoBattle b(map, stats, /*seed=*/1);
+
+    // 只跑到首个建造期结束之前（默认 first_build_ticks = 360）。
+    run_with_macro(b, macro, 300);
+    REQUIRE(b.world().phase() == rts::WavePhase::Build);
+    CHECK(macro.stats().fences_built == 0);
+}
+
+TEST_CASE("宏观层：防空真的会被建出来", "[macro]") {
+    // 此前一座都不建 ⇒ `Phoenix` 全程无人可挡，而「每座 AA 意味着该位置少一座
+    // 对地火力」这组两难（CLAUDE.md 称作「本作智斗最可读的载体」）在训练里
+    // 一次都没发生过。它也是「Flak 视野否定覆盖率」那项核验的前提。
+    const game::MapData map = pool_map();
+    rts::StatsTable stats = pool_stats();
+    stats.bld[static_cast<std::size_t>(rts::BldType::Flak)].cost_stone = 1;
+    stats.bld[static_cast<std::size_t>(rts::BldType::Flak)].cost_wood = 1;
+    stats.bld[static_cast<std::size_t>(rts::BldType::Flak)].build_ticks = 1;
+    game::DefenderMacro macro(map);
+    game::DemoBattle b(map, stats, /*seed=*/1);
+    run_with_macro(b, macro, 1200);
+
+    const rts::WorldView v = b.world().view(rts::Side::Defender);
+    int flaks = 0;
+    for (std::size_t k = 0; k < v.bld_alive().size(); ++k) {
+        if (v.bld_alive()[k] && v.bld_type()[k] == rts::BldType::Flak) ++flaks;
+    }
+    INFO("场上防空 " << flaks << " 座，脚本建过 " << macro.stats().flaks_built);
+    CHECK(flaks > 0);
+}
+
+TEST_CASE("宏观层：清野不重复下令（`o_clear_ordered_` 读世界那一份）", "[macro]") {
+    // `Clear` 是只进不退的全局标记。不查它的后果是每个决策周期把同一批障碍
+    // 重标一遍——与「塔位每周期重发、一局刷 2776 条」同一个坑。
+    // 第一版我在这一层存了个本地副本，那是「同一件事写在两处然后漂移」：
+    // 障碍被清掉、槽位回收给新障碍时本地那份就开始说谎。
+    const game::MapData map = pool_map();
+    const rts::StatsTable stats = pool_stats();
+    game::DefenderMacro macro(map);
+    game::DemoBattle b(map, stats, /*seed=*/1);
+    run_with_macro(b, macro, 1500);
+
+    const rts::WorldView v = b.world().view(rts::Side::Defender);
+    int in_range = 0;
+    const rts::GridPos keep = v.keep_pos();
+    const auto op = v.obstacle_pos();
+    for (std::size_t k = 0; k < op.size(); ++k) {
+        if (!v.obstacle_alive()[k]) continue;
+        if (cheb(op[k], keep) <= 24) ++in_range;
+    }
+    INFO("下过 " << macro.stats().clears_ordered << " 条，范围内还活着 "
+                 << in_range << " 个障碍");
+    // 判据是「下达条数不超过范围内障碍总数太多」——每个障碍最多标一次。
+    // 允许一点余量：障碍会被清掉、槽位可能被新障碍复用（本局不会，但
+    // 判据不该依赖那一点）。**坏掉的形状是几百上千条。**
+    CHECK(macro.stats().clears_ordered <= in_range + 16);
+}
+
 TEST_CASE("宏观层：受威胁那一段塔位摆满了才改升级", "[macro]") {
     // 这一条钉的是**判据的作用域**，不是某个数。
     //
