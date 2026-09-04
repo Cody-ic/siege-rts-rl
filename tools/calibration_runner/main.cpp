@@ -103,9 +103,17 @@ struct Options {
     bool macro = false;
     int macro_period = 20;   // 决策周期（tick）。1 秒一次，与玩家手速同量级
     // 波次节奏（`game::WaveTiming`）。组长点出「波间隔是平衡关键」：它同时管
-    // 每波收入与「能安全施工多久」。默认值 = demo 原来的两个编译期常量。
-    int build_ticks = 260;
-    int first_build_ticks = 360;
+    // 每波收入与「能安全施工多久」。
+    //
+    // **默认值从 `game::WaveTiming{}` 取，不在这里抄一份数。** 抄过一次，
+    // 而且真的漂了：这两行原本写死 260 / 360（= demo 当时的编译期常量），
+    // 2026-09-04 `WaveTiming` 改成 660 / 900 之后这里没跟，于是**不给旗标跑
+    // runner 用的是改动前的波次节奏**，而 `--help` 明说「不给就是各自的默认
+    // 值」。症状是静默的：跑得出数、数还挺像样，只是和 demo 不是同一个游戏。
+    // 同 `CLAUDE.md` 那条「同一件事写在两处必然漂移」，也同 `Ram` 速度不进
+    // `thresholds.json` 的那条先例——抄一份就是第二个真相来源。
+    int build_ticks = game::WaveTiming{}.build_ticks;
+    int first_build_ticks = game::WaveTiming{}.first_build_ticks;
     // 守方宏观策略的几个旋钮，开成命令行是为了能做 A/B 与参数搜索。
     int macro_recall = 1;   // 敌人进城把弓手叫下墙
     int macro_conc = 1;     // 弓手驻守意愿集中到受威胁那一面
@@ -113,18 +121,19 @@ struct Options {
     int macro_gath = 2;     // 每波最多铺几座采集建筑
     int macro_gath_dist = 40;   // 工匠够得到的城外距离上界（格）
     std::string macro_gath_order = "map";   // map | near | stone | gold
-    int pop_base = 8;        // WorldInit::pop_cap_base（默认 8+2K）
-    int pop_per_keep = 2;
+    int pop_base = game::DefenderSetup{}.pop_cap_base;
+    int pop_per_keep = game::DefenderSetup{}.pop_cap_per_keep_level;
     // 攻方曲线（`game::WaveCurve`）。**形式也可换**，不只是系数。
-    double power_base = 6.0;
-    double power_alpha = 1.25;
+    // 同上：默认值一律从 `game::WaveCurve{}` 取，不抄数。
+    double power_base = game::WaveCurve{}.power_base;
+    double power_alpha = game::WaveCurve{}.power_alpha;
     std::string power_form = "power";   // power|linear|log|sat
-    double power_half = 20.0;
-    double slots_base = 6.0;
-    double slots_per_wave = 1.2;
-    int slots_cap = 0;
-    int phoenix_per_waves = 0;
-    int phoenix_cap = 1;
+    double power_half = game::WaveCurve{}.power_half;
+    double slots_base = game::WaveCurve{}.slots_base;
+    double slots_per_wave = game::WaveCurve{}.slots_per_wave;
+    int slots_cap = game::WaveCurve{}.slots_cap;
+    int phoenix_per_waves = game::WaveCurve{}.phoenix_per_waves;
+    int phoenix_cap = game::WaveCurve{}.phoenix_cap;
 };
 
 void print_help() {
@@ -165,7 +174,8 @@ void print_help() {
         "                          base 当场生效、改 per 要先让 K 动起来）\n"
         "\n"
         "攻方曲线与波次节奏（都是 game::WaveCurve / WaveTiming 的字段；不给就是\n"
-        "各自的默认值 = 提成参数之前那几个编译期常量）：\n"
+        "**那两个结构体自己的默认值**——本工具不再抄一份数，抄过一次并且真的\n"
+        "漂了：build_ticks 曾停在 260 而 WaveTiming 已是 660）：\n"
         "  --power-form <power|linear|log|sat>   兵力预算的曲线形式\n"
         "  --power-base <x> --power-alpha <x>    base x w^alpha（power 档）\n"
         "  --power-half <x>                      半饱和波数（sat 档）\n"
@@ -1573,6 +1583,36 @@ int main(int argc, char** argv) {
     j.val(opt.max_waves);
     j.key("max_ticks");
     j.val(opt.max_ticks);
+    // 回显本次跑用的攻方曲线、波次节奏与守方旋钮。
+    //
+    // **不回显的话，一个结果文件无法反查是哪组参数跑出来的**——而这个工具
+    // 存在的全部意义就是参数扫描。此前只能靠文件名记（`p_55gold.json` 这种），
+    // 一改名就丢。`stats_fingerprint` 已经把数值表钉住了，这一块补的是
+    // 数值表**之外**那些同样进仿真的外生输入。
+    j.key("params");
+    j.begin_obj();
+    j.key("build_ticks");           j.val(opt.build_ticks);
+    j.key("first_build_ticks");     j.val(opt.first_build_ticks);
+    j.key("power_form");            j.str(opt.power_form);
+    j.key("power_base");            j.val(opt.power_base);
+    j.key("power_alpha");           j.val(opt.power_alpha);
+    j.key("power_half");            j.val(opt.power_half);
+    j.key("slots_base");            j.val(opt.slots_base);
+    j.key("slots_per_wave");        j.val(opt.slots_per_wave);
+    j.key("slots_cap");             j.val(opt.slots_cap);
+    j.key("phoenix_per_waves");     j.val(opt.phoenix_per_waves);
+    j.key("phoenix_cap");           j.val(opt.phoenix_cap);
+    j.key("macro");                 j.val(opt.macro ? 1 : 0);
+    j.key("macro_period");          j.val(opt.macro_period);
+    j.key("macro_recall");          j.val(opt.macro_recall);
+    j.key("macro_conc");            j.val(opt.macro_conc);
+    j.key("macro_seal");            j.val(opt.macro_seal);
+    j.key("macro_gath");            j.val(opt.macro_gath);
+    j.key("macro_gath_dist");       j.val(opt.macro_gath_dist);
+    j.key("macro_gath_order");      j.str(opt.macro_gath_order);
+    j.key("pop_base");              j.val(opt.pop_base);
+    j.key("pop_per_keep");          j.val(opt.pop_per_keep);
+    j.end_obj();
     j.key("maps");
     j.begin_arr();
     for (const MapInfo& m : maps) write_map_info(j, m);

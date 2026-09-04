@@ -53,6 +53,23 @@ def main() -> int:
 
     assert data.get("schema") == "calibration_runner/1", data.get("schema")
     assert isinstance(data.get("maps"), list) and data["maps"], "maps 为空"
+
+    # 参数回显：一个结果文件必须能反查是哪组参数跑出来的，否则参数扫描的结果
+    # 只能靠文件名记（`p_55gold.json` 这种），一改名就丢。
+    #
+    # **顺带钉住一条真出过事的东西**：`build_ticks` 的默认值曾在 runner 里写死
+    # 260，而 `game::WaveTiming` 已经改成 660 ⇒ 不给旗标跑的是改动前的波次节奏，
+    # 静默、跑得出数、只是和 demo 不是同一个游戏。这里断言它 > 600，
+    # 让「runner 的默认值和 demo 脱钩」这件事再发生时会红。
+    params = data.get("params")
+    assert isinstance(params, dict), "缺 params 块（攻方曲线与节奏的回显）"
+    for key in ("build_ticks", "first_build_ticks", "power_form", "power_base",
+                "power_alpha", "slots_base", "slots_per_wave", "slots_cap",
+                "phoenix_per_waves", "phoenix_cap", "macro", "pop_base"):
+        assert key in params, f"params 缺字段 {key}"
+    assert params["build_ticks"] > 600, (
+        f"build_ticks 默认值 {params['build_ticks']} 像是脱钩了——"
+        "它应当来自 game::WaveTiming{}，不是 runner 里抄的一份")
     runs = data.get("runs")
     assert isinstance(runs, list) and len(runs) == 1, f"runs 应有且仅有一局，实为 {len(runs) if isinstance(runs, list) else '非列表'}"
     run = runs[0]
