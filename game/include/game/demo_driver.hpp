@@ -116,13 +116,27 @@ struct WaveTiming {
     int assault_max_ticks = 2400;
 };
 
+// 守方的建局参数。**只有人口上限这一对**，因为它是 `WorldInit` 的字段而不是
+// 数值表的字段（`rts/world.hpp`：「人口上限是建局输入」），于是它此前根本没有
+// 运行期入口——配平要 A/B 它就得重编。
+//
+// 默认 8+2K 是 2026-09-02 的定版（`波次预算曲线与堡垒等级曲线.md` §2.1），
+// 而 §2.2 查出**那个 `2K` 从未兑现**：`K` 实战中恒等于 2，玩家拿到的永远是
+// `base + 2×2`。所以调这一对时要分清——改 `base` 当场生效，改 `per` 要先让
+// `K` 动起来才看得到。
+struct DefenderSetup {
+    std::int32_t pop_cap_base = 8;
+    std::int32_t pop_cap_per_keep_level = 2;
+};
+
 class DemoBattle {
 public:
     // 建世界并摆守方开局兵力（城内一小队 + 箭楼与防空各一座）。
     // 攻方**不再开局就位**：波次循环生效后，每波在建造阶段结束时于集结点
     // 生成（编成是占位曲线，无平衡含义），打完进下一波。
     DemoBattle(const MapData& map, const rts::StatsTable& stats, std::uint64_t seed,
-               WaveTiming timing = {}, WaveCurve curve = {});
+               WaveTiming timing = {}, WaveCurve curve = {},
+               DefenderSetup setup = {});
 
     // 推进 `ticks` 个 tick，途中每个决策周期（kDecisionPeriodMax）重发一遍动作。
     // 波次循环也在这里驱动：建造倒计时 → 生波 → 攻方清空 → 下一波。

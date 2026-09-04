@@ -112,7 +112,9 @@ struct Options {
     int macro_seal = 1;     // 封设计缺口
     int macro_gath = 2;     // 每波最多铺几座采集建筑
     int macro_gath_dist = 40;   // 工匠够得到的城外距离上界（格）
-    std::string macro_gath_order = "map";   // map | near | stone
+    std::string macro_gath_order = "map";   // map | near | stone | gold
+    int pop_base = 8;        // WorldInit::pop_cap_base（默认 8+2K）
+    int pop_per_keep = 2;
     // 攻方曲线（`game::WaveCurve`）。**形式也可换**，不只是系数。
     double power_base = 6.0;
     double power_alpha = 1.25;
@@ -156,8 +158,11 @@ void print_help() {
         "  --macro-gath-dist <n>   工匠够得到的城外距离上界，格（默认 40）。\n"
         "                          调到 60+ 才吃得到外环带那 37 个点——人类\n"
         "                          玩家会去拿，而默认值下脚本根本够不着\n"
-        "  --macro-gath-order <map|near|stone>  先铺哪一种资源点（默认 map =\n"
-        "                          地图文件顺序，既不看种类也不看距离）\n"
+        "  --macro-gath-order <map|near|stone|gold>  先铺哪一种资源点\n"
+        "                          （默认 map = 地图文件顺序，既不看种类也不看距离）\n"
+        "  --pop-base <n> --pop-per-keep <n>  守方人口上限 = base + per×K\n"
+        "                          （默认 8 2。注意 K 实战中恒等于 2，所以改\n"
+        "                          base 当场生效、改 per 要先让 K 动起来）\n"
         "\n"
         "攻方曲线与波次节奏（都是 game::WaveCurve / WaveTiming 的字段；不给就是\n"
         "各自的默认值 = 提成参数之前那几个编译期常量）：\n"
@@ -312,11 +317,19 @@ bool parse_args(const std::vector<std::string>& args, Options& out) {
             const std::string vv = need(i, "--macro-seal");
             if (vv.empty()) return false;
             out.macro_seal = std::atoi(vv.c_str());
+        } else if (a == "--pop-base") {
+            const std::string vv = need(i, "--pop-base");
+            if (vv.empty()) return false;
+            out.pop_base = std::atoi(vv.c_str());
+        } else if (a == "--pop-per-keep") {
+            const std::string vv = need(i, "--pop-per-keep");
+            if (vv.empty()) return false;
+            out.pop_per_keep = std::atoi(vv.c_str());
         } else if (a == "--macro-gath-order") {
             const std::string vv = need(i, "--macro-gath-order");
             if (vv.empty()) return false;
-            if (vv != "map" && vv != "near" && vv != "stone") {
-                std::cerr << "--macro-gath-order 只认 map|near|stone\n";
+            if (vv != "map" && vv != "near" && vv != "stone" && vv != "gold") {
+                std::cerr << "--macro-gath-order 只认 map|near|stone|gold\n";
                 return false;
             }
             out.macro_gath_order = vv;
@@ -1440,7 +1453,10 @@ int main(int argc, char** argv) {
             } else if (opt.power_form == "sat") {
                 curve.power_form = game::WaveCurve::PowerForm::Saturating;
             }
-            game::DemoBattle battle(map, stats, seed, timing, curve);
+            game::DefenderSetup setup;
+            setup.pop_cap_base = opt.pop_base;
+            setup.pop_cap_per_keep_level = opt.pop_per_keep;
+            game::DemoBattle battle(map, stats, seed, timing, curve, setup);
             BattleRecorder rec(map, battle);
             rec.observe();   // 开第 1 波（t=0 已在集结）
 
@@ -1461,6 +1477,8 @@ int main(int argc, char** argv) {
                 mp.gather_order = game::MacroParams::GatherOrder::NearestFirst;
             } else if (opt.macro_gath_order == "stone") {
                 mp.gather_order = game::MacroParams::GatherOrder::StoneFirst;
+            } else if (opt.macro_gath_order == "gold") {
+                mp.gather_order = game::MacroParams::GatherOrder::GoldFirst;
             }
             game::DefenderMacro macro(map, mp);
             std::vector<rts::Command> cmds;

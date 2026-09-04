@@ -117,6 +117,8 @@ struct MacroParams {
         MapOrder,      // 地图文件顺序（历史行为，无取舍可言）
         NearestFirst,  // 离堡垒近的先铺（工匠往返短 = 早回本）
         StoneFirst,    // 石材优先，同种类再按距离
+        GoldFirst,     // 金币优先，同上。人口上限抬高之后金币才有 sink，
+                       // 两件事要一起测（`资源点分布与经济平衡.md` §4.5）
     };
     GatherOrder gather_order = GatherOrder::MapOrder;
 

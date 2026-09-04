@@ -101,8 +101,13 @@ std::optional<rts::GridPos> flak_site(const MapData& map, const rts::WorldInit& 
 // （弓手会自己找墙登墙，见 `game/defender_script.hpp`），不再需要「摆到
 // 墙内侧一格 + 下 Garrison 令」那套配合。
 rts::WorldInit demo_init(const MapData& map, const rts::StatsTable& stats,
-                         std::uint64_t seed) {
+                         std::uint64_t seed, const DefenderSetup& setup) {
     rts::WorldInit init = make_world_init(map, stats, seed, /*nominal_level=*/1);
+    // 人口上限是**建局输入**（`rts/world.hpp`），不在数值表里 ⇒ 唯一的入口
+    // 就是这里。`make_world_init` 用的是 `WorldInit` 的默认 8+2K，这一行把
+    // 调用方给的值盖上去。
+    init.pop_cap_base = setup.pop_cap_base;
+    init.pop_cap_per_keep_level = setup.pop_cap_per_keep_level;
     const auto add = [&](rts::UnitType u, float x, float y, std::int32_t lv) {
         const std::int64_t hp = hp_at(stats, u, lv);
         init.units.push_back(rts::UnitInit{u, rts::Vec2{x, y}, lv, hp, hp});
@@ -260,8 +265,9 @@ double WaveCurve::power_at(int wave) const {
 
 
 DemoBattle::DemoBattle(const MapData& map, const rts::StatsTable& stats,
-                       std::uint64_t seed, WaveTiming timing, WaveCurve curve)
-    : w_(demo_init(map, stats, seed)),
+                       std::uint64_t seed, WaveTiming timing, WaveCurve curve,
+                       DefenderSetup setup)
+    : w_(demo_init(map, stats, seed, setup)),
       script_(ScriptParams{}, seed ^ 0x9e3779b9u),
       timing_(timing),
       curve_(curve) {

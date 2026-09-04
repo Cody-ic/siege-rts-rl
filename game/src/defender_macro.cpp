@@ -238,14 +238,19 @@ void DefenderMacro::decide(const rts::World& w, std::vector<rts::Command>& cmds,
         std::vector<int> order(sites.size());
         for (std::size_t k = 0; k < order.size(); ++k) order[k] = static_cast<int>(k);
         if (p_.gather_order != MacroParams::GatherOrder::MapOrder) {
-            const bool stone_first =
-                p_.gather_order == MacroParams::GatherOrder::StoneFirst;
+            const bool by_kind =
+                p_.gather_order == MacroParams::GatherOrder::StoneFirst ||
+                p_.gather_order == MacroParams::GatherOrder::GoldFirst;
+            const rts::Resource want =
+                p_.gather_order == MacroParams::GatherOrder::GoldFirst
+                    ? rts::Resource::Gold
+                    : rts::Resource::Stone;
             std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
                 const rts::ResourceSite& sa = sites[static_cast<std::size_t>(a)];
                 const rts::ResourceSite& sb = sites[static_cast<std::size_t>(b)];
-                if (stone_first) {
-                    const int ka = sa.kind == rts::Resource::Stone ? 0 : 1;
-                    const int kb = sb.kind == rts::Resource::Stone ? 0 : 1;
+                if (by_kind) {
+                    const int ka = sa.kind == want ? 0 : 1;
+                    const int kb = sb.kind == want ? 0 : 1;
                     if (ka != kb) return ka < kb;
                 }
                 return cheb(sa.pos, keep_) < cheb(sb.pos, keep_);
