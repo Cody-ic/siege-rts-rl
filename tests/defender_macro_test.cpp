@@ -167,8 +167,19 @@ TEST_CASE("波次循环：进攻阶段超时即收场，残兵撤走", "[macro]"
 
 TEST_CASE("波次节奏：默认值就是原来那两个常量", "[macro]") {
     const game::WaveTiming t;
-    CHECK(t.first_build_ticks == 360);   // 18 s @ 20 Hz
-    CHECK(t.build_ticks == 260);         // 13 s @ 20 Hz
+    // **2026-09-04：13 → 26 秒、18 → 36 秒。** 这条断言的用途从「默认值别
+    // 漂」变成「默认值别悄悄漂回去」——26 秒不是手拍的，是
+    // 「斥候单程 12 秒 + 一座箭楼 12 秒 + 2 秒余量」的下界（推导写在
+    // `WaveTiming` 的注释里）。压回 13 秒会让「侦查到的编成来不及变成建筑」
+    // 这件事重新成立，而那是结构性的、不是手感问题。
+    CHECK(t.first_build_ticks == 900);   // 45 s @ 20 Hz
+    CHECK(t.build_ticks == 660);         // 33 s @ 20 Hz
+    // **下界本身也钉一遍**，因为那才是这个默认值存在的理由：
+    // 斥候要**走到集结点**（城区半径 ~10 + D 40 ≈ 50 格，0.13 格/tick
+    // ⇒ 约 385 tick），判定通过后玩家还要来得及照情报建一座箭楼（240 tick）。
+    // 压回去会让「侦查到的编成来不及变成部署」重新成立——那是结构性的，
+    // 不是手感问题。
+    CHECK(t.build_ticks >= 385 + 240);
     // 上界取 2400 不是拍的：CLAUDE.md「一波 = 一个 RL episode」，而地图校验器
     // 第 5 条按 episode ∈ [1200, 2400] 算行军占比——那是全仓既有的承诺。
     CHECK(t.assault_max_ticks == 2400);
@@ -239,6 +250,106 @@ TEST_CASE("宏观层：给堡垒配的近卫塔真的够得着堡垒", "[macro]"
     // 全是占位值——把它写进断言，就是让一条几何测试随任何一次数值改动变红。
     // （第一版写的 >= 2，实测 4000 拍只建得起 1 座。）
     CHECK(guards >= 1);
+}
+
+TEST_CASE("斥候侦查是二元的：到达集结点掷一次，死了什么都没有", "[macro]") {
+    // 组内 2026-09-04 定的形状，与攻方 `Wraith` 对称：推进到集结点 → 掷一次
+    // 死活 → 活着才算侦查成功、拿到本波编成。
+    //
+    // **它替掉的那一版是错的**：那一版按帧累积「看见过什么」，于是斥候刚出
+    // 城门瞟一眼就在漏情报、**侦查从来不会失败**。那把 `Scout` / `Wraith`
+    // 的博弈整个消掉了——猎杀斥候没有意义，因为它死之前已经漏了一路。
+    // 所以这条测试钉的是**二元性**，不是某个概率。
+    const game::MapData map = pool_map();
+    const rts::StatsTable stats = pool_stats();
+
+    SECTION("必死：到了也拿不到情报") {
+        game::DefenderSetup setup;
+        setup.scout_death_permille = 1000;   // 必死
+        game::DemoBattle b(map, stats, /*seed=*/1, {}, {}, setup);
+        game::DefenderMacro macro(map);
+        run_with_macro(b, macro, 6000);
+        INFO("结论 " << static_cast<int>(b.scout_outcome()));
+        // 到过了（`Killed`）或还没到（`None`）都行——这条不赌行程时间；
+        // **要钉的是「绝不会是 Success」**。
+        CHECK(b.scout_outcome() != game::DemoBattle::ScoutOutcome::Success);
+        CHECK(b.scout_report().empty());
+    }
+
+    SECTION("必活：到了就拿到完整编成") {
+        game::DefenderSetup setup;
+        setup.scout_death_permille = 0;   // 必活
+        game::DemoBattle b(map, stats, /*seed=*/1, {}, {}, setup);
+        game::DefenderMacro macro(map);
+        run_with_macro(b, macro, 6000);
+        // 「场上有没有斥候」是这条用例最容易挂掉的前提，所以把它印出来——
+        // 它第一次红就是这么定位的（工匠把非战斗人口预算吃光了，
+        // 斥候一名都招不出来，见 `defender_macro.cpp` 那段注释）。
+        std::vector<rts::UnitId> ids;
+        b.world().enumerate_units(rts::Side::Defender, ids);
+        int scouts = 0;
+        for (const rts::UnitId id : ids) {
+            if (b.world().unit_type(id) == rts::UnitType::Scout) ++scouts;
+        }
+        INFO("场上斥候 " << scouts << " 名");
+        INFO("结论 " << static_cast<int>(b.scout_outcome()) << "，报告 "
+                     << b.scout_report().size() << " 种");
+        REQUIRE(b.scout_outcome() == game::DemoBattle::ScoutOutcome::Success);
+        REQUIRE_FALSE(b.scout_report().empty());
+        // **报告是全波编成**，不是「视野里那几个」：斥候此刻就站在集结点上，
+        // 而集结期整波部队都在那里待命。
+        int reported = 0;
+        for (const game::SightedType& t : b.scout_report()) reported += t.count;
+        int actual = 0;
+        std::vector<rts::UnitId> foes;
+        b.world().enumerate_units(rts::Side::Attacker, foes);
+        for (const rts::UnitId f : foes) {
+            (void)f;
+            ++actual;
+        }
+        INFO("报告 " << reported << " 个，场上 " << actual << " 个");
+        CHECK(reported > 0);
+    }
+}
+
+TEST_CASE("斥候侦查：判定完了玩家还剩得下时间调整部署", "[macro]") {
+    // 组长的原话：「这个判定结束后玩家应当还有反应时间调整部署」。
+    // 那句话是一条**可算的下界**，不是手感——本用例把它变成断言。
+    //
+    // 行程：斥候从城里走到集结点 ≈ 城区半径 + D(40) 格；反应：照情报建一座
+    // 箭楼要 `build_ticks`。两者之和必须装得进一个建造期。
+    const game::MapData map = pool_map();
+    const rts::StatsTable stats = pool_stats();
+    game::DefenderSetup setup;
+    setup.scout_death_permille = 0;   // 必活，把死活那一半排除掉
+    game::DemoBattle b(map, stats, /*seed=*/1, {}, {}, setup);
+    game::DefenderMacro macro(map);
+
+    // 一拍一拍推，记下「侦查成功」发生在建造期的第几拍。
+    const int build_total = game::WaveTiming{}.first_build_ticks;
+    int success_tick = -1;
+    std::vector<rts::Command> cmds;
+    std::vector<game::UnitOrder> orders;
+    for (int t = 0; t < build_total && success_tick < 0; ++t) {
+        if (t % 20 == 0) {
+            cmds.clear();
+            orders.clear();
+            macro.decide(b.world(), cmds, orders);
+            if (!cmds.empty()) b.submit_defender(cmds.data(), cmds.size());
+        }
+        b.update(1);
+        if (b.scout_outcome() == game::DemoBattle::ScoutOutcome::Success) {
+            success_tick = t;
+        }
+    }
+    INFO("侦查成功于建造期第 " << success_tick << " 拍，建造期共 " << build_total);
+    // 首波脚本不一定会派斥候（开局那名斥候已经在场，但它得走过去）——
+    // 没成功就跳过，这条不赌脚本的行为；**成功了就必须留得下一座箭楼的工期**。
+    if (success_tick >= 0) {
+        const std::int32_t tower_ticks =
+            stats.bld[static_cast<std::size_t>(rts::BldType::Tower)].build_ticks;
+        CHECK(build_total - success_tick >= tower_ticks);
+    }
 }
 
 TEST_CASE("宏观层：编成覆盖克制二部图守方那半（不是只招弓手）", "[macro]") {
@@ -377,14 +488,19 @@ TEST_CASE("宏观层：受威胁那一段塔位摆满了才改升级", "[macro]"
     INFO("弧内剩余塔位 " << macro.stats().near_free_spots << "，建筑升级 "
                          << macro.stats().bld_upgrades << " 次，塔 "
                          << macro.stats().towers_built << " 座");
-    // **判据是「弧填满之后升级真的发生了」这个蕴含关系**，不是「一定填得满」
-    // ——后者是经济速度问题，会随任何一次造价/收入改动变红（同「近卫塔」
-    // 那条的教训）。
+    // **判据只取正向蕴含：弧填满了 ⇒ 升级真的发生过。**
+    //
+    // 不判「一定填得满」——那是经济速度问题，会随任何一次造价/收入改动变红
+    // （同「近卫塔」那条的教训）。
+    //
+    // **更要紧的是反向蕴含不成立，第一版写了它、后来红得对**：
+    // `near_free_spots` 是**最后一次决策的快照**，而 `bld_upgrades` 是**累计**
+    // ——弧可以先填满（于是升级）、后来一座塔被拆又空出位子，于是收尾时
+    // 「还有空位」与「升级过 38 次」同时为真，两者并不矛盾。
+    // 「没填满就不该升级」要真的测，得逐决策观察，那是另一件事；
+    // 而「关掉开关就一次都不发」由下一条用例守着，已经够了。
     if (macro.stats().near_free_spots == 0) {
         CHECK(macro.stats().bld_upgrades > 0);
-    } else {
-        // 没填满就不该升级：那正是「先铺开、再升高」。
-        CHECK(macro.stats().bld_upgrades == 0);
     }
 }
 

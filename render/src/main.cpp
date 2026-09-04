@@ -439,9 +439,45 @@ void draw_hud_backing(const render::FontSet& font,
 //
 // **看不见就整块不画**（而不是画一个空框）：「什么都没侦查到」与「敌人还没来」
 // 在玩家侧应当是同一个观感——都是「我不知道」，而一个空面板会读作「确认无敌人」。
-void draw_intel_panel(const render::FontSet& font, const rts::WorldView& view,
+// 右上角的一块文字面板（侦查面板两条路径共用：成功报告与「侦查失败」）。
+// 抽出来只为一个理由：两处若各画各的，宽度、内边距与配色迟早会漂。
+void draw_panel_lines(const render::FontSet& font,
+                      const std::vector<std::string>& lines, int screen_w) {
+    float max_w = 0.0f;
+    for (const std::string& s : lines) {
+        max_w = std::max(max_w, font.measure(s, kHudSize).x);
+    }
+    const float pad = 8.0f;
+    const float x = static_cast<float>(screen_w) - max_w - 14.0f;
+    DrawRectangleRec(Rectangle{x - pad, 12.0f - pad, max_w + pad * 2.0f,
+                               kHudLine * static_cast<float>(lines.size()) +
+                                   pad * 2.0f - 4.0f},
+                     Color{18, 18, 24, 205});
+    for (std::size_t k = 0; k < lines.size(); ++k) {
+        const Color col = (k == 0) ? Color{235, 235, 245, 255}
+                                   : Color{225, 195, 195, 255};
+        font.draw(lines[k], rts::Vec2{x, 12.0f + kHudLine * static_cast<float>(k)},
+                  kHudSize, col);
+    }
+}
+
+void draw_intel_panel(const render::FontSet& font, const game::DemoBattle& battle,
                       int screen_w) {
-    const std::vector<game::SightedType> seen = game::sighted_composition(view);
+    // **读的是本波斥候带回来的报告，不是当前视野**（2026-09-04 组内定）。
+    //
+    // 此前这里调 `sighted_composition`（当前看得见的），于是斥候一撤、一死，
+    // 它送回来的情报在面板上当场消失。而侦查是**二元**事件：斥候到达集结点
+    // 掷一次死活，死了本轮什么都没有，活着就拿到完整编成——那份报告到手之后
+    // 就是玩家的记忆，不该再随视野变化。理由见 `DefenderSetup` 的注释。
+    const auto outcome = battle.scout_outcome();
+    if (outcome == game::DemoBattle::ScoutOutcome::None) return;
+    if (outcome == game::DemoBattle::ScoutOutcome::Killed) {
+        // **失败也要报**：「派了但没回来」与「根本没派」是两种处境，
+        // 玩家得知道自己那 25 金买到的是一次失败而不是还在路上。
+        draw_panel_lines(font, {"侦查失败"}, screen_w);
+        return;
+    }
+    const std::vector<game::SightedType>& seen = battle.scout_report();
     if (seen.empty()) return;
 
     std::vector<std::string> lines;
@@ -467,22 +503,7 @@ void draw_intel_panel(const render::FontSet& font, const rts::WorldView& view,
         lines.push_back(line);
     }
 
-    float max_w = 0.0f;
-    for (const std::string& s : lines) {
-        max_w = std::max(max_w, font.measure(s, kHudSize).x);
-    }
-    const float pad = 8.0f;
-    const float x = static_cast<float>(screen_w) - max_w - 14.0f;
-    DrawRectangleRec(Rectangle{x - pad, 12.0f - pad, max_w + pad * 2.0f,
-                               kHudLine * static_cast<float>(lines.size()) +
-                                   pad * 2.0f - 4.0f},
-                     Color{18, 18, 24, 205});
-    for (std::size_t k = 0; k < lines.size(); ++k) {
-        const Color col = (k == 0) ? Color{235, 235, 245, 255}
-                                   : Color{225, 195, 195, 255};
-        font.draw(lines[k], rts::Vec2{x, 12.0f + kHudLine * static_cast<float>(k)},
-                  kHudSize, col);
-    }
+    draw_panel_lines(font, lines, screen_w);
 }
 
 void draw_hud(const render::FontSet& font, const game::MapData& map,
@@ -650,16 +671,30 @@ void draw_battle_hud(const render::FontSet& font, const game::MapData& map,
     const rts::World& w = battle.world();
     char buf[320];
     char phase[48];
+    // **时间一律按秒给玩家，不给 tick**（2026-09-04 试玩反馈）。tick 是仿真的
+    // 内部单位（20/秒，`rts::kTicksPerSecond`）——它对调试有用，对玩家是噪音，
+    // 而「还有 260」与「还有 13 秒」是完全不同的两条信息：后者玩家能拿它跟
+    // 「一座箭楼要 12 秒」比，前者要先在心里除以 20。
+    //
+    // 建造倒计时**向上取整**：还剩 1..19 个 tick 时显示「1 秒」而不是「0 秒」
+    // ——显示 0 而画面还在建造期，读起来像卡住了。
+    const int build_sec =
+        (battle.build_ticks_left() + rts::kTicksPerSecond - 1) / rts::kTicksPerSecond;
     if (battle.defeated()) {
         std::snprintf(phase, sizeof(phase), "堡垒陷落·败");
     } else if (w.phase() == rts::WavePhase::Build) {
-        std::snprintf(phase, sizeof(phase), "建造 %d", battle.build_ticks_left());
+        std::snprintf(phase, sizeof(phase), "建造 %d 秒", build_sec);
     } else {
         std::snprintf(phase, sizeof(phase), "进攻中");
     }
-    std::snprintf(buf, sizeof(buf), "地图 %s (%s)   波 %d   %s   tick %d%s",
-                  map.name().c_str(), map.map_id().c_str(), w.wave(), phase,
-                  static_cast<int>(w.now()), paused ? "   已暂停" : "");
+    // 已用时长取 `分:秒`：几十波下来它会到几十分钟，纯秒数读不出量级。
+    const int elapsed = static_cast<int>(w.now()) / rts::kTicksPerSecond;
+    // **地图 `map_id` 不给玩家**（同上一条反馈）：它是内部标识（生成器把种子
+    // 编在里面），玩家既用不上也改不了它。名字留着——那是「我在哪张图上」，
+    // 而 id 是「这张图怎么生成的」，后者属工具链。
+    std::snprintf(buf, sizeof(buf), "地图 %s   波 %d   %s   用时 %d:%02d%s",
+                  map.name().c_str(), w.wave(), phase, elapsed / 60, elapsed % 60,
+                  paused ? "   已暂停" : "");
     const std::string line1 = buf;
     // 主攻方向：**免费情报**（CLAUDE.md 的情报划分——要花钱侦查的是「编成构成」
     // 与「精确分兵」，方向与总兵力是白给的）。迷雾一开，敌军在画面上消失，
@@ -1096,9 +1131,8 @@ int run_game(const Options& opt) {
         if (shell.screen() == game::Screen::Battle && b != nullptr) {
             draw_battle_hud(*font, map, *b, paused, selected.size(),
                             train_level_sel);
-            // 侦查面板（右上角）：看得见的来袭编成 + 克制提示。
-            draw_intel_panel(*font, b->world().view(rts::Side::Defender),
-                             GetScreenWidth());
+            // 侦查面板（右上角）：**本波**侦查到的来袭编成 + 克制提示。
+            draw_intel_panel(*font, *b, GetScreenWidth());
 
             // 弹出菜单：屏幕坐标，画在点开那一刻的位置。**造价写在选项里**——
             // 「点了没反应」最常见的真因是买不起，把价钱摆在眼前比事后猜便宜。

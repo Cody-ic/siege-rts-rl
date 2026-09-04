@@ -270,7 +270,11 @@ DemoBattle::DemoBattle(const MapData& map, const rts::StatsTable& stats,
     : w_(demo_init(map, stats, seed, setup)),
       script_(ScriptParams{}, seed ^ 0x9e3779b9u),
       timing_(timing),
-      curve_(curve) {
+      curve_(curve),
+      setup_(setup),
+      // 与 `script_` 同源派生、但**另取一个常数**：两条流各走各的，
+      // 于是给脚本加一次掷点不会连带改掉侦查的结果（反之亦然）。
+      recon_rng_(seed ^ 0x517cc1b7u) {
     // 弓手登墙不再靠开局下命令：执行层脚本每个决策拍会自己找空墙段、
     // 发登墙意愿（`submit_garrison_wishes`），登墙由 `tick_garrison` 解算。
     // 开局资源（**占位数额**，无平衡含义）：交互层要能试建造，
@@ -452,6 +456,95 @@ void DemoBattle::withdraw_all_attackers() {
     std::vector<rts::UnitId> ids;
     w_.enumerate_units(rts::Side::Attacker, ids);
     for (const rts::UnitId id : ids) w_.kill_unit(id);
+}
+
+// 斥候侦查：**到达集结点 → 掷一次死活 → 活着即侦查成功**。
+//
+// 与攻方 `Wraith` 的形状对称（组内 2026-09-04 定）：那一侧是「推进到看得见
+// 防御布局 ⇒ 情报到手 ⇒ 掉头」，这一侧是「推进到集结点 ⇒ 掷点 ⇒ 活着就
+// 拿到本波编成」。移动那一半是现成的——`DefenderScript` 的默认分支本来就让
+// `Scout` 走向**最近的当前不可见的集结点**。
+//
+// 三条形状上的取舍，都是有意的：
+//
+//   * **二元，没有渐进渗漏。** 一版早先的实现按帧累积「看见过什么」，
+//     于是斥候刚出城门瞟一眼就在漏情报、**侦查从来不会失败**。那把整个
+//     `Scout` / `Wraith` 博弈消掉了：猎杀斥候没有意义，因为它死之前已经
+//     漏了一路。侦查必须是成功或失败。
+//   * **每只各掷一次独立的点。** 「派几只」因此是玩家的冗余决策
+//     （两只 ⇒ `1 − p²`），与提案里攻方那一侧逐字同构。概率**不随敌方数量
+//     缩放**：那会让后期侦查趋近必然失败，等于在最需要情报的时候关掉它。
+//   * **报告是快照。** 情报的价值在「提前知道」，到手之后就不该再随战场
+//     变化——那是记忆不是视野，所以它在交战期仍然可读。
+void DemoBattle::tick_scout_recon() {
+    const auto& spawns = w_.view(rts::Side::Defender).spawns();
+    if (spawns.empty()) return;
+    // 0 = 用斥候视野（自维护，见头文件）。
+    const int arrive =
+        setup_.scout_arrive_cells > 0
+            ? setup_.scout_arrive_cells
+            : static_cast<int>(w_.stats().of(rts::UnitType::Scout).vision);
+
+    std::vector<rts::UnitId> ids;
+    w_.enumerate_units(rts::Side::Defender, ids);
+    for (const rts::UnitId id : ids) {
+        if (w_.unit_type(id) != rts::UnitType::Scout) continue;
+        const std::uint32_t raw = id.raw();
+        // 这一只本波掷过了？（按只记账，不是按波——见头文件）
+        bool rolled = false;
+        for (const std::uint32_t r : scout_rolled_) {
+            if (r == raw) {
+                rolled = true;
+                break;
+            }
+        }
+        if (rolled) continue;
+
+        // 到没到？任意一个集结点都算——它走的是「最近的当前不可见的那个」。
+        const rts::GridPos g = rts::grid_of(w_.unit_pos(id));
+        bool arrived = false;
+        for (const rts::SpawnSite& sp : spawns) {
+            const int dx = static_cast<int>(g.i) - static_cast<int>(sp.pos.i);
+            const int dy = static_cast<int>(g.j) - static_cast<int>(sp.pos.j);
+            const int d = std::max(dx < 0 ? -dx : dx, dy < 0 ? -dy : dy);
+            if (d <= arrive) {
+                arrived = true;
+                break;
+            }
+        }
+        if (!arrived) continue;
+
+        scout_rolled_.push_back(raw);
+        const std::int32_t roll = static_cast<std::int32_t>(recon_rng_.below(1000));
+        if (roll < setup_.scout_death_permille) {
+            // 死了 ⇒ **本轮这一只侦查失败，一个字都不给**。
+            // 只有在还没有别的斥候成功过时才把结论记成 `Killed`——
+            // 一只成功一只战死，玩家该看到的是那份成功的报告。
+            w_.kill_unit(id);
+            if (scout_outcome_ == ScoutOutcome::None) {
+                scout_outcome_ = ScoutOutcome::Killed;
+            }
+            continue;
+        }
+
+        // 活下来 ⇒ 侦查成功。**快照取全波编成**：它此刻就站在集结点上，
+        // 那里正是本波部队待命的地方（集结期，`spawn_wave` 在建造期一开始
+        // 就把整波生成好了）。
+        scout_outcome_ = ScoutOutcome::Success;
+        scout_report_.clear();
+        int tally[rts::kUnitTypeCount] = {};
+        std::vector<rts::UnitId> foes;
+        w_.enumerate_units(rts::Side::Attacker, foes);
+        for (const rts::UnitId f : foes) {
+            ++tally[static_cast<std::size_t>(w_.unit_type(f))];
+        }
+        // 按花名册顺序（`unit_at`），顺序必须稳定——面板每帧重排读不了。
+        for (int k = 0; k < rts::kUnitTypeCount; ++k) {
+            const rts::UnitType t = rts::unit_at(k);
+            const int n = tally[static_cast<std::size_t>(t)];
+            if (n > 0) scout_report_.push_back(SightedType{t, n});
+        }
+    }
 }
 
 void DemoBattle::withdraw_noncombat_attackers() {
@@ -750,6 +843,11 @@ void DemoBattle::update(int ticks) {
             w_.begin_next_wave(wave_level(w_.wave() + 1, w_.stats(), curve_));
             build_left_ = timing_.build_ticks;
             wave_scouted_ = false;   // 新的一波要重新侦查（记忆天然过时）
+            // 守方一侧同理：上一波的编成不算情报（CLAUDE.md「波次结构使
+            // AI 的记忆天然过时」，那条对玩家一样成立）。
+            scout_outcome_ = ScoutOutcome::None;
+            scout_report_.clear();
+            scout_rolled_.clear();
             spawn_wave();
             issue_actions();   // 新生成的单位当拍拿到动作，不呆等一个决策周期
             since_decision_ = 0;
@@ -759,6 +857,9 @@ void DemoBattle::update(int ticks) {
             since_decision_ = 0;
         }
         w_.advance(1);
+        // 斥候的到达判定：**每拍查一次**。它必须在 `advance` 之后——单位是
+        // 在那里面移动的，判前查等于永远慢一拍。
+        tick_scout_recon();
         ++since_decision_;
         if (!keep_alive()) defeated_ = true;   // 丢堡即败（设计，不是演示便宜）
     }
