@@ -506,49 +506,72 @@ void draw_intel_panel(const render::FontSet& font, const game::DemoBattle& battl
     draw_panel_lines(font, lines, screen_w);
 }
 
-// 对局警报横幅（顶中）：「窥使入境」常驻警报 + 两种一次性短闪。
+// 对局警报横幅（顶中）：「窥使入境」常驻警报 + 三种一次性短闪。
 //
 // 2026-09-03 试玩反馈：前期侦查阶段（敌窥使来探、我方斥候去看）在界面上
 // 没有任何专属提示——阶段行从「建造」直接跳到「进攻中」，玩家对侦查博弈
-// 感知不到。两条侦查横幅各管一半，同日又加了第三条操作确认：
+// 感知不到。两条侦查横幅各管一半，同日又加了第三条操作确认；2026-09-04
+// rebase 到 #139 后回报闪改读二元判定（见下），并补了失败闪：
 //
 //   * **窥使入境**（Threat）：敌 `Wraith` 进入我方视野就亮，离开视野或被
 //     击落即灭。它亮着的这段时间是玩家唯一的反制窗口（击落 = 敌 AI 这波
 //     带不到新情报，`CLAUDE.md`「双向欺骗」），此前这个窗口只有地图上一个
 //     不起眼的小精灵在「提醒」。
-//   * **斥候回报**（Report）：每波**第一次**看见敌人时闪几秒（触发与时长
-//     在调用点的状态里），说的是对称的那一半——你的斥候干活有了成果，
-//     并把视线引向右上角的侦查面板。
+//   * **斥候回报**（Report）：斥候二元判定（`DemoBattle::scout_outcome()`，
+//     #139）跳到 `Success` 时闪几秒——你的斥候活着回来了，并把视线引向
+//     右上角的侦查面板（面板读的是同一份报告快照）。
+//   * **斥候阵亡**（Failed）：判定跳到 `Killed` 时闪几秒。占位死亡率
+//     400‰——失败是常态分支不是边角，「派了但没回来」和「根本没派」是
+//     两种处境，玩家得知道那笔斥候钱买到的是一次失败。
 //   * **提前召唤确认**（Summon）：N 键生效时闪几秒。此前 Summon 生效
 //     毫无反馈，建造期被瞬间掐掉时玩家无从分辨「自然开打」与「自己按的」
-//     ——这条闪就是那条分辨线（同日的「建造期消失」疑案）。
+//     ——这条闪就是那条分辨线（2026-09-03 的「建造期消失」疑案）。
 //
 // 警报只报**看得见的**（判据 `game::enemy_wraith_sighted`，与侦查面板同源）：
 // 看不见的不报——那不是保守，是迷雾设计本身。
 //
 // 描边亮度随 tick 脉动（不用墙钟）：截图模式的画面由 tick 完全决定，
 // 用 `GetTime()` 会让同一 tick 的截图忽明忽暗、回归基线没法对。
-enum class AlertStyle { Threat, Report, Summon };
+enum class AlertStyle { Threat, Report, Failed, Summon };
 
 void draw_alert_banner(const render::FontSet& font, int screen_w, rts::Tick now,
                        AlertStyle style) {
-    const bool threat = (style == AlertStyle::Threat);
-    const bool summon = (style == AlertStyle::Summon);
-    const std::string line1 = threat ? "幽影窥使入境"
-                              : summon ? "已提前召唤下一波"
-                                       : "斥候回报：已看清敌袭编成";
-    const std::string line2 = threat ? "击落它，别让它看清你的布防"
-                              : summon ? "敌军即刻开拔"
-                                       : "编成与克制见右上侦查面板";
-    const Color backing = threat ? Color{46, 20, 54, 225}
-                          : summon ? Color{50, 38, 14, 225}
-                                   : Color{18, 42, 46, 225};
-    const Color ink1 = threat ? Color{240, 205, 255, 255}
-                       : summon ? Color{255, 230, 170, 255}
-                                : Color{205, 240, 245, 255};
-    const Color ink2 = threat ? Color{215, 180, 230, 255}
-                       : summon ? Color{235, 205, 140, 255}
-                                : Color{175, 215, 220, 255};
+    std::string line1, line2;
+    Color backing{}, ink1{}, ink2{}, edge_rgb{};
+    switch (style) {
+        case AlertStyle::Threat:
+            line1 = "幽影窥使入境";
+            line2 = "击落它，别让它看清你的布防";
+            backing = Color{46, 20, 54, 225};
+            ink1 = Color{240, 205, 255, 255};
+            ink2 = Color{215, 180, 230, 255};
+            edge_rgb = Color{220, 150, 255, 0};
+            break;
+        case AlertStyle::Report:
+            line1 = "斥候回报：已看清敌袭编成";
+            line2 = "编成与克制见右上侦查面板";
+            backing = Color{18, 42, 46, 225};
+            ink1 = Color{205, 240, 245, 255};
+            ink2 = Color{175, 215, 220, 255};
+            edge_rgb = Color{140, 225, 235, 0};
+            break;
+        case AlertStyle::Failed:
+            line1 = "斥候阵亡：侦查失败";
+            line2 = "本波编成不明，当心各方向";
+            backing = Color{52, 22, 22, 225};
+            ink1 = Color{255, 190, 175, 255};
+            ink2 = Color{235, 170, 160, 255};
+            edge_rgb = Color{255, 140, 120, 0};
+            break;
+        case AlertStyle::Summon:
+            line1 = "已提前召唤下一波";
+            line2 = "敌军即刻开拔";
+            backing = Color{50, 38, 14, 225};
+            ink1 = Color{255, 230, 170, 255};
+            ink2 = Color{235, 205, 140, 255};
+            edge_rgb = Color{255, 214, 120, 0};
+            break;
+    }
 
     const float w1 = font.measure(line1, kHudSize).x;
     const float w2 = font.measure(line2, kHudSize * 0.8f).x;
@@ -566,9 +589,7 @@ void draw_alert_banner(const render::FontSet& font, int screen_w, rts::Tick now,
     const int ph = static_cast<int>(now % 40);
     const int tri = ph < 20 ? ph : 40 - ph;
     const auto glow = static_cast<unsigned char>(120 + tri * 6);
-    const Color edge = threat ? Color{220, 150, 255, glow}
-                       : summon ? Color{255, 214, 120, glow}
-                                : Color{140, 225, 235, glow};
+    const Color edge{edge_rgb.r, edge_rgb.g, edge_rgb.b, glow};
     DrawRectangleLinesEx(box, 1.5f, edge);
     font.draw(line1,
               rts::Vec2{x + (max_w - w1) * 0.5f, top}, kHudSize, ink1);
@@ -953,13 +974,14 @@ int run_game(const Options& opt) {
         Vector2 anchor{};          // 菜单画在哪（点开那一刻的屏幕坐标）
     };
     Popup popup;
-    // 侦查警报的跨帧状态（`draw_recon_alert`）：「斥候回报」是每波**第一次**
-    // 看见敌人时的一次性短闪，要记「上一帧看见没有」与「闪到第几 tick 灭」。
-    // 换波**天然重新武装**——下一波生成前攻方存活必先归零（波次循环就挂在
-    // 这条上），视野随之清空，于是每波都有一次 empty→非空 的边沿可抓。
-    // 新一局（`shell.attempt()` 变化）时在主循环里归零，与 `popup` 它们同处。
-    bool recon_prev_sighted = false;
+    // 侦查警报的跨帧状态（`draw_alert_banner`）：斥候回报/阵亡两条闪抓的是
+    // **二元判定的边沿**（#139：`DemoBattle::scout_outcome()` 三态，逐波重置
+    // 为 `None`——重新武装由此是现成的，不需要再记「上一帧看见没有」）。
+    // `recon_flash_style` 记当前这闪是回报还是阵亡。新一局（`shell.attempt()`
+    // 变化）时在主循环里归零，与 `popup` 它们同处。
+    game::DemoBattle::ScoutOutcome scout_prev = game::DemoBattle::ScoutOutcome::None;
     rts::Tick recon_flash_until = 0;
+    AlertStyle recon_flash_style = AlertStyle::Report;
     // 提前召唤的确认闪：N 被 demo 层受理（`summon_accepted_now`）时点亮几秒。
     // 「建造期没了」之前是无声的——闪一下让玩家知道是自己按的 N；
     // 没闪却跳阶段，就是另有 bug，留着这个区分当自诊断。
@@ -976,15 +998,23 @@ int run_game(const Options& opt) {
     const auto advance_recon_alert = [&]() {
         game::DemoBattle* b = shell.battle();
         if (b == nullptr) return;
-        const rts::WorldView dv = b->world().view(rts::Side::Defender);
-        const bool any_sighted = !game::sighted_composition(dv).empty();
-        if (any_sighted && !recon_prev_sighted) {
-            recon_flash_until = b->world().now() + kReconFlashTicks;
+        const game::DemoBattle::ScoutOutcome oc = b->scout_outcome();
+        if (oc != scout_prev) {
+            // 只闪「有结论」的两个边沿；→`None` 是换波重置，不报。
+            // `Killed → Success`（再派一只成功了）会再闪一次回报——
+            // 那是新情报，该闪。
+            if (oc == game::DemoBattle::ScoutOutcome::Success) {
+                recon_flash_until = b->world().now() + kReconFlashTicks;
+                recon_flash_style = AlertStyle::Report;
+            } else if (oc == game::DemoBattle::ScoutOutcome::Killed) {
+                recon_flash_until = b->world().now() + kReconFlashTicks;
+                recon_flash_style = AlertStyle::Failed;
+            }
+            scout_prev = oc;
         }
-        recon_prev_sighted = any_sighted;
-        if (game::enemy_wraith_sighted(dv)) {
-            // 窥使警报优先，并吃掉回报闪：别在它灭掉之后又补弹一条「斥候
-            // 回报」——玩家刚才盯着看的就是它，那是噪音不是情报。
+        if (game::enemy_wraith_sighted(b->world().view(rts::Side::Defender))) {
+            // 窥使警报优先，并吃掉回报/阵亡闪：别在它灭掉之后又补弹一条
+            // ——玩家刚才盯着看的就是它，那是噪音不是情报。
             recon_flash_until = 0;
         }
     };
@@ -1259,7 +1289,7 @@ int run_game(const Options& opt) {
                                   AlertStyle::Threat);
             } else if (alert_now < recon_flash_until) {
                 draw_alert_banner(*font, GetScreenWidth(), alert_now,
-                                  AlertStyle::Report);
+                                  recon_flash_style);
             }
 
             // 弹出菜单：屏幕坐标，画在点开那一刻的位置。**造价写在选项里**——
@@ -1362,7 +1392,7 @@ int run_game(const Options& opt) {
             selected.clear();
             dragging = false;
             dragged_garrison.reset();
-            recon_prev_sighted = false;
+            scout_prev = game::DemoBattle::ScoutOutcome::None;
             recon_flash_until = 0;
             summon_flash_until = 0;
         }
