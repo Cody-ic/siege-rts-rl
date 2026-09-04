@@ -81,6 +81,7 @@ add_executable(rts_tests
     menu_test.cpp
     asset_paths_test.cpp
     demo_test.cpp
+    defender_macro_test.cpp
 )
 
 target_link_libraries(rts_tests PRIVATE rts_core game Catch2::Catch2WithMain)
@@ -141,7 +142,7 @@ target_compile_definitions(rts_tests PRIVATE
 #     ./build/tests/Release/rts_tests "<用例名>"
 foreach(_tag rng hash types map scene iso names utf8path roster action command obs
         terrain fog world replay behavior stats mech econ garrison charge proj flow
-        script input menu assets demo obspack batchenv)
+        script input menu assets demo obspack batchenv macro)
     add_test(NAME rts_tests_${_tag} COMMAND rts_tests "[${_tag}]")
 endforeach()
 

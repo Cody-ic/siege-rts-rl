@@ -164,6 +164,16 @@ public:
     std::int32_t train_ticks_at(UnitType ut, std::int32_t level) const noexcept {
         return w_->train_ticks_at(ut, level);
     }
+    // 建筑升级定价，同上一条纪律：`game/player_input.cpp` 的升级查询调它，
+    // 不在 `game/` 里重新推。`from_level` 是这座建筑**当前**的等级。
+    std::int64_t bld_upgrade_cost_stone(BldType bt,
+                                       std::int32_t from_level) const noexcept {
+        return w_->bld_upgrade_cost_stone(bt, from_level);
+    }
+    std::int64_t bld_upgrade_cost_wood(BldType bt,
+                                       std::int32_t from_level) const noexcept {
+        return w_->bld_upgrade_cost_wood(bt, from_level);
+    }
     std::span<const std::uint8_t> bld_alive() const noexcept {
         return std::span<const std::uint8_t>(w_->bld_pool_.alive_bytes(),
                                              w_->bld_pool_.slot_count());

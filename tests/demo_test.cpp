@@ -26,6 +26,17 @@
 
 namespace {
 
+// **首波建造时长从 `WaveTiming` 读，不在测试里写死。**
+// 2026-09-04 它从 360 变成 720（试玩反馈：13 秒的建造期里斥候单程就要 12 秒，
+// 「侦查到的编成永远来不及变成建筑」），当场把这份文件里七八处写死的 360 /
+// 370 / 400 全打红了——那些数字的**用途**一直是「越过首波建造期」，
+// 而不是 360 本身。写成表达式之后，下一次调节奏不会再连带改测试。
+const int kFirstBuild = game::WaveTiming{}.first_build_ticks;
+// 「刚开打」：越过建造期一点点（原先的 370 = 360 + 10）。
+const int kJustAssault = kFirstBuild + 10;
+// 「开打之后又走了一段」：原先的 400 = 360 + 40。
+const int kIntoAssault = kFirstBuild + 40;
+
 game::MapData demo_map() {
     return game::MapLoader::from_file(std::string(GAME_DATA_DIR) +
                                       "/demo_skirmish.json");
@@ -79,7 +90,7 @@ TEST_CASE("波次循环：建造（集结）→ 开打 → 清波 → 下一波�
     REQUIRE(a.world().phase() == rts::WavePhase::Build);
     REQUIRE(a.world().live_unit_count(rts::Side::Attacker) > 0);
 
-    a.update(400);   // 占位建造时长 360（首波），越过它
+    a.update(kIntoAssault);   // 越过首波建造期
     REQUIRE(a.world().phase() == rts::WavePhase::Assault);
     REQUIRE(a.world().live_unit_count(rts::Side::Attacker) > 0);
 
@@ -105,7 +116,7 @@ TEST_CASE("波次强度由易到难：第 1 波没有 Ram/Shade", "[demo]") {
     const rts::StatsTable stats = demo_stats();
     game::DemoBattle a(map, stats, 7);
 
-    a.update(400);   // 占位建造时长 360（首波），越过它触发第 1 波生波
+    a.update(kIntoAssault);   // 越过首波建造期，触发第 1 波生波
     REQUIRE(a.world().wave() == 1);
     REQUIRE(a.world().live_unit_count(rts::Side::Attacker) > 0);
 
@@ -144,7 +155,7 @@ TEST_CASE("迷雾：集结点上的攻方不进绘制列表，己方与地形照
     const rts::StatsTable stats = demo_stats();
     game::DemoBattle a(map, stats, 7);
 
-    a.update(370);   // 越过首波建造时长 360（集结期：波在 t=0 就生成待命，
+    a.update(kJustAssault);   // 越过首波建造期（集结期：波在 t=0 就生成待命，
                      // 此刻刚开打、还没走几步）
     REQUIRE(a.world().wave() == 1);
     // 前提：他们**确实存在于世界里**。这一条不能省——少了它，下面那条
@@ -214,7 +225,7 @@ TEST_CASE("幽影窥使：第 1 波没有，第 2 波起恒一只", "[demo]") {
         return n;
     };
 
-    a.update(370);
+    a.update(kJustAssault);
     REQUIRE(a.world().wave() == 1);
     REQUIRE(count_wraiths() == 0);   // 由易到难：第 1 波只有 Ghoul
 
@@ -577,7 +588,7 @@ TEST_CASE("免费方向提示：建造阶段就报（集结期），指向兵力
     const int lead0 = game::strongest_spawn(a.world().view(rts::Side::Defender));
     REQUIRE(lead0 >= 0);
 
-    a.update(370);
+    a.update(kJustAssault);
     const rts::WorldView v = a.world().view(rts::Side::Defender);
     const int lead = game::strongest_spawn(v);
     REQUIRE(lead >= 0);
@@ -750,7 +761,7 @@ TEST_CASE("侦查面板：编成读数与绘制列表逐类对齐（都过同一
         }
     };
 
-    a.update(370);   // 刚开打（集结期：波在建造阶段一开始就生成待命），全在迷雾里
+    a.update(kJustAssault);   // 刚开打（集结期：波在建造阶段一开始就生成待命），全在迷雾里
     REQUIRE(a.world().live_unit_count(rts::Side::Attacker) > 0);
     REQUIRE(game::sighted_composition(a.world().view(rts::Side::Defender)).empty());
     compare_at("刚生波（全在迷雾里）");
@@ -780,7 +791,7 @@ TEST_CASE("兵力集中：一路主攻拿大头，不是四面平摊", "[demo]")
     const game::MapData map = demo_map();
     const rts::StatsTable stats = demo_stats();
     game::DemoBattle a(map, stats, 7);
-    a.update(370);
+    a.update(kJustAssault);
     const rts::WorldView v = a.world().view(rts::Side::Attacker);
     const auto& spawns = v.spawns();
     REQUIRE(spawns.size() >= 2);   // 只有一个集结点时这条测不出东西
@@ -815,7 +826,7 @@ TEST_CASE("兵力集中：一路主攻拿大头，不是四面平摊", "[demo]")
     // 主攻方向必须**随波数轮换**：否则玩家永远守同一面就能蒙混过关。
     const auto lead_of = [&](int wave_no) {
         game::DemoBattle d(map, stats, 7);
-        d.update(370);
+        d.update(kJustAssault);
         for (int i = 1; i < wave_no; ++i) {
             for (int t = 0; t < 20000 &&
                             !(d.world().wave() == i + 1 &&
@@ -868,7 +879,7 @@ TEST_CASE("集结期：建造阶段攻方已在集结点待命，不开打就不
     const std::vector<float> d0 = combat_dists();
     REQUIRE_FALSE(d0.empty());   // 集结期：t=0 波已在（首波全是 Ghoul）
 
-    a.update(200);   // 仍在建造期（首波 360 tick）
+    a.update(kFirstBuild - 100);   // 仍在建造期
     REQUIRE(a.world().phase() == rts::WavePhase::Build);
     const std::vector<float> d1 = combat_dists();
     REQUIRE(d1.size() == d0.size());   // 待命不是送死：一个都不该少
@@ -880,7 +891,11 @@ TEST_CASE("集结期：建造阶段攻方已在集结点待命，不开打就不
     // 开打之后他们必须真的动起来——「待命」不能是「石化」。这张图太小，
     // 40 tick 后前排已经接战减员（实测 t=600 已有 Ghoul 阵亡），所以只判
     // 「幸存者里有人明显更近了」，不判人数不变。
-    a.update(400);   // 越过 360，开打后又走出 40+ tick
+    // **这一发是相对上一次 `update` 的增量**（前面已经走到 `kFirstBuild-100`）：
+    // 100 拍走完建造期，再 240 拍进交战。写成 `kIntoAssault` 会累加成
+    // 「两个建造期」，把整波打完、掉回下一波的建造期——建造期从 360 拍变成
+    // 900 拍之后这条就是这么红的。
+    a.update(100 + 240);
     REQUIRE(a.world().phase() == rts::WavePhase::Assault);
     const std::vector<float> d2 = combat_dists();
     REQUIRE_FALSE(d2.empty());

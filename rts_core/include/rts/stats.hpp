@@ -65,14 +65,19 @@ namespace rts {
 // Stats/8 → Stats/9（兵种等级上限：`GlobalStats` 加 `train_ticks_permille_per_level`
 // 与 `unit_upgrade_radius`）；Stats/9 → Stats/10（编队系统移除：就地升级机制
 // 删除，`unit_upgrade_radius` 失去唯一消费者，删字段）；Stats/10 → Stats/11（拆除
-// 成品建筑，`cancel_refund_permille` 改为 `demolish_refund_permille`）。
+// 成品建筑，`cancel_refund_permille` 改为 `demolish_refund_permille`）；
+// Stats/11 → Stats/12（**建筑升级定价从「每级一个常数」改成「累计 ∝ √B(L)」**，
+// 非 `Keep` 十座；见 `BldStats::upgrade_cost_stone` 与
+// `World::bld_upgrade_cost_stone()`）。
 //
-// **Stats/7 → Stats/8 那一格是本文件唯一一次「形状没变而必须进格」，理由要留着。** 那次
+// **「形状没变而必须进格」现在有两格了（Stats/7 → 8、Stats/11 → 12），
+// 两次都只改语义。** 下面那段原写「本文件唯一一次」，Stats/12 让它过期——
+// 而这正好说明它不是特例、是会复发的一类，所以那段理由更该留着。那次
 // 改的是 `level_permille` 怎么用这两个系数（语义），字段一个没加减。若不进格，
 // `fingerprint()` 算出来一模一样，于是旧回放**不报 `StatsMismatch` 而静默算出
 // 不同的结果**——那是本仓库通篇最防的一类失效（「布局改了」与「跑歪了」不可
 // 区分）。**下一个只改语义不改字段的人照此办理。**
-inline constexpr std::string_view kStatsShapeTag = "Stats/11";
+inline constexpr std::string_view kStatsShapeTag = "Stats/12";
 
 // 每兵种一行。**结构性属性不在这里**（能否对空、能否破坏结构、三轴定位归
 // `rts/unit_behavior.hpp` 与 `rts/roster.hpp`）；这里只有会随标定变的数。
@@ -146,10 +151,32 @@ struct BldStats {
     // 开火即弹丸——`Tower` 的齐射箭雨与 `Flak` 的狙击弩矢都真的在飞。
     float proj_speed = 0.0f;
     // ——建筑等级上限（守方升级轴的第一个输出）——
-    // 升一级要花多少石/木、耗多少工时；`upgrade_ticks <= 0` 当场完工，
-    // 同 `build_ticks` 的先例。等级本身存在 `World::b_level_`（不在这里，
-    // 那是会变的状态，不是标定值）；上限由 `World::building_level_cap()`
+    //
+    // 升级的**石/木定价参数**，以及每一级的工时（`upgrade_ticks <= 0` 当场
+    // 完工，同 `build_ticks` 的先例）。等级本身存在 `World::b_level_`（不在
+    // 这里，那是会变的状态，不是标定值）；上限由 `World::building_level_cap()`
     // 从 `Keep` 的等级推导，`Keep` 自己不受这个上限约束。
+    //
+    // ⚠️ **这两个数不是「一级的价钱」，除了 `Keep`。**（Stats/11 → Stats/12
+    // 改的就是这件事，字段一个没动。）唯一的计算处是
+    // `World::bld_upgrade_cost_stone()` / `..._wood()`：
+    //
+    //   * 非 `Keep` 十座——升级买的是血量与伤害，两者都 `∝ √B(L)`，
+    //     所以这两个数是**累计曲线的标度**：
+    //     `累计(L) = cost + up × (√B(L) − 1)`，一步的价钱是相邻两级之差。
+    //     `up == cost` 时每石买到的火力与等级无关（正式表就取这个值），
+    //     偏离它是留给标定的旋钮。**照旧当单价用会让累计造价线性、
+    //     而战力开方 ⇒ 最优档恒为 1 级，这个输出整个是装饰品。**
+    //   * `Keep`——升级买的是三个**线性**上限（人口 `8+2K`、建筑等级
+    //     `ceil(K/2)`、兵种等级 `K`），线性输出配线性定价本来就同阶，
+    //     所以它这两个数仍是**每一级的价钱**，一字未改。
+    //
+    // `upgrade_ticks` **刻意仍是每级一个常数**、不随定价一起开方：本仓库
+    // 对「不希望被无脑刷」的东西偏好用时间与暴露而不是价格
+    // （CLAUDE.md「波次进行中不禁止任何资源的使用」），而工时正是那个限制器
+    // ——高等级的一步很便宜，但仍要占一名工匠整整一段工期，且那段时间里
+    // 这座建筑修不了（升级与施工/维修互斥）。同 `train_ticks_permille_per_level`
+    // 「训练耗时不参与 p−q=0 那组不变量」那条先例。
     std::int64_t upgrade_cost_stone = 0;
     std::int64_t upgrade_cost_wood = 0;
     std::int32_t upgrade_ticks = 0;

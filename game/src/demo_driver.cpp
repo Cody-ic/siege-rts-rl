@@ -101,8 +101,13 @@ std::optional<rts::GridPos> flak_site(const MapData& map, const rts::WorldInit& 
 // （弓手会自己找墙登墙，见 `game/defender_script.hpp`），不再需要「摆到
 // 墙内侧一格 + 下 Garrison 令」那套配合。
 rts::WorldInit demo_init(const MapData& map, const rts::StatsTable& stats,
-                         std::uint64_t seed) {
+                         std::uint64_t seed, const DefenderSetup& setup) {
     rts::WorldInit init = make_world_init(map, stats, seed, /*nominal_level=*/1);
+    // 人口上限是**建局输入**（`rts/world.hpp`），不在数值表里 ⇒ 唯一的入口
+    // 就是这里。`make_world_init` 用的是 `WorldInit` 的默认 8+2K，这一行把
+    // 调用方给的值盖上去。
+    init.pop_cap_base = setup.pop_cap_base;
+    init.pop_cap_per_keep_level = setup.pop_cap_per_keep_level;
     const auto add = [&](rts::UnitType u, float x, float y, std::int32_t lv) {
         const std::int64_t hp = hp_at(stats, u, lv);
         init.units.push_back(rts::UnitInit{u, rts::Vec2{x, y}, lv, hp, hp});
@@ -148,7 +153,7 @@ rts::WorldInit demo_init(const MapData& map, const rts::StatsTable& stats,
 // ——波次循环的常量——
 //
 // 建造阶段时长仍是**占位**（待标定数值）；编成曲线自 2026-09-01 起不再是
-// 「随波缓涨的占位混编」，而是双预算的 v1（见下面 wave_slots/wave_level）——
+// 「随波缓涨的占位混编」，而是双预算的 v1（见 `game::WaveCurve` 与 wave_level）——
 // 正式形态里编成由攻方宏观层按同一对预算**决策**，这里是它的无决策退化：
 // 比例固定、预算全花。
 //
@@ -157,8 +162,9 @@ rts::WorldInit demo_init(const MapData& map, const rts::StatsTable& stats,
 // 一个 160 tick（8s），现在拆成两个常量分别调：波次间隔只需要「至少 +5s」，
 // 首波额外再退后 10s（不是「间隔 +5s 之后再退后 10s」，是各自独立地从原先
 // 那个 8s 起算）。
-constexpr int kBuildTicksPlaceholder = 260;        // 13 秒 @ 20 Hz（原 8s，波次间隔 +5s）
-constexpr int kFirstBuildTicksPlaceholder = 360;   // 18 秒 @ 20 Hz（原 8s，首波延后 10s）
+// **这两个数已提成运行期参数**（`game::WaveTiming`，2026-09-03）：波间隔是
+// 平衡的关键旋钮之一（它同时管「每波收入」与「能安全施工多久」，理由见
+// 那个结构体的注释），配平搜索必须够得着它。默认值就是这里原来的两个数。
 
 // ——攻方双预算（2026-09-01 试玩反馈「20 分钟后玩家显著强过敌人」的修复）——
 //
@@ -200,17 +206,12 @@ constexpr int kFirstBuildTicksPlaceholder = 360;   // 18 秒 @ 20 Hz（原 8s，
 //     那条已被 §8 第 1 条订正为不成立（场上兑现是 Σ√B 不是 ΣB）；
 //     本式现在的定位是攻方「兵力预算 ≡ 战力预算」定义下的人均预算折算
 //     （§12.6：不是真扣钱，反解不跟守方 c ∝ √B 改）。
-constexpr double kSlotsBase = 6.0;
-constexpr double kSlotsPerWave = 1.2;
-constexpr double kPowerBase = 6.0;
-constexpr double kPowerAlpha = 1.25;
+// **这四个常量已提成 `game::WaveCurve` 的字段**（2026-09-03）：兵力曲线是
+// 配平的主旋钮之一，而编译期常量搜索够不着；连**函数形式**也一起开放了
+// （`WaveCurve::PowerForm`），理由见那个结构体的注释。默认值就是原来这四个数。
 
-int wave_slots(int wave) {
-    const double s = kSlotsBase + kSlotsPerWave * static_cast<double>(wave - 1);
-    return static_cast<int>(s);
-}
-
-std::int32_t wave_level(int wave, const rts::StatsTable& stats) {
+std::int32_t wave_level(int wave, const rts::StatsTable& stats,
+                       const WaveCurve& curve) {
     // k 从数值表读（hp 与 dmg 两个系数相等由 StatsLoader 拦，取哪个都一样），
     // 不在这里抄一份 0.22——机制里不许藏数，那条纪律对 demo 曲线同样适用。
     //
@@ -222,14 +223,13 @@ std::int32_t wave_level(int wave, const rts::StatsTable& stats) {
     const double k =
         static_cast<double>(stats.global.hp_permille_per_level) / 1000.0;
     if (k <= 0.0) return 1;
-    const double budget =
-        kPowerBase * std::pow(static_cast<double>(wave), kPowerAlpha);
-    const double per_unit = budget / static_cast<double>(wave_slots(wave));
+    const double budget = curve.power_at(wave);
+    const double per_unit = budget / static_cast<double>(curve.slots_at(wave));
     // 除以第 1 波的人均预算（budget_curves.py 的 `base`）：把「1 级单位值多少
     // 预算」锚定在第 1 波 ⇒ L(1) = 1 由构造成立。当前系数下 base 恰是 1，
-    // 但省略它的话「同源」就是假的——改 kPowerBase/kSlotsBase 时这里会静默
+    // 但省略它的话「同源」就是假的——改 power_base/slots_base 时这里会静默
     // 丢掉那个锚点，而 Python 那边不会。
-    const double base = kPowerBase / kSlotsBase;
+    const double base = curve.power_base / curve.slots_base;
     const double level = 1.0 + (per_unit / base - 1.0) / k;
     if (level < 1.0) return 1;
     return static_cast<std::int32_t>(level + 0.5);
@@ -237,9 +237,44 @@ std::int32_t wave_level(int wave, const rts::StatsTable& stats) {
 
 }  // namespace
 
+int WaveCurve::slots_at(int wave) const {
+    const double s = slots_base + slots_per_wave * static_cast<double>(wave - 1);
+    int n = static_cast<int>(s);
+    if (slots_cap > 0 && n > slots_cap) n = slots_cap;
+    return n < 1 ? 1 : n;
+}
+
+double WaveCurve::power_at(int wave) const {
+    const double w = static_cast<double>(wave);
+    switch (power_form) {
+        case PowerForm::Linear:
+            return power_base * (1.0 + power_alpha * (w - 1.0));
+        case PowerForm::Log:
+            return power_base * (1.0 + power_alpha * std::log(w));
+        case PowerForm::Saturating:
+            // 后期趋平：w 小时近似 base·(1+alpha·w)，w >> half 时趋于常数。
+            // 它存在的理由是「无尽模式必败」只要求**攻方不停涨**，不要求
+            // 涨得比守方的饱和收入快无穷多——那条曲线的形状是待定的。
+            return power_base *
+                   (1.0 + power_alpha * w / (1.0 + w / (power_half > 0.0 ? power_half : 1.0)));
+        case PowerForm::Power:
+        default:
+            return power_base * std::pow(w, power_alpha);
+    }
+}
+
+
 DemoBattle::DemoBattle(const MapData& map, const rts::StatsTable& stats,
-                       std::uint64_t seed)
-    : w_(demo_init(map, stats, seed)), script_(ScriptParams{}, seed ^ 0x9e3779b9u) {
+                       std::uint64_t seed, WaveTiming timing, WaveCurve curve,
+                       DefenderSetup setup)
+    : w_(demo_init(map, stats, seed, setup)),
+      script_(ScriptParams{}, seed ^ 0x9e3779b9u),
+      timing_(timing),
+      curve_(curve),
+      setup_(setup),
+      // 与 `script_` 同源派生、但**另取一个常数**：两条流各走各的，
+      // 于是给脚本加一次掷点不会连带改掉侦查的结果（反之亦然）。
+      recon_rng_(seed ^ 0x517cc1b7u) {
     // 弓手登墙不再靠开局下命令：执行层脚本每个决策拍会自己找空墙段、
     // 发登墙意愿（`submit_garrison_wishes`），登墙由 `tick_garrison` 解算。
     // 开局资源（**占位数额**，无平衡含义）：交互层要能试建造，
@@ -252,12 +287,12 @@ DemoBattle::DemoBattle(const MapData& map, const rts::StatsTable& stats,
     // 建造阶段有可侦查的对象（`Wraith` 的活就在这段时间干）、HUD「攻方 N」不再
     // 建造期恒 0、免费方向提示给得出**行军之前**的调兵窗口（实力模型 §4 的那条
     // 唯一大杠杆——弓手集中——没有这个窗口就跨不过半圈）。
-    build_left_ = kFirstBuildTicksPlaceholder;
+    build_left_ = timing_.first_build_ticks;
     spawn_wave();
     issue_actions();
 }
 
-// 本波编成（双预算曲线，见上面 wave_slots/wave_level）：编成位定人数、
+// 本波编成（双预算曲线，见 `game::WaveCurve`）：编成位定人数、
 // 兵力预算经名义等级定质量，轮流摆在各集结点周围。
 // 骑士走开阔走廊一路直线 = 满动量冲锋（第四批）——首击明显重于互殴，正是要看的。
 void DemoBattle::spawn_wave() {
@@ -274,11 +309,26 @@ void DemoBattle::spawn_wave() {
     // Ram/Phoenix 第 3 波起。`Phoenix` 恒 1——「硬性数量上限」是结构
     // （CLAUDE.md「空中单位」），上限随波缓慢放开是后话，这里先取最小值；
     // 注意它与编成位那个撤下的硬顶不是一回事，这条不随之松动。
-    const int slots = wave_slots(wave);
-    const int shades = wave >= 2 ? std::max(1, slots / 5) : 0;
-    const int knights = wave >= 2 ? std::max(1, slots * 3 / 20) : 0;
-    const int rams = wave >= 3 ? std::max(1, slots / 10) : 0;
-    const int phoenixes = wave >= 3 ? 1 : 0;
+    const int slots = curve_.slots_at(wave);
+    // 比例与门槛现在都从 `WaveCurve` 来（2026-09-03 起可在运行期设）；
+    // 默认值与原来那几个整除式逐波相同（200‰ = /5、150‰ = ·3/20、100‰ = /10）。
+    const auto share = [&](int permille) {
+        return std::max(1, slots * permille / 1000);
+    };
+    const int shades = wave >= curve_.shade_from_wave ? share(curve_.shade_permille) : 0;
+    const int knights =
+        wave >= curve_.knight_from_wave ? share(curve_.knight_permille) : 0;
+    const int rams = wave >= curve_.ram_from_wave ? share(curve_.ram_permille) : 0;
+    // 不死鸟：`phoenix_per_waves == 0` ⇒ 恒 `phoenix_base`（现行行为）。
+    const int phoenixes =
+        wave >= curve_.phoenix_from_wave
+            ? std::min(curve_.phoenix_cap,
+                       curve_.phoenix_base +
+                           (curve_.phoenix_per_waves > 0
+                                ? (wave - curve_.phoenix_from_wave) /
+                                      curve_.phoenix_per_waves
+                                : 0))
+            : 0;
     // 幽影窥使恒 1，第 2 波起。**这一只是整个侦查博弈里攻方那一半**：
     // 在它进编成之前，`Wraith` 在 `game/` 里只出现在中文展示名表里——攻方
     // 从来没有侦查过，于是「双向欺骗」只有守方那一向，而 CLAUDE.md 那三条
@@ -286,7 +336,7 @@ void DemoBattle::spawn_wave() {
     // 玩家等 `Wraith` 走了再造防空）一条都无从发生。
     //
     // 从编成位里扣、不额外加人：它占的是攻方自己的预算，否则等于白送一只。
-    const int wraiths = wave >= 2 ? 1 : 0;
+    const int wraiths = wave >= curve_.wraith_from_wave ? 1 : 0;
     const int ghouls =
         std::max(1, slots - shades - knights - rams - phoenixes - wraiths);
     std::vector<rts::UnitType> roster;
@@ -327,7 +377,7 @@ void DemoBattle::spawn_wave() {
     const std::size_t n_spawn = spawns.size();
     const auto main_spawn = static_cast<std::size_t>(wave) % n_spawn;
     const std::size_t feint_spawn = (main_spawn + 1) % n_spawn;
-    constexpr int kMainPermille = 700;   // 主攻拿七成（占位比例）
+    const int kMainPermille = curve_.main_permille;   // 主攻拿几成（运行期可设）
 
     // 固定的落位偏移环（不掷点，同上）。7×7 由内向外——集中之后单个集结点要
     // 摆下几乎整波人，原来的 5×5（25 个）在高波次会让后来者与先来者叠在
@@ -368,6 +418,140 @@ void DemoBattle::spawn_wave() {
         const rts::Vec2 c = rts::center_of(spawns[si].pos);
         const std::int64_t hp = hp_at(stats, t, lv);
         w_.spawn_unit(t, rts::Vec2{c.x + off.first, c.y + off.second}, lv, hp, hp);
+    }
+}
+
+// 本波「打完」的判据。
+//
+// **原来写的是「攻方存活数归零」，那是个潜伏 bug，CLAUDE.md 早就写下来了**：
+// 「波次循环挂在『攻方存活数归零』上，而会撤退的侦查单位不会死——一只就能让
+// 游戏永远停在这一波。加任何『不求战』的单位时都要回头看这个终止条件。」
+//
+// 它此前从未发作，只是因为**守方总是先死**：无渲染跑的时候没人替守方下宏观
+// 命令（全仓只有 `player_input.cpp` 产出建造/征兵），于是堡垒总在第 1–2 波
+// 就掉了，循环从「陷落」那一侧退出。`game::DefenderMacro` 一上来（守方真的
+// 守得住）它立刻变成硬停：实测第 2 波跑了 56682 tick，波末只剩一只 `Wraith`。
+//
+// 改成「攻方**还能打的**归零」。判据用 `rts::is_combat()` 而不是列举兵种名——
+// 「哪些单位不求战」是花名册的性质（CLAUDE.md：攻方 `Wraith`、守方
+// `Scout`/`Mason` 不进克制矩阵），列举一遍就是第二份真相。
+bool DemoBattle::attacker_can_fight() const {
+    const rts::WorldView v = w_.view(rts::Side::Attacker);
+    const auto ut = v.unit_type();
+    const auto alive = v.unit_alive();
+    for (std::size_t k = 0; k < ut.size(); ++k) {
+        if (!alive[k]) continue;
+        if (rts::side_of(ut[k]) != rts::Side::Attacker) continue;
+        if (rts::is_combat(ut[k])) return true;
+    }
+    return false;
+}
+
+// 换波时把还活着的攻方**非战斗**单位撤出场。
+//
+// 少了这一步，上面那条判据会让侦查单位**跨波累积**：每波恒生一只 `Wraith`，
+// 二十波之后场上有二十只，而「第 2 波起恒一只」那条既有测试会当场变红。
+// 叙事上它也自洽——它的活是看清防线，看完就该回去复命。
+void DemoBattle::withdraw_all_attackers() {
+    std::vector<rts::UnitId> ids;
+    w_.enumerate_units(rts::Side::Attacker, ids);
+    for (const rts::UnitId id : ids) w_.kill_unit(id);
+}
+
+// 斥候侦查：**到达集结点 → 掷一次死活 → 活着即侦查成功**。
+//
+// 与攻方 `Wraith` 的形状对称（组内 2026-09-04 定）：那一侧是「推进到看得见
+// 防御布局 ⇒ 情报到手 ⇒ 掉头」，这一侧是「推进到集结点 ⇒ 掷点 ⇒ 活着就
+// 拿到本波编成」。移动那一半是现成的——`DefenderScript` 的默认分支本来就让
+// `Scout` 走向**最近的当前不可见的集结点**。
+//
+// 三条形状上的取舍，都是有意的：
+//
+//   * **二元，没有渐进渗漏。** 一版早先的实现按帧累积「看见过什么」，
+//     于是斥候刚出城门瞟一眼就在漏情报、**侦查从来不会失败**。那把整个
+//     `Scout` / `Wraith` 博弈消掉了：猎杀斥候没有意义，因为它死之前已经
+//     漏了一路。侦查必须是成功或失败。
+//   * **每只各掷一次独立的点。** 「派几只」因此是玩家的冗余决策
+//     （两只 ⇒ `1 − p²`），与提案里攻方那一侧逐字同构。概率**不随敌方数量
+//     缩放**：那会让后期侦查趋近必然失败，等于在最需要情报的时候关掉它。
+//   * **报告是快照。** 情报的价值在「提前知道」，到手之后就不该再随战场
+//     变化——那是记忆不是视野，所以它在交战期仍然可读。
+void DemoBattle::tick_scout_recon() {
+    const auto& spawns = w_.view(rts::Side::Defender).spawns();
+    if (spawns.empty()) return;
+    // 0 = 用斥候视野（自维护，见头文件）。
+    const int arrive =
+        setup_.scout_arrive_cells > 0
+            ? setup_.scout_arrive_cells
+            : static_cast<int>(w_.stats().of(rts::UnitType::Scout).vision);
+
+    std::vector<rts::UnitId> ids;
+    w_.enumerate_units(rts::Side::Defender, ids);
+    for (const rts::UnitId id : ids) {
+        if (w_.unit_type(id) != rts::UnitType::Scout) continue;
+        const std::uint32_t raw = id.raw();
+        // 这一只本波掷过了？（按只记账，不是按波——见头文件）
+        bool rolled = false;
+        for (const std::uint32_t r : scout_rolled_) {
+            if (r == raw) {
+                rolled = true;
+                break;
+            }
+        }
+        if (rolled) continue;
+
+        // 到没到？任意一个集结点都算——它走的是「最近的当前不可见的那个」。
+        const rts::GridPos g = rts::grid_of(w_.unit_pos(id));
+        bool arrived = false;
+        for (const rts::SpawnSite& sp : spawns) {
+            const int dx = static_cast<int>(g.i) - static_cast<int>(sp.pos.i);
+            const int dy = static_cast<int>(g.j) - static_cast<int>(sp.pos.j);
+            const int d = std::max(dx < 0 ? -dx : dx, dy < 0 ? -dy : dy);
+            if (d <= arrive) {
+                arrived = true;
+                break;
+            }
+        }
+        if (!arrived) continue;
+
+        scout_rolled_.push_back(raw);
+        const std::int32_t roll = static_cast<std::int32_t>(recon_rng_.below(1000));
+        if (roll < setup_.scout_death_permille) {
+            // 死了 ⇒ **本轮这一只侦查失败，一个字都不给**。
+            // 只有在还没有别的斥候成功过时才把结论记成 `Killed`——
+            // 一只成功一只战死，玩家该看到的是那份成功的报告。
+            w_.kill_unit(id);
+            if (scout_outcome_ == ScoutOutcome::None) {
+                scout_outcome_ = ScoutOutcome::Killed;
+            }
+            continue;
+        }
+
+        // 活下来 ⇒ 侦查成功。**快照取全波编成**：它此刻就站在集结点上，
+        // 那里正是本波部队待命的地方（集结期，`spawn_wave` 在建造期一开始
+        // 就把整波生成好了）。
+        scout_outcome_ = ScoutOutcome::Success;
+        scout_report_.clear();
+        int tally[rts::kUnitTypeCount] = {};
+        std::vector<rts::UnitId> foes;
+        w_.enumerate_units(rts::Side::Attacker, foes);
+        for (const rts::UnitId f : foes) {
+            ++tally[static_cast<std::size_t>(w_.unit_type(f))];
+        }
+        // 按花名册顺序（`unit_at`），顺序必须稳定——面板每帧重排读不了。
+        for (int k = 0; k < rts::kUnitTypeCount; ++k) {
+            const rts::UnitType t = rts::unit_at(k);
+            const int n = tally[static_cast<std::size_t>(t)];
+            if (n > 0) scout_report_.push_back(SightedType{t, n});
+        }
+    }
+}
+
+void DemoBattle::withdraw_noncombat_attackers() {
+    std::vector<rts::UnitId> ids;
+    w_.enumerate_units(rts::Side::Attacker, ids);
+    for (const rts::UnitId id : ids) {
+        if (!rts::is_combat(w_.unit_type(id))) w_.kill_unit(id);
     }
 }
 
@@ -644,14 +828,26 @@ void DemoBattle::update(int ticks) {
             issue_actions();
             since_decision_ = 0;
         }
+        if (w_.phase() == rts::WavePhase::Assault) ++assault_ticks_;
+        const bool timed_out = timing_.assault_max_ticks > 0 &&
+                               assault_ticks_ >= timing_.assault_max_ticks;
         if (w_.phase() == rts::WavePhase::Assault &&
-            w_.live_unit_count(rts::Side::Attacker) == 0) {
+            (!attacker_can_fight() || timed_out)) {
+            // 超时 ⇒ 残兵（含还能打的）一起撤；正常清波 ⇒ 只撤不求战的那些。
+            if (timed_out) withdraw_all_attackers();
+            assault_ticks_ = 0;
             // 本波打完（消耗殆尽也算，突破与否不改变循环）：进下一波建造，
             // 且**新一波动即生成**——集结期（见构造函数那段）：建造阶段一开始
             // 他们就在集结点待命，侦查与方向提示因此有一整个建造阶段可用。
-            w_.begin_next_wave(wave_level(w_.wave() + 1, w_.stats()));
-            build_left_ = kBuildTicksPlaceholder;
+            withdraw_noncombat_attackers();
+            w_.begin_next_wave(wave_level(w_.wave() + 1, w_.stats(), curve_));
+            build_left_ = timing_.build_ticks;
             wave_scouted_ = false;   // 新的一波要重新侦查（记忆天然过时）
+            // 守方一侧同理：上一波的编成不算情报（CLAUDE.md「波次结构使
+            // AI 的记忆天然过时」，那条对玩家一样成立）。
+            scout_outcome_ = ScoutOutcome::None;
+            scout_report_.clear();
+            scout_rolled_.clear();
             spawn_wave();
             issue_actions();   // 新生成的单位当拍拿到动作，不呆等一个决策周期
             since_decision_ = 0;
@@ -661,6 +857,9 @@ void DemoBattle::update(int ticks) {
             since_decision_ = 0;
         }
         w_.advance(1);
+        // 斥候的到达判定：**每拍查一次**。它必须在 `advance` 之后——单位是
+        // 在那里面移动的，判前查等于永远慢一拍。
+        tick_scout_recon();
         ++since_decision_;
         if (!keep_alive()) defeated_ = true;   // 丢堡即败（设计，不是演示便宜）
     }

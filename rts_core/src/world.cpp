@@ -461,12 +461,17 @@ void World::apply_one(const Command& c) {
                 break;
             }
             const BldStats& s = stats_.of(b_type_[k]);
-            if (stock_[static_cast<std::size_t>(Resource::Stone)] < s.upgrade_cost_stone ||
-                stock_[static_cast<std::size_t>(Resource::Wood)] < s.upgrade_cost_wood) {
+            // **定价走 `bld_upgrade_cost_*()`，不读表里那个常数**：非 `Keep`
+            // 的累计造价要与它买到的战力同阶（`∝ √B(L)`），否则最优档恒为
+            // 1 级、这个输出是装饰品。理由见 `world.hpp` 那两条声明。
+            const std::int64_t up_s = bld_upgrade_cost_stone(b_type_[k], b_level_[k]);
+            const std::int64_t up_w = bld_upgrade_cost_wood(b_type_[k], b_level_[k]);
+            if (stock_[static_cast<std::size_t>(Resource::Stone)] < up_s ||
+                stock_[static_cast<std::size_t>(Resource::Wood)] < up_w) {
                 break;
             }
-            stock_[static_cast<std::size_t>(Resource::Stone)] -= s.upgrade_cost_stone;
-            stock_[static_cast<std::size_t>(Resource::Wood)] -= s.upgrade_cost_wood;
+            stock_[static_cast<std::size_t>(Resource::Stone)] -= up_s;
+            stock_[static_cast<std::size_t>(Resource::Wood)] -= up_w;
             // 工期 <= 0（未标定表的诚实默认）当场完工——与 `Build` 同一条先例。
             // 完工逻辑与 `tick_economy` 里工时归零那一刻的分支逐字相同，
             // 这里直接调用，不留一个「倒计时为 0 但还没结算」的中间态。
@@ -898,25 +903,53 @@ std::uint16_t World::command_mask(Side side) const noexcept {
     return mask;
 }
 
-std::int32_t World::building_level_cap() const noexcept {
+// 堡垒的建筑槽位。**没有堡垒时返回 -1，这一条是 2026-09-03 修的一个越界读。**
+//
+// 三个 cap 函数原先都写着「`keep_` 处恰有一座 `Keep`（构造即校验），所以这个
+// 下标必然有效——World 存活期内 Keep 不会被拆」。**那句话是错的**：拆掉堡垒
+// 正是败局的**定义**，而 `World` 在那之后照常存活（`DemoBattle::defeated()`
+// 只是**读**它的死活，读完这一拍还没结束、渲染还要画这一帧）。
+//
+// 堡垒一死 `bld_at_[cell]` 就是 0，而 `bld_at_` 是 `uint16_t` ⇒ `0 - 1` 提升成
+// `int` 的 −1 ⇒ 转 `size_t` 是 SIZE_MAX ⇒ `b_level_[SIZE_MAX]` 是**越界读**（UB）。
+// 它一直没被发现，是因为没人在败局那一帧之后问过这三个数；2026-09-03 给校准
+// runner 加「逐波记人口/上限」时问了，当场读出 402666916 这种数。
+//
+// 返回 0 而不是随便一个数：**败局之后什么都不该造得出来**，而 0 让三个消费者
+// 各自自然地拒绝（`Train` 的 `c.level > 0`、`defender_pop() >= 0`、
+// `Upgrade` 的 `b_level_[k] >= 0`），不需要在调用处各加一条判空。
+BldId World::bld_at(GridPos cell) const noexcept {
+    if (cell.i < 0 || cell.j < 0 || cell.i >= width() || cell.j >= height()) {
+        return BldId{};
+    }
+    const std::size_t idx = static_cast<std::size_t>(cell.j) *
+                                static_cast<std::size_t>(width()) +
+                            static_cast<std::size_t>(cell.i);
+    if (idx >= bld_at_.size() || bld_at_[idx] == 0) return BldId{};
+    return bld_pool_.id_at(static_cast<std::uint16_t>(bld_at_[idx] - 1));
+}
+
+int World::keep_slot() const noexcept {
     const std::size_t cell =
         static_cast<std::size_t>(keep_.j) * static_cast<std::size_t>(width()) +
         static_cast<std::size_t>(keep_.i);
-    // `keep_` 处恰有一座 `Keep`（构造即校验），所以这个下标必然有效——
-    // World 存活期内 Keep 不会被拆（丢失即败，游戏在那之前已经结束）。
-    const std::size_t k = static_cast<std::size_t>(bld_at_[cell] - 1);
+    if (cell >= bld_at_.size() || bld_at_[cell] == 0) return -1;
+    return static_cast<int>(bld_at_[cell]) - 1;
+}
+
+std::int32_t World::building_level_cap() const noexcept {
+    const int slot = keep_slot();
+    if (slot < 0) return 0;   // 堡垒没了：见 `keep_slot()`
     const std::int32_t divisor = stats_.global.building_level_cap_divisor;
-    return (b_level_[k] + divisor - 1) / divisor;
+    return (b_level_[static_cast<std::size_t>(slot)] + divisor - 1) / divisor;
 }
 
 std::int32_t World::unit_level_cap() const noexcept {
-    // 同 `building_level_cap()` 的 Keep 槙位定位，公式不同：`兵种等级上限(K)
+    // 同 `building_level_cap()` 的 Keep 槽位定位，公式不同：`兵种等级上限(K)
     // = K`（`波次预算曲线与堡垒等级曲线.md` §2），没有除数。
-    const std::size_t cell =
-        static_cast<std::size_t>(keep_.j) * static_cast<std::size_t>(width()) +
-        static_cast<std::size_t>(keep_.i);
-    const std::size_t k = static_cast<std::size_t>(bld_at_[cell] - 1);
-    return b_level_[k];
+    const int slot = keep_slot();
+    if (slot < 0) return 0;
+    return b_level_[static_cast<std::size_t>(slot)];
 }
 
 int World::defender_pop() const noexcept {
@@ -939,13 +972,12 @@ int World::defender_pop() const noexcept {
 }
 
 int World::defender_pop_cap() const noexcept {
-    // Keep 格位定位与 `unit_level_cap()` 逐字同款（构造期校验恰好一座，
-    // 存活期内不会被拆），公式不同：`cap = base + per × 堡垒等级`。
-    const std::size_t cell =
-        static_cast<std::size_t>(keep_.j) * static_cast<std::size_t>(width()) +
-        static_cast<std::size_t>(keep_.i);
-    const std::size_t k = static_cast<std::size_t>(bld_at_[cell] - 1);
-    return pop_cap_base_ + pop_cap_per_keep_level_ * b_level_[k];
+    // Keep 格位定位与 `unit_level_cap()` 逐字同款，公式不同：
+    // `cap = base + per × 堡垒等级`。
+    const int slot = keep_slot();
+    if (slot < 0) return 0;
+    return pop_cap_base_ +
+           pop_cap_per_keep_level_ * b_level_[static_cast<std::size_t>(slot)];
 }
 
 std::int64_t World::train_cost_gold(UnitType ut, std::int32_t level) const noexcept {
@@ -968,6 +1000,47 @@ std::int32_t World::train_ticks_at(UnitType ut, std::int32_t level) const noexce
     const std::int64_t ticks =
         (stats_.of(ut).train_ticks * linear + kPermilleOne / 2) / kPermilleOne;
     return static_cast<std::int32_t>(ticks);
+}
+
+namespace {
+
+// 「把 `base` 缩放到 L 级」——与 `train_cost_gold` 逐字同式（`base × √B(L)`）。
+//
+// **`base <= 0` 直接返回 0，不走 `apply_permille`**：那个函数把结果钳到 >= 1
+// （0 伤害凭空造出一种免疫，`combat_math.hpp`），而这里 0 是有意义的取值——
+// `Fence` 的石材标度就是 0（它是纯木制应急工事）。钳成 1 会让它每级收 1 石，
+// 数额可忽略但语义是错的：那会凭空给一座木制建筑安上石材开销。
+std::int64_t level_scaled_cost(std::int64_t base, std::int32_t level,
+                               std::int32_t per_level) noexcept {
+    if (base <= 0) return 0;
+    return apply_permille(base, {level_permille(level, per_level)});
+}
+
+}   // namespace
+
+// 建筑升级定价。理由、两条分支的出处与那笔溢价为什么只收一次，全在
+// `world.hpp` 的声明处——这里只写实现。
+//
+// **两级累计值之差，而不是「增量公式」**：定价是累计曲线
+// `cost + up × (√B(L) − 1)` 的差分，所以逐级加起来必然精确等于累计值。
+// 直接写增量再取整会让「逐级升到 L」与「累计定价」在舍入上分叉，
+// 于是那条「每石买到的火力与等级无关」的性质在某些等级上悄悄不成立。
+std::int64_t World::bld_upgrade_cost_stone(BldType bt,
+                                          std::int32_t from_level) const noexcept {
+    const BldStats& s = stats_.of(bt);
+    if (bt == BldType::Keep) return s.upgrade_cost_stone;
+    const std::int32_t k = stats_.global.hp_permille_per_level;
+    return level_scaled_cost(s.upgrade_cost_stone, from_level + 1, k) -
+           level_scaled_cost(s.upgrade_cost_stone, from_level, k);
+}
+
+std::int64_t World::bld_upgrade_cost_wood(BldType bt,
+                                         std::int32_t from_level) const noexcept {
+    const BldStats& s = stats_.of(bt);
+    if (bt == BldType::Keep) return s.upgrade_cost_wood;
+    const std::int32_t k = stats_.global.hp_permille_per_level;
+    return level_scaled_cost(s.upgrade_cost_wood, from_level + 1, k) -
+           level_scaled_cost(s.upgrade_cost_wood, from_level, k);
 }
 
 // ——状态哈希——

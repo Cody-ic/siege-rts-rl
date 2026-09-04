@@ -248,7 +248,10 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
     // 上限落地，`global` 加 `train_ticks_permille_per_level` 与
     // `unit_upgrade_radius`；stats/9 → stats/10：编队移除，就地升级删除，
     // `unit_upgrade_radius` 失去唯一消费者而从 schema 删掉；stats/10 → stats/11：
-    // 成品拆除落地，撤销工地比例改为成品拆除比例）。刻意不做向后
+    // 成品拆除落地，撤销工地比例改为成品拆除比例；stats/11 → stats/12：**建筑
+    // 升级定价从「每级一个常数」改成「累计 ∝ √B(L)」**，非 `Keep` 十座的
+    // `upgrade_cost_*` 语义从单价变成曲线标度，字段一个没动——同 stats/7 → 8
+    // 那一格，见下）。刻意不做向后
     // 兼容——旧 schema 的表缺新字段，
     // 静默补默认值正是「能跑但打不动」那种坑（这次的形态是「箭永远瞬时
     // 命中」/「溅射恒等于主伤害」/「建筑永远升不了级」/「批量升级永远推进
@@ -257,8 +260,11 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
     // stats/7 → stats/8 那一格是「字段没变而必须进格」的先例：一张旧表在
     // 新公式下每个数都还合法，于是它会**载入成功并算出一整局不同的仗**。
     // 版本号是唯一能把这件事变成一句报错的地方（同 `kStatsShapeTag` 那条）。
-    if (schema != "stats/11") {
-        fail(origin, "`schema` = \"" + schema + "\"，本程序只认 \"stats/11\"");
+    // **stats/11 → stats/12 是同一类的第二例**，而它比第一例更难自查：一张
+    // stats/11 的表在新公式下不但每个数合法，连 `Keep` 那一行都还完全正确
+    // （它走的仍是线性分支），只有另外十座的价钱悄悄变了。
+    if (schema != "stats/12") {
+        fail(origin, "`schema` = \"" + schema + "\"，本程序只认 \"stats/12\"");
     }
 
     rts::StatsTable t;

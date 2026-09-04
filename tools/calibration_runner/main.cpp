@@ -55,6 +55,10 @@
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
+
+#include "rts/cli_args.hpp"
+
+#include "game/defender_macro.hpp"
 #include <iostream>
 #include <map>
 #include <stdexcept>
@@ -92,6 +96,35 @@ struct Options {
     std::string out_path;   // 空 = stdout
     bool compact = false;
     bool help = false;
+    // **守方宏观决策层**（`game::DefenderMacro`）。默认关，于是
+    // 「不给这个开关」跑出来的数与 #135 首批那 36 局逐字可比。
+    // 开了之后守方会封缺口 / 建塔 / 征兵 / 升堡垒 / 修 / 铺城外矿，
+    // 也就是从「什么都不做」变成「一个会玩的脚本玩家」。
+    bool macro = false;
+    int macro_period = 20;   // 决策周期（tick）。1 秒一次，与玩家手速同量级
+    // 波次节奏（`game::WaveTiming`）。组长点出「波间隔是平衡关键」：它同时管
+    // 每波收入与「能安全施工多久」。默认值 = demo 原来的两个编译期常量。
+    int build_ticks = 260;
+    int first_build_ticks = 360;
+    // 守方宏观策略的几个旋钮，开成命令行是为了能做 A/B 与参数搜索。
+    int macro_recall = 1;   // 敌人进城把弓手叫下墙
+    int macro_conc = 1;     // 弓手驻守意愿集中到受威胁那一面
+    int macro_seal = 1;     // 封设计缺口
+    int macro_gath = 2;     // 每波最多铺几座采集建筑
+    int macro_gath_dist = 40;   // 工匠够得到的城外距离上界（格）
+    std::string macro_gath_order = "map";   // map | near | stone | gold
+    int pop_base = 8;        // WorldInit::pop_cap_base（默认 8+2K）
+    int pop_per_keep = 2;
+    // 攻方曲线（`game::WaveCurve`）。**形式也可换**，不只是系数。
+    double power_base = 6.0;
+    double power_alpha = 1.25;
+    std::string power_form = "power";   // power|linear|log|sat
+    double power_half = 20.0;
+    double slots_base = 6.0;
+    double slots_per_wave = 1.2;
+    int slots_cap = 0;
+    int phoenix_per_waves = 0;
+    int phoenix_cap = 1;
 };
 
 void print_help() {
@@ -112,7 +145,37 @@ void print_help() {
         "  --limit <n>       只跑字典序前 n 张图，0 = 全部（默认 0）\n"
         "  --out <文件>      JSON 输出文件（默认 stdout）\n"
         "  --compact         紧凑 JSON（默认缩进）\n"
-        "  --help            本帮助\n";
+        "  --help            本帮助\n"
+        "\n"
+        "守方宏观层（不给 --macro 时守方只有单兵脚本、不建不招不升，量到的是\n"
+        "「守方什么都不做」而不是数值失衡）：\n"
+        "  --macro                 接上 game::DefenderMacro\n"
+        "  --macro-period <n>      几 tick 决策一次（默认 20）\n"
+        "  --macro-recall <0|1>    敌人进城拉弓手下墙（默认 1）\n"
+        "  --macro-conc <0|1>      弓手驻守意愿集中到受威胁那一面（默认 1）\n"
+        "  --macro-seal <0|1>      先把地图自带的设计缺口砌上（默认 1）\n"
+        "  --macro-gath <n>        每波最多铺几座采集建筑（默认 2）\n"
+        "  --macro-gath-dist <n>   工匠够得到的城外距离上界，格（默认 40）。\n"
+        "                          调到 60+ 才吃得到外环带那 37 个点——人类\n"
+        "                          玩家会去拿，而默认值下脚本根本够不着\n"
+        "  --macro-gath-order <map|near|stone|gold>  先铺哪一种资源点\n"
+        "                          （默认 map = 地图文件顺序，既不看种类也不看距离）\n"
+        "  --pop-base <n> --pop-per-keep <n>  守方人口上限 = base + per×K\n"
+        "                          （默认 8 2。注意 K 实战中恒等于 2，所以改\n"
+        "                          base 当场生效、改 per 要先让 K 动起来）\n"
+        "\n"
+        "攻方曲线与波次节奏（都是 game::WaveCurve / WaveTiming 的字段；不给就是\n"
+        "各自的默认值 = 提成参数之前那几个编译期常量）：\n"
+        "  --power-form <power|linear|log|sat>   兵力预算的曲线形式\n"
+        "  --power-base <x> --power-alpha <x>    base x w^alpha（power 档）\n"
+        "  --power-half <x>                      半饱和波数（sat 档）\n"
+        "  --slots-base <x> --slots-per-wave <x> 编成位线性项\n"
+        "  --slots-cap <n>                       编成位硬顶，0 = 不封顶\n"
+        "  --phoenix-per-waves <n> --phoenix-cap <n>  空军放开节奏与上限\n"
+        "  --build-ticks <n> --first-build-ticks <n>  建造阶段时长\n"
+        "\n"
+        "注：--seeds 1,2,3 目前等于同一局跑三遍——攻方一条随机分支都没有\n"
+        "（编成按曲线、方向按取余），实测 36/36 局同图同结果。见本工具 README。\n";
 }
 
 bool parse_args(const std::vector<std::string>& args, Options& out) {
@@ -204,6 +267,95 @@ bool parse_args(const std::vector<std::string>& args, Options& out) {
             out.out_path = v;
         } else if (a == "--compact") {
             out.compact = true;
+        } else if (a == "--macro") {
+            out.macro = true;
+        } else if (a == "--power-base") {
+            const std::string vv = need(i, "--power-base");
+            if (vv.empty()) return false;
+            out.power_base = std::atof(vv.c_str());
+        } else if (a == "--power-alpha") {
+            const std::string vv = need(i, "--power-alpha");
+            if (vv.empty()) return false;
+            out.power_alpha = std::atof(vv.c_str());
+        } else if (a == "--power-form") {
+            const std::string vv = need(i, "--power-form");
+            if (vv.empty()) return false;
+            out.power_form = vv;
+        } else if (a == "--power-half") {
+            const std::string vv = need(i, "--power-half");
+            if (vv.empty()) return false;
+            out.power_half = std::atof(vv.c_str());
+        } else if (a == "--slots-base") {
+            const std::string vv = need(i, "--slots-base");
+            if (vv.empty()) return false;
+            out.slots_base = std::atof(vv.c_str());
+        } else if (a == "--slots-per-wave") {
+            const std::string vv = need(i, "--slots-per-wave");
+            if (vv.empty()) return false;
+            out.slots_per_wave = std::atof(vv.c_str());
+        } else if (a == "--slots-cap") {
+            const std::string vv = need(i, "--slots-cap");
+            if (vv.empty()) return false;
+            out.slots_cap = std::atoi(vv.c_str());
+        } else if (a == "--phoenix-per-waves") {
+            const std::string vv = need(i, "--phoenix-per-waves");
+            if (vv.empty()) return false;
+            out.phoenix_per_waves = std::atoi(vv.c_str());
+        } else if (a == "--phoenix-cap") {
+            const std::string vv = need(i, "--phoenix-cap");
+            if (vv.empty()) return false;
+            out.phoenix_cap = std::atoi(vv.c_str());
+        } else if (a == "--macro-recall") {
+            const std::string vv = need(i, "--macro-recall");
+            if (vv.empty()) return false;
+            out.macro_recall = std::atoi(vv.c_str());
+        } else if (a == "--macro-conc") {
+            const std::string vv = need(i, "--macro-conc");
+            if (vv.empty()) return false;
+            out.macro_conc = std::atoi(vv.c_str());
+        } else if (a == "--macro-seal") {
+            const std::string vv = need(i, "--macro-seal");
+            if (vv.empty()) return false;
+            out.macro_seal = std::atoi(vv.c_str());
+        } else if (a == "--pop-base") {
+            const std::string vv = need(i, "--pop-base");
+            if (vv.empty()) return false;
+            out.pop_base = std::atoi(vv.c_str());
+        } else if (a == "--pop-per-keep") {
+            const std::string vv = need(i, "--pop-per-keep");
+            if (vv.empty()) return false;
+            out.pop_per_keep = std::atoi(vv.c_str());
+        } else if (a == "--macro-gath-order") {
+            const std::string vv = need(i, "--macro-gath-order");
+            if (vv.empty()) return false;
+            if (vv != "map" && vv != "near" && vv != "stone" && vv != "gold") {
+                std::cerr << "--macro-gath-order 只认 map|near|stone|gold\n";
+                return false;
+            }
+            out.macro_gath_order = vv;
+        } else if (a == "--macro-gath-dist") {
+            const std::string vv = need(i, "--macro-gath-dist");
+            if (vv.empty()) return false;
+            out.macro_gath_dist = std::atoi(vv.c_str());
+        } else if (a == "--macro-gath") {
+            const std::string vv = need(i, "--macro-gath");
+            if (vv.empty()) return false;
+            out.macro_gath = std::atoi(vv.c_str());
+        } else if (a == "--build-ticks") {
+            const std::string vv = need(i, "--build-ticks");
+            if (vv.empty()) return false;
+            out.build_ticks = std::atoi(vv.c_str());
+            if (out.build_ticks < 1) out.build_ticks = 1;
+        } else if (a == "--first-build-ticks") {
+            const std::string vv = need(i, "--first-build-ticks");
+            if (vv.empty()) return false;
+            out.first_build_ticks = std::atoi(vv.c_str());
+            if (out.first_build_ticks < 1) out.first_build_ticks = 1;
+        } else if (a == "--macro-period") {
+            const std::string vv = need(i, "--macro-period");
+            if (vv.empty()) return false;
+            out.macro_period = std::atoi(vv.c_str());
+            if (out.macro_period < 1) out.macro_period = 1;
         } else {
             std::cerr << "未知选项: " << a << "（--help 看用法）\n";
             return false;
@@ -454,6 +606,26 @@ struct WaveRecord {
     std::map<std::string, int> bld_end;
     std::int64_t keep_hp_start = 0;
     std::int64_t keep_hp_end = 0;
+    // ——资源与人口（2026-09-03 追加）——
+    //
+    // 起因是一条试玩反馈：「堡垒陷落时金币还剩 2000 左右」。此前逐波记录里
+    // **一个资源数都没有**，于是「金币冗余」这件事在 runner 的输出里完全
+    // 不可见——只能靠人玩一局去感觉。三种资源、人口与人口上限、以及**能出兵
+    // 的建筑数**（一座一次只练一名，所以它是补员速率的分母）都记下来。
+    std::int64_t stone_start = 0, wood_start = 0, gold_start = 0;
+    std::int64_t stone_end = 0, wood_end = 0, gold_end = 0;
+    int pop_start = 0, pop_cap_start = 0;
+    int pop_end = 0, pop_cap_end = 0;
+    int train_bld_start = 0;   // 完工的 Barrack + Keep
+    int train_bld_end = 0;
+    // 破口那一刻：全场塔数 vs **打得到破口的**塔数（切比雪夫 <= Tower.range）。
+    //
+    // 2026-09-04 追加，起因是一次 A/B 打出个反直觉的结果：给守方多喂石材
+    // （优先铺外环带的采石场）让塔数从 11 涨到 16（+45%），而中位陷落波只从
+    // 4.0 挪到 4.5。「多出来的塔到底在不在打得着的地方」此前无从判断——
+    // 逐波记录里只有塔的**总数**，没有它们与战斗发生处的关系。
+    int towers_total_at_breach = 0;
+    int towers_covering_breach = 0;
 };
 
 struct RunRecord {
@@ -535,6 +707,20 @@ private:
 
     std::size_t volley_offset_ = 0;   // 已切给本波的位置
 };
+
+namespace {
+
+int count_train_blds(const rts::WorldView& v) {
+    int n = 0;
+    for (std::size_t k = 0; k < v.bld_alive().size(); ++k) {
+        if (v.bld_alive()[k] == 0 || v.bld_built()[k] == 0) continue;
+        const rts::BldType t = v.bld_type()[k];
+        if (t == rts::BldType::Barrack || t == rts::BldType::Keep) ++n;
+    }
+    return n;
+}
+
+}   // namespace
 
 std::map<std::string, int> BattleRecorder::count_units(rts::Side side) const {
     const rts::WorldView v = b_.world().view(side);
@@ -649,6 +835,16 @@ void BattleRecorder::begin_wave() {
     cur_.defender_start = count_units(rts::Side::Defender);
     cur_.bld_start = count_blds();
     cur_.keep_hp_start = keep_hp();
+    {
+        const rts::WorldView v = w.view(rts::Side::Defender);
+        const auto st = v.stock();
+        cur_.stone_start = st[static_cast<std::size_t>(rts::Resource::Stone)];
+        cur_.wood_start = st[static_cast<std::size_t>(rts::Resource::Wood)];
+        cur_.gold_start = st[static_cast<std::size_t>(rts::Resource::Gold)];
+        cur_.pop_start = v.defender_pop();
+        cur_.pop_cap_start = v.defender_pop_cap();
+        cur_.train_bld_start = count_train_blds(v);
+    }
     cur_.rams_spawned = cur_.attacker_start.count("Ram") != 0
                             ? cur_.attacker_start.at("Ram")
                             : 0;
@@ -749,6 +945,23 @@ void BattleRecorder::scan_breach() {
         cur_.breach_kind = std::string(rts::ident_of(wall_kind_[k]));
         cur_.breach_i = static_cast<int>(p.i);
         cur_.breach_j = static_cast<int>(p.j);
+        {
+            const float rng = v.stats().of(rts::BldType::Tower).range;
+            int total = 0;
+            int cover = 0;
+            for (std::size_t t = 0; t < v.bld_alive().size(); ++t) {
+                if (v.bld_alive()[t] == 0 || v.bld_built()[t] == 0) continue;
+                if (v.bld_type()[t] != rts::BldType::Tower) continue;
+                ++total;
+                const rts::GridPos tp = v.bld_pos()[t];
+                const int dx = static_cast<int>(tp.i) - static_cast<int>(p.i);
+                const int dy = static_cast<int>(tp.j) - static_cast<int>(p.j);
+                const int d = std::max(dx < 0 ? -dx : dx, dy < 0 ? -dy : dy);
+                if (static_cast<float>(d) <= rng) ++cover;
+            }
+            cur_.towers_total_at_breach = total;
+            cur_.towers_covering_breach = cover;
+        }
         for (GateWindow& gw : cur_.gate_windows) {
             gw.at_breach = count_archers_on(gw);
         }
@@ -873,6 +1086,16 @@ void BattleRecorder::observe() {
     cur_.defender_end = count_units(rts::Side::Defender);
     cur_.bld_end = count_blds();
     cur_.keep_hp_end = keep_hp();
+    {
+        const rts::WorldView v = b_.world().view(rts::Side::Defender);
+        const auto st = v.stock();
+        cur_.stone_end = st[static_cast<std::size_t>(rts::Resource::Stone)];
+        cur_.wood_end = st[static_cast<std::size_t>(rts::Resource::Wood)];
+        cur_.gold_end = st[static_cast<std::size_t>(rts::Resource::Gold)];
+        cur_.pop_end = v.defender_pop();
+        cur_.pop_cap_end = v.defender_pop_cap();
+        cur_.train_bld_end = count_train_blds(v);
+    }
 
     // ——开打那一拍——
     if (prev_phase_ == rts::WavePhase::Build &&
@@ -1094,6 +1317,34 @@ void write_wave(Json& j, const WaveRecord& w) {
     write_count_map(j, w.bld_start);
     j.key("bld_end");
     write_count_map(j, w.bld_end);
+    j.key("towers_total_at_breach");
+    j.val(w.towers_total_at_breach);
+    j.key("towers_covering_breach");
+    j.val(w.towers_covering_breach);
+    j.key("stone_start");
+    j.val(w.stone_start);
+    j.key("wood_start");
+    j.val(w.wood_start);
+    j.key("gold_start");
+    j.val(w.gold_start);
+    j.key("stone_end");
+    j.val(w.stone_end);
+    j.key("wood_end");
+    j.val(w.wood_end);
+    j.key("gold_end");
+    j.val(w.gold_end);
+    j.key("pop_start");
+    j.val(w.pop_start);
+    j.key("pop_cap_start");
+    j.val(w.pop_cap_start);
+    j.key("pop_end");
+    j.val(w.pop_end);
+    j.key("pop_cap_end");
+    j.val(w.pop_cap_end);
+    j.key("train_bld_start");
+    j.val(w.train_bld_start);
+    j.key("train_bld_end");
+    j.val(w.train_bld_end);
     j.key("keep_hp_start");
     j.val(w.keep_hp_start);
     j.key("keep_hp_end");
@@ -1183,7 +1434,29 @@ int main(int argc, char** argv) {
 
         for (const std::uint64_t seed : opt.seeds) {
             const auto ts = std::chrono::steady_clock::now();
-            game::DemoBattle battle(map, stats, seed);
+            game::WaveTiming timing;
+            timing.build_ticks = opt.build_ticks;
+            timing.first_build_ticks = opt.first_build_ticks;
+            game::WaveCurve curve;
+            curve.power_base = opt.power_base;
+            curve.power_alpha = opt.power_alpha;
+            curve.power_half = opt.power_half;
+            curve.slots_base = opt.slots_base;
+            curve.slots_per_wave = opt.slots_per_wave;
+            curve.slots_cap = opt.slots_cap;
+            curve.phoenix_per_waves = opt.phoenix_per_waves;
+            curve.phoenix_cap = opt.phoenix_cap;
+            if (opt.power_form == "linear") {
+                curve.power_form = game::WaveCurve::PowerForm::Linear;
+            } else if (opt.power_form == "log") {
+                curve.power_form = game::WaveCurve::PowerForm::Log;
+            } else if (opt.power_form == "sat") {
+                curve.power_form = game::WaveCurve::PowerForm::Saturating;
+            }
+            game::DefenderSetup setup;
+            setup.pop_cap_base = opt.pop_base;
+            setup.pop_cap_per_keep_level = opt.pop_per_keep;
+            game::DemoBattle battle(map, stats, seed, timing, curve, setup);
             BattleRecorder rec(map, battle);
             rec.observe();   // 开第 1 波（t=0 已在集结）
 
@@ -1192,11 +1465,49 @@ int main(int argc, char** argv) {
             run.seed = seed;
             run.truncated = false;
             int ticks = 0;
+            // 守方宏观决策层（可选）。**它经 `submit_defender` 入队**，与人类玩家
+            // 同一条路，所以不绕开任何机制、也不做玩家做不到的事。
+            game::MacroParams mp;
+            mp.defend_breach = opt.macro_recall != 0;
+            mp.concentrate_archers = opt.macro_conc != 0;
+            mp.seal_gaps = opt.macro_seal != 0;
+            mp.gatherers_per_wave = opt.macro_gath;
+            mp.gatherer_max_dist = opt.macro_gath_dist;
+            if (opt.macro_gath_order == "near") {
+                mp.gather_order = game::MacroParams::GatherOrder::NearestFirst;
+            } else if (opt.macro_gath_order == "stone") {
+                mp.gather_order = game::MacroParams::GatherOrder::StoneFirst;
+            } else if (opt.macro_gath_order == "gold") {
+                mp.gather_order = game::MacroParams::GatherOrder::GoldFirst;
+            }
+            game::DefenderMacro macro(map, mp);
+            std::vector<rts::Command> cmds;
+            std::vector<game::UnitOrder> orders;
             while (!battle.defeated() &&
                    battle.world().wave() <= opt.max_waves) {
                 if (opt.max_ticks > 0 && ticks >= opt.max_ticks) {
                     run.truncated = true;
                     break;
+                }
+                if (opt.macro) {
+                    if (ticks % opt.macro_period == 0) {
+                        cmds.clear();
+                        orders.clear();
+                        macro.decide(battle.world(), cmds, orders);
+                        if (!cmds.empty()) {
+                            battle.submit_defender(cmds.data(), cmds.size());
+                        }
+                    }
+                    // **临时指令每拍重发**：驻守走的是意愿通道（意愿清空即下墙），
+                    // 隔 20 tick 才发一次会让弓手在中间那 19 拍被放下来。
+                    // 开拔指令重发是幂等的（到达即清除）。
+                    for (const game::UnitOrder& o : orders) {
+                        if (o.garrison) {
+                            battle.issue_garrison_order(o.ids, o.target);
+                        } else {
+                            battle.issue_move_order(o.ids, o.target);
+                        }
+                    }
                 }
                 battle.update(1);
                 rec.observe();
@@ -1223,7 +1534,26 @@ int main(int argc, char** argv) {
             std::cerr << file << " seed " << seed << ": "
                       << (run.defeated ? "DEFEATED" : "survived") << " @ wave "
                       << run.final_wave << ", " << run.total_ticks << " ticks, "
-                      << secs << " s\n";
+                      << secs << " s";
+            if (opt.macro) {
+                const game::MacroStats& ms = macro.stats();
+                std::cerr << " | macro wall=" << ms.walls_built
+                          << " tower=" << ms.towers_built
+                          << " gath=" << ms.gatherers_built
+                          << " train=" << ms.units_trained
+                          << " upg=" << ms.upgrades << " bupg=" << ms.bld_upgrades
+                          << " brk=" << ms.barracks_built
+                          << " flak=" << ms.flaks_built
+                          << " fence=" << ms.fences_built
+                          << " clr=" << ms.clears_ordered
+                          << " [A" << ms.trained_archer << " S"
+                          << ms.trained_spear << " R" << ms.trained_ranger
+                          << " M" << ms.trained_mason << " Sc"
+                          << ms.trained_scout << "]"
+                          << " rep=" << ms.repairs
+                          << " recall=" << ms.breach_recalls;
+            }
+            std::cerr << "\n";
         }
     }
     std::cerr << "total: " << runs.size() << " runs, " << total_seconds

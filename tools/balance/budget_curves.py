@@ -126,8 +126,14 @@ PLACEHOLDER = {
     "unlock_schedule": {5: 1, 10: 1, 16: 2, 24: 2, 34: 3},
     # 守方拿到城外矿要付代价（要出城守),这里用一个「实际吃到的比例」粗略表达
     "outer_capture_frac": 0.6,
-    "pop_base": 20,             # 人口上限 = pop_base + pop_per_keep_level * K
-    "pop_per_keep_level": 4,
+    # 人口上限 = pop_base + pop_per_keep_level * K。**这两个数曾经漂过**：
+    # 2026-09-02 定版 8+2K 并落地为 `WorldInit::pop_cap_base` /
+    # `pop_cap_per_keep_level`，而这里一直留着被推翻的原占位 20+4K
+    # （《波次预算曲线与堡垒等级曲线》§2.1 的结论正是「20+4K 是装饰品」）。
+    # 2026-09-03 订正。**真相来源是 `rts/world.hpp` 的那两个默认值**，
+    # 这里只是复述——改的时候两处一起改（同 slots/power 那四个的纪律）。
+    "pop_base": 8,
+    "pop_per_keep_level": 2,
     # 每波结束后守方战力存量留下的比例（战损 + 墙塔被拆 + 维修开销一并折进去）。
     # 粗略占位,真值只能从真实对局测。
     "retention_per_wave": 0.75,

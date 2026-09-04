@@ -47,6 +47,8 @@
 #include "game/iso_projection.hpp"
 #include "rts/command.hpp"
 #include "rts/roster.hpp"
+#include <array>
+
 #include "rts/types.hpp"
 #include "rts/world_view.hpp"
 
