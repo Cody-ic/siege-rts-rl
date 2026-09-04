@@ -88,7 +88,7 @@ enum class MobilityKind : std::uint8_t {
     HeavySlow = 0,  // 重甲慢速
     LightFast,      // 轻甲快速
     Charge,         // 冲锋：伤害 ∝ 助跑距离（开阔地强、巷战被反克）
-    Aerial,         // 飞行：**只有 Phoenix**，见 CLAUDE.md「空中单位」
+    Aerial,         // 飞行：`Phoenix` 与 `Wraith`（2026-09-03 起），见 CLAUDE.md「空中单位」
 };
 
 inline constexpr int kEngageRangeCount = 3;

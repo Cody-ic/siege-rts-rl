@@ -608,18 +608,17 @@ TEST_CASE("克制提示：与机制交叉核对，且攻方无孤立节点", "[i
         REQUIRE(stats.of(rts::UnitType::Archer).range > 1.5f);
     }
 
-    SECTION("「Wraith 被任何机动单位猎杀」列的必须真的追得上它") {
+    SECTION("「只有 Flak 与墙上的 Archer 能对付 Wraith」要求它真是空中单位") {
+        // 2026-09-03 起 `Wraith` 会飞：地面机动单位再也够不着它，
+        // 克制提示与 `Phoenix` 同一组（位置性防空）。
+        REQUIRE(rts::is_aerial(rts::UnitType::Wraith));
         const game::CounterHint c = game::counters_of(rts::UnitType::Wraith);
-        REQUIRE_FALSE(c.units.empty());
-        const float wraith = stats.of(rts::UnitType::Wraith).speed;
-        for (const rts::UnitType u : c.units) {
-            CAPTURE(rts::ident_of(u), stats.of(u).speed, wraith);
-            // **严格更快**才谈得上猎杀——同速永远追不上。这条判据此前是
-            // `>= speed * 0.8`：Wraith 0.19 vs Ranger 0.16 的时代它绿灯放行
-            // 了「猎杀在数值上不可能」那一整段（实力模型 §10 A 类事实），
-            // 余量余到把判据本身余没了。0.8 那档在「Wraith 0.12、列出的猎手
-            // 都严格更快」之后没有存在的理由。
-            REQUIRE(stats.of(u).speed > wraith);
-        }
+        // 建筑那一侧只能是 Flak：AA 只做单体狙击型、且只能对空（结构）。
+        REQUIRE(c.blds.size() == 1);
+        REQUIRE(c.blds[0] == rts::BldType::Flak);
+        // 单位那一侧是弓手（要登墙才够得着），且它必须是远程——近战打不到空军。
+        REQUIRE(c.units.size() == 1);
+        REQUIRE(c.units[0] == rts::UnitType::Archer);
+        REQUIRE(stats.of(rts::UnitType::Archer).range > 1.5f);
     }
 }

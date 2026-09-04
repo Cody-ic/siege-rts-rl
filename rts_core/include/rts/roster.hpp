@@ -59,8 +59,8 @@ enum class UnitType : std::uint8_t {
     Ghoul,        // 亡灵步兵：近战单体、耐打
     Shade,        // 亡灵法师：中程单体，压制墙头
     Knight,       // 鬼域骑士团：快速冲锋，冲锋伤害 ∝ 助跑距离
-    Phoenix,      // 不死鸟：**唯一的空中单位**
-    Wraith,       // 幽影窥使：**地面**、极快、大视野、无战力
+    Phoenix,      // 不死鸟：空中单位、手术刀而非胜利条件
+    Wraith,       // 幽影窥使：**空中**（2026-09-03 起）、极快、大视野、无战力
     Ram,          // 攻城锤：贴身、AOE、对建筑特攻
 };
 
@@ -201,15 +201,18 @@ constexpr Side side_of(UnitType t) noexcept {
 
 // 是不是空中单位。
 //
-// **`Phoenix` 是唯一的，`Wraith` 是地面——这是结构性决定，不要改。**
-// 若 `Wraith` 会飞，防空建筑就同时具备「否定侦查」这一**每波都稳定生效**的用途，
-// 玩家无脑造 AA 即可，于是 AA 的机会成本不再构成两难——而那是本作「智斗」
-// 最可读的载体。完整推导见 CLAUDE.md「空中单位」。
+// **2026-09-03 设计变更：`Wraith` 由地面改为空中**（移动机制同 `Phoenix`）。
+// 原决定（`Phoenix` 唯一会飞、`Wraith` 地面）的论证是：若 `Wraith` 会飞，
+// 防空建筑就同时具备「否定侦查」这一每波都稳定生效的用途，玩家无脑造 AA 即可，
+// AA 的机会成本不再构成两难。组内最终决定接受这一代价，换「侦查机可被
+// 位置性防空屏蔽」这条更直观的克制读法——`Flak` 的视野否定半径（CLAUDE.md
+// 「AA 同时承担情报否定职能」）由此成为 `Wraith` 的真正对策。
 //
 // 守方没有空军，所以这个函数对守方恒为假，那也是结构性的（凡人不会飞）。
 constexpr bool is_aerial(UnitType t) noexcept {
     switch (t) {
         case UnitType::Phoenix:
+        case UnitType::Wraith:
             return true;
         case UnitType::Archer:
         case UnitType::Spear:
@@ -219,7 +222,6 @@ constexpr bool is_aerial(UnitType t) noexcept {
         case UnitType::Ghoul:
         case UnitType::Shade:
         case UnitType::Knight:
-        case UnitType::Wraith:
         case UnitType::Ram:
             return false;
     }

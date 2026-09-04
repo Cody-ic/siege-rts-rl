@@ -1153,8 +1153,8 @@ void World::tick_vision() {
     for (int s = 0; s < kSideCount; ++s) {
         fog_[static_cast<std::size_t>(s)].begin_tick();
     }
-    // 单位视野。空中单位不吃视线遮挡——`Phoenix` 高悬于遮挡物之上；
-    // `Wraith` 是**地面**（结构性决定），照常被林与岩挡。
+    // 单位视野。空中单位不吃视线遮挡——`Phoenix` 与 `Wraith`（2026-09-03 起
+    // 同为空军）高悬于遮挡物之上；地面单位照常被林与岩挡。
     for (std::size_t k = 0; k < unit_pool_.slot_count(); ++k) {
         if (!unit_pool_.alive_at(static_cast<std::uint16_t>(k))) continue;
         const UnitType t = u_type_[k];

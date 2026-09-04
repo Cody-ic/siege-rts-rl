@@ -42,6 +42,10 @@ rts::StatsTable test_stats() {
     us(t, rts::UnitType::Phoenix) = {24, 8, 3.0f, 0.30f, 6.0f, 1, 4, 800, 0.0f};
     us(t, rts::UnitType::Scout) = {8, 0, 0.0f, 0.40f, 6.0f, 0, 1, 0, 0.0f};
     us(t, rts::UnitType::Wraith) = {14, 0, 0.0f, 0.40f, 6.0f, 0, 1, 0, 0.0f};
+    // `Shade` 在测试表里伤害取 0、速度与视野照抄 `Wraith`：2026-09-03 起
+    // `Wraith` 会飞、不再吃视线遮挡，视野测试里「会被森林挡视线的攻方
+    // 地面观察者」这个载具由它接任。
+    us(t, rts::UnitType::Shade) = {14, 0, 0.0f, 0.40f, 6.0f, 0, 1, 0, 0.0f};
     bs(t, rts::BldType::Keep).max_hp = 200;
     bs(t, rts::BldType::Wall).max_hp = 40;
     bs(t, rts::BldType::Gate).max_hp = 24;
@@ -409,14 +413,16 @@ TEST_CASE("Phoenix 对墙无解：AtkWall 掩码位恒 0，且飞得过岩壁", 
 // ——视野——
 
 TEST_CASE("视野：半径内可见、森林挡视线、离开变记忆、记忆留住墙", "[mech]") {
-    // 观察者用**攻方**的 Wraith——「记忆过时」这个机制的消费者本来就是攻方
+    // 观察者用**攻方**的地面单位——「记忆过时」这个机制的消费者本来就是攻方
     // （AI 的侦查记忆图）。守方那一侧测不出「离开变记忆」：完工建筑恒照亮
     // 自己那一格（哪怕视野半径为 0），你自己的墙你永远看得见。
+    // 载具是 `Shade`（伤害 0、纯观察）：原载具 `Wraith` 2026-09-03 起会飞，
+    // 空军不吃视线遮挡，测不了「森林挡视线」。
     rts::WorldInit init = arena();
     init.terrain[4 * 12 + 6] = rts::Terrain::Forest;   // (6,4) 挡视线
     init.buildings.push_back(rts::BldInit{rts::BldType::Wall, rts::GridPos{4, 6}, 40, 40});
     rts::World w(std::move(init));
-    w.spawn_unit(rts::UnitType::Wraith, rts::Vec2{4.5f, 4.5f}, 1, 14, 14);
+    w.spawn_unit(rts::UnitType::Shade, rts::Vec2{4.5f, 4.5f}, 1, 14, 14);
     act(w, rts::Side::Attacker, {rts::UnitAction::Stop});
     w.advance(1);
 
