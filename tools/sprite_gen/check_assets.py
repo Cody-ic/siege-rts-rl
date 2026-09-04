@@ -171,9 +171,13 @@ def check_orphans(out_dir):
                     sfx = f"_{fr}" if len(frs) > 1 else ""
                     want.add(f"{ident}_{st}_{d}{sfx}.png")
 
-    # 下划线开头的是汇总图 / 预览图 / 元数据本身，不属于精灵
+    # 下划线开头的是汇总图 / 预览图 / 元数据本身，不属于精灵。
+    # `decal_` 开头的（资源点标记）同样豁免：它们是手工裁的真实素材、不是
+    # 渲染流水线的产物，由前端 `register_decal_image` 直接按路径读（缺失会在
+    # 运行时报 AssetError），不归属 `_sprite_meta.json` 的描述范围。
     have = {os.path.basename(p) for p in glob.glob(os.path.join(out_dir, "*.png"))
-            if not os.path.basename(p).startswith("_")}
+            if not os.path.basename(p).startswith("_")
+            and not os.path.basename(p).startswith("decal_")}
 
     orphan, missing = sorted(have - want), sorted(want - have)
     if not orphan and not missing:
