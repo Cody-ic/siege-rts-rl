@@ -506,6 +506,98 @@ void draw_intel_panel(const render::FontSet& font, const game::DemoBattle& battl
     draw_panel_lines(font, lines, screen_w);
 }
 
+// 对局警报横幅（顶中）：「窥使入境」常驻警报 + 三种一次性短闪。
+//
+// 2026-09-03 试玩反馈：前期侦查阶段（敌窥使来探、我方斥候去看）在界面上
+// 没有任何专属提示——阶段行从「建造」直接跳到「进攻中」，玩家对侦查博弈
+// 感知不到。两条侦查横幅各管一半，同日又加了第三条操作确认；2026-09-04
+// rebase 到 #139 后回报闪改读二元判定（见下），并补了失败闪：
+//
+//   * **窥使入境**（Threat）：敌 `Wraith` 进入我方视野就亮，离开视野或被
+//     击落即灭。它亮着的这段时间是玩家唯一的反制窗口（击落 = 敌 AI 这波
+//     带不到新情报，`CLAUDE.md`「双向欺骗」），此前这个窗口只有地图上一个
+//     不起眼的小精灵在「提醒」。
+//   * **斥候回报**（Report）：斥候二元判定（`DemoBattle::scout_outcome()`，
+//     #139）跳到 `Success` 时闪几秒——你的斥候活着回来了，并把视线引向
+//     右上角的侦查面板（面板读的是同一份报告快照）。
+//   * **斥候阵亡**（Failed）：判定跳到 `Killed` 时闪几秒。占位死亡率
+//     400‰——失败是常态分支不是边角，「派了但没回来」和「根本没派」是
+//     两种处境，玩家得知道那笔斥候钱买到的是一次失败。
+//   * **提前召唤确认**（Summon）：N 键生效时闪几秒。此前 Summon 生效
+//     毫无反馈，建造期被瞬间掐掉时玩家无从分辨「自然开打」与「自己按的」
+//     ——这条闪就是那条分辨线（2026-09-03 的「建造期消失」疑案）。
+//
+// 警报只报**看得见的**（判据 `game::enemy_wraith_sighted`，与侦查面板同源）：
+// 看不见的不报——那不是保守，是迷雾设计本身。
+//
+// 描边亮度随 tick 脉动（不用墙钟）：截图模式的画面由 tick 完全决定，
+// 用 `GetTime()` 会让同一 tick 的截图忽明忽暗、回归基线没法对。
+enum class AlertStyle { Threat, Report, Failed, Summon };
+
+void draw_alert_banner(const render::FontSet& font, int screen_w, rts::Tick now,
+                       AlertStyle style) {
+    std::string line1, line2;
+    Color backing{}, ink1{}, ink2{}, edge_rgb{};
+    switch (style) {
+        case AlertStyle::Threat:
+            line1 = "幽影窥使入境";
+            line2 = "击落它，别让它看清你的布防";
+            backing = Color{46, 20, 54, 225};
+            ink1 = Color{240, 205, 255, 255};
+            ink2 = Color{215, 180, 230, 255};
+            edge_rgb = Color{220, 150, 255, 0};
+            break;
+        case AlertStyle::Report:
+            line1 = "斥候回报：探到敌军集结";
+            line2 = "编成与克制见右上侦查面板";
+            backing = Color{18, 42, 46, 225};
+            ink1 = Color{205, 240, 245, 255};
+            ink2 = Color{175, 215, 220, 255};
+            edge_rgb = Color{140, 225, 235, 0};
+            break;
+        case AlertStyle::Failed:
+            line1 = "斥候阵亡：侦查失败";
+            line2 = "本波编成不明，当心各方向";
+            backing = Color{52, 22, 22, 225};
+            ink1 = Color{255, 190, 175, 255};
+            ink2 = Color{235, 170, 160, 255};
+            edge_rgb = Color{255, 140, 120, 0};
+            break;
+        case AlertStyle::Summon:
+            line1 = "已提前召唤下一波";
+            line2 = "敌军即刻开拔";
+            backing = Color{50, 38, 14, 225};
+            ink1 = Color{255, 230, 170, 255};
+            ink2 = Color{235, 205, 140, 255};
+            edge_rgb = Color{255, 214, 120, 0};
+            break;
+    }
+
+    const float w1 = font.measure(line1, kHudSize).x;
+    const float w2 = font.measure(line2, kHudSize * 0.8f).x;
+    const float max_w = std::max(w1, w2);
+    const float pad = 8.0f;
+    const float x = (static_cast<float>(screen_w) - max_w) * 0.5f;
+    // **顶中、但在 HUD 四行之下**：与 HUD 同高时会正好盖住第一行的 tick 与
+    // 第二行的「主攻」方向提示——那是免费情报，被遮住就是事故（第一次目视
+    // 验收截图里真的盖住了）。
+    const float top = 12.0f + 4.0f * kHudLine + 10.0f;
+    const Rectangle box{x - pad, top - pad, max_w + pad * 2.0f,
+                        kHudLine + kHudLine * 0.8f + pad * 2.0f - 4.0f};
+    DrawRectangleRec(box, backing);
+    // 40 tick（2 秒）一个呼吸周期，三角波 120→240。
+    const int ph = static_cast<int>(now % 40);
+    const int tri = ph < 20 ? ph : 40 - ph;
+    const auto glow = static_cast<unsigned char>(120 + tri * 6);
+    const Color edge{edge_rgb.r, edge_rgb.g, edge_rgb.b, glow};
+    DrawRectangleLinesEx(box, 1.5f, edge);
+    font.draw(line1,
+              rts::Vec2{x + (max_w - w1) * 0.5f, top}, kHudSize, ink1);
+    font.draw(line2,
+              rts::Vec2{x + (max_w - w2) * 0.5f, top + kHudLine}, kHudSize * 0.8f,
+              ink2);
+}
+
 void draw_hud(const render::FontSet& font, const game::MapData& map,
               const game::DrawLists& lists) {
     char buf[320];
@@ -684,8 +776,12 @@ void draw_battle_hud(const render::FontSet& font, const game::MapData& map,
         std::snprintf(phase, sizeof(phase), "堡垒陷落·败");
     } else if (w.phase() == rts::WavePhase::Build) {
         std::snprintf(phase, sizeof(phase), "建造 %d 秒", build_sec);
+    } else if (!game::combat_engaged(w)) {
+        // 开打 ≠ 已接战：大军还要行军几十秒，这期间旧文案「进攻中」既不
+        // 准确也不给信息（2026-09-03 试玩反馈）。判据在 `game/` 测。
+        std::snprintf(phase, sizeof(phase), "敌袭迫近");
     } else {
-        std::snprintf(phase, sizeof(phase), "进攻中");
+        std::snprintf(phase, sizeof(phase), "交战");
     }
     // 已用时长取 `分:秒`：几十波下来它会到几十分钟，纯秒数读不出量级。
     const int elapsed = static_cast<int>(w.now()) / rts::kTicksPerSecond;
@@ -878,6 +974,50 @@ int run_game(const Options& opt) {
         Vector2 anchor{};          // 菜单画在哪（点开那一刻的屏幕坐标）
     };
     Popup popup;
+    // 侦查警报的跨帧状态（`draw_alert_banner`）：斥候回报/阵亡两条闪抓的是
+    // **二元判定的边沿**（#139：`DemoBattle::scout_outcome()` 三态，逐波重置
+    // 为 `None`——重新武装由此是现成的，不需要再记「上一帧看见没有」）。
+    // `recon_flash_style` 记当前这闪是回报还是阵亡。新一局（`shell.attempt()`
+    // 变化）时在主循环里归零，与 `popup` 它们同处。
+    game::DemoBattle::ScoutOutcome scout_prev = game::DemoBattle::ScoutOutcome::None;
+    rts::Tick recon_flash_until = 0;
+    AlertStyle recon_flash_style = AlertStyle::Report;
+    // 提前召唤的确认闪：N 被 demo 层受理（`summon_accepted_now`）时点亮几秒。
+    // 「建造期没了」之前是无声的——闪一下让玩家知道是自己按的 N；
+    // 没闪却跳阶段，就是另有 bug，留着这个区分当自诊断。
+    rts::Tick summon_flash_until = 0;
+    // 不用 constexpr：MSVC 对「只在内层 lambda 里用到的 constexpr 局部变量」
+    // 误报 C4189（`popup_options` 那里实测过，同一处教训）。
+    const rts::Tick kReconFlashTicks = 80;   // 4 秒 @ 20 Hz
+
+    // 侦查警报的状态推进。**从绘制里拆出来、逐 tick 调用**：截图模式把 N 个
+    // tick 推完才渲一帧，状态若只在 `draw_frame` 里推进，截图会把「早已灭掉
+    // 的回报闪」画出来（实测：首版在 tick 3200/4000 的截图里仍挂着横幅——
+    // 那不是 bug 现场，是状态从没被推进过）。窗口模式在补 tick 的循环里调，
+    // 截图模式在逐 tick 推进时同步调，两条路径看到同一个警报状态。
+    const auto advance_recon_alert = [&]() {
+        game::DemoBattle* b = shell.battle();
+        if (b == nullptr) return;
+        const game::DemoBattle::ScoutOutcome oc = b->scout_outcome();
+        if (oc != scout_prev) {
+            // 只闪「有结论」的两个边沿；→`None` 是换波重置，不报。
+            // `Killed → Success`（再派一只成功了）会再闪一次回报——
+            // 那是新情报，该闪。
+            if (oc == game::DemoBattle::ScoutOutcome::Success) {
+                recon_flash_until = b->world().now() + kReconFlashTicks;
+                recon_flash_style = AlertStyle::Report;
+            } else if (oc == game::DemoBattle::ScoutOutcome::Killed) {
+                recon_flash_until = b->world().now() + kReconFlashTicks;
+                recon_flash_style = AlertStyle::Failed;
+            }
+            scout_prev = oc;
+        }
+        if (game::enemy_wraith_sighted(b->world().view(rts::Side::Defender))) {
+            // 窥使警报优先，并吃掉回报/阵亡闪：别在它灭掉之后又补弹一条
+            // ——玩家刚才盯着看的就是它，那是噪音不是情报。
+            recon_flash_until = 0;
+        }
+    };
     const std::vector<rts::BldType>& buildable = game::buildable_types();
     const std::vector<rts::UnitType>& trainable = game::trainable_types();
     // 征兵等级。是个不常按的持久值，用 `[`/`]` 调，clamp 到
@@ -1134,6 +1274,24 @@ int run_game(const Options& opt) {
             // 侦查面板（右上角）：**本波**侦查到的来袭编成 + 克制提示。
             draw_intel_panel(*font, *b, GetScreenWidth());
 
+            const rts::WorldView dv = b->world().view(rts::Side::Defender);
+            // 警报横幅（顶中）：提前召唤确认闪 > 窥使入境常驻 > 斥候回报闪。
+            // **状态不在这里推进**（见 `advance_recon_alert`——截图模式一步
+            // 推 N 个 tick，状态推进若绑在绘制上，截图会画出早已灭掉的闪）；
+            // 这里只按当前状态画。召唤确认排最前：它是玩家自己操作的回执，
+            // 只亮几秒，另两条让位给它不会漏掉真正的新信息。
+            const rts::Tick alert_now = b->world().now();
+            if (alert_now < summon_flash_until) {
+                draw_alert_banner(*font, GetScreenWidth(), alert_now,
+                                  AlertStyle::Summon);
+            } else if (game::enemy_wraith_sighted(dv)) {
+                draw_alert_banner(*font, GetScreenWidth(), alert_now,
+                                  AlertStyle::Threat);
+            } else if (alert_now < recon_flash_until) {
+                draw_alert_banner(*font, GetScreenWidth(), alert_now,
+                                  recon_flash_style);
+            }
+
             // 弹出菜单：屏幕坐标，画在点开那一刻的位置。**造价写在选项里**——
             // 「点了没反应」最常见的真因是买不起，把价钱摆在眼前比事后猜便宜。
             if (popup.kind != PopupKind::None) {
@@ -1172,8 +1330,15 @@ int run_game(const Options& opt) {
     };
 
     if (!opt.screenshot.empty()) {
-        // 截图模式：先把仿真推到要看的那一刻，再渲一帧导出。
-        if (game::DemoBattle* b = shell.battle()) b->update(opt.ticks);
+        // 截图模式：先把仿真推到要看的那一刻，再渲一帧导出。**逐 tick 推**
+        // （不是一步推完）：侦查警报的状态要跟每个 tick 同步走，否则截图会
+        // 把早已灭掉的回报闪画出来（见 `advance_recon_alert`）。
+        if (game::DemoBattle* b = shell.battle()) {
+            for (int i = 0; i < opt.ticks; ++i) {
+                b->update(1);
+                advance_recon_alert();
+            }
+        }
         shell.poll();
         if (shell.attempt() != preloaded_attempt) preload_for_battle();
         const Vector2 vp{static_cast<float>(opt.width), static_cast<float>(opt.height)};
@@ -1227,6 +1392,9 @@ int run_game(const Options& opt) {
             selected.clear();
             dragging = false;
             dragged_garrison.reset();
+            scout_prev = game::DemoBattle::ScoutOutcome::None;
+            recon_flash_until = 0;
+            summon_flash_until = 0;
         }
 
         const Vector2 mouse = GetMousePosition();
@@ -1274,6 +1442,11 @@ int run_game(const Options& opt) {
                 rts::Command c;
                 c.kind = rts::CommandKind::Summon;
                 c.side = rts::Side::Defender;
+                // 反馈必须与受理用同一条判据，否则会骗玩家（闪了却没开打，
+                // 或开打了却没闪）。护栏期内丢掉的 N 不闪——本来就没生效。
+                if (b->summon_accepted_now()) {
+                    summon_flash_until = b->world().now() + kReconFlashTicks;
+                }
                 b->submit_defender(&c, 1);
             }
             cam.update(GetFrameTime());
@@ -1455,6 +1628,7 @@ int run_game(const Options& opt) {
             // 单帧最多补 5 个 tick：掉帧时宁可仿真慢下来，也不追出一大步。
             while (acc >= kTickDt && steps < 5) {
                 shell.battle()->update(1);
+                advance_recon_alert();
                 acc -= kTickDt;
                 ++steps;
             }

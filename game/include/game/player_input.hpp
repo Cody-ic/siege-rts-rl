@@ -242,6 +242,28 @@ struct SightedType {
 // 不透明会让「被 AI 针对」退化为「被系统坑」。
 std::vector<SightedType> sighted_composition(const rts::WorldView& view);
 
+// 敌方的幽影窥使当前是否在我方视野里。判据与 `sighted_composition` 逐字相同
+// ——实现就是拿它的结果查一项，两处因此**不可能**各自漂移。
+//
+// 用途只有一个：HUD 顶中的「窥使入境」警报横幅（2026-09-03 试玩反馈「侦查
+// 阶段感知不明显」）。窥使进视野的这段时间是玩家唯一的反制窗口——击落它，
+// 敌 AI 这波就带不到新情报（`CLAUDE.md`「双向欺骗」）——而此前这个窗口只有
+// 地图上一个不起眼的小精灵在「提醒」。
+bool enemy_wraith_sighted(const rts::WorldView& view);
+
+// 本波是否已接战：场上**任意一侧**有任意单位的攻击四位之一亮在动作掩码里
+// （`AtkNear`/`AtkWeak`/`AtkBld`/`AtkWall`）。
+//
+// 用途是 HUD 阶段行的「敌袭迫近 / 交战」二分：开打（`WavePhase::Assault`）
+// 之后大军还要行军几十秒，这期间旧文案「进攻中」既不准确也不给信息（同一条
+// 2026-09-03 反馈）。
+//
+// 拿 `World&` 而不是 `WorldView`：精确的攻击四位挂在 `World::action_mask`
+// 上，而枚举单位要 `World::enumerate_units`。**不过迷雾不泄露情报**——攻击
+// 四位亮着，说明你的单位或建筑已在对手射程内，那样的接触本来就发生在你的
+// 视野所及之处；且阶段行不是情报读数（它是全局事实，攻方也看得见）。
+bool combat_engaged(const rts::World& w);
+
 // 「这种敌人被谁克」——`CLAUDE.md`「克制二部图」那张图的玩家侧读数。
 //
 // **这不是一张 N×N 伤害倍率表**，CLAUDE.md 明确禁止那个（「克制关系由三条

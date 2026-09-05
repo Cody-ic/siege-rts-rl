@@ -220,7 +220,8 @@ public:
     //
     // **二元**：`ScoutOutcome::None` = 还没派/还没到；`Killed` = 到了但被杀，
     // 本轮侦查失败、`report()` 为空；`Success` = 到了且活下来，`report()` 是
-    // **判定那一刻**的本波编成快照。理由见 `DefenderSetup` 的那段注释。
+    // **判定那一刻斥候视野圈内看见的那部分编成**（所见即报：分兵之后，佯攻路
+    // 与主攻路各是一份独立情报）。理由见 `DefenderSetup` 的那段注释。
     //
     // 快照而不是实时读数：情报的价值在于「提前知道」，而它一旦到手就不该再
     // 随战场变化——那是记忆，不是视野。它也因此在交战期仍然可读。
@@ -234,8 +235,31 @@ public:
     // 校验与解算都归 World：形状不合法当场抛，语义不合法（买不起、点位
     // 不对）在解算时静默拒绝。`Summon` 也走这里：phase 一变，update 里的
     // 波次机就会在下一 tick 生波——倒计时与提前召唤殊途同归。
+    //
+    // **Summon 护栏（2026-09-03）**：建造期开始后的前 `kSummonGuardTicks`
+    // tick 里 Summon 在这里被丢掉（与解算层同例：静默拒绝）。要挡的是
+    // 「上一波交战时连打 N，最后一发溢进新建造期第一拍」——那一发不是
+    // 「想提前开打」，是上一波操作的尾巴。护栏**不**管也更管不了「按住
+    // N」的键盘自动重复：raylib 的 `IsKeyPressed` 是边沿触发、一次物理
+    // 按压只来一发，而护栏期之后的每一发都视为玩家本意。
+    //
+    // 护栏放在 demo 层而不是 `World`：RL 侧（train/）直接驱动 `World`，
+    // 「提前召唤」是它的合法动作，不该吃这道交互层的防误触。
+    static constexpr rts::Tick kSummonGuardTicks = 2;
+    bool summon_accepted_now() const noexcept {
+        return w_.phase() == rts::WavePhase::Build &&
+               w_.now() - build_start_ >= kSummonGuardTicks;
+    }
     void submit_defender(const rts::Command* cmds, std::size_t count) {
-        w_.submit(rts::Side::Defender, cmds, count);
+        for (std::size_t i = 0; i < count; ++i) {
+            // 护栏期内的 Summon 不进 World（见上）。交互层的「已提前召唤」
+            // 确认反馈必须用 `summon_accepted_now()` 这同一条判据，否则
+            // 会骗玩家「你的操作生效了」。
+            if (cmds[i].kind == rts::CommandKind::Summon && !summon_accepted_now()) {
+                continue;
+            }
+            w_.submit(rts::Side::Defender, &cmds[i], 1);
+        }
     }
 
     // 框选 + 右键的辅助性单兵指令：转给执行层脚本，**不进 `World`**——
@@ -274,6 +298,10 @@ private:
     DefenderSetup setup_{};   // 守方建局参数（人口上限、斥候侦查）
     int build_left_ = 0;      // 建造阶段剩余 tick
     int assault_ticks_ = 0;   // 本波进攻阶段已经跑了多少 tick
+    // 本建造阶段开始的那一刻（`w_.now()`）。唯一的用途是 Summon 护栏
+    // （见 `summon_accepted_now`）：首波从建局（now == 0）进建造期，
+    // 默认 0 即正确；之后每波在 update 的清波分支里随 `build_left_` 一起重记。
+    rts::Tick build_start_ = 0;
     // 本波的 `Wraith` 侦查到手了没有（攻方迷雾里看见过任意一座**防御布局
     // 建筑**——塔/防空/堡垒，墙门不算，见 .cpp）。逐波重置——每一波都要
     // 重新去看，而这正是「波次结构让 AI 的记忆天然过时」那条设计的直接

@@ -90,6 +90,9 @@ void DefenderScript::decide(const rts::WorldView& view,
     if (manual_order_.size() < view.unit_type().size()) {
         manual_order_.resize(view.unit_type().size());
     }
+    if (patrol_goal_.size() < view.unit_type().size()) {
+        patrol_goal_.resize(view.unit_type().size());
+    }
 
     // 已驻守（含在爬）的墙格本拍先视为已占：一格一人，新指派不许撞上去。
     // 驻守者自己稍后会把同一格再写进意愿（留任），那不算「抢」。
@@ -350,31 +353,68 @@ rts::UnitAction DefenderScript::decide_unit(const rts::WorldView& view,
         }
         default: {
             // Scout 与任何后加的兵种：打得着就打（Scout 无战力，掩码永远
-            // 不给它攻击位），否则巡逻——最近的当前不可见的集结点。
-            // 攻方从集结点来，盯着那里就是盯着威胁的来路；全可见时回驻防环。
+            // 不给它攻击位），否则巡逻集结点——攻方从那里来。
             if (has(mask, rts::UnitAction::AtkNear)) return rts::UnitAction::AtkNear;
             const auto& spawns = view.spawns();
             const std::uint8_t* vis = view.fog().vis_bytes();
             const int w = view.width();
-            int best = -1;
-            float best_d2 = 0.0f;
-            for (std::size_t s = 0; s < spawns.size(); ++s) {
-                const rts::GridPos p = spawns[s].pos;
+            const rts::GridPos mg = rts::grid_of(me);
+            const int vision = static_cast<int>(view.stats().of(t).vision);
+            // 「看过」= 当前可见，**或已站在它视野圈内**：圈内那格此刻显示 R
+            // 只是边界闪烁（进一步 V、退一步 R），不是新目标。判据与
+            // `DemoBattle::tick_scout_recon` 的到达判定同口径——凡「到达过」
+            // 的集结点都不再吸引它回头。
+            const auto seen_rally = [&](rts::GridPos p) {
                 if (vis[static_cast<std::size_t>(p.j) * static_cast<std::size_t>(w) +
                         static_cast<std::size_t>(p.i)] ==
                     static_cast<std::uint8_t>(rts::Vis::Visible)) {
-                    continue;
+                    return true;
                 }
-                const float d2 = dist2(me, rts::center_of(p));
-                if (best < 0 || d2 < best_d2) {
-                    best = static_cast<int>(s);
-                    best_d2 = d2;
+                const int dx = static_cast<int>(p.i) - static_cast<int>(mg.i);
+                const int dy = static_cast<int>(p.j) - static_cast<int>(mg.j);
+                return std::max(dx < 0 ? -dx : dx, dy < 0 ? -dy : dy) <= vision;
+            };
+            // 巡逻承诺：目标一旦选定就**走到底**（看见为止），不每拍重选——
+            // 每拍重选在视野圈沿上会原地踏步（见 `PatrolGoal` 注释）。
+            PatrolGoal& pg = patrol_goal_[slot];
+            if (pg.active && pg.generation != id.generation()) {
+                pg = PatrolGoal{};   // 槽位复用：旧目标是上一个单位的
+            }
+            if (pg.active) {
+                if (seen_rally(pg.target)) {
+                    pg = PatrolGoal{};   // 看过 ⇒ 承诺完成，下面重选下一站
+                } else {
+                    return move_towards(view, slot, pg.target, mask);
                 }
             }
-            if (best >= 0) {
-                return move_towards(view, slot,
-                                    spawns[static_cast<std::size_t>(best)].pos, mask);
+            // 重选下一站：两趟——优先 **Unseen**（从没看过的是新鲜情报），
+            // 都没有再退到 Remembered（看过但已过期的）；可见与圈内的跳过。
+            for (int pass = 0; pass < 2; ++pass) {
+                int best = -1;
+                float best_d2 = 0.0f;
+                for (std::size_t s = 0; s < spawns.size(); ++s) {
+                    const rts::GridPos p = spawns[s].pos;
+                    if (seen_rally(p)) continue;
+                    const bool unseen =
+                        vis[static_cast<std::size_t>(p.j) *
+                                static_cast<std::size_t>(w) +
+                            static_cast<std::size_t>(p.i)] ==
+                        static_cast<std::uint8_t>(rts::Vis::Unseen);
+                    if (pass == 0 && !unseen) continue;
+                    const float d2 = dist2(me, rts::center_of(p));
+                    if (best < 0 || d2 < best_d2) {
+                        best = static_cast<int>(s);
+                        best_d2 = d2;
+                    }
+                }
+                if (best >= 0) {
+                    pg = PatrolGoal{true,
+                                    spawns[static_cast<std::size_t>(best)].pos,
+                                    id.generation()};
+                    return move_towards(view, slot, pg.target, mask);
+                }
             }
+            // 全看过：回驻防环，等迷雾重新盖回去再出来巡。
             return hold_position(view, slot, mask);
         }
     }

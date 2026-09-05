@@ -462,7 +462,8 @@ void DemoBattle::withdraw_all_attackers() {
 //
 // 与攻方 `Wraith` 的形状对称（组内 2026-09-04 定）：那一侧是「推进到看得见
 // 防御布局 ⇒ 情报到手 ⇒ 掉头」，这一侧是「推进到集结点 ⇒ 掷点 ⇒ 活着就
-// 拿到本波编成」。移动那一半是现成的——`DefenderScript` 的默认分支本来就让
+// 拿到它**看见的那部分**编成（所见即报，分兵后每一路是独立情报）」。移动
+// 那一半是现成的——`DefenderScript` 的默认分支本来就让
 // `Scout` 走向**最近的当前不可见的集结点**。
 //
 // 三条形状上的取舍，都是有意的：
@@ -514,6 +515,38 @@ void DemoBattle::tick_scout_recon() {
         }
         if (!arrived) continue;
 
+        // **所见即报**：分兵（主攻一路 + 佯攻一路）之后，「站在集结点上 =
+        // 整波都在」不再成立——斥候走到的那一路可能只有部分兵力，甚至空无
+        // 一兵（2026-09-05 试玩反馈：斥候没看见敌人，面板却报出全波编成）。
+        // 先数它实际看见的攻方单位，只报这一部分。
+        //
+        // 看见圈 = 斥候视野 **+ 3**：`spawn_wave` 把单位摆在集结点周围 7×7
+        // 环上（离中心最远 3 格），而到达判定是「斥候离中心 ≤ 视野」——斥候
+        // 停在远侧时，不加这 3 格整支驻军都会落在它视野外，侦察永远落空。
+        // 加完之后语义干净：**抵达哪个集结点，就看见驻守在那里的部队**。
+        const int vision =
+            static_cast<int>(w_.stats().of(rts::UnitType::Scout).vision);
+        int tally[rts::kUnitTypeCount] = {};
+        int seen_n = 0;
+        std::vector<rts::UnitId> foes;
+        w_.enumerate_units(rts::Side::Attacker, foes);
+        for (const rts::UnitId f : foes) {
+            const rts::GridPos fg = rts::grid_of(w_.unit_pos(f));
+            const int dx = static_cast<int>(g.i) - static_cast<int>(fg.i);
+            const int dy = static_cast<int>(g.j) - static_cast<int>(fg.j);
+            const int d = std::max(dx < 0 ? -dx : dx, dy < 0 ? -dy : dy);
+            if (d <= vision + 3) {
+                ++tally[static_cast<std::size_t>(w_.unit_type(f))];
+                ++seen_n;
+            }
+        }
+        if (seen_n == 0) {
+            // 空集结点（本波没往这一路分兵）⇒ 没人会发现斥候：**不掷点、
+            // 不记账**，它继续走向下一路。代价是斥候生存率略升（空路白探）
+            // ——有意取舍：空营里本来就没有能杀死它的驻军。
+            continue;
+        }
+
         scout_rolled_.push_back(raw);
         const std::int32_t roll = static_cast<std::int32_t>(recon_rng_.below(1000));
         if (roll < setup_.scout_death_permille) {
@@ -527,17 +560,10 @@ void DemoBattle::tick_scout_recon() {
             continue;
         }
 
-        // 活下来 ⇒ 侦查成功。**快照取全波编成**：它此刻就站在集结点上，
-        // 那里正是本波部队待命的地方（集结期，`spawn_wave` 在建造期一开始
-        // 就把整波生成好了）。
+        // 活下来 ⇒ 侦查成功。报告就是它看见的那部分——佯攻分兵因此有了
+        // 独立的情报价值（看清一路，另一路仍是迷雾）。
         scout_outcome_ = ScoutOutcome::Success;
         scout_report_.clear();
-        int tally[rts::kUnitTypeCount] = {};
-        std::vector<rts::UnitId> foes;
-        w_.enumerate_units(rts::Side::Attacker, foes);
-        for (const rts::UnitId f : foes) {
-            ++tally[static_cast<std::size_t>(w_.unit_type(f))];
-        }
         // 按花名册顺序（`unit_at`），顺序必须稳定——面板每帧重排读不了。
         for (int k = 0; k < rts::kUnitTypeCount; ++k) {
             const rts::UnitType t = rts::unit_at(k);
@@ -844,6 +870,7 @@ void DemoBattle::update(int ticks) {
             withdraw_noncombat_attackers();
             w_.begin_next_wave(wave_level(w_.wave() + 1, w_.stats(), curve_));
             build_left_ = timing_.build_ticks;
+            build_start_ = w_.now();   // Summon 护栏的计时起点（见头文件）
             wave_scouted_ = false;   // 新的一波要重新侦查（记忆天然过时）
             // 守方一侧同理：上一波的编成不算情报（CLAUDE.md「波次结构使
             // AI 的记忆天然过时」，那条对玩家一样成立）。
