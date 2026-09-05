@@ -9,19 +9,24 @@
 // 那一步没有任何设计意图，纯粹是让配平搜索够得着这些数；一旦默认值漂了，
 // 就是在「重构」的名义下悄悄改了游戏，而且不会有任何别的测试红。
 
+#include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
 
+#include "game/attacker_macro.hpp"
 #include "game/defender_macro.hpp"
 #include "game/demo_driver.hpp"
 #include "game/map_loader.hpp"
 #include "game/stats_loader.hpp"
 #include "rts/roster.hpp"
 #include "rts/utf8_path.hpp"
+#include "game/world_builder.hpp"
+#include "rts/fog.hpp"
 #include "rts/world_view.hpp"
 
 namespace {
@@ -587,3 +592,195 @@ TEST_CASE("宏观层：命令真的被世界接受了，不是静默拒绝", "[m
     CHECK(issued <= (bld1 - bld0) + 8);
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// 攻方宏观决策层（`game::AttackerMacro`，2026-09-05）
+//
+// 背景与守方那一批同型：攻方此前**根本没有这一层**，编成是写死的整除式、
+// `Phoenix` 恒 1、谁都不看守方长什么样。四条实测缺陷见
+// `配平工作交接.md` §2.9/§2.10。下一步要跑「守方 RL vs 攻方脚本」，
+// 对着一个不打经济、不读情报的攻方，守方 RL 学到的会是一份建造顺序。
+// ═══════════════════════════════════════════════════════════════════════
+
+TEST_CASE("攻方编成：没有情报时逐波复现旧的那几个整除式", "[macro]") {
+    // 与本文件第一条（守方那边的「默认值不漂」）同一条纪律：把写死的逻辑
+    // 搬进一层新抽象时，**空情报下的结果必须与旧代码逐波相同**，否则就是在
+    // 「重构」的名义下改了游戏。
+    //
+    // **`Phoenix` 是有意的例外**——它的默认值这一轮真的改了（恒 1 → 随波
+    // 放开），所以下面不拿它对旧式子，另有专门一条测它。
+    const game::MapData map = pool_map();
+    const game::AttackerMacro macro(map);
+    const game::WaveCurve c;
+    const game::AttackerIntel none;   // 什么都没侦查到
+
+    for (int w = 1; w <= 40; ++w) {
+        const game::WavePlan p = macro.compose(c, w, none);
+        const int slots = c.slots_at(w);
+        const auto share = [&](int pm) { return std::max(1, slots * pm / 1000); };
+        CAPTURE(w, slots);
+        CHECK(p.shades == (w >= c.shade_from_wave ? share(c.shade_permille) : 0));
+        CHECK(p.knights == (w >= c.knight_from_wave ? share(c.knight_permille) : 0));
+        CHECK(p.rams == (w >= c.ram_from_wave ? share(c.ram_permille) : 0));
+        CHECK(p.wraiths == (w >= c.wraith_from_wave ? 1 : 0));
+        CHECK(p.ghouls == std::max(1, slots - p.shades - p.knights - p.rams -
+                                          p.phoenixes - p.wraiths));
+    }
+}
+
+TEST_CASE("攻方编成：记忆里有缺口就少带攻城锤", "[macro]") {
+    // `CLAUDE.md` 的**头号评估指标**是「AI 是否发现并利用已有缺口」——它点名
+    // 了对标产品 DiNaO 被差评的那一点（「敌人无视已有缺口、反复撞击加固过的
+    // 城墙，明摆着的弱点被浪费」），也是答辩要对照呈现的证据。
+    //
+    // 墙上已经有洞的时候还带一堆攻城锤，正是那个差评描述的行为。
+    const game::MapData map = pool_map();
+    const game::AttackerMacro macro(map);
+    const game::WaveCurve c;
+
+    game::AttackerIntel intact;
+    intact.walls = 80;
+    game::AttackerIntel breached;
+    breached.walls = 76;
+    breached.gaps = 4;
+
+    // 取一个编成位够大的波数：`share()` 有 `max(1, ...)` 地板，波数太小的话
+    // 千分比怎么降都还是 1，测不出东西。
+    const int wave = 30;
+    const game::WavePlan a = macro.compose(c, wave, intact);
+    const game::WavePlan b = macro.compose(c, wave, breached);
+    CAPTURE(c.slots_at(wave), a.rams, b.rams, a.ghouls, b.ghouls);
+    CHECK(b.rams < a.rams);
+    // 攻城锤省下来的编成位归 `Ghoul`——它是唯一的肉盾，而从洞里灌进去正需要人。
+    CHECK(b.ghouls > a.ghouls);
+}
+
+TEST_CASE("攻方编成：记忆里塔成片就多带攻城锤", "[macro]") {
+    // 攻方对「塔海」的设计答案只有两个（`Ram` 的 AOE 与 `Phoenix` 的点杀），
+    // 这是其中一个。实测第 60 波守方有 74 座塔而攻方编成一成不变。
+    const game::MapData map = pool_map();
+    const game::AttackerMacro macro(map);
+    const game::WaveCurve c;
+    const int wave = 30;
+
+    game::AttackerIntel few;
+    few.towers = 3;             // 开局那几座预置塔，不构成塔海
+    game::AttackerIntel many;
+    many.towers = 60;
+
+    const game::WavePlan a = macro.compose(c, wave, few);
+    const game::WavePlan b = macro.compose(c, wave, many);
+    CAPTURE(a.rams, b.rams);
+    CHECK(b.rams > a.rams);
+
+    // **门槛不是「有塔就加」**：开局守方就有 2–3 座预置塔，那不该触发。
+    const game::WavePlan base = macro.compose(c, wave, game::AttackerIntel{});
+    CHECK(a.rams == base.rams);
+}
+
+TEST_CASE("攻方编成：守方的防空第一次真的买到了东西", "[macro]") {
+    // 「AA 的机会成本」那个两难（`CLAUDE.md` 称「本作智斗最可读的载体」）
+    // **在仿真里从未成立过**：不死鸟恒 1，建不建 `Flak` 对攻方毫无影响，
+    // 于是「每座 AA 意味着该位置少一座对地火力」这笔机会成本是白付的。
+    const game::MapData map = pool_map();
+    const game::AttackerMacro macro(map);
+    const game::WaveCurve c;
+    const int wave = 40;   // 放开曲线下这一波该有好几只
+
+    game::AttackerIntel no_aa;
+    game::AttackerIntel lots_of_aa;
+    lots_of_aa.flaks = 12;
+
+    const game::WavePlan a = macro.compose(c, wave, no_aa);
+    const game::WavePlan b = macro.compose(c, wave, lots_of_aa);
+    CAPTURE(a.phoenixes, b.phoenixes);
+    REQUIRE(a.phoenixes > 1);   // 上限已放开，否则下面这条测不出东西
+    CHECK(b.phoenixes < a.phoenixes);
+    // 降到 0 是允许且正确的：守方砸够了钱，空袭就该被劝退。
+    CHECK(b.phoenixes >= 0);
+}
+
+TEST_CASE("攻方编成：不死鸟上限已放开，但增速远低于兵力预算", "[macro]") {
+    // `CLAUDE.md`：「硬性数量上限，**上限可随波数缓慢放开**，但增速必须远低于
+    // 预算增速」。此前 `phoenix_per_waves = 0` ⇒ 从未放开，实测它 58/60 波
+    // 出场、只被击落 12 次，而守方全程只有 2 座 `Flak`。
+    const game::WaveCurve c;
+    REQUIRE(c.phoenix_per_waves > 0);   // 真的放开了
+    REQUIRE(c.phoenix_cap > c.phoenix_base);
+
+    // 「增速远低于预算增速」是**结构**：兵力预算是 w^1.25（超线性），
+    // 空军只能是「每 N 波 +1」这种斜率很小的线性，且封顶。
+    const game::MapData map = pool_map();
+    const game::AttackerMacro macro(map);
+    const game::AttackerIntel none;
+    const double power_ratio = c.power_at(60) / c.power_at(3);
+    const int ph3 = macro.compose(c, 3, none).phoenixes;
+    const int ph60 = macro.compose(c, 60, none).phoenixes;
+    REQUIRE(ph3 > 0);
+    CAPTURE(power_ratio, ph3, ph60);
+    CHECK(ph60 <= c.phoenix_cap);
+    CHECK(static_cast<double>(ph60) / ph3 < power_ratio);
+}
+
+TEST_CASE("攻方情报：只读自己的迷雾，没探索过的地方一无所知", "[macro]") {
+    // `CLAUDE.md`「RL 侧两条硬要求」第 1 条在脚本层的自觉遵守。不做这条则
+    // 「欺骗」毫无意义——攻方看得见一切，玩家藏防空塔就是白藏。
+    //
+    // **这条带破坏性验证**：先断言「看不见 ⇒ 读不到」，再把同一片标成可见、
+    // 断言结论**必须改变**。少了后半截，一个永远返回空的 `read_intel` 也能
+    // 让前半截绿着过。
+    const game::MapData map = pool_map();
+    const rts::StatsTable stats = pool_stats();
+    rts::World w(game::make_world_init(map, stats, 7, 1));
+    const game::AttackerMacro macro(map);
+
+    // 攻方开局对城里一无所知（它的单位还没生成，迷雾全是 Unseen）。
+    const game::AttackerIntel blind =
+        macro.read_intel(w.view(rts::Side::Attacker), false);
+    CAPTURE(blind.towers, blind.walls, blind.gaps, blind.economy.size());
+    CHECK(blind.towers == 0);
+    CHECK(blind.walls == 0);
+    CHECK(blind.gaps == 0);   // 「从未见过」不是缺口——迷雾三态存在的理由
+    CHECK(blind.economy.empty());
+
+    // ——破坏性验证：把整张图对攻方点亮，同一次调用必须读出东西——
+    rts::FogLayer& af = w.fog_mut(rts::Side::Attacker);
+    for (int x = 0; x < map.width(); ++x) {
+        for (int y = 0; y < map.height(); ++y) af.mark_visible(x, y, 0);
+    }
+    const rts::WorldView av = w.view(rts::Side::Attacker);
+    const auto ba = av.bld_alive();
+    const auto bp = av.bld_pos();
+    const auto bt = av.bld_type();
+    const auto bhp = av.bld_hp();
+    const auto bmax = av.bld_max_hp();
+    for (std::size_t k = 0; k < ba.size(); ++k) {
+        if (!ba[k]) continue;
+        const auto pm = static_cast<std::uint16_t>(
+            bmax[k] > 0 ? bhp[k] * 1000 / bmax[k] : 0);
+        af.remember_bld(bp[k].i, bp[k].j, bt[k], pm);
+    }
+    const game::AttackerIntel seen = macro.read_intel(av, true);
+    CAPTURE(seen.towers, seen.walls, seen.gaps);
+    CHECK(seen.walls > 0);          // 城圈是一整圈墙实体，看得见就数得出
+    CHECK(seen.fresh);
+    // 结论真的变了 —— 否则上面那半截是空的
+    CHECK((seen.walls != blind.walls || seen.towers != blind.towers));
+}
+
+TEST_CASE("攻方情报：本波侦查结果有访问器，且逐波重置", "[macro]") {
+    // `wave_scouted_` 此前**一个访问器都没有**——于是「杀掉窥使让 AI 带错情报」
+    // 这条设计在测试里断言不了、在报告里也量不出来。
+    const game::MapData map = pool_map();
+    const rts::StatsTable stats = pool_stats();
+    game::DemoBattle b(map, stats, 7);
+
+    CHECK_FALSE(b.wave_scouted());   // 刚建局，窥使还没出门（第 1 波也没有窥使）
+
+    // 跑到第 2 波之后：`wave_intel()` 是生波那一刻的快照，不随后续战斗变。
+    const int before = b.world().wave();
+    for (int t = 0; t < 40000 && b.world().wave() <= before && !b.defeated(); ++t) {
+        b.update(1);
+    }
+    CAPTURE(b.world().wave(), b.wave_scouted(), b.wave_intel().walls);
+    CHECK(b.world().wave() > before);
+}

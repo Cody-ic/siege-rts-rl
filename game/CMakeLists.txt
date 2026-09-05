@@ -43,6 +43,7 @@ add_library(game STATIC
     src/world_builder.cpp
     src/stats_loader.cpp
     src/battle_scene.cpp
+    src/attacker_macro.cpp
     src/defender_macro.cpp
     src/defender_script.cpp
     src/demo_driver.cpp

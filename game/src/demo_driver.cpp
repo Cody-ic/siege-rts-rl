@@ -237,38 +237,15 @@ std::int32_t wave_level(int wave, const rts::StatsTable& stats,
 
 }  // namespace
 
-int WaveCurve::slots_at(int wave) const {
-    const double s = slots_base + slots_per_wave * static_cast<double>(wave - 1);
-    int n = static_cast<int>(s);
-    if (slots_cap > 0 && n > slots_cap) n = slots_cap;
-    return n < 1 ? 1 : n;
-}
-
-double WaveCurve::power_at(int wave) const {
-    const double w = static_cast<double>(wave);
-    switch (power_form) {
-        case PowerForm::Linear:
-            return power_base * (1.0 + power_alpha * (w - 1.0));
-        case PowerForm::Log:
-            return power_base * (1.0 + power_alpha * std::log(w));
-        case PowerForm::Saturating:
-            // 后期趋平：w 小时近似 base·(1+alpha·w)，w >> half 时趋于常数。
-            // 它存在的理由是「无尽模式必败」只要求**攻方不停涨**，不要求
-            // 涨得比守方的饱和收入快无穷多——那条曲线的形状是待定的。
-            return power_base *
-                   (1.0 + power_alpha * w / (1.0 + w / (power_half > 0.0 ? power_half : 1.0)));
-        case PowerForm::Power:
-        default:
-            return power_base * std::pow(w, power_alpha);
-    }
-}
-
+// `WaveCurve::slots_at` / `power_at` 2026-09-05 随结构体搬到
+// `game/src/attacker_macro.cpp`。
 
 DemoBattle::DemoBattle(const MapData& map, const rts::StatsTable& stats,
                        std::uint64_t seed, WaveTiming timing, WaveCurve curve,
                        DefenderSetup setup)
     : w_(demo_init(map, stats, seed, setup)),
       script_(ScriptParams{}, seed ^ 0x9e3779b9u),
+      macro_(map, AttackerParams{}),
       timing_(timing),
       curve_(curve),
       setup_(setup),
@@ -302,52 +279,36 @@ void DemoBattle::spawn_wave() {
     const std::int32_t lv = w_.nominal_level();
     const rts::StatsTable& stats = w_.stats();
 
-    // 编成：把本波编成位**填满**（旧曲线各兵种各自封顶、总数钉死在 18，
-    // 正是「攻方战力躺平」的另一半根因）。比例是占位（Shade 2 成 / Knight
-    // 1.5 成 / Ram 1 成 / 余量全是 Ghoul），出场门槛沿用「由易到难」那条
-    // 试玩结论：第 1 波只有 Ghoul（有测试钉着），Shade/Knight 第 2 波起、
-    // Ram/Phoenix 第 3 波起。`Phoenix` 恒 1——「硬性数量上限」是结构
-    // （CLAUDE.md「空中单位」），上限随波缓慢放开是后话，这里先取最小值；
-    // 注意它与编成位那个撤下的硬顶不是一回事，这条不随之松动。
-    const int slots = curve_.slots_at(wave);
-    // 比例与门槛现在都从 `WaveCurve` 来（2026-09-03 起可在运行期设）；
-    // 默认值与原来那几个整除式逐波相同（200‰ = /5、150‰ = ·3/20、100‰ = /10）。
-    const auto share = [&](int permille) {
-        return std::max(1, slots * permille / 1000);
-    };
-    const int shades = wave >= curve_.shade_from_wave ? share(curve_.shade_permille) : 0;
-    const int knights =
-        wave >= curve_.knight_from_wave ? share(curve_.knight_permille) : 0;
-    const int rams = wave >= curve_.ram_from_wave ? share(curve_.ram_permille) : 0;
-    // 不死鸟：`phoenix_per_waves == 0` ⇒ 恒 `phoenix_base`（现行行为）。
-    const int phoenixes =
-        wave >= curve_.phoenix_from_wave
-            ? std::min(curve_.phoenix_cap,
-                       curve_.phoenix_base +
-                           (curve_.phoenix_per_waves > 0
-                                ? (wave - curve_.phoenix_from_wave) /
-                                      curve_.phoenix_per_waves
-                                : 0))
-            : 0;
+    // ——编成归**攻方宏观决策层**（`game::AttackerMacro`，2026-09-05）——
+    //
+    // 此前这里是一串写死的整除式：比例是常数、`Phoenix` 恒 1、谁都不看守方
+    // 长什么样。那让攻方成了一个**坏陪练**（`配平工作交接.md` §2.9/§2.10），
+    // 与 2026-09-04 那次守方脚本重写同型的问题。
+    //
+    // **情报只过攻方自己的迷雾。** `read_intel` 读的是 `FogLayer` 里的记忆
+    // 建筑，而记忆是跨波持久的 ⇒ 「玩家这一波新建了什么」只有在窥使活着回来
+    // 之后才进得了编成。这不需要任何新机制，正是 CLAUDE.md「波次结构使 AI 的
+    // 记忆天然过时」那条设计。
+    //
+    // **编成在波次开始时定死，不等本波侦查回来再改**（`波次分段与侦查时序.md`
+    // §1.1）：否则玩家侦查到的编成会在她建造之后变掉，「花钱知道编成」这件事
+    // 直接失去意义。所以这里传的 `fresh` 是**上一波**的侦查结果——本波的
+    // `wave_scouted_` 此刻刚被重置成 false，用它只会恒假。
+    wave_intel_ = macro_.read_intel(w_.view(rts::Side::Attacker), prev_wave_scouted_);
+    const WavePlan plan = macro_.compose(curve_, wave, wave_intel_);
+
+    std::vector<rts::UnitType> roster;
+    roster.reserve(static_cast<std::size_t>(plan.total()));
+    for (int k = 0; k < plan.ghouls; ++k) roster.push_back(rts::UnitType::Ghoul);
+    for (int k = 0; k < plan.shades; ++k) roster.push_back(rts::UnitType::Shade);
+    for (int k = 0; k < plan.knights; ++k) roster.push_back(rts::UnitType::Knight);
+    for (int k = 0; k < plan.rams; ++k) roster.push_back(rts::UnitType::Ram);
+    for (int k = 0; k < plan.phoenixes; ++k) roster.push_back(rts::UnitType::Phoenix);
     // 幽影窥使恒 1，第 2 波起。**这一只是整个侦查博弈里攻方那一半**：
     // 在它进编成之前，`Wraith` 在 `game/` 里只出现在中文展示名表里——攻方
-    // 从来没有侦查过，于是「双向欺骗」只有守方那一向，而 CLAUDE.md 那三条
-    // （AI 先侦查再定主攻方向、玩家猎杀 `Wraith` 让 AI 带错情报开打、
-    // 玩家等 `Wraith` 走了再造防空）一条都无从发生。
-    //
+    // 从来没有侦查过，于是「双向欺骗」只有守方那一向。
     // 从编成位里扣、不额外加人：它占的是攻方自己的预算，否则等于白送一只。
-    const int wraiths = wave >= curve_.wraith_from_wave ? 1 : 0;
-    const int ghouls =
-        std::max(1, slots - shades - knights - rams - phoenixes - wraiths);
-    std::vector<rts::UnitType> roster;
-    roster.reserve(static_cast<std::size_t>(ghouls + shades + knights + rams +
-                                            phoenixes + wraiths));
-    for (int k = 0; k < ghouls; ++k) roster.push_back(rts::UnitType::Ghoul);
-    for (int k = 0; k < shades; ++k) roster.push_back(rts::UnitType::Shade);
-    for (int k = 0; k < knights; ++k) roster.push_back(rts::UnitType::Knight);
-    for (int k = 0; k < rams; ++k) roster.push_back(rts::UnitType::Ram);
-    for (int k = 0; k < phoenixes; ++k) roster.push_back(rts::UnitType::Phoenix);
-    for (int k = 0; k < wraiths; ++k) roster.push_back(rts::UnitType::Wraith);
+    for (int k = 0; k < plan.wraiths; ++k) roster.push_back(rts::UnitType::Wraith);
 
     // ——兵力集中：主攻一路 + 佯攻一路，**不再轮转平摊**——
     //
@@ -871,6 +832,10 @@ void DemoBattle::update(int ticks) {
             w_.begin_next_wave(wave_level(w_.wave() + 1, w_.stats(), curve_));
             build_left_ = timing_.build_ticks;
             build_start_ = w_.now();   // Summon 护栏的计时起点（见头文件）
+            // **先结转再清零**：下一波的编成要读上一波的侦查结果
+            // （`spawn_wave()` 里那条 `prev_wave_scouted_`），而重置之后
+            // `wave_scouted_` 恒假。
+            prev_wave_scouted_ = wave_scouted_;
             wave_scouted_ = false;   // 新的一波要重新侦查（记忆天然过时）
             // 守方一侧同理：上一波的编成不算情报（CLAUDE.md「波次结构使
             // AI 的记忆天然过时」，那条对玩家一样成立）。

@@ -25,67 +25,14 @@
 #include "rts/flow.hpp"
 #include "rts/rng.hpp"
 #include "rts/stats.hpp"
+#include "game/attacker_macro.hpp"
 #include "rts/world.hpp"
 
 namespace game {
 
-// 攻方的波次曲线与编成。**从编译期常量提成运行期参数**（2026-09-03）。
-//
-// 此前 `demo_driver.cpp` 里有六个 `constexpr` 与一串写死的整除式，配平搜索
-// 一个都够不着，于是那份搜索只能在「塔造价 / 供给缩放」这类下游旋钮上打转
-// （`攻守配平的数学模型.md` §4 的那条命题正好说明它们只能平移、翻不了斜率）。
-//
-// **形式也是旋钮，不只是系数。** 没有任何设计文档规定兵力预算必须是幂律；
-// 它可以是线性、对数、或饱和的 S 形。`PowerForm` 因此是一个枚举而不是一个
-// 注释——「换一条曲线」要能在参数里表达，不能要求改代码。
-//
-// 与 `StatsTable` 的分界：数值表是**双方共享的机制数值**（血量、伤害、造价），
-// 这里是**攻方这一侧的生成规则**。同 `WorldInit::tier_income_permille` 那条
-// 先例：与数值表并列的外生输入，不进 `StatsTable::fingerprint()`。
-struct WaveCurve {
-    // ——编成位（买人数）——
-    double slots_base = 6.0;
-    double slots_per_wave = 1.2;
-    // 0 = 不封顶。CLAUDE.md 要求「必须有硬上限」（RL 可训练规模），
-    // 而 2026-09-01 撤下的是**没有依据的取值 40**、不是那条结构主张。
-    int slots_cap = 0;
-
-    // ——兵力预算（买等级）——
-    enum class PowerForm {
-        Power,      // base · w^alpha        —— 现行（alpha = 1.25）
-        Linear,     // base · (1 + alpha·(w−1))
-        Log,        // base · (1 + alpha·ln w)
-        Saturating  // base · (1 + alpha·w/(1 + w/half))  —— 后期趋平
-    };
-    PowerForm power_form = PowerForm::Power;
-    double power_base = 6.0;
-    double power_alpha = 1.25;
-    double power_half = 20.0;   // 只有 Saturating 用：转折处的波数
-
-    // ——编成比例（千分比，余量全是 Ghoul）与出场门槛——
-    int shade_permille = 200;    // 原 slots/5
-    int knight_permille = 150;   // 原 slots*3/20
-    int ram_permille = 100;      // 原 slots/10
-    int shade_from_wave = 2;
-    int knight_from_wave = 2;
-    int ram_from_wave = 3;
-    int phoenix_from_wave = 3;
-    int wraith_from_wave = 2;
-    // 不死鸟数量。CLAUDE.md：「硬性数量上限，上限可随波数缓慢放开，
-    // 但增速必须远低于预算增速」。现行实现恒 1、从未放开——
-    // `攻守配平的数学模型.md` §5.1 记了它的后果（防空两难无可预判）。
-    int phoenix_base = 1;
-    int phoenix_per_waves = 0;   // 0 = 恒 phoenix_base；否则每这么多波 +1
-    int phoenix_cap = 1;
-
-    // ——分兵——
-    int main_permille = 700;   // 主攻拿几成（其余给佯攻）
-
-    // 第 w 波的编成位与兵力预算。**唯一实现处**，`demo_driver.cpp` 与
-    // `tools/balance/budget_curves.py` 都以它为准。
-    int slots_at(int wave) const;
-    double power_at(int wave) const;
-};
+// **`WaveCurve` 2026-09-05 搬到了 `game/attacker_macro.hpp`**：它是攻方宏观层
+// 的参数集，而 `AttackerMacro` 要吃它，留在这里会让那个头与本头循环包含。
+// 本头包含它，所以下游（runner、测试）的 `game::WaveCurve` 一字不用改。
 
 // 波次节奏。**从编译期常量提成运行期参数**（2026-09-03）：
 //
@@ -231,6 +178,15 @@ public:
         return scout_report_;
     }
 
+    // ——攻方侧的侦查与情报（只读，给测试、HUD 与 runner）——
+    //
+    // `wave_scouted()` 是**本波**攻方窥使有没有看到防御布局；`wave_intel()`
+    // 是**生波那一刻**攻方以为守方长什么样（读的是它自己的迷雾记忆）。
+    // 两者此前一个访问器都没有——于是「杀掉窥使让 AI 带错情报」这条设计
+    // 在测试里断言不了、在报告里也量不出来。
+    bool wave_scouted() const noexcept { return wave_scouted_; }
+    const AttackerIntel& wave_intel() const noexcept { return wave_intel_; }
+
     // 玩家命令的入口（交互层从这里进，不直接碰 World——写入面收在一处）。
     // 校验与解算都归 World：形状不合法当场抛，语义不合法（买不起、点位
     // 不对）在解算时静默拒绝。`Summon` 也走这里：phase 一变，update 里的
@@ -293,6 +249,9 @@ private:
     rts::World w_;
     // 守方执行层（参数取占位默认；种子从对局种子派生，demo 因此仍是确定性的）。
     DefenderScript script_;
+    // 攻方宏观决策层。**声明顺序即初始化顺序**——它在 `timing_`/`curve_` 之前，
+    // 与构造函数的初始化列表一致（不一致会吃 `-Wreorder`）。
+    AttackerMacro macro_;
     WaveTiming timing_{};     // 波次节奏（占位取值，见结构体注释）
     WaveCurve curve_{};       // 攻方曲线与编成（同上）
     DefenderSetup setup_{};   // 守方建局参数（人口上限、斥候侦查）
@@ -310,6 +269,15 @@ private:
     void tick_scout_recon();
 
     bool wave_scouted_ = false;
+    // **上一波**的侦查结果，逐波从 `wave_scouted_` 结转。
+    //
+    // `spawn_wave()` 需要的是它而不是 `wave_scouted_`：编成在波次开始时定死
+    // （`波次分段与侦查时序.md` §1.1），而那一刻本波的 `wave_scouted_` 刚被
+    // 重置成 false，用它只会恒假。
+    bool prev_wave_scouted_ = false;
+    // 本波生波时攻方以为守方长什么样（`AttackerMacro::read_intel` 的产物）。
+    // 存下来是给测试与 runner 看的——否则「攻方读到了什么」只能从编成反推。
+    AttackerIntel wave_intel_{};
     // ——斥候侦查的本波状态（逐波重置）——
     //
     // `recon_rng_` 与 `script_` 的种子同源派生，所以 demo 仍然是确定性的。
