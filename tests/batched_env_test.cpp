@@ -276,3 +276,129 @@ TEST_CASE("终局位：Keep 没了就置 1，且不自动重置", "[batchenv]") 
     e.step(acts, b.done);
     CHECK(b.done[0] == 0u);   // Keep 还在
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// agent = 编队（2026-09-05，`World/13 → World/14`）
+//
+// 编队号此前只活在 `game/` 里，而 `BatchedEnv` 在 `rts_core`、看不见它 ⇒
+// 观测按**单位**摊行、`kMaxUnitsPerEnv` 还停在过期的 40，于是攻方场上
+// ~70 个单位里有 30 个**存在、会挨打、但完全不受控且不被观测**（超出的
+// 被补 `Stop`）。而「攻方 RL 控制的是每一支编队」是 CLAUDE.md 定的。
+// ═══════════════════════════════════════════════════════════════════════
+
+namespace {
+
+// 6 个 Ghoul 编成 2 支（编队 0 与 1，各 3 个）+ 1 名守方弓手（散兵）。
+rts::WorldInit squads_world() {
+    rts::WorldInit init = one(0, 0);
+    for (int q = 0; q < 2; ++q) {
+        for (int m = 0; m < 3; ++m) {
+            init.units.push_back(rts::UnitInit{
+                rts::UnitType::Ghoul,
+                rts::Vec2{12.5f + static_cast<float>(m), 12.5f + static_cast<float>(q)},
+                1, 20, 20, static_cast<std::uint16_t>(q)});
+        }
+    }
+    return init;
+}
+
+}   // namespace
+
+TEST_CASE("编队：观测按编队摊行，一支编队一行", "[batchenv]") {
+    rts::BatchedEnvInit bi;
+    bi.worlds.push_back(squads_world());
+    bi.side = rts::Side::Attacker;
+    bi.threads = 1;
+    rts::BatchedEnv e(std::move(bi));
+    Bufs b(1);
+    e.observe(b.cells, b.self, b.glob);
+
+    // 6 个单位、2 支编队 ⇒ **只有 2 行非零**。若打包仍按单位摊行，
+    // 这里会是 6 行——那正是这条测试要钉的东西。
+    int rows = 0;
+    for (int u = 0; u < rts::BatchedEnv::kMaxUnitsPerEnv; ++u) {
+        const std::size_t so = static_cast<std::size_t>(u) *
+                               static_cast<std::size_t>(rts::kObsSelfFloats);
+        bool nz = false;
+        for (int f = 0; f < rts::kObsSelfFloats; ++f) {
+            if (b.self[so + static_cast<std::size_t>(f)] != 0.0f) { nz = true; break; }
+        }
+        if (nz) ++rows;
+    }
+    CAPTURE(rows);
+    CHECK(rows == 2);
+}
+
+TEST_CASE("编队：一个动作发给整队，队里每个成员都动", "[batchenv]") {
+    // 这是「agent = 编队」在**动作面**的另一半。张量的第二维是编队，而
+    // `submit_actions` 要逐单位 ⇒ `step` 必须把编队的动作摊给队里每个成员。
+    // 不摊的话后两个成员拿到的是别的编队的动作（或越界读）。
+    rts::BatchedEnvInit bi;
+    bi.worlds.push_back(squads_world());
+    bi.side = rts::Side::Attacker;
+    bi.threads = 1;
+    rts::BatchedEnv e(std::move(bi));
+    Bufs b(1);
+
+    std::vector<rts::UnitAction> acts(
+        static_cast<std::size_t>(rts::BatchedEnv::kMaxUnitsPerEnv),
+        rts::UnitAction::Stop);
+    // 编队 0 往北走、编队 1 停住。
+    acts[0] = rts::UnitAction::MoveN;
+    acts[1] = rts::UnitAction::Stop;
+
+    const rts::World& w0 = e.world_at(0);
+    std::vector<rts::UnitId> before;
+    w0.enumerate_units(rts::Side::Attacker, before);
+    std::vector<rts::Vec2> p0;
+    for (const rts::UnitId id : before) p0.push_back(w0.unit_pos(id));
+
+    e.step(acts, b.done);
+
+    const rts::World& w1 = e.world_at(0);
+    std::vector<rts::UnitId> after;
+    w1.enumerate_units(rts::Side::Attacker, after);
+    REQUIRE(after.size() == before.size());
+
+    int moved_q0 = 0, moved_q1 = 0;
+    for (std::size_t k = 0; k < after.size(); ++k) {
+        const rts::Vec2 p = w1.unit_pos(after[k]);
+        const bool moved = (p.x != p0[k].x || p.y != p0[k].y);
+        if (w1.unit_squad(after[k]) == 0 && moved) ++moved_q0;
+        if (w1.unit_squad(after[k]) == 1 && moved) ++moved_q1;
+    }
+    CAPTURE(moved_q0, moved_q1);
+    CHECK(moved_q0 == 3);   // 整队都动了
+    CHECK(moved_q1 == 0);   // 另一队没动
+}
+
+TEST_CASE("编队：散兵各自成一支，于是守方那一侧退化成逐单位", "[batchenv]") {
+    // 守方单兵不上 RL（参数化脚本驱动），所以它们一律 `kNoSquad`。
+    // `enumerate_squads` 让每个散兵自成一支 ⇒ 调用方不必分两种情况写。
+    rts::BatchedEnvInit bi;
+    bi.worlds.push_back(squads_world());
+    bi.side = rts::Side::Defender;   // 这一侧只有 1 名弓手，且是散兵
+    bi.threads = 1;
+    rts::BatchedEnv e(std::move(bi));
+
+    const rts::World& w = e.world_at(0);
+    std::vector<rts::UnitId> units, leaders;
+    w.enumerate_units(rts::Side::Defender, units);
+    w.enumerate_squads(rts::Side::Defender, leaders);
+    CAPTURE(units.size(), leaders.size());
+    CHECK(units.size() == leaders.size());   // 退化：一人一支
+    for (const rts::UnitId id : units) CHECK(w.unit_squad(id) == rts::kNoSquad);
+}
+
+TEST_CASE("编队：编队号进 state_hash，改了它世界就不同", "[batchenv]") {
+    // 编队号是外生输入、影响仿真（它决定 RL 的动作怎么摊），所以必须进哈希
+    // ——否则两个「编成一样但分队不同」的世界会算出同一个哈希，而回放
+    // 对不上时查不出原因。`kWorldHashTag` 因此从 World/13 进到 World/14。
+    rts::World a(squads_world());
+    rts::WorldInit alt = squads_world();
+    // 把最后一个 Ghoul 从编队 1 挪到编队 0：编成、位置、血量全不变。
+    REQUIRE(alt.units.size() >= 2);
+    alt.units.back().squad = 0;
+    rts::World b(std::move(alt));
+    CHECK(a.state_hash() != b.state_hash());
+}

@@ -25,6 +25,12 @@ struct BatchedEnv::Impl {
     // 输出 vector，而多线程共用一个就是数据竞争。预分配在这里，`step` 里不再分配
     // （热路径不分配，同 `obs_pack` 那条理由）。
     std::vector<std::vector<UnitId>> ids;
+    // 逐局的**编队队长**句柄（`enumerate_squads`）。观测按它摊行、动作按它取，
+    // 因为 **agent = 编队**（`kMaxUnitsPerEnv` 那段注释）。
+    std::vector<std::vector<UnitId>> leaders;
+    // 逐局的逐单位动作切片。`submit_actions` 要「每局恰好等于活单位数」的一段，
+    // 而策略给的是**逐编队**的动作 ⇒ 要在这里摊开。预分配同上：热路径不分配。
+    std::vector<std::vector<UnitAction>> acts;
 
     // 把 `[lo, hi)` 这段环境分给若干线程跑同一个函数体。
     //
@@ -93,10 +99,12 @@ struct BatchedEnv::Impl {
     void refresh_counts() {
         const int n = static_cast<int>(worlds.size());
         for (int i = 0; i < n; ++i) {
-            worlds[static_cast<std::size_t>(i)]->enumerate_units(
-                side, ids[static_cast<std::size_t>(i)]);
-            counts[static_cast<std::size_t>(i)] =
-                static_cast<int>(ids[static_cast<std::size_t>(i)].size());
+            const std::size_t ui = static_cast<std::size_t>(i);
+            worlds[ui]->enumerate_units(side, ids[ui]);
+            worlds[ui]->enumerate_squads(side, leaders[ui]);
+            // `counts` 记的是**编队数**（= agent 数），因为张量的第二维是 agent。
+            // 逐单位那一侧的长度由 `ids[ui].size()` 给，两者不是一回事。
+            counts[ui] = static_cast<int>(leaders[ui].size());
         }
     }
 };
@@ -124,6 +132,8 @@ BatchedEnv::BatchedEnv(BatchedEnvInit init) : p_(std::make_unique<Impl>()) {
     }
     p_->counts.assign(static_cast<std::size_t>(n), 0);
     p_->ids.resize(static_cast<std::size_t>(n));
+    p_->leaders.resize(static_cast<std::size_t>(n));
+    p_->acts.resize(static_cast<std::size_t>(n));
     p_->refresh_counts();
 }
 
@@ -171,7 +181,9 @@ void BatchedEnv::observe(std::span<float> cells, std::span<float> self_vec,
         pack_globals(v, p_->norms,
                      globals.subspan(ui * static_cast<std::size_t>(kObsGlobalFloats),
                                      static_cast<std::size_t>(kObsGlobalFloats)));
-        const std::vector<UnitId>& ids = p_->ids[ui];
+        // **按编队队长摊行**（agent = 编队）。队长的观测代表整队——这正是
+        // 「group action 是共享子目标」那条形状要求的（见 `kMaxUnitsPerEnv`）。
+        const std::vector<UnitId>& ids = p_->leaders[ui];
         const int m = std::min(static_cast<int>(ids.size()), kMaxUnitsPerEnv);
         for (int u = 0; u < m; ++u) {
             // **输出位置只由 (i, u) 决定**，与哪个线程、什么时候跑完无关。
@@ -203,21 +215,43 @@ void BatchedEnv::step(std::span<const UnitAction> actions,
         throw ContractError("BatchedEnv::step: actions 必须是 batch × kMaxUnitsPerEnv，"
                             "done 必须是 batch");
     }
-    // 提交与推进。**每局一份动作切片，长度必须恰好等于该局的活单位数**
-    // （`submit_actions` 自己有这条检查，见 `world.hpp:541`）——所以定长张量里
-    // 多出来的位置在这里被裁掉，而不是喂进去。
+    // 提交与推进。**张量的第二维是编队（agent），而 `submit_actions` 要的是
+    // 逐单位**（长度恰好等于该局活单位数，它自己有这条检查）⇒ 这里要把
+    // 编队的动作**摊给队里每个成员**。
+    //
+    // ⚠️ **摊开的是「动作」，而这与 `game/` 那一侧刻意不广播方向是两回事。**
+    // 那边的结论（TStarBot2 / SupCom2 / OpenRA…，见 `demo_driver.cpp` 里那段）
+    // 是「脚本的战术层该逐单位算」；而这里是 **RL 的动作面**：策略每支编队
+    // 只输出一个动作，那是「27 个 agent」这个设计的定义本身。将来若要让 RL
+    // 也发「子目标」而不是「动作」，改的是这一层的语义（动作枚举 → 目标集
+    // 下标），不是这段摊开的代码。
     p_->for_each_env(n, [&](int i) {
         const std::size_t ui = static_cast<std::size_t>(i);
         World& w = *p_->worlds[ui];
-        const int m = std::min(p_->counts[ui], kMaxUnitsPerEnv);
-        std::vector<UnitAction> slice(
-            actions.begin() + static_cast<std::ptrdiff_t>(ui) * kMaxUnitsPerEnv,
-            actions.begin() + static_cast<std::ptrdiff_t>(ui) * kMaxUnitsPerEnv + m);
-        // 该局单位数超过 `kMaxUnitsPerEnv` 时，尾部那些没有动作可给——补 `Stop`。
-        // **`Stop` 永远合法**（`action.hpp`），所以这条补齐不会造出非法输入。
-        // 攻方编成位硬性封顶 40 = `kMaxUnitsPerEnv`，所以这条分支在攻方一侧
-        // 本不该发生；留着是因为守方那侧上限随堡垒等级涨，将来会走到。
-        slice.resize(static_cast<std::size_t>(p_->counts[ui]), UnitAction::Stop);
+        const std::vector<UnitId>& units = p_->ids[ui];
+        const int nsq = std::min(p_->counts[ui], kMaxUnitsPerEnv);
+        std::vector<UnitAction>& slice = p_->acts[ui];
+        // 默认 `Stop`：**它永远合法**（`action.hpp`），所以「编队数超出张量、
+        // 尾部编队没有动作可给」不会造出非法输入。攻方编队硬顶 27 <
+        // `kMaxUnitsPerEnv` 32，所以那条分支在攻方一侧不该发生；守方是散兵、
+        // 上限随堡垒等级涨（`8+2K`），将来会走到。
+        slice.assign(units.size(), UnitAction::Stop);
+        for (std::size_t k = 0; k < units.size(); ++k) {
+            const std::uint16_t sq = w.unit_squad(units[k]);
+            // 找这个单位所属编队在 `leaders` 里的行号。**编队号不等于行号**
+            // ——`enumerate_squads` 跳过了空编队、散兵还排在后面，所以只能查。
+            // 编队数 ≤ 32，线性查足够；换成映射就要引入一个容器，而那正是
+            // 确定性守卫盯的东西。
+            for (int q = 0; q < nsq; ++q) {
+                const UnitId lead = p_->leaders[ui][static_cast<std::size_t>(q)];
+                const bool same = (sq == kNoSquad) ? (lead == units[k])
+                                                   : (w.unit_squad(lead) == sq);
+                if (!same) continue;
+                slice[k] = actions[static_cast<std::size_t>(ui) * kMaxUnitsPerEnv +
+                                   static_cast<std::size_t>(q)];
+                break;
+            }
+        }
         w.submit_actions(p_->side, slice.data(), slice.size());
         w.advance(p_->ticks_per_step);
         done[ui] = Impl::keep_alive(w) ? 0u : 1u;
@@ -230,7 +264,8 @@ void BatchedEnv::reset_one(int i, WorldInit init) {
     const std::size_t ui = static_cast<std::size_t>(i);
     p_->worlds[ui] = std::make_unique<World>(std::move(init));
     p_->worlds[ui]->enumerate_units(p_->side, p_->ids[ui]);
-    p_->counts[ui] = static_cast<int>(p_->ids[ui].size());
+    p_->worlds[ui]->enumerate_squads(p_->side, p_->leaders[ui]);
+    p_->counts[ui] = static_cast<int>(p_->leaders[ui].size());
 }
 
 }  // namespace rts

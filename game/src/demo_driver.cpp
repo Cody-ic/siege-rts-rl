@@ -462,12 +462,19 @@ void DemoBattle::spawn_wave() {
         const auto& off = off_ring[static_cast<std::size_t>(slot) % off_ring.size()];
         const rts::Vec2 c = rts::center_of(spawns[si].pos);
         const std::int64_t hp = hp_at(stats, t, lv);
-        const rts::UnitId id =
-            w_.spawn_unit(t, rts::Vec2{c.x + off.first, c.y + off.second}, lv, hp, hp);
-        // 记下编队归属。**按槽位下标记账**（`Handle::index()`），因为
-        // `submit_actions` 那一侧拿到的是 `UnitId`，而槽位会被复用——所以
-        // 每波开头要清空（见下），否则上一波死掉的单位留下的编号会被新单位
-        // 继承，症状是「两支不同的编队莫名一起动」。
+        // **编队号一并传进 `World`**（2026-09-05，`World/13 → World/14`）。
+        //
+        // 它此前只活在 `game/` 里（下面那个 `squad_of_`），而 `BatchedEnv` 在
+        // `rts_core` 里、看不见 `game/` ⇒ RL 的观测按单位摊行、`kMaxUnitsPerEnv`
+        // 还停在过期的 40，于是场上 ~70 个单位里有 30 个**存在、会挨打、但完全
+        // 不受控且不被观测**（超出的那些被补 `Stop`）。而 agent = 编队是
+        // `CLAUDE.md` 定的，所以编队号必须在 `World` 里。
+        const rts::UnitId id = w_.spawn_unit(
+            t, rts::Vec2{c.x + off.first, c.y + off.second}, lv, hp, hp,
+            static_cast<std::uint16_t>(squad_id[n]));
+        // `game/` 侧仍记一份，因为战术层要按它查同队（`squad_ahead`）。
+        // **按槽位下标记账**（`Handle::index()`）：槽位会被复用，所以每波开头
+        // 要清空（见上），否则上一波死掉的单位留下的编号会被新单位继承。
         const std::size_t ui = id.index();
         if (ui >= squad_of_.size()) squad_of_.resize(ui + 1, -1);
         if (ui >= squad_goal_.size()) squad_goal_.resize(ui + 1, 0);

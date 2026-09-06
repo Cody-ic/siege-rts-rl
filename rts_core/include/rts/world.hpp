@@ -377,12 +377,19 @@ struct ObstacleInit {
 // 与 `BldInit` 同样的纪律：`hp` / `max_hp` / `level` 全部由调用方给，
 // `World` 建局时不查表（等级怎么缩放血量归调用方——`§1.4` 未定，
 // 见 `rts/stats.hpp` 的 `GlobalStats`）。
+// 「不属于任何编队」。守方单兵、以及攻方的散兵都是它。
+inline constexpr std::uint16_t kNoSquad = 0xFFFFu;
+
 struct UnitInit {
     UnitType type = UnitType::Ghoul;
     Vec2 pos{};
     std::int32_t level = kMinUnitLevel;
     std::int64_t hp = 1;
     std::int64_t max_hp = 1;
+    // 编队号。**RL 的 agent 就是编队**（`CLAUDE.md`「攻方 RL 控制的是每一支
+    // 编队」），所以它必须在 `World` 里、不能只活在 `game/`：观测打包
+    // （`BatchedEnv`）要按编队摊行，而那一层看不见 `game/`。
+    std::uint16_t squad = kNoSquad;
 };
 
 struct WorldInit {
@@ -523,7 +530,7 @@ inline GridPos pos_of_slot(std::uint16_t slot, int width) noexcept {
 // 随之移除（`u_upgrade_left_` 删，升级只经 `Train` 选级）。布局与行为双重变更。
 // `World/12` → `World/13`：新增 `CommandKind::Demolish`，`deferred_` 的长度随
 // `kCommandKindCount` 增加一格并进入哈希；与上面 `World/1 → World/2` 同类。
-inline constexpr std::string_view kWorldHashTag = "World/13";
+inline constexpr std::string_view kWorldHashTag = "World/14";
 
 class WorldView;
 
@@ -630,8 +637,11 @@ public:
     // ——实体——
     //
     // `hp` / `max_hp` / `level` 全部由调用方给（见文件头「数值一个都不在这里」）。
+    // `squad` 是**外生输入**（同 type/pos/level：调用方给，仿真自己推不出来），
+    // 但 `spawn_unit` 整体是「机制产物」⇒ 不进回放（见 `rts/replay.hpp` 那张表）。
     UnitId spawn_unit(UnitType type, Vec2 pos, std::int32_t level,
-                      std::int64_t hp, std::int64_t max_hp);
+                      std::int64_t hp, std::int64_t max_hp,
+                      std::uint16_t squad = kNoSquad);
     BldId place_bld(BldType type, GridPos pos, std::int64_t hp, std::int64_t max_hp,
                     std::int32_t work_left = 0);
 
@@ -685,6 +695,21 @@ public:
     // 填进调用方给的 vector（而不是返回一个新的），因为它每个决策步都要用一次，
     // 复用同一块内存就没有分配。
     void enumerate_units(Side side, std::vector<UnitId>& out) const;
+
+    // **一侧的编队，每支给一个「队长」句柄，按编队号升序。这是 agent 维的
+    // 规范顺序。**
+    //
+    // 队长 = 该编队里**槽位下标最小的活人**。这个选法有两条好处：确定
+    // （槽位序就是 `enumerate_units` 的序）、且队长阵亡自动换人（下一个活着的
+    // 接上），不需要额外的「队长阵亡」处理。
+    //
+    // **不属于任何编队的单位（`kNoSquad`）各自算一支**，附在按编队号排完之后、
+    // 仍按槽位升序。于是「没有编队的一侧」（守方）退化成 `enumerate_units`，
+    // 调用方不需要分两种情况写。
+    void enumerate_squads(Side side, std::vector<UnitId>& leaders) const;
+
+    // 这个单位属于哪支编队（`kNoSquad` = 不属于任何）。
+    std::uint16_t unit_squad(UnitId id) const;
 
     // 按句柄读。句柄失效即抛（理由见 `ContractError`）。
     // **热路径不要走这里**，走 `WorldView` 的连续数组。
@@ -1036,6 +1061,7 @@ private:
     std::vector<std::int64_t> u_hp_;
     std::vector<std::int64_t> u_max_hp_;
     std::vector<Vec2> u_pos_;
+    std::vector<std::uint16_t> u_squad_;      // 编队号，kNoSquad = 不属于任何
     std::vector<std::int32_t> u_windup_;      // 攻击前摇剩余 tick，0 = 可出手
     std::vector<UnitAction> u_action_;        // 上个决策边界选的动作，保持 4–8 tick
     std::vector<std::uint16_t> u_garrison_;   // 驻守的墙段槽位，kNoSlot = 没上墙
