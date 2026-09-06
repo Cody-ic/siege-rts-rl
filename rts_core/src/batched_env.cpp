@@ -199,6 +199,8 @@ int BatchedEnv::batch_size() const noexcept {
     return static_cast<int>(p_->worlds.size());
 }
 
+int BatchedEnv::max_ticks_per_episode() const noexcept { return p_->max_ticks; }
+
 Side BatchedEnv::side() const noexcept { return p_->side; }
 
 std::span<const int> BatchedEnv::unit_counts() const noexcept {
@@ -411,14 +413,15 @@ void BatchedEnv::take_tally(std::span<float> out) {
     }
 }
 
-void BatchedEnv::reset_one(int i, WorldInit init) {
+void BatchedEnv::reset_one(int i, WorldInit init, int elapsed0) {
     if (i < 0 || i >= batch_size()) throw ContractError("BatchedEnv: 环境下标越界");
     const std::size_t ui = static_cast<std::size_t>(i);
     p_->worlds[ui] = std::make_unique<World>(std::move(init));
     p_->worlds[ui]->enumerate_units(p_->side, p_->ids[ui]);
     p_->worlds[ui]->enumerate_squads(p_->side, p_->leaders[ui]);
     p_->counts[ui] = static_cast<int>(p_->leaders[ui].size());
-    p_->elapsed[ui] = 0;   // 新 episode 从 0 开始计时
+    // 新 episode 的计时起点（默认 0；批量重置时用它重新错峰）。
+    p_->elapsed[ui] = elapsed0 > 0 ? elapsed0 : 0;
     // **`progress` 必须一起清**：不清的话上一局最后一步的位移会算进新局的
     // 第一步，而新局的单位在集结点、距离是满的 ⇒ 那是一笔凭空的大额奖励。
     p_->progress[ui] = 0.0;

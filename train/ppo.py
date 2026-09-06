@@ -433,8 +433,18 @@ def main() -> None:
                       f"frac={frac}（上一档成功率 {rate:.0%}）", flush=True)
                 # 全批重置到新距离。**不等旧 episode 自然结束**：那些局面
                 # 还在旧课程上，混着两档会让「成功率」这个判据失去意义。
+                #
+                # ⚠️ **传 `elapsed0` 重新错峰。** 不传的话这一下把
+                # `stagger_first_episode` 好不容易错开的相位**又对齐回去**
+                # —— 实测到过：局数先是 40 / 122（错开了），第一次升档之后
+                # 又回到 378 / 634 / 890……整 256 一跳。**修一处不够，两处都要。**
+                # **问环境要这个数，不在这里拄一份 2400**：它与
+                # `WaveTiming` 有渊源、会改，而两侧不一致时什么都不会报错
+                # —— 只会让错峰偏移静静地错一截。
+                mt = env.max_ticks_per_episode
                 for i in range(cfg.envs):
-                    env.reset_one(i, make_worlds(cfg, 1, frac)[0])
+                    env.reset_one(i, make_worlds(cfg, 1, frac)[0],
+                                  i * mt // cfg.envs)
                 ep_ret[:] = 0.0
                 ep_hit[:] = 0.0
 

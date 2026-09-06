@@ -108,6 +108,11 @@ public:
     BatchedEnv& operator=(const BatchedEnv&) = delete;
 
     int batch_size() const noexcept;
+    // episode 的 tick 上界（`BatchedEnvInit::max_ticks_per_episode`）。
+    // **给 `train/` 读的**：批量重置要按它算错峰偏移，而把 2400 抄一份到
+    // Python 就是「同一件事写在两处」——那个数与 `WaveTiming` 有渊源，
+    // 会改。
+    int max_ticks_per_episode() const noexcept;
     Side side() const noexcept;
 
     // 本批**当前**每一局各有多少个活着的、属于 `side()` 的单位。
@@ -190,7 +195,15 @@ public:
          "bld_value", "scouts_killed", "losses", "progress"}};
 
     // 把第 `i` 局换成一个新局面。终局之后由 `train/` 调。
-    void reset_one(int i, WorldInit init);
+    //
+    // `elapsed0` = 新 episode 的计时起点（默认 0 = 真正的新局）。
+    //
+    // **它存在只为一个场景：批量重置。** 逐局自然终局时该传 0
+    // （那局本来就与其它局错峰着）；而 `train/` 升课程档时会把**全批**
+    // 重置一遍，那一下会把 `stagger_first_episode` 好不容易错开的相位
+    // **又对齐回去** —— 实测到过：错开只活到第一次升档，此后局数
+    // 又回到整 256 一跳。批量重置时传一个逐局递增的偏移就行。
+    void reset_one(int i, WorldInit init, int elapsed0 = 0);
 
     // 每一局最多打包多少个 **agent**。
     //

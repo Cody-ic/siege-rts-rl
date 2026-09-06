@@ -246,6 +246,8 @@ PYBIND11_MODULE(rts_native, m) {
              py::arg("stagger_first_episode") = true,
              py::arg("norms") = rts::ObsNorms{})
         .def_property_readonly("batch_size", &rts::BatchedEnv::batch_size)
+        .def_property_readonly("max_ticks_per_episode",
+                               &rts::BatchedEnv::max_ticks_per_episode)
         .def_property_readonly("side", &rts::BatchedEnv::side)
         .def_property_readonly(
             "unit_counts",
@@ -324,7 +326,9 @@ PYBIND11_MODULE(rts_native, m) {
             "列的顺序 = obs.TALLY_NAMES。权重不在 C++ 侧——那是训练超参，"
             "这一层只给「发生了什么」。")
         .def("reset_one", &rts::BatchedEnv::reset_one, py::arg("i"), py::arg("init"),
-             "把第 i 局换成一个新局面")
+             py::arg("elapsed0") = 0,
+             "把第 i 局换成一个新局面。`elapsed0` 只在**批量**重置时给"
+             "（逐局递增）：否则全批重置会把错开的相位又对齐回去。")
         .def(
             "state_hash",
             [](const rts::BatchedEnv& e, int i) {
