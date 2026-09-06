@@ -1079,7 +1079,10 @@ TEST_CASE("编队推进：行军途中前锋不甩开最慢兵种", "[demo]") {
     // 长度本来就不同（河可能切断其中一路，绕行 +7–13 格是地图给的、不是
     // 编队失败），混在一起算会把「佯攻路绕桥」误报成「前锋脱队」。
     constexpr float kSlack = 3.0f;   // 与 demo_driver.cpp 的 kFormationSlack 同步
-    const auto& spawns = a.world().view(rts::Side::Attacker).spawns();
+    // 直接问 `World`（`spawns()` 的所有者是它）——不绑引用到临时 `WorldView`
+    // 的成员上。实际不悬垂，但 GCC 的 `-Wdangling-reference` 证明不了，
+    // 而服务器侧 `-Werror` 开着。同 `demo_driver.cpp` 那处。
+    const auto& spawns = a.world().spawns();
     for (int t = 0; t < 4000; t += 10) {
         a.update(10);
         if (a.defeated()) break;
