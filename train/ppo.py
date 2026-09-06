@@ -275,7 +275,15 @@ def main() -> None:
 
     step_count, t_start = 0, time.perf_counter()
     ep_ret = np.zeros((cfg.envs,), dtype=np.float64)
-    recent: list[float] = []
+    # **两个列表，别合成一个。** `stage_ret` 是**本档**的回报（升档时清空，
+    # 因为换了任务、旧成功率不代表现在）；`all_ret` 是全程累计（只增，用于
+    # 显示「一共跑了多少局」）。
+    #
+    # 合成一个会自相矛盾：我第一版只有 `recent`，升档时 clear ⇒ 日志里
+    # 「完成 0 局」与紧邻一行的「上一档成功率 89%」同时出现，而「有战果」
+    # 那一列此后恒 0%（每次刚清空就统计）。
+    stage_ret: list[float] = []
+    all_ret: list[float] = []
 
     while step_count < cfg.total_steps:
         for t in range(T):
@@ -303,7 +311,8 @@ def main() -> None:
             # 终局的局重置。**重置时机归 train/**（`BatchedEnv::reset_one` 的
             # 注释：要按波次分层采样，重置成哪一波是训练侧的决定）。
             for i in np.nonzero(done_np)[0]:
-                recent.append(float(ep_ret[i]))
+                stage_ret.append(float(ep_ret[i]))
+                all_ret.append(float(ep_ret[i]))
                 ep_ret[i] = 0.0
                 env.reset_one(int(i), make_worlds(cfg, 1, frac)[0])
 
@@ -314,13 +323,13 @@ def main() -> None:
         #
         # **用成功率而不是固定步数**：固定步数会在学不会时硬推到下一档，
         # 而那正好回到「拿不到第一次奖励」那个死结。
-        if len(recent) >= cfg.promote_window and stage + 1 < len(cfg.curriculum):
-            win = recent[-cfg.promote_window:]
+        if len(stage_ret) >= cfg.promote_window and stage + 1 < len(cfg.curriculum):
+            win = stage_ret[-cfg.promote_window:]
             rate = sum(1 for r in win if r > 0.0) / len(win)
             if rate >= cfg.promote_at:
                 stage += 1
                 frac = cfg.curriculum[stage]
-                recent.clear()   # 换了任务，旧成功率不再代表现在
+                stage_ret.clear()   # 换了任务，旧成功率不再代表现在
                 print(f"  ↑ 升档：第 {stage + 1}/{len(cfg.curriculum)} 档 "
                       f"frac={frac}（上一档成功率 {rate:.0%}）", flush=True)
                 # 全批重置到新距离。**不等旧 episode 自然结束**：那些局面
@@ -375,12 +384,13 @@ def main() -> None:
                 opt.step()
 
         dt = time.perf_counter() - t_start
-        mean_ret = float(np.mean(recent[-50:])) if recent else float("nan")
-        win = recent[-cfg.promote_window:]
+        mean_ret = float(np.mean(stage_ret[-50:])) if stage_ret else float("nan")
+        win = stage_ret[-cfg.promote_window:]
         rate = (sum(1 for r in win if r > 0.0) / len(win)) if win else 0.0
         print(f"step {step_count:>9,}  {step_count / dt:>8,.0f} env-step/s  "
               f"档{stage + 1}(f={frac:.2f})  回报 {mean_ret:>9.2f}  "
-              f"有战果 {rate:>4.0%}  完成 {len(recent)} 局", flush=True)
+              f"有战果 {rate:>4.0%}  本档 {len(stage_ret)} 局  "
+              f"累计 {len(all_ret)} 局", flush=True)
 
     torch.save(net.state_dict(), "train/ppo_attacker.pt")
     print("权重已存 train/ppo_attacker.pt")
