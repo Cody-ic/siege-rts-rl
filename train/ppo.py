@@ -258,9 +258,18 @@ def main() -> None:
     N = cfg.envs * MU     # 一步里有多少个 agent 决策
     dev = cfg.device
 
+    ar_mu = np.arange(MU, dtype=np.int32).reshape(1, MU)
+
     def observe() -> tuple:
         env.observe(cells, self_v, glob)
         env.action_masks(masks)
+        # **哪些行是真的 agent。** `unit_counts` 是「这一局当前有几个属于
+        # `side` 的活 agent」，而张量里**前几段有效**（`observe` 的契约）
+        # ⇒ 判据是「行号 < 该局的 agent 数」，不是去猜掩码。
+        #
+        # 不拿「掩码只剩 Stop」当判据：那与「一个真的 agent 恰好无路可走」
+        # 不可区分，而后者在被围住时真的会发生。
+        live_np = ar_mu < np.asarray(env.unit_counts, dtype=np.int32).reshape(-1, 1)
         # (N, C, K, K)：torch 的卷积要 channel-first，而 C++ 写的是
         # channel-last（那一侧 `kObsCellFloats` 的布局是 K*K*C）。
         c = torch.from_numpy(cells).to(dev).view(N, K, K, C).permute(0, 3, 1, 2)
@@ -270,7 +279,7 @@ def main() -> None:
         # 掩码：uint16 位图 → (N, NA) 的 bool
         mk = torch.from_numpy(masks.astype(np.int32)).to(dev).view(N, 1)
         bits = torch.arange(NA, device=dev).view(1, NA)
-        return c, s, g, ((mk >> bits) & 1).bool()
+        return c, s, g, ((mk >> bits) & 1).bool(), torch.from_numpy(live_np.reshape(N))
 
     # ——rollout 缓冲——
     #
@@ -289,6 +298,12 @@ def main() -> None:
     buf_s = torch.zeros((T, N, SELF_N), pin_memory=pin)
     buf_g = torch.zeros((T, N, GLOB_N), pin_memory=pin)
     buf_m = torch.zeros((T, N, NA), dtype=torch.bool, pin_memory=pin)
+    # **哪些行是真 agent。** padding 行占多数（编成 9 支 vs `MAX_UNITS_PER_ENV`
+    # 32 ⇒ 28% 有效），把它们喂进更新是**纯浪费 + 稀释**：
+    #   * 策略项梯度恒 0（掩码只剩 Stop ⇒ log_prob ≡ 0，与参数无关）
+    #   * 价值项却不是 0 —— 它拿全零观测去拟合局级回报，占掉七成价值梯度
+    # 所以更新时只取 live 行。见更新那一段。
+    buf_live = torch.zeros((T, N), dtype=torch.bool, pin_memory=pin)
     buf_a = torch.zeros((T, N), dtype=torch.long, device=dev)
     buf_lp = torch.zeros((T, N), device=dev)
     buf_v = torch.zeros((T, N), device=dev)
@@ -308,8 +323,11 @@ def main() -> None:
     all_ret: list[float] = []
 
     while step_count < cfg.total_steps:
+        t_roll = 0.0
+        t_upd = 0.0
+        _t0 = time.perf_counter()
         for t in range(T):
-            c, s, g, mk = observe()
+            c, s, g, mk, lv = observe()
             with torch.no_grad():
                 logits, value = net(c, s, g)
                 # **掩掉非法动作**（CLAUDE.md 明令要做掩码）。
@@ -322,6 +340,7 @@ def main() -> None:
             buf_s[t] = s.to("cpu", non_blocking=True)
             buf_g[t] = g.to("cpu", non_blocking=True)
             buf_m[t] = mk.to("cpu", non_blocking=True)
+            buf_live[t] = lv
             buf_a[t], buf_v[t] = act, value
 
             acts_np[:] = act.view(cfg.envs, MU).to("cpu").numpy().astype(np.uint8)
@@ -365,8 +384,10 @@ def main() -> None:
                 ep_ret[:] = 0.0
 
         with torch.no_grad():
-            c, s, g, _ = observe()
+            c, s, g, _, _ = observe()
             _, next_v = net(c, s, g)
+        t_roll = time.perf_counter() - _t0
+        _t0 = time.perf_counter()
         adv = torch.zeros_like(buf_v)
         last = torch.zeros(N, device=dev)
         for t in reversed(range(T)):
@@ -388,11 +409,17 @@ def main() -> None:
         b_lp = buf_lp.reshape(T * N)
         b_adv = adv.reshape(T * N)
         b_ret = ret.reshape(T * N)
-        idx = np.arange(T * N)
-        mb = (T * N) // cfg.minibatches
+        # **只更新真 agent 的那些行**（见 `buf_live` 那段注释）。编成 9 支、
+        # 上限 32 ⇒ 大约七成的行是 padding，滤掉它们既省算力也不再稀释
+        # 价值头的梯度。**这不是近似**：那些行的策略梯度本来恒为 0。
+        idx = np.nonzero(buf_live.reshape(T * N).numpy())[0]
+        n_live = len(idx)
+        if n_live == 0:
+            raise SystemExit("一个 live agent 都没有 —— 编成或 unit_counts 坏了")
+        mb = max(1, n_live // cfg.minibatches)
         for _ in range(cfg.epochs):
             np.random.shuffle(idx)
-            for start in range(0, T * N, mb):
+            for start in range(0, n_live, mb):
                 jc = torch.from_numpy(idx[start:start + mb])   # CPU 侧索引
                 j = jc.to(dev)
                 logits, v = net(b_c[jc].to(dev, non_blocking=True),
@@ -414,6 +441,7 @@ def main() -> None:
                 nn.utils.clip_grad_norm_(net.parameters(), cfg.max_grad_norm)
                 opt.step()
 
+        t_upd = time.perf_counter() - _t0
         dt = time.perf_counter() - t_start
         mean_ret = float(np.mean(stage_ret[-50:])) if stage_ret else float("nan")
         win = stage_ret[-cfg.promote_window:]
@@ -421,7 +449,9 @@ def main() -> None:
         print(f"step {step_count:>9,}  {step_count / dt:>8,.0f} env-step/s  "
               f"档{stage + 1}(f={frac:.2f})  回报 {mean_ret:>9.2f}  "
               f"有战果 {rate:>4.0%}  本档 {len(stage_ret)} 局  "
-              f"累计 {len(all_ret)} 局", flush=True)
+              f"累计 {len(all_ret)} 局  "
+              f"[采样 {t_roll:.1f}s / 更新 {t_upd:.1f}s  "
+              f"live {n_live / (T * N):.0%}]", flush=True)
 
     torch.save(net.state_dict(), "train/ppo_attacker.pt")
     print("权重已存 train/ppo_attacker.pt")
