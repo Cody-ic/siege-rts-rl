@@ -62,6 +62,21 @@ struct BatchedEnvInit {
     // 落在那个区间的中点。它同时是不变量 1 的落地处：Python 一次调用推进 N 个
     // tick，而不是每 tick 回调一次上层。
     int ticks_per_step = 6;
+    // **episode 的时间上界（tick）。0 = 不设。**
+    //
+    // 没有它，`done` 只在「Keep 被拆」时置位 ⇒ 打不动的策略会把一局无限拖
+    // 下去。实测：随机策略在 170×170 图上推 **18000 tick 仍未终局**，于是
+    // 一个 rollout（384 tick）里一次奖励都收不到，PPO 学不动。
+    //
+    // 而 `CLAUDE.md` 要的正好相反：「**一波 = 一个 RL episode**」、
+    // 「**短 episode** 让 credit assignment 链条足够短，是训练可行的关键」。
+    // 地图校验器第 5 条也承诺 episode ∈ [1200, 2400] tick。
+    //
+    // 默认取 **2400**，与 `game::WaveTiming::assault_max_ticks` 同值——
+    // demo 侧早就有这条上界，训练侧此前漏了。**两处刻意不共享一个常量**：
+    // 那个是波次节奏的旋钮（配平要调它），这个是 episode 的定义（RL 的
+    // credit assignment 依赖它），改动的理由不同。
+    int max_ticks_per_episode = 2400;
     // 线程数。0 = 由实现挑（硬件并发数，上限批大小）。
     // **它不影响结果**，只影响墙钟时间——见文件头。
     int threads = 0;

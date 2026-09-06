@@ -31,6 +31,9 @@ struct BatchedEnv::Impl {
     // 逐局的逐单位动作切片。`submit_actions` 要「每局恰好等于活单位数」的一段，
     // 而策略给的是**逐编队**的动作 ⇒ 要在这里摊开。预分配同上：热路径不分配。
     std::vector<std::vector<UnitAction>> acts;
+    // 逐局已跑了多少 tick（`max_ticks_per_episode` 用）。
+    std::vector<int> elapsed;
+    int max_ticks = 0;
 
     // 把 `[lo, hi)` 这段环境分给若干线程跑同一个函数体。
     //
@@ -134,6 +137,8 @@ BatchedEnv::BatchedEnv(BatchedEnvInit init) : p_(std::make_unique<Impl>()) {
     p_->ids.resize(static_cast<std::size_t>(n));
     p_->leaders.resize(static_cast<std::size_t>(n));
     p_->acts.resize(static_cast<std::size_t>(n));
+    p_->elapsed.assign(static_cast<std::size_t>(n), 0);
+    p_->max_ticks = init.max_ticks_per_episode;
     p_->refresh_counts();
 }
 
@@ -254,7 +259,13 @@ void BatchedEnv::step(std::span<const UnitAction> actions,
         }
         w.submit_actions(p_->side, slice.data(), slice.size());
         w.advance(p_->ticks_per_step);
-        done[ui] = Impl::keep_alive(w) ? 0u : 1u;
+        p_->elapsed[ui] += p_->ticks_per_step;
+        // 终局：Keep 掉了**或**超时。超时那一半是 episode 的定义
+        // （见 `max_ticks_per_episode`）——没有它，打不动的策略会把一局
+        // 无限拖下去，而 PPO 收不到任何奖励信号。
+        const bool timed_out =
+            p_->max_ticks > 0 && p_->elapsed[ui] >= p_->max_ticks;
+        done[ui] = (Impl::keep_alive(w) && !timed_out) ? 0u : 1u;
     });
     p_->refresh_counts();
 }
@@ -317,6 +328,7 @@ void BatchedEnv::reset_one(int i, WorldInit init) {
     p_->worlds[ui]->enumerate_units(p_->side, p_->ids[ui]);
     p_->worlds[ui]->enumerate_squads(p_->side, p_->leaders[ui]);
     p_->counts[ui] = static_cast<int>(p_->leaders[ui].size());
+    p_->elapsed[ui] = 0;   // 新 episode 从 0 开始计时
 }
 
 }  // namespace rts

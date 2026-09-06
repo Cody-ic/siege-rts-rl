@@ -463,3 +463,53 @@ TEST_CASE("战果计数：不进 state_hash——它是旁观计数器", "[batch
     CHECK(a.state_hash() == h0);
     CHECK(a.state_hash() == c.state_hash());
 }
+
+TEST_CASE("episode 时间上界：打不动也要收场", "[batchenv]") {
+    // 没有它，`done` 只在「Keep 被拆」时置位 ⇒ 打不动的策略把一局无限拖下去。
+    // 实测：随机策略在 170×170 图上推 **18000 tick 仍未终局**，于是一个
+    // rollout（384 tick）里一次奖励都收不到，PPO 学不动。
+    //
+    // 而 CLAUDE.md 要的是「一波 = 一个 RL episode」「**短 episode** 让 credit
+    // assignment 链条足够短，是训练可行的关键」。
+    rts::BatchedEnvInit bi;
+    bi.worlds.push_back(one(0, 1));
+    bi.side = rts::Side::Attacker;
+    bi.threads = 1;
+    bi.ticks_per_step = 6;
+    bi.max_ticks_per_episode = 60;   // 10 步就该到点
+    rts::BatchedEnv e(std::move(bi));
+    Bufs b(1);
+    std::vector<rts::UnitAction> acts(
+        static_cast<std::size_t>(rts::BatchedEnv::kMaxUnitsPerEnv),
+        rts::UnitAction::Stop);   // 什么都不做 ⇒ Keep 永远不会掉
+
+    int steps_to_done = -1;
+    for (int k = 0; k < 40; ++k) {
+        e.step(acts, b.done);
+        if (b.done[0]) { steps_to_done = k + 1; break; }
+    }
+    CAPTURE(steps_to_done);
+    CHECK(steps_to_done == 10);   // 60 tick / 6 = 10 步
+
+    // **重置要把计时清零**，否则新 episode 一开始就是「已超时」。
+    e.reset_one(0, one(1, 1));
+    e.step(acts, b.done);
+    CHECK(b.done[0] == 0u);
+}
+
+TEST_CASE("episode 时间上界：置 0 = 不设（旧行为）", "[batchenv]") {
+    rts::BatchedEnvInit bi;
+    bi.worlds.push_back(one(0, 1));
+    bi.side = rts::Side::Attacker;
+    bi.threads = 1;
+    bi.max_ticks_per_episode = 0;
+    rts::BatchedEnv e(std::move(bi));
+    Bufs b(1);
+    std::vector<rts::UnitAction> acts(
+        static_cast<std::size_t>(rts::BatchedEnv::kMaxUnitsPerEnv),
+        rts::UnitAction::Stop);
+    for (int k = 0; k < 60; ++k) {
+        e.step(acts, b.done);
+        CHECK(b.done[0] == 0u);   // Keep 还在、且不设上界 ⇒ 永不终局
+    }
+}
