@@ -133,16 +133,33 @@ def make_worlds(cfg: Cfg, n: int) -> list:
     而 `CLAUDE.md` 的上线顺序是「战术层必须先跑通，不要两层同时上」。
 
     编队按 `game::squad_cap_of` 的规格：`Ghoul` 每队 3 个。
+
+    ⚠️ **必须摆在集结点上，而坐标要从地图读**（`R.map_sites`）。
+    我第一版写死了 (20.5, 30.5) 那一带——那是 170×170 图的**空角落**，
+    离 `keep` 65 格、离最近的集结点 100 多格。后果是 12000 tick 里
+    战果恒零、掩码里连一个攻击位都没亮过，而训练**照样跑得很顺**
+    （env-step/s 好看、loss 在降、回报恒 nan 因为一局都没结束）。
+    这是「摆错地方不报错」那一类静默失败，所以坐标不许写死。
     """
     gh = R.obs.UNIT_TYPE_NAMES.index("Ghoul")
+    sites = R.map_sites(cfg.map_path)
+    spawns = list(sites["spawns"])
+    if not spawns:
+        raise SystemExit(f"{cfg.map_path} 没有集结点——攻方无处生成")
     squads, per = 9, 3      # 9 支 × 3 = 27 个单位，编队数 9 < MAX_UNITS_PER_ENV
     out = []
     for i in range(n):
+        # 每局挑一个集结点（轮换）。**宏观层还没上**，所以这里是轮换而不是
+        # 决策——CLAUDE.md「战术层必须先跑通，不要两层同时上」。
+        sx, sy = spawns[(cfg.seed + i) % len(spawns)]
         atk = []
         for q in range(squads):
             for m in range(per):
-                # 摆在同一带上、逐队错开，避免生成在同一坐标
-                atk.append((gh, 20.5 + m + q * 0.25, 30.5 + q, 1, q))
+                # 7×7 环上错开落位（同 `spawn_wave` 的做法）：同坐标生成会
+                # 让单位挤在一起。
+                dx = (q % 3) - 1 + m * 0.3
+                dy = (q // 3) - 1
+                atk.append((gh, sx + 0.5 + dx, sy + 0.5 + dy, 1, q))
         out.append(R.make_world_init(cfg.map_path, cfg.stats_path,
                                      seed=cfg.seed * 1000 + i,
                                      nominal_level=1, attackers=atk))

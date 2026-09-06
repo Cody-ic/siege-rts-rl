@@ -201,6 +201,31 @@ PYBIND11_MODULE(rts_native, m) {
         "因为它是宏观层的产物，而 World 自己不生波。squad = 编队号，-1 = 散兵；"
         "**agent = 编队**，所以观测/动作张量的第二维是编队数而不是单位数。");
 
+    // 地图上的**集结点与堡垒位置**。
+    //
+    // `train/` 必须知道兵该摆哪：`make_world_init(attackers=...)` 要坐标，
+    // 而**摆错地方不报错**——我第一次跑 PPO 就把兵摆在图的空角落
+    // （离 keep 65 格），于是 12000 tick 里战果全零、掩码里连一个攻击位都
+    // 没亮过，而训练照样「跑得很顺」。所以这个查询不是便利函数，
+    // 是防那一类静默失败的。
+    m.def(
+        "map_sites",
+        [](const std::string& map_path) {
+            const game::MapData map = game::MapLoader::from_file(map_path);
+            py::dict d;
+            py::list sp;
+            for (const game::SpawnPoint& s : map.spawns()) {
+                sp.append(py::make_tuple(s.pos.i, s.pos.j));
+            }
+            d["spawns"] = sp;
+            d["keep"] = py::make_tuple(map.keep().i, map.keep().j);
+            d["size"] = py::make_tuple(map.width(), map.height());
+            return d;
+        },
+        py::arg("map_path"),
+        "读地图的集结点 / 堡垒 / 图幅。攻方编成该摆在集结点上——摆在别处"
+        "不会报错，只会让 episode 永不终局、战果恒零。");
+
     py::class_<rts::BatchedEnv>(m, "BatchedEnv")
         .def(py::init([](std::vector<rts::WorldInit> worlds, rts::Side side,
                          int ticks_per_step, int threads, rts::ObsNorms norms) {
