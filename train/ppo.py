@@ -211,6 +211,17 @@ def main() -> None:
     torch.manual_seed(cfg.seed)
     np.random.seed(cfg.seed)
 
+    # **开跑前看一眼 GPU 还剩多少。** 这台机器四人共用，而
+    # `训练服务器环境.md` 明写「GPU 空闲不等于 GPU 归你，跑之前先
+    # `nvidia-smi`」。实测撞过一次：别人占 66.7 GiB、只剩 1.2 GiB，
+    # 于是 rollout 缓冲一分配就 `OutOfMemoryError`——**而那时已经跑了
+    # 五分钟、课程都升到第 4 档了**，日志末尾才是那条异常。早查早报。
+    if cfg.device != "cpu" and torch.cuda.is_available():
+        free_b, total_b = torch.cuda.mem_get_info()
+        print(f"GPU 空闲 {free_b / 2**30:.1f} / {total_b / 2**30:.1f} GiB")
+        if free_b < 4 * 2**30:
+            print("  ⚠️ 空闲不足 4 GiB —— 别人在用。要么等，要么 --device cpu")
+
     # ——布局一律从模块读（见文件头）——
     K, C = R.obs.K, R.obs.CHANNEL_COUNT
     SELF_N, GLOB_N = R.obs.SELF_COUNT, R.obs.GLOBAL_COUNT
@@ -261,12 +272,23 @@ def main() -> None:
         bits = torch.arange(NA, device=dev).view(1, NA)
         return c, s, g, ((mk >> bits) & 1).bool()
 
-    # rollout 缓冲
+    # ——rollout 缓冲——
+    #
+    # ⚠️ **观测那三块放 CPU（pinned），不放 GPU。** `buf_c` 是
+    # `T×N×C×K×K×4` 字节 = 64×4096×14×15×15×4 ≈ **3.1 GiB**，而这台机器
+    # 四人共用：实测跑的时候别人占着 66.7 GiB，只剩 1.2 GiB ⇒ 直接
+    # `torch.OutOfMemoryError`。（`训练服务器环境.md` 明写「GPU 空闲不等于
+    # GPU 归你」。）
+    #
+    # 而它**本来就不需要常驻显存**：更新时按 minibatch 取一小片，
+    # `pin_memory` + `non_blocking` 的搬运在这个尺寸上开销可忽略。
+    # 小的那几块（动作/回报/价值）留在 GPU——它们参与 GAE 的逐步递推。
     T = cfg.rollout
-    buf_c = torch.zeros((T, N, C, K, K), device=dev)
-    buf_s = torch.zeros((T, N, SELF_N), device=dev)
-    buf_g = torch.zeros((T, N, GLOB_N), device=dev)
-    buf_m = torch.zeros((T, N, NA), dtype=torch.bool, device=dev)
+    pin = dev != "cpu"
+    buf_c = torch.zeros((T, N, C, K, K), pin_memory=pin)
+    buf_s = torch.zeros((T, N, SELF_N), pin_memory=pin)
+    buf_g = torch.zeros((T, N, GLOB_N), pin_memory=pin)
+    buf_m = torch.zeros((T, N, NA), dtype=torch.bool, pin_memory=pin)
     buf_a = torch.zeros((T, N), dtype=torch.long, device=dev)
     buf_lp = torch.zeros((T, N), device=dev)
     buf_v = torch.zeros((T, N), device=dev)
@@ -295,7 +317,11 @@ def main() -> None:
                 dist = torch.distributions.Categorical(logits=logits)
                 act = dist.sample()
                 buf_lp[t] = dist.log_prob(act)
-            buf_c[t], buf_s[t], buf_g[t], buf_m[t] = c, s, g, mk
+            # 搬回 CPU 存（见上面那段：观测缓冲不常驻显存）。
+            buf_c[t] = c.to("cpu", non_blocking=True)
+            buf_s[t] = s.to("cpu", non_blocking=True)
+            buf_g[t] = g.to("cpu", non_blocking=True)
+            buf_m[t] = mk.to("cpu", non_blocking=True)
             buf_a[t], buf_v[t] = act, value
 
             acts_np[:] = act.view(cfg.envs, MU).to("cpu").numpy().astype(np.uint8)
@@ -353,6 +379,7 @@ def main() -> None:
         ret = adv + buf_v
 
         # ——更新——
+        # 观测那几块留在 CPU，按 minibatch 搬（见缓冲区那段注释）。
         b_c = buf_c.reshape(T * N, C, K, K)
         b_s = buf_s.reshape(T * N, SELF_N)
         b_g = buf_g.reshape(T * N, GLOB_N)
@@ -366,9 +393,13 @@ def main() -> None:
         for _ in range(cfg.epochs):
             np.random.shuffle(idx)
             for start in range(0, T * N, mb):
-                j = torch.from_numpy(idx[start:start + mb]).to(dev)
-                logits, v = net(b_c[j], b_s[j], b_g[j])
-                logits = logits.masked_fill(~b_m[j], float("-inf"))
+                jc = torch.from_numpy(idx[start:start + mb])   # CPU 侧索引
+                j = jc.to(dev)
+                logits, v = net(b_c[jc].to(dev, non_blocking=True),
+                                b_s[jc].to(dev, non_blocking=True),
+                                b_g[jc].to(dev, non_blocking=True))
+                logits = logits.masked_fill(
+                    ~b_m[jc].to(dev, non_blocking=True), float("-inf"))
                 dist = torch.distributions.Categorical(logits=logits)
                 lp = dist.log_prob(b_a[j])
                 ratio = (lp - b_lp[j]).exp()
