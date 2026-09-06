@@ -2,9 +2,11 @@
 
 #include <algorithm>
 #include <exception>
+#include <optional>
 #include <stdexcept>
 #include <thread>
 
+#include "rts/flow.hpp"
 #include "rts/roster.hpp"
 #include "rts/world_view.hpp"
 
@@ -25,6 +27,29 @@ struct BatchedEnv::Impl {
     // 输出 vector，而多线程共用一个就是数据竞争。预分配在这里，`step` 里不再分配
     // （热路径不分配，同 `obs_pack` 那条理由）。
     std::vector<std::vector<UnitId>> ids;
+    // 逐局的**编队队长**句柄（`enumerate_squads`）。观测按它摊行、动作按它取，
+    // 因为 **agent = 编队**（`kMaxUnitsPerEnv` 那段注释）。
+    std::vector<std::vector<UnitId>> leaders;
+    // 逐局的逐单位动作切片。`submit_actions` 要「每局恰好等于活单位数」的一段，
+    // 而策略给的是**逐编队**的动作 ⇒ 要在这里摊开。预分配同上：热路径不分配。
+    std::vector<std::vector<UnitAction>> acts;
+    // 逐局已跑了多少 tick（`max_ticks_per_episode` 用）。
+    std::vector<int> elapsed;
+    int max_ticks = 0;
+    // 逐局的 flow field 缓存：`(兵种 × 等级档)`，每次 `observe` 重算。
+    //
+    // **`observe` 里必须喂方向场，否则策略没有任何东西指向目标。**
+    // 此前这里传 `nullptr`（`obs_pack.hpp` 说「训练早期没有宏观目标时是正常
+    // 形态」），而实测那让 `FlowDi`/`FlowDj` 恒 0 ⇒ 14 条通道里只有 4 条非零，
+    // 攻方在 50 格外、视野半径只有 7 格、`enemy_*` 全 0 —— **观测里没有任何
+    // 东西告诉策略该往哪走**。40 万步训练回报恒 0.00 就是这么来的，
+    // 而同一个局面用「一路朝 keep 走」的定向策略能打出 8515 点建筑伤害。
+    //
+    // 重算节律取「每次 `observe`」而不是缓存跨步：破坏代价读实时墙血
+    // （`flow.hpp` 明写「重算节律归调用方」），而 `game::DemoBattle` 取的
+    // 也是每个决策拍。
+    std::vector<std::vector<std::optional<FlowField>>> flows;
+    FlowTiering tiering{};
 
     // 把 `[lo, hi)` 这段环境分给若干线程跑同一个函数体。
     //
@@ -93,10 +118,12 @@ struct BatchedEnv::Impl {
     void refresh_counts() {
         const int n = static_cast<int>(worlds.size());
         for (int i = 0; i < n; ++i) {
-            worlds[static_cast<std::size_t>(i)]->enumerate_units(
-                side, ids[static_cast<std::size_t>(i)]);
-            counts[static_cast<std::size_t>(i)] =
-                static_cast<int>(ids[static_cast<std::size_t>(i)].size());
+            const std::size_t ui = static_cast<std::size_t>(i);
+            worlds[ui]->enumerate_units(side, ids[ui]);
+            worlds[ui]->enumerate_squads(side, leaders[ui]);
+            // `counts` 记的是**编队数**（= agent 数），因为张量的第二维是 agent。
+            // 逐单位那一侧的长度由 `ids[ui].size()` 给，两者不是一回事。
+            counts[ui] = static_cast<int>(leaders[ui].size());
         }
     }
 };
@@ -124,6 +151,15 @@ BatchedEnv::BatchedEnv(BatchedEnvInit init) : p_(std::make_unique<Impl>()) {
     }
     p_->counts.assign(static_cast<std::size_t>(n), 0);
     p_->ids.resize(static_cast<std::size_t>(n));
+    p_->leaders.resize(static_cast<std::size_t>(n));
+    p_->acts.resize(static_cast<std::size_t>(n));
+    p_->elapsed.assign(static_cast<std::size_t>(n), 0);
+    p_->flows.resize(static_cast<std::size_t>(n));
+    for (auto& f : p_->flows) {
+        f.resize(static_cast<std::size_t>(kUnitTypeCount) *
+                 static_cast<std::size_t>(kFlowTierCount));
+    }
+    p_->max_ticks = init.max_ticks_per_episode;
     p_->refresh_counts();
 }
 
@@ -171,8 +207,13 @@ void BatchedEnv::observe(std::span<float> cells, std::span<float> self_vec,
         pack_globals(v, p_->norms,
                      globals.subspan(ui * static_cast<std::size_t>(kObsGlobalFloats),
                                      static_cast<std::size_t>(kObsGlobalFloats)));
-        const std::vector<UnitId>& ids = p_->ids[ui];
+        // **按编队队长摊行**（agent = 编队）。队长的观测代表整队——这正是
+        // 「group action 是共享子目标」那条形状要求的（见 `kMaxUnitsPerEnv`）。
+        const std::vector<UnitId>& ids = p_->leaders[ui];
         const int m = std::min(static_cast<int>(ids.size()), kMaxUnitsPerEnv);
+        // 本局的 field 全部作废重算（墙血变了破坏代价就变）。
+        for (auto& f : p_->flows[ui]) f.reset();
+        const GridPos goal[1] = {w.keep_pos()};
         for (int u = 0; u < m; ++u) {
             // **输出位置只由 (i, u) 决定**，与哪个线程、什么时候跑完无关。
             const std::size_t co = ui * per_cells +
@@ -184,9 +225,19 @@ void BatchedEnv::observe(std::span<float> cells, std::span<float> self_vec,
             // 全局标量已经写过一份，这里给 `pack_unit_obs` 一段临时的：它会再写一遍
             // 同样的值（幂等），换来的是「一个单位一次调完」这个更难用错的接口。
             float scratch[kObsGlobalFloats] = {};
-            // `flow` 传 `nullptr` ⇒ `FlowDi` / `FlowDj` 恒 0，见头文件 `observe`
-            // 那段（那两条通道本身有测试钉着，在 `tests/obs_pack_test.cpp`）。
-            pack_unit_obs(v, ids[static_cast<std::size_t>(u)], nullptr, p_->norms,
+            // **喂方向场**（2026-09-06；此前是 `nullptr`）。按 `(兵种, 档)`
+            // 缓存，所以一局里同兵种同档的 agent 共用一张，不是每个都重算。
+            const UnitId self = ids[static_cast<std::size_t>(u)];
+            const UnitType mover = w.unit_type(self);
+            const int tier = flow_tier_of(w.unit_level(self), p_->tiering);
+            const std::size_t fi = static_cast<std::size_t>(mover) *
+                                       static_cast<std::size_t>(kFlowTierCount) +
+                                   static_cast<std::size_t>(tier);
+            std::optional<FlowField>& fld = p_->flows[ui][fi];
+            if (!fld) {
+                fld.emplace(FlowField::compute(v, mover, tier, goal, p_->tiering));
+            }
+            pack_unit_obs(v, self, &*fld, p_->norms,
                           cells.subspan(co, static_cast<std::size_t>(kObsCellFloats)),
                           self_vec.subspan(so, static_cast<std::size_t>(kObsSelfFloats)),
                           std::span<float>(scratch, kObsGlobalFloats));
@@ -203,26 +254,105 @@ void BatchedEnv::step(std::span<const UnitAction> actions,
         throw ContractError("BatchedEnv::step: actions 必须是 batch × kMaxUnitsPerEnv，"
                             "done 必须是 batch");
     }
-    // 提交与推进。**每局一份动作切片，长度必须恰好等于该局的活单位数**
-    // （`submit_actions` 自己有这条检查，见 `world.hpp:541`）——所以定长张量里
-    // 多出来的位置在这里被裁掉，而不是喂进去。
+    // 提交与推进。**张量的第二维是编队（agent），而 `submit_actions` 要的是
+    // 逐单位**（长度恰好等于该局活单位数，它自己有这条检查）⇒ 这里要把
+    // 编队的动作**摊给队里每个成员**。
+    //
+    // ⚠️ **摊开的是「动作」，而这与 `game/` 那一侧刻意不广播方向是两回事。**
+    // 那边的结论（TStarBot2 / SupCom2 / OpenRA…，见 `demo_driver.cpp` 里那段）
+    // 是「脚本的战术层该逐单位算」；而这里是 **RL 的动作面**：策略每支编队
+    // 只输出一个动作，那是「27 个 agent」这个设计的定义本身。将来若要让 RL
+    // 也发「子目标」而不是「动作」，改的是这一层的语义（动作枚举 → 目标集
+    // 下标），不是这段摊开的代码。
     p_->for_each_env(n, [&](int i) {
         const std::size_t ui = static_cast<std::size_t>(i);
         World& w = *p_->worlds[ui];
-        const int m = std::min(p_->counts[ui], kMaxUnitsPerEnv);
-        std::vector<UnitAction> slice(
-            actions.begin() + static_cast<std::ptrdiff_t>(ui) * kMaxUnitsPerEnv,
-            actions.begin() + static_cast<std::ptrdiff_t>(ui) * kMaxUnitsPerEnv + m);
-        // 该局单位数超过 `kMaxUnitsPerEnv` 时，尾部那些没有动作可给——补 `Stop`。
-        // **`Stop` 永远合法**（`action.hpp`），所以这条补齐不会造出非法输入。
-        // 攻方编成位硬性封顶 40 = `kMaxUnitsPerEnv`，所以这条分支在攻方一侧
-        // 本不该发生；留着是因为守方那侧上限随堡垒等级涨，将来会走到。
-        slice.resize(static_cast<std::size_t>(p_->counts[ui]), UnitAction::Stop);
+        const std::vector<UnitId>& units = p_->ids[ui];
+        const int nsq = std::min(p_->counts[ui], kMaxUnitsPerEnv);
+        std::vector<UnitAction>& slice = p_->acts[ui];
+        // 默认 `Stop`：**它永远合法**（`action.hpp`），所以「编队数超出张量、
+        // 尾部编队没有动作可给」不会造出非法输入。攻方编队硬顶 27 <
+        // `kMaxUnitsPerEnv` 32，所以那条分支在攻方一侧不该发生；守方是散兵、
+        // 上限随堡垒等级涨（`8+2K`），将来会走到。
+        slice.assign(units.size(), UnitAction::Stop);
+        for (std::size_t k = 0; k < units.size(); ++k) {
+            const std::uint16_t sq = w.unit_squad(units[k]);
+            // 找这个单位所属编队在 `leaders` 里的行号。**编队号不等于行号**
+            // ——`enumerate_squads` 跳过了空编队、散兵还排在后面，所以只能查。
+            // 编队数 ≤ 32，线性查足够；换成映射就要引入一个容器，而那正是
+            // 确定性守卫盯的东西。
+            for (int q = 0; q < nsq; ++q) {
+                const UnitId lead = p_->leaders[ui][static_cast<std::size_t>(q)];
+                const bool same = (sq == kNoSquad) ? (lead == units[k])
+                                                   : (w.unit_squad(lead) == sq);
+                if (!same) continue;
+                slice[k] = actions[static_cast<std::size_t>(ui) * kMaxUnitsPerEnv +
+                                   static_cast<std::size_t>(q)];
+                break;
+            }
+        }
         w.submit_actions(p_->side, slice.data(), slice.size());
         w.advance(p_->ticks_per_step);
-        done[ui] = Impl::keep_alive(w) ? 0u : 1u;
+        p_->elapsed[ui] += p_->ticks_per_step;
+        // 终局：Keep 掉了**或**超时。超时那一半是 episode 的定义
+        // （见 `max_ticks_per_episode`）——没有它，打不动的策略会把一局
+        // 无限拖下去，而 PPO 收不到任何奖励信号。
+        const bool timed_out =
+            p_->max_ticks > 0 && p_->elapsed[ui] >= p_->max_ticks;
+        done[ui] = (Impl::keep_alive(w) && !timed_out) ? 0u : 1u;
     });
     p_->refresh_counts();
+}
+
+void BatchedEnv::action_masks(std::span<std::uint16_t> out) const {
+    const int n = batch_size();
+    if (out.size() != static_cast<std::size_t>(n) *
+                          static_cast<std::size_t>(kMaxUnitsPerEnv)) {
+        throw ContractError(
+            "BatchedEnv::action_masks: out 必须是 batch × kMaxUnitsPerEnv");
+    }
+    // 尾部（没有 agent 的行）必须清成「只允许 Stop」而不是 0：全 0 掩码会让
+    // 策略侧的 softmax 得到全 -inf ⇒ NaN。`Stop` 永远合法（`action.hpp`）。
+    const std::uint16_t only_stop =
+        static_cast<std::uint16_t>(1u << static_cast<unsigned>(UnitAction::Stop));
+    std::fill(out.begin(), out.end(), only_stop);
+    p_->for_each_env(n, [&](int i) {
+        const std::size_t ui = static_cast<std::size_t>(i);
+        const World& w = *p_->worlds[ui];
+        const std::vector<UnitId>& leaders = p_->leaders[ui];
+        const int m = std::min(static_cast<int>(leaders.size()), kMaxUnitsPerEnv);
+        for (int q = 0; q < m; ++q) {
+            out[ui * static_cast<std::size_t>(kMaxUnitsPerEnv) +
+                static_cast<std::size_t>(q)] =
+                w.action_mask(leaders[static_cast<std::size_t>(q)]);
+        }
+    });
+}
+
+void BatchedEnv::take_tally(std::span<float> out) {
+    const int n = batch_size();
+    if (out.size() != static_cast<std::size_t>(n) *
+                          static_cast<std::size_t>(kTallyFields)) {
+        throw ContractError("BatchedEnv::take_tally: out 必须是 batch × kTallyFields");
+    }
+    // **不并行**：它是每步一次的 O(batch × 7) 拷贝，起线程的开销比它自己大。
+    // 而且 `take_tally` 会清零 ⇒ 它是写操作，放进 `for_each_env` 只会让
+    // 「为什么结果确定」的论证变复杂（那一段的注释专门讲这个）。
+    for (int i = 0; i < n; ++i) {
+        const std::size_t ui = static_cast<std::size_t>(i);
+        const World::Tally t = p_->worlds[ui]->take_tally(p_->side);
+        const std::size_t o = ui * static_cast<std::size_t>(kTallyFields);
+        // 顺序 = `kTallyNames`。**float 装 int64 会在很大的数上丢精度**，
+        // 但这些量的量级是伤害/造价（几千到几万），float 的 24 位有效位
+        // 装得下——而 `train/` 那侧本来就要转 float32 喂网络。
+        out[o + 0] = static_cast<float>(t.dmg_to_units);
+        out[o + 1] = static_cast<float>(t.dmg_to_blds);
+        out[o + 2] = static_cast<float>(t.units_killed);
+        out[o + 3] = static_cast<float>(t.blds_destroyed);
+        out[o + 4] = static_cast<float>(t.bld_value);
+        out[o + 5] = static_cast<float>(t.scouts_killed);
+        out[o + 6] = static_cast<float>(t.losses);
+    }
 }
 
 void BatchedEnv::reset_one(int i, WorldInit init) {
@@ -230,7 +360,9 @@ void BatchedEnv::reset_one(int i, WorldInit init) {
     const std::size_t ui = static_cast<std::size_t>(i);
     p_->worlds[ui] = std::make_unique<World>(std::move(init));
     p_->worlds[ui]->enumerate_units(p_->side, p_->ids[ui]);
-    p_->counts[ui] = static_cast<int>(p_->ids[ui].size());
+    p_->worlds[ui]->enumerate_squads(p_->side, p_->leaders[ui]);
+    p_->counts[ui] = static_cast<int>(p_->leaders[ui].size());
+    p_->elapsed[ui] = 0;   // 新 episode 从 0 开始计时
 }
 
 }  // namespace rts

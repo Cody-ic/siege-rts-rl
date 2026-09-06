@@ -95,7 +95,18 @@ PYBIND11_MODULE(rts_native, m) {
     obs.attr("CELL_FLOATS") = rts::kObsCellFloats;
     obs.attr("SELF_FLOATS") = rts::kObsSelfFloats;
     obs.attr("GLOBAL_FLOATS") = rts::kObsGlobalFloats;
+    // **它是 agent 数（编队数）的上限，不是单位数。** 名字保留是为了不破
+    // 下游，但语义 2026-09-05 变了 —— `train/` 侧一律从这里读，别抄数。
     obs.attr("MAX_UNITS_PER_ENV") = rts::BatchedEnv::kMaxUnitsPerEnv;
+    obs.attr("NO_SQUAD") = rts::kNoSquad;
+    obs.attr("TALLY_FIELDS") = rts::BatchedEnv::kTallyFields;
+    {
+        py::list tn;
+        for (const std::string_view n : rts::BatchedEnv::kTallyNames) {
+            tn.append(std::string(n));
+        }
+        obs.attr("TALLY_NAMES") = tn;
+    }
     obs.attr("UNIT_TYPE_COUNT") = rts::kUnitTypeCount;
     obs.attr("ACTION_COUNT") = rts::kUnitActionCount;
 
@@ -150,7 +161,7 @@ PYBIND11_MODULE(rts_native, m) {
         "make_world_init",
         [](const std::string& map_path, const std::string& stats_path,
            std::uint64_t seed, std::int32_t nominal_level,
-           const std::vector<std::tuple<int, float, float, int>>& attackers) {
+           const std::vector<std::tuple<int, float, float, int, int>>& attackers) {
             const game::MapData map = game::MapLoader::from_file(map_path);
             const rts::StatsTable stats = game::StatsLoader::from_file(stats_path);
             rts::WorldInit init =
@@ -165,36 +176,72 @@ PYBIND11_MODULE(rts_native, m) {
             //
             // 不给这个参数的话 `BatchedEnv` 会拿到一个**永远没有攻方单位**的局面
             // ——实测：推 2400 tick 仍然是 0。那不报错，只是每一步都在打包空张量。
-            for (const auto& [t, x, y, lvl] : attackers) {
+            // 第五个字段是**编队号**（`squad`，-1 = `kNoSquad` 散兵）。
+            // **agent = 编队**（`CLAUDE.md`「攻方 RL 控制的是每一支编队」），
+            // 所以张量的第二维是编队而不是单位 ⇒ 编成必须能表达分队，
+            // 否则 `BatchedEnv` 只能把每个单位当一支、`kMaxUnitsPerEnv`
+            // 立刻不够（攻方 ~70 个单位 vs 32 行）。
+            for (const auto& [t, x, y, lvl, sq] : attackers) {
                 const auto ut = static_cast<rts::UnitType>(t);
                 const std::int64_t hp = stats.of(ut).max_hp;
+                const auto squad = sq < 0 ? rts::kNoSquad
+                                          : static_cast<std::uint16_t>(sq);
                 init.units.push_back(rts::UnitInit{ut, rts::Vec2{x, y},
-                                                   lvl, hp, hp});
+                                                   lvl, hp, hp, squad});
             }
             return init;
         },
         py::arg("map_path"), py::arg("stats_path"), py::arg("seed") = 0,
         py::arg("nominal_level") = 1,
-        py::arg("attackers") = std::vector<std::tuple<int, float, float, int>>{},
+        py::arg("attackers") = std::vector<std::tuple<int, float, float, int, int>>{},
         "从地图 JSON + 数值表 JSON 装配建局参数。走的是游戏自己那条路"
         "（game::MapLoader / StatsLoader / make_world_init），"
         "所以 Python 造的局面与双击 exe 玩的局面是同一个来源。"
-        "attackers 是 [(unit_type, x, y, level), ...]：**本波编成由调用方给**，"
-        "因为它是宏观层的产物，而 World 自己不生波。");
+        "attackers 是 [(unit_type, x, y, level, squad), ...]：**本波编成由调用方给**，"
+        "因为它是宏观层的产物，而 World 自己不生波。squad = 编队号，-1 = 散兵；"
+        "**agent = 编队**，所以观测/动作张量的第二维是编队数而不是单位数。");
+
+    // 地图上的**集结点与堡垒位置**。
+    //
+    // `train/` 必须知道兵该摆哪：`make_world_init(attackers=...)` 要坐标，
+    // 而**摆错地方不报错**——我第一次跑 PPO 就把兵摆在图的空角落
+    // （离 keep 65 格），于是 12000 tick 里战果全零、掩码里连一个攻击位都
+    // 没亮过，而训练照样「跑得很顺」。所以这个查询不是便利函数，
+    // 是防那一类静默失败的。
+    m.def(
+        "map_sites",
+        [](const std::string& map_path) {
+            const game::MapData map = game::MapLoader::from_file(map_path);
+            py::dict d;
+            py::list sp;
+            for (const game::SpawnPoint& s : map.spawns()) {
+                sp.append(py::make_tuple(s.pos.i, s.pos.j));
+            }
+            d["spawns"] = sp;
+            d["keep"] = py::make_tuple(map.keep().i, map.keep().j);
+            d["size"] = py::make_tuple(map.width(), map.height());
+            return d;
+        },
+        py::arg("map_path"),
+        "读地图的集结点 / 堡垒 / 图幅。攻方编成该摆在集结点上——摆在别处"
+        "不会报错，只会让 episode 永不终局、战果恒零。");
 
     py::class_<rts::BatchedEnv>(m, "BatchedEnv")
         .def(py::init([](std::vector<rts::WorldInit> worlds, rts::Side side,
-                         int ticks_per_step, int threads, rts::ObsNorms norms) {
+                         int ticks_per_step, int threads, int max_ticks_per_episode,
+                         rts::ObsNorms norms) {
                  rts::BatchedEnvInit bi;
                  bi.worlds = std::move(worlds);
                  bi.side = side;
                  bi.ticks_per_step = ticks_per_step;
                  bi.threads = threads;
+                 bi.max_ticks_per_episode = max_ticks_per_episode;
                  bi.norms = norms;
                  return std::make_unique<rts::BatchedEnv>(std::move(bi));
              }),
              py::arg("worlds"), py::arg("side") = rts::Side::Attacker,
              py::arg("ticks_per_step") = 6, py::arg("threads") = 0,
+             py::arg("max_ticks_per_episode") = 2400,
              py::arg("norms") = rts::ObsNorms{})
         .def_property_readonly("batch_size", &rts::BatchedEnv::batch_size)
         .def_property_readonly("side", &rts::BatchedEnv::side)
@@ -250,6 +297,30 @@ PYBIND11_MODULE(rts_native, m) {
             py::arg("actions"), py::arg("done"),
             "推进一批。actions 是 uint8 的 batch × MAX_UNITS_PER_ENV，"
             "done 是 uint8 的 batch。终局的局不自动重置——重置时机归 train/。")
+        .def(
+            "action_masks",
+            [](const rts::BatchedEnv& e,
+               py::array_t<std::uint16_t, py::array::c_style> out) {
+                const auto os = as_span(out);
+                py::gil_scoped_release nogil;
+                e.action_masks(os);
+            },
+            py::arg("out"),
+            "写入动作掩码（batch × MAX_UNITS_PER_ENV，uint16）。第 k 位 = "
+            "ACTION_NAMES[k] 合法。**没有它策略学不动**：非法动作会被静默"
+            "拒成 Stop，梯度里全是噪声。没有 agent 的行填「只允许 Stop」"
+            "而不是 0 —— 全 0 掩码会让 softmax 得到 NaN。")
+        .def(
+            "take_tally",
+            [](rts::BatchedEnv& e, py::array_t<float, py::array::c_style> out) {
+                const auto os = as_span(out);
+                py::gil_scoped_release nogil;
+                e.take_tally(os);
+            },
+            py::arg("out"),
+            "读走这一步的战果（batch × TALLY_FIELDS，float32），**读走即清**。"
+            "列的顺序 = obs.TALLY_NAMES。权重不在 C++ 侧——那是训练超参，"
+            "这一层只给「发生了什么」。")
         .def("reset_one", &rts::BatchedEnv::reset_one, py::arg("i"), py::arg("init"),
              "把第 i 局换成一个新局面")
         .def(

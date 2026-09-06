@@ -34,7 +34,9 @@
 #ifndef RTS_BATCHED_ENV_HPP
 #define RTS_BATCHED_ENV_HPP
 
+#include <array>
 #include <cstdint>
+#include <string_view>
 #include <memory>
 #include <span>
 #include <vector>
@@ -60,6 +62,21 @@ struct BatchedEnvInit {
     // 落在那个区间的中点。它同时是不变量 1 的落地处：Python 一次调用推进 N 个
     // tick，而不是每 tick 回调一次上层。
     int ticks_per_step = 6;
+    // **episode 的时间上界（tick）。0 = 不设。**
+    //
+    // 没有它，`done` 只在「Keep 被拆」时置位 ⇒ 打不动的策略会把一局无限拖
+    // 下去。实测：随机策略在 170×170 图上推 **18000 tick 仍未终局**，于是
+    // 一个 rollout（384 tick）里一次奖励都收不到，PPO 学不动。
+    //
+    // 而 `CLAUDE.md` 要的正好相反：「**一波 = 一个 RL episode**」、
+    // 「**短 episode** 让 credit assignment 链条足够短，是训练可行的关键」。
+    // 地图校验器第 5 条也承诺 episode ∈ [1200, 2400] tick。
+    //
+    // 默认取 **2400**，与 `game::WaveTiming::assault_max_ticks` 同值——
+    // demo 侧早就有这条上界，训练侧此前漏了。**两处刻意不共享一个常量**：
+    // 那个是波次节奏的旋钮（配平要调它），这个是 episode 的定义（RL 的
+    // credit assignment 依赖它），改动的理由不同。
+    int max_ticks_per_episode = 2400;
     // 线程数。0 = 由实现挑（硬件并发数，上限批大小）。
     // **它不影响结果**，只影响墙钟时间——见文件头。
     int threads = 0;
@@ -116,16 +133,56 @@ public:
     // 重置时机归 `train/`（要按波次分层采样，重置成哪一波是它的决定）。
     void step(std::span<const UnitAction> actions, std::span<std::uint8_t> done);
 
+    // ——战果，给 `train/` 折奖励用（2026-09-06）——
+    //
+    // 每局一行、`kTallyFields` 列，读走即清（见 `World::take_tally`）。
+    // **权重不在这一层**：那是训练侧的超参，而这里只给「发生了什么」。
+    //
+    // 列的顺序就是下面 `kTallyNames` 的顺序，`train/` 侧照它解包——
+    // 同 `kObsChannels` 那条纪律（两侧不一致时不会有任何东西报错，
+    // 张量照样 reshape 成功、网络照样收敛，收敛到一个把「击杀数」当
+    // 「自身损失」的表示上）。
+    void take_tally(std::span<float> out);
+
+    // 动作掩码：每局每 agent 一个 16 位位图（第 k 位 = `UnitAction(k)` 合法）。
+    //
+    // **没有它策略学不动**（`CLAUDE.md`「并做动作掩码」）：非法动作会被
+    // `submit_actions` 静默拒成 `Stop`，于是策略反复输出一个「看起来有效果
+    // 但实际什么都没发生」的动作，梯度里全是噪声。
+    //
+    // 掩码取**队长**的（agent = 编队）。队员的掩码可能不同（站位不一样），
+    // 那是「编队 = 一个 agent」这个抽象自带的代价，与观测取队长同源。
+    void action_masks(std::span<std::uint16_t> out) const;
+
+    static constexpr int kTallyFields = 7;
+    static constexpr std::array<std::string_view, kTallyFields> kTallyNames{
+        {"dmg_to_units", "dmg_to_blds", "units_killed", "blds_destroyed",
+         "bld_value", "scouts_killed", "losses"}};
+
     // 把第 `i` 局换成一个新局面。终局之后由 `train/` 调。
     void reset_one(int i, WorldInit init);
 
-    // 每一局最多打包多少个单位。
+    // 每一局最多打包多少个 **agent**。
     //
-    // **取攻方硬上限 40**（`CLAUDE.md`「编成位线性、硬性封顶约 40」）而不是
-    // 一个自己发明的数：那条上限是结构性的，所以拿它当张量的第二维是
-    // 「不引入新的待定数值」。守方那一侧上界不同（随堡垒等级涨），
-    // 所以给守方打包时要另算——这一版只有攻方走这条路。
-    static constexpr int kMaxUnitsPerEnv = 40;
+    // **agent = 编队，不是单位**（2026-09-05，`CLAUDE.md`「攻方 RL 控制的是
+    // 每一支编队」）。所以这个数取的是**编队数**硬顶：
+    //
+    //   * 取 **32**，比攻方硬顶 `slots_cap = 27` 留一点余量——那个 27 是
+    //     待标定的**数值**（依据见 `game::WaveCurve::slots_cap`：SMAC 最大的
+    //     官方图恰是 27 个 agent、我们每 agent 的观测是它的 18–21 倍），
+    //     而本常量是**张量的形状**。让形状恰好等于一个会调的数，等于每次调
+    //     那个数都要改契约。
+    //   * 守方那一侧是散兵（每人一支），上界随堡垒等级涨（`8 + 2K`，K 到 15
+    //     就是 38）⇒ **给守方打包时 32 会不够**，那一侧要另算。这一版只有
+    //     攻方走这条路，同原注释。
+    //
+    // **它此前是 40，而那个 40 已经过期两次**：注释说「取攻方硬上限 40」，
+    // 可 2026-09-01 撤下过那个硬顶（变成不封顶）、09-05 又改成 27 且语义
+    // 从单位数变成编队数。中间那段时间攻方场上有 ~70 个单位，于是
+    // `observe` 只打包前 40 个、`step` 给后 30 个补 `Stop` ——**它们存在、
+    // 会挨打、但完全不受控且不被观测**，而这不会让任何测试变红
+    // （`smoke.py` 手摆 3–5 个单位，从来没碰到过上限）。
+    static constexpr int kMaxUnitsPerEnv = 32;
 
     // 只读地拿第 `i` 局的世界，给测试与调试用（**不给训练热路径用**：
     // 逐局取视图再自己循环，正好绕开了这个类存在的理由）。

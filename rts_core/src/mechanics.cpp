@@ -400,15 +400,44 @@ void World::deal_damage(TgtKind kind, std::uint32_t raw, std::int64_t amount,
         case TgtKind::Unit: {
             const UnitId id = unit_from_raw(raw);
             const std::size_t t = id.index();
+            // ——RL 战果计数（见 `take_tally()`）。**只在这一处埋点**：
+            // 所有伤害都经 `deal_damage`，所以这里数一次就够，不必去每个
+            // 机制里各加一笔（那种散落的记账迟早漏一处）。
+            // 伤害按**实际扣掉的血**记，不按 `amount`——超杀的那部分不是战果。
+            Tally& tl = tally_[static_cast<std::size_t>(dealer_side)];
+            tl.dmg_to_units += amount < u_hp_[t] ? amount : u_hp_[t];
             u_hp_[t] -= amount;
-            if (u_hp_[t] <= 0) kill_unit(id);
+            if (u_hp_[t] <= 0) {
+                ++tl.units_killed;
+                // 侦查单位单列：`CLAUDE.md`「RL 侧两条硬要求」第 2 条要求
+                // 击杀 `Scout` 必须给即时奖励——信息否定的收益在 episode 内
+                // 衡量不了，不给的话 AI 永不会学习屏蔽集结区或猎杀斥候。
+                // 判据用 `is_combat()` 的反面而不是列举兵种名：「哪些单位
+                // 不求战」是花名册的性质（同 `attacker_can_fight` 那条先例）。
+                if (!is_combat(u_type_[t])) ++tl.scouts_killed;
+                // 自身损失记在**被打的那一方**头上，用满血而不是当前血：
+                // 「损失」是这个单位值多少，不是它死时还剩多少。
+                tally_[static_cast<std::size_t>(side_of(u_type_[t]))].losses +=
+                    u_max_hp_[t];
+                kill_unit(id);
+            }
             break;
         }
         case TgtKind::Bld: {
             const BldId id = bld_from_raw(raw);
             const std::size_t t = id.index();
+            Tally& tl = tally_[static_cast<std::size_t>(dealer_side)];
+            tl.dmg_to_blds += amount < b_hp_[t] ? amount : b_hp_[t];
             b_hp_[t] -= amount;
-            if (b_hp_[t] <= 0) destroy_bld(id);
+            if (b_hp_[t] <= 0) {
+                ++tl.blds_destroyed;
+                // **重建成本**（石 + 木的基础造价），`CLAUDE.md` 明写这个
+                // 权重「等于给玩家造成的实际资源损失，是有原则的推导而非
+                // 手工试凑，且经济建筑与防御建筑共用同一公式」。
+                const BldStats& bs = stats_.of(b_type_[t]);
+                tl.bld_value += bs.cost_stone + bs.cost_wood;
+                destroy_bld(id);
+            }
             break;
         }
         case TgtKind::Obstacle: {

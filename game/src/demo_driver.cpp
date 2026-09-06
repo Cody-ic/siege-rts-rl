@@ -210,7 +210,17 @@ rts::WorldInit demo_init(const MapData& map, const rts::StatsTable& stats,
 // 配平的主旋钮之一，而编译期常量搜索够不着；连**函数形式**也一起开放了
 // （`WaveCurve::PowerForm`），理由见那个结构体的注释。默认值就是原来这四个数。
 
-std::int32_t wave_level(int wave, const rts::StatsTable& stats,
+// `units` = 本波**预期的场上单位数**，由调用方给（`AttackerMacro::units_at`）。
+//
+// **它必须是单位数，不能是编队数。** 这条 2026-09-05 出过事：编队制把
+// `slots_at()` 的语义从「单位数」改成「编队数」，而这里原封不动地继续除它
+// ⇒ 一支编队的兵力预算被发给了队里**每一个**成员，前期攻方战力凭空 ×2.5
+// （第 4 波就拆了堡垒，而我一度把那个陷落当成编队制的成果报了出去）。
+// 组长一句「你是不是把原先一个士兵的兵力直接变成了一个编队的兵力」点掉它。
+//
+// 参数名从 `curve.slots_at()` 改成显式传入，就是为了让这个错误写不出来：
+// 调用方必须自己说清「我给的是几个单位」。
+std::int32_t wave_level(int wave, int units, const rts::StatsTable& stats,
                        const WaveCurve& curve) {
     // k 从数值表读（hp 与 dmg 两个系数相等由 StatsLoader 拦，取哪个都一样），
     // 不在这里抄一份 0.22——机制里不许藏数，那条纪律对 demo 曲线同样适用。
@@ -224,7 +234,8 @@ std::int32_t wave_level(int wave, const rts::StatsTable& stats,
         static_cast<double>(stats.global.hp_permille_per_level) / 1000.0;
     if (k <= 0.0) return 1;
     const double budget = curve.power_at(wave);
-    const double per_unit = budget / static_cast<double>(curve.slots_at(wave));
+    const double per_unit =
+        budget / static_cast<double>(units > 0 ? units : 1);
     // 除以第 1 波的人均预算（budget_curves.py 的 `base`）：把「1 级单位值多少
     // 预算」锚定在第 1 波 ⇒ L(1) = 1 由构造成立。当前系数下 base 恰是 1，
     // 但省略它的话「同源」就是假的——改 power_base/slots_base 时这里会静默
@@ -451,12 +462,19 @@ void DemoBattle::spawn_wave() {
         const auto& off = off_ring[static_cast<std::size_t>(slot) % off_ring.size()];
         const rts::Vec2 c = rts::center_of(spawns[si].pos);
         const std::int64_t hp = hp_at(stats, t, lv);
-        const rts::UnitId id =
-            w_.spawn_unit(t, rts::Vec2{c.x + off.first, c.y + off.second}, lv, hp, hp);
-        // 记下编队归属。**按槽位下标记账**（`Handle::index()`），因为
-        // `submit_actions` 那一侧拿到的是 `UnitId`，而槽位会被复用——所以
-        // 每波开头要清空（见下），否则上一波死掉的单位留下的编号会被新单位
-        // 继承，症状是「两支不同的编队莫名一起动」。
+        // **编队号一并传进 `World`**（2026-09-05，`World/13 → World/14`）。
+        //
+        // 它此前只活在 `game/` 里（下面那个 `squad_of_`），而 `BatchedEnv` 在
+        // `rts_core` 里、看不见 `game/` ⇒ RL 的观测按单位摊行、`kMaxUnitsPerEnv`
+        // 还停在过期的 40，于是场上 ~70 个单位里有 30 个**存在、会挨打、但完全
+        // 不受控且不被观测**（超出的那些被补 `Stop`）。而 agent = 编队是
+        // `CLAUDE.md` 定的，所以编队号必须在 `World` 里。
+        const rts::UnitId id = w_.spawn_unit(
+            t, rts::Vec2{c.x + off.first, c.y + off.second}, lv, hp, hp,
+            static_cast<std::uint16_t>(squad_id[n]));
+        // `game/` 侧仍记一份，因为战术层要按它查同队（`squad_ahead`）。
+        // **按槽位下标记账**（`Handle::index()`）：槽位会被复用，所以每波开头
+        // 要清空（见上），否则上一波死掉的单位留下的编号会被新单位继承。
         const std::size_t ui = id.index();
         if (ui >= squad_of_.size()) squad_of_.resize(ui + 1, -1);
         if (ui >= squad_goal_.size()) squad_goal_.resize(ui + 1, 0);
@@ -526,7 +544,12 @@ void DemoBattle::withdraw_all_attackers() {
 //   * **报告是快照。** 情报的价值在「提前知道」，到手之后就不该再随战场
 //     变化——那是记忆不是视野，所以它在交战期仍然可读。
 void DemoBattle::tick_scout_recon() {
-    const auto& spawns = w_.view(rts::Side::Defender).spawns();
+    // **直接问 `World`，不绕一个临时 `WorldView`。** `WorldView::spawns()` 返回的
+    // 是 `w_->spawns()`（所有者是 `World`，比那个临时 view 活得长），所以绕一圈
+    // 也不真悬垂——但 **GCC 的 `-Wdangling-reference` 证明不了这一点，会报错**
+    // （`-Werror` 开着 ⇒ 服务器侧构建直接失败，而 MSVC 一声不响放过了）。
+    // 这是 CLAUDE.md「GCC 侧的编译问题只能在推到服务器后才暴露」的一个实例。
+    const auto& spawns = w_.spawns();
     if (spawns.empty()) return;
     // 0 = 用斥候视野（自维护，见头文件）。
     const int arrive =
@@ -1024,7 +1047,9 @@ void DemoBattle::update(int ticks) {
             // 且**新一波动即生成**——集结期（见构造函数那段）：建造阶段一开始
             // 他们就在集结点待命，侦查与方向提示因此有一整个建造阶段可用。
             withdraw_noncombat_attackers();
-            w_.begin_next_wave(wave_level(w_.wave() + 1, w_.stats(), curve_));
+            const int nw = w_.wave() + 1;
+            w_.begin_next_wave(
+                wave_level(nw, macro_.units_at(curve_, nw), w_.stats(), curve_));
             build_left_ = timing_.build_ticks;
             build_start_ = w_.now();   // Summon 护栏的计时起点（见头文件）
             // **先结转再清零**：下一波的编成要读上一波的侦查结果

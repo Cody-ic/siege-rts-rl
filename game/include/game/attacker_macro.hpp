@@ -294,6 +294,22 @@ public:
     // 「怎么算侦查到手」，那是 `Wraith` 行为那一侧的判据。
     AttackerIntel read_intel(const rts::WorldView& av, bool fresh) const;
 
+    // 第 `wave` 波**预期的场上单位数**（不是编队数）。
+    //
+    // **它存在的唯一理由是「兵力预算按人头摊」那条反解**（`wave_level`）：
+    // 预算要除以**单位数**，而 `slots_at()` 自编队制之后返回的是**编队数**。
+    // 两者差约 2.58 倍，弄混就是把一支编队的预算发给队里每个成员——那正是
+    // 2026-09-05 落地时踩的 bug（前期攻方强了 2.5 倍，第 4 波就陷落）。
+    //
+    // **刻意用空情报算**（`AttackerIntel{}`）：等级曲线应当是波数的纯函数，
+    // 不该因为「这一波侦查到几座塔」而变——那会让难度取决于攻方的情报，
+    // 而 `CLAUDE.md` 明令「适应只改风格，绝不改强度」。
+    //
+    // 不另写一份人数公式，直接走 `compose()`——同一件事写在两处必然漂移。
+    int units_at(const WaveCurve& curve, int wave) const {
+        return compose(curve, wave, AttackerIntel{}).units();
+    }
+
     // 给定本波预算与情报，定编成。**纯函数**（不碰成员状态），好测。
     WavePlan compose(const WaveCurve& curve, int wave,
                      const AttackerIntel& intel) const;

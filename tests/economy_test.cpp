@@ -580,8 +580,8 @@ TEST_CASE("建筑升级定价：累计 ∝ √B(L) ⇒ 每石买到的战力与�
     // **`Keep` 走另一条（线性），这不是漏抄**：它卖的是三个线性上限
     // （人口 8+2K / 建筑等级 ceil(K/2) / 兵种等级 K），线性输出配线性定价
     // 本来就同阶。所以它每一级都是表里那个常数，不随等级衰减。
-    const rts::BldStats& ks =
-        w.view(rts::Side::Defender).stats().of(rts::BldType::Keep);
+    // 同上：`stats()` 的所有者是 `World`，直接问它，不经临时 `WorldView`。
+    const rts::BldStats& ks = w.stats().of(rts::BldType::Keep);
     for (std::int32_t L = 1; L <= 20; ++L) {
         REQUIRE(w.bld_upgrade_cost_stone(rts::BldType::Keep, L) == ks.upgrade_cost_stone);
         REQUIRE(w.bld_upgrade_cost_wood(rts::BldType::Keep, L) == ks.upgrade_cost_wood);

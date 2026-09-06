@@ -137,7 +137,7 @@ World::World(WorldInit init)
     // 边界外该怎么处理（夹紧、判死、还是不可能发生）属寻路与移动，是 1c 的事。
     // 在这里单独加一道检查会造出「建局时管、跑起来不管」的不对称。
     for (const UnitInit& u : init.units) {
-        spawn_unit(u.type, u.pos, u.level, u.hp, u.max_hp);
+        spawn_unit(u.type, u.pos, u.level, u.hp, u.max_hp, u.squad);
     }
 
     // 初始障碍。校验同样全部复用 `place_obstacle`（类型越界、界内、血量），
@@ -555,7 +555,7 @@ void World::advance(int ticks) {
 // ——实体——
 
 UnitId World::spawn_unit(UnitType type, Vec2 pos, std::int32_t level, std::int64_t hp,
-                         std::int64_t max_hp) {
+                         std::int64_t max_hp, std::uint16_t squad) {
     if (static_cast<int>(type) >= kUnitTypeCount) {
         throw ContractError("单位类型越界");
     }
@@ -574,6 +574,7 @@ UnitId World::spawn_unit(UnitType type, Vec2 pos, std::int32_t level, std::int64
         u_hp_.resize(n);
         u_max_hp_.resize(n);
         u_pos_.resize(n);
+        u_squad_.resize(n);
         u_windup_.resize(n);
         u_action_.resize(n);
         u_garrison_.resize(n);
@@ -590,6 +591,7 @@ UnitId World::spawn_unit(UnitType type, Vec2 pos, std::int32_t level, std::int64
     u_hp_[k] = hp;
     u_max_hp_[k] = max_hp;
     u_pos_[k] = pos;
+    u_squad_[k] = squad;
     u_windup_[k] = 0;
     // 新单位的默认动作是 `Stop`。零初始化的动作数组等于「全体停住」，
     // 那是唯一安全的默认值（`rts/action.hpp`）。
@@ -692,6 +694,7 @@ void World::kill_unit(UnitId id) {
     u_hp_[k] = 0;
     u_max_hp_[k] = 0;
     u_pos_[k] = Vec2{};
+    u_squad_[k] = kNoSquad;
     u_windup_[k] = 0;
     u_action_[k] = UnitAction::Stop;
     u_garrison_[k] = kNoSlot;
@@ -785,6 +788,47 @@ void World::enumerate_units(Side side, std::vector<UnitId>& out) const {
         }
     }
 }
+
+void World::enumerate_squads(Side side, std::vector<UnitId>& leaders) const {
+    leaders.clear();
+    // 两趟，都按**槽位下标升序**（`enumerate_units` 的那个规范序）：
+    // 第一趟按编队号取队长，第二趟收散兵。分两趟是为了让输出顺序
+    // 「先按编队号、后按槽位」——一趟扫不出这个序（编队号与槽位序无关）。
+    //
+    // 编队数不大（攻方硬顶 27），所以「对每个编队号扫一遍槽位」这种 O(队×槽)
+    // 的写法在这里是合适的：它不需要任何中间容器，于是也就没有「未定序容器
+    // 驱动遍历」这条确定性风险。
+    std::uint16_t max_sq = 0;
+    bool any_squad = false;
+    for (std::size_t k = 0; k < unit_pool_.slot_count(); ++k) {
+        const std::uint16_t s = static_cast<std::uint16_t>(k);
+        if (!unit_pool_.alive_at(s) || side_of(u_type_[k]) != side) continue;
+        if (u_squad_[k] == kNoSquad) continue;
+        if (!any_squad || u_squad_[k] > max_sq) max_sq = u_squad_[k];
+        any_squad = true;
+    }
+    if (any_squad) {
+        for (std::uint32_t q = 0; q <= max_sq; ++q) {
+            for (std::size_t k = 0; k < unit_pool_.slot_count(); ++k) {
+                const std::uint16_t s = static_cast<std::uint16_t>(k);
+                if (!unit_pool_.alive_at(s) || side_of(u_type_[k]) != side) continue;
+                if (u_squad_[k] != static_cast<std::uint16_t>(q)) continue;
+                leaders.push_back(unit_pool_.id_at(s));   // 槽位最小的那个
+                break;
+            }
+        }
+    }
+    // 散兵：每个自成一支，仍按槽位升序。守方全是散兵 ⇒ 这一侧退化成
+    // `enumerate_units`，调用方不必分两种情况写。
+    for (std::size_t k = 0; k < unit_pool_.slot_count(); ++k) {
+        const std::uint16_t s = static_cast<std::uint16_t>(k);
+        if (!unit_pool_.alive_at(s) || side_of(u_type_[k]) != side) continue;
+        if (u_squad_[k] != kNoSquad) continue;
+        leaders.push_back(unit_pool_.id_at(s));
+    }
+}
+
+std::uint16_t World::unit_squad(UnitId id) const { return u_squad_[require(id)]; }
 
 std::size_t World::require(UnitId id) const {
     if (!unit_pool_.alive(id)) throw ContractError("UnitId 已失效（代数不符或槽位已空）");
@@ -1099,6 +1143,7 @@ std::uint64_t World::state_hash() const noexcept {
         h.feed_f32(p.x);
         h.feed_f32(p.y);
     }
+    h.feed(u_squad_.data(), u_squad_.size() * sizeof(std::uint16_t));
     h.feed(u_windup_.data(), u_windup_.size() * sizeof(std::int32_t));
     h.feed(u_action_.data(), u_action_.size() * sizeof(UnitAction));
     h.feed(u_garrison_.data(), u_garrison_.size() * sizeof(std::uint16_t));
