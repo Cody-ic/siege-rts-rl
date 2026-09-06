@@ -1072,7 +1072,10 @@ void BattleRecorder::scan_phoenix() {
 }
 
 void BattleRecorder::sync_volleys() {
-    const auto& log = b_.world().view(rts::Side::Defender).volley_hits();
+    // 同 `demo_driver.cpp` 那处：直接问 `World`，不绑引用到临时 `WorldView`
+    // 的成员上（所有者是 `World`、实际不悬垂，但 GCC 的
+    // `-Wdangling-reference` 证明不了，`-Werror` 下是硬错误）。
+    const auto& log = b_.world().volley_hits();
     while (volley_offset_ < log.size()) {
         cur_.volley_hits.push_back(
             static_cast<int>(log[volley_offset_]));

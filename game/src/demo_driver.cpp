@@ -537,7 +537,12 @@ void DemoBattle::withdraw_all_attackers() {
 //   * **报告是快照。** 情报的价值在「提前知道」，到手之后就不该再随战场
 //     变化——那是记忆不是视野，所以它在交战期仍然可读。
 void DemoBattle::tick_scout_recon() {
-    const auto& spawns = w_.view(rts::Side::Defender).spawns();
+    // **直接问 `World`，不绕一个临时 `WorldView`。** `WorldView::spawns()` 返回的
+    // 是 `w_->spawns()`（所有者是 `World`，比那个临时 view 活得长），所以绕一圈
+    // 也不真悬垂——但 **GCC 的 `-Wdangling-reference` 证明不了这一点，会报错**
+    // （`-Werror` 开着 ⇒ 服务器侧构建直接失败，而 MSVC 一声不响放过了）。
+    // 这是 CLAUDE.md「GCC 侧的编译问题只能在推到服务器后才暴露」的一个实例。
+    const auto& spawns = w_.spawns();
     if (spawns.empty()) return;
     // 0 = 用斥候视野（自维护，见头文件）。
     const int arrive =
