@@ -235,6 +235,11 @@ def main() -> None:
     # 奖励权重按 C++ 给的列序排成一个向量。**照名字对齐，不按位置猜**——
     # 位置错了不会报错，只会让「击杀数」被当成「自身损失」。
     w = np.array([REWARD_W[n] for n in R.obs.TALLY_NAMES], dtype=np.float32)
+    # 日志要印的那几列的下标。**照名字取**，同上一行的纪律。
+    i_dmg_b = R.obs.TALLY_NAMES.index("dmg_to_blds")
+    i_bldv = R.obs.TALLY_NAMES.index("bld_value")
+    i_kill = R.obs.TALLY_NAMES.index("units_killed")
+    i_loss = R.obs.TALLY_NAMES.index("losses")
 
     # ——课程：从最近那一档起步——
     stage = 0
@@ -342,6 +347,11 @@ def main() -> None:
     while step_count < cfg.total_steps:
         t_roll = 0.0
         t_upd = 0.0
+        # 本 rollout 的战果累计。**这是判据本身**（交接 §3 R：「判据看有没有
+        # 战果，不是 loss」），而按局统计的那两个数在每一档的头 6 个 rollout
+        # 里恒为空（一局要 ~400 个决策拍、一个 rollout 只有 64 个）——
+        # 于是长跑的前几分钟完全瞎。逐 rollout 的战果和立刻就有值。
+        roll_tally = np.zeros((TF,), dtype=np.float64)
         _t0 = time.perf_counter()
         for t in range(T):
             (c, s, g, mk), (c_np, s_np, g_np, m_np, lv_np) = observe()
@@ -364,6 +374,7 @@ def main() -> None:
             env.step(acts_np, done_np)
             env.take_tally(tally)
 
+            roll_tally += tally.sum(axis=0, dtype=np.float64)
             rew = (tally * w).sum(axis=1)
             buf_r[t] = torch.from_numpy(rew).to(dev)
             buf_d[t] = torch.from_numpy(done_np.astype(np.float32)).to(dev)
@@ -479,6 +490,9 @@ def main() -> None:
               f"档{stage + 1}(f={frac:.2f})  回报 {mean_ret:>9.2f}  "
               f"有战果 {rate:>4.0%}  本档 {len(stage_ret)} 局  "
               f"累计 {len(all_ret)} 局  "
+              f"| 建筑伤 {roll_tally[i_dmg_b]:>9,.0f}  "
+              f"拆了 {roll_tally[i_bldv]:>7,.0f}值  "
+              f"杀 {roll_tally[i_kill]:>5,.0f}  损 {roll_tally[i_loss]:>8,.0f}  "
               f"[采样 {t_roll:.1f}s / 更新 {t_upd:.1f}s  "
               f"live {n_live / (T * N):.0%}]", flush=True)
 
