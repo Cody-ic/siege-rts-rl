@@ -113,9 +113,17 @@ class Cfg:
     # 0.15 ⇒ 7.5 格（随机游走够得到）、之后每档靠上一档学到的
     # 「朝目标走」迁移过去。
     curriculum: tuple = (0.15, 0.3, 0.5, 0.75, 1.0)
-    # 升档判据：近 `promote_window` 局里有 `promote_at` 比例拿到过正奖励。
-    # **用成功率而不是固定步数**——固定步数会在学不会时硬推到下一档，
-    # 而那正好回到「拿不到第一次奖励」那个死结。
+    # 升档判据：近 `promote_window` 局里有 `promote_at` 比例**真的打到了
+    # 建筑**（`dmg_to_blds > 0`）。
+    #
+    # ⚠️ **判据不能是「拿到过正奖励」，那个版本已经坦过一次。**
+    # 加了 `progress` 那一列之后，「往前走了几格」本身就是正奖励
+    # ⇒ 这个判据退化成「动了吗」，而那是轻而易举的。实测后果：
+    # 1300 局之内一路升到第 5 档（满距离）、「有战果 100%」，
+    # 而**建筑伤在大多数 rollout 里是 0** —— 课程被跳过了。
+    #
+    # 交接 §3 R 写的就是「判据看**有没有战果**，不是 loss」，而那一条对
+    # shaping 奖励同样成立：**shaping 不是战果**。
     promote_at: float = 0.6
     promote_window: int = 100
     map_path: str = "game/data/maps/pool/gen_01001000.json"
@@ -353,6 +361,10 @@ def main() -> None:
     # 那一列此后恒 0%（每次刚清空就统计）。
     stage_ret: list[float] = []
     all_ret: list[float] = []
+    # 逐局「这一局有没有真的打到建筑」。**升档判据读它，不读回报**（见
+    # `promote_at` 那段：回报里含 shaping，而 shaping 不是战果）。
+    ep_hit = np.zeros((cfg.envs,), dtype=np.float64)
+    stage_hit: list[float] = []
 
     while step_count < cfg.total_steps:
         t_roll = 0.0
@@ -389,6 +401,7 @@ def main() -> None:
             buf_r[t] = torch.from_numpy(rew).to(dev)
             buf_d[t] = torch.from_numpy(done_np.astype(np.float32)).to(dev)
             ep_ret += rew
+            ep_hit += tally[:, i_dmg_b]
             step_count += cfg.envs
 
             # 终局的局重置。**重置时机归 train/**（`BatchedEnv::reset_one` 的
@@ -396,7 +409,9 @@ def main() -> None:
             for i in np.nonzero(done_np)[0]:
                 stage_ret.append(float(ep_ret[i]))
                 all_ret.append(float(ep_ret[i]))
+                stage_hit.append(float(ep_hit[i]))
                 ep_ret[i] = 0.0
+                ep_hit[i] = 0.0
                 env.reset_one(int(i), make_worlds(cfg, 1, frac)[0])
 
         # ——GAE。奖励是**逐局**的，而 agent 是逐编队的 ⇒ 把局级奖励广播到
@@ -406,13 +421,14 @@ def main() -> None:
         #
         # **用成功率而不是固定步数**：固定步数会在学不会时硬推到下一档，
         # 而那正好回到「拿不到第一次奖励」那个死结。
-        if len(stage_ret) >= cfg.promote_window and stage + 1 < len(cfg.curriculum):
-            win = stage_ret[-cfg.promote_window:]
-            rate = sum(1 for r in win if r > 0.0) / len(win)
+        if len(stage_hit) >= cfg.promote_window and stage + 1 < len(cfg.curriculum):
+            win = stage_hit[-cfg.promote_window:]
+            rate = sum(1 for h in win if h > 0.0) / len(win)
             if rate >= cfg.promote_at:
                 stage += 1
                 frac = cfg.curriculum[stage]
                 stage_ret.clear()   # 换了任务，旧成功率不再代表现在
+                stage_hit.clear()
                 print(f"  ↑ 升档：第 {stage + 1}/{len(cfg.curriculum)} 档 "
                       f"frac={frac}（上一档成功率 {rate:.0%}）", flush=True)
                 # 全批重置到新距离。**不等旧 episode 自然结束**：那些局面
@@ -420,6 +436,7 @@ def main() -> None:
                 for i in range(cfg.envs):
                     env.reset_one(i, make_worlds(cfg, 1, frac)[0])
                 ep_ret[:] = 0.0
+                ep_hit[:] = 0.0
 
         with torch.no_grad():
             (c, s, g, _), _ = observe()
@@ -500,11 +517,11 @@ def main() -> None:
         if n_roll % 50 == 0:
             torch.save(net.state_dict(), "train/ppo_attacker.pt")
         mean_ret = float(np.mean(stage_ret[-50:])) if stage_ret else float("nan")
-        win = stage_ret[-cfg.promote_window:]
-        rate = (sum(1 for r in win if r > 0.0) / len(win)) if win else 0.0
+        win = stage_hit[-cfg.promote_window:]
+        rate = (sum(1 for h in win if h > 0.0) / len(win)) if win else 0.0
         print(f"step {step_count:>9,}  {step_count / dt:>8,.0f} env-step/s  "
               f"档{stage + 1}(f={frac:.2f})  回报 {mean_ret:>9.2f}  "
-              f"有战果 {rate:>4.0%}  本档 {len(stage_ret)} 局  "
+              f"打到建筑 {rate:>4.0%}  本档 {len(stage_ret)} 局  "
               f"累计 {len(all_ret)} 局  "
               f"| 建筑伤 {roll_tally[i_dmg_b]:>9,.0f}  "
               f"拆了 {roll_tally[i_bldv]:>7,.0f}值  "
