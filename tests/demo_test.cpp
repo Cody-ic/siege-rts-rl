@@ -812,9 +812,22 @@ TEST_CASE("侦查面板：编成读数与绘制列表逐类对齐（都过同一
 // 这条同时钉住另外两件本来就该成立的事：**分兵佯攻此前结构上不可能**
 // （各路恒等），以及**「免费方向提示」此前由整数取余决定**——有主攻之后
 // 那行 HUD 才真的指向主攻。
+// `pool_map_first` 的定义在本文件更下面（它与 `fragile_ghoul_stats` 一组）。
+// 前置声明而不是把定义搬上来：那一组的注释解释了它为什么长那样，搬动会把
+// 理由与代码分开。
+game::MapData pool_map_first();
+
+// **夹具必须用池图**（2026-09-05）：`demo_skirmish` 的两个集结点只隔 **4 格**，
+// 而落位环最远 3 格 ⇒ 两路的人**在空间上重叠**，「按最近集结点归组」把两路
+// 混着数，最大一路恒好是一半（实测 9/18 对半，恰好卡在判据边界上）。
+// 这一条与「编队推进」那条测试用池图的理由同源：小图上判据测不出它要测的东西。
+//
+// 编队制（2026-09-05）把它逼了出来——此前每路人少，重叠区里恰好还是主攻那边
+// 多；每队 3 个之后重叠区被填满，对半就发生了。**代码没错、夹具不够用。**
 TEST_CASE("兵力集中：一路主攻拿大头，不是四面平摊", "[demo]") {
-    const game::MapData map = demo_map();
+    const game::MapData map = pool_map_first();
     const rts::StatsTable stats = demo_stats();
+    REQUIRE(map.width() > 40);   // 池图没就位（退回小图）时让它红，不假绿
     game::DemoBattle a(map, stats, 7);
     a.update(kJustAssault);
     const rts::WorldView v = a.world().view(rts::Side::Attacker);
