@@ -513,3 +513,42 @@ TEST_CASE("episode 时间上界：置 0 = 不设（旧行为）", "[batchenv]") 
         CHECK(b.done[0] == 0u);   // Keep 还在、且不设上界 ⇒ 永不终局
     }
 }
+
+TEST_CASE("观测必须喂方向场——否则策略不知道该往哪走", "[batchenv]") {
+    // `observe` 此前给 `pack_unit_obs` 传 `nullptr`（`obs_pack.hpp` 说
+    // 「训练早期没有宏观目标时是正常形态，不是缺陷」）。**在有宏观目标的
+    // 时候它就是缺陷**，而实测代价是：14 条通道里只有 4 条非零，攻方在
+    // 50 格外、视野半径只有 7 格、`enemy_*` 全 0 —— 观测里**没有任何东西
+    // 指向目标**。40 万步 PPO 回报恒 0.00 就是这么来的，而同一个局面用
+    // 「一路朝 keep 走」的定向策略能打出 8515 点建筑伤害。
+    rts::BatchedEnvInit bi;
+    bi.worlds.push_back(one(0, 3));
+    bi.side = rts::Side::Attacker;
+    bi.threads = 1;
+    rts::BatchedEnv e(std::move(bi));
+    Bufs b(1);
+    e.observe(b.cells, b.self, b.glob);
+
+    // 找 `flow_di` / `flow_dj` 那两条通道的下标（**按名字找，不按位置猜**）。
+    int di = -1, dj = -1;
+    for (int c = 0; c < rts::kObsChannelCount; ++c) {
+        if (rts::kObsChannels[static_cast<std::size_t>(c)].name == "flow_di") di = c;
+        if (rts::kObsChannels[static_cast<std::size_t>(c)].name == "flow_dj") dj = c;
+    }
+    REQUIRE(di >= 0);
+    REQUIRE(dj >= 0);
+
+    // 第 0 个 agent 的那一格窗口里，方向场必须有非零值。
+    int nz = 0;
+    for (int y = 0; y < rts::kObsK; ++y) {
+        for (int x = 0; x < rts::kObsK; ++x) {
+            const std::size_t base =
+                (static_cast<std::size_t>(y) * rts::kObsK + static_cast<std::size_t>(x)) *
+                static_cast<std::size_t>(rts::kObsChannelCount);
+            if (b.cells[base + static_cast<std::size_t>(di)] != 0.0f) ++nz;
+            if (b.cells[base + static_cast<std::size_t>(dj)] != 0.0f) ++nz;
+        }
+    }
+    CAPTURE(nz);
+    CHECK(nz > 0);
+}

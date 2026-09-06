@@ -2,9 +2,11 @@
 
 #include <algorithm>
 #include <exception>
+#include <optional>
 #include <stdexcept>
 #include <thread>
 
+#include "rts/flow.hpp"
 #include "rts/roster.hpp"
 #include "rts/world_view.hpp"
 
@@ -34,6 +36,20 @@ struct BatchedEnv::Impl {
     // 逐局已跑了多少 tick（`max_ticks_per_episode` 用）。
     std::vector<int> elapsed;
     int max_ticks = 0;
+    // 逐局的 flow field 缓存：`(兵种 × 等级档)`，每次 `observe` 重算。
+    //
+    // **`observe` 里必须喂方向场，否则策略没有任何东西指向目标。**
+    // 此前这里传 `nullptr`（`obs_pack.hpp` 说「训练早期没有宏观目标时是正常
+    // 形态」），而实测那让 `FlowDi`/`FlowDj` 恒 0 ⇒ 14 条通道里只有 4 条非零，
+    // 攻方在 50 格外、视野半径只有 7 格、`enemy_*` 全 0 —— **观测里没有任何
+    // 东西告诉策略该往哪走**。40 万步训练回报恒 0.00 就是这么来的，
+    // 而同一个局面用「一路朝 keep 走」的定向策略能打出 8515 点建筑伤害。
+    //
+    // 重算节律取「每次 `observe`」而不是缓存跨步：破坏代价读实时墙血
+    // （`flow.hpp` 明写「重算节律归调用方」），而 `game::DemoBattle` 取的
+    // 也是每个决策拍。
+    std::vector<std::vector<std::optional<FlowField>>> flows;
+    FlowTiering tiering{};
 
     // 把 `[lo, hi)` 这段环境分给若干线程跑同一个函数体。
     //
@@ -138,6 +154,11 @@ BatchedEnv::BatchedEnv(BatchedEnvInit init) : p_(std::make_unique<Impl>()) {
     p_->leaders.resize(static_cast<std::size_t>(n));
     p_->acts.resize(static_cast<std::size_t>(n));
     p_->elapsed.assign(static_cast<std::size_t>(n), 0);
+    p_->flows.resize(static_cast<std::size_t>(n));
+    for (auto& f : p_->flows) {
+        f.resize(static_cast<std::size_t>(kUnitTypeCount) *
+                 static_cast<std::size_t>(kFlowTierCount));
+    }
     p_->max_ticks = init.max_ticks_per_episode;
     p_->refresh_counts();
 }
@@ -190,6 +211,9 @@ void BatchedEnv::observe(std::span<float> cells, std::span<float> self_vec,
         // 「group action 是共享子目标」那条形状要求的（见 `kMaxUnitsPerEnv`）。
         const std::vector<UnitId>& ids = p_->leaders[ui];
         const int m = std::min(static_cast<int>(ids.size()), kMaxUnitsPerEnv);
+        // 本局的 field 全部作废重算（墙血变了破坏代价就变）。
+        for (auto& f : p_->flows[ui]) f.reset();
+        const GridPos goal[1] = {w.keep_pos()};
         for (int u = 0; u < m; ++u) {
             // **输出位置只由 (i, u) 决定**，与哪个线程、什么时候跑完无关。
             const std::size_t co = ui * per_cells +
@@ -201,9 +225,19 @@ void BatchedEnv::observe(std::span<float> cells, std::span<float> self_vec,
             // 全局标量已经写过一份，这里给 `pack_unit_obs` 一段临时的：它会再写一遍
             // 同样的值（幂等），换来的是「一个单位一次调完」这个更难用错的接口。
             float scratch[kObsGlobalFloats] = {};
-            // `flow` 传 `nullptr` ⇒ `FlowDi` / `FlowDj` 恒 0，见头文件 `observe`
-            // 那段（那两条通道本身有测试钉着，在 `tests/obs_pack_test.cpp`）。
-            pack_unit_obs(v, ids[static_cast<std::size_t>(u)], nullptr, p_->norms,
+            // **喂方向场**（2026-09-06；此前是 `nullptr`）。按 `(兵种, 档)`
+            // 缓存，所以一局里同兵种同档的 agent 共用一张，不是每个都重算。
+            const UnitId self = ids[static_cast<std::size_t>(u)];
+            const UnitType mover = w.unit_type(self);
+            const int tier = flow_tier_of(w.unit_level(self), p_->tiering);
+            const std::size_t fi = static_cast<std::size_t>(mover) *
+                                       static_cast<std::size_t>(kFlowTierCount) +
+                                   static_cast<std::size_t>(tier);
+            std::optional<FlowField>& fld = p_->flows[ui][fi];
+            if (!fld) {
+                fld.emplace(FlowField::compute(v, mover, tier, goal, p_->tiering));
+            }
+            pack_unit_obs(v, self, &*fld, p_->norms,
                           cells.subspan(co, static_cast<std::size_t>(kObsCellFloats)),
                           self_vec.subspan(so, static_cast<std::size_t>(kObsSelfFloats)),
                           std::span<float>(scratch, kObsGlobalFloats));
