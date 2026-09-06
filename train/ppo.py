@@ -87,6 +87,28 @@ class Cfg:
     vf_coef: float = 0.5
     max_grad_norm: float = 0.5
     seed: int = 1
+    # ——课程学习（2026-09-06）——
+    #
+    # **不做课程就学不动，这是算出来的**：攻方在集结点离 `keep` 50 格，
+    # `Ghoul` 0.08 格/tick、每决策位移 0.48 格、episode 400 个决策 ⇒
+    # 随机游走的期望位移只有 `√400 × 0.48` = **9.6 格**，差一个数量级。
+    # PPO 初期就是随机策略，拿不到第一次奖励就没有梯度（实测 40 万步
+    # 回报恒 0.00，而同一局面用定向策略 400 步能打出 8515 点建筑伤害）。
+    #
+    # 而 `CLAUDE.md` 本来就铺好了这条路：「**波数即难度轴，天然构成课程
+    # 学习**，训练时按波次分层采样，不需要手工设计 curriculum」；
+    # `BatchedEnvInit::worlds` 的注释也明写「各局可以不同——按波次分层采样
+    # 要的正是『同一批里混着不同波数的局面』」。
+    #
+    # 阶梯按**到 keep 的距离**（沿集结点→keep 的直线插值）：
+    # 0.15 ⇒ 7.5 格（随机游走够得到）、之后每档靠上一档学到的
+    # 「朝目标走」迁移过去。
+    curriculum: tuple = (0.15, 0.3, 0.5, 0.75, 1.0)
+    # 升档判据：近 `promote_window` 局里有 `promote_at` 比例拿到过正奖励。
+    # **用成功率而不是固定步数**——固定步数会在学不会时硬推到下一档，
+    # 而那正好回到「拿不到第一次奖励」那个死结。
+    promote_at: float = 0.6
+    promote_window: int = 100
     map_path: str = "game/data/maps/pool/gen_01001000.json"
     stats_path: str = "game/data/stats_placeholder.json"
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
@@ -125,7 +147,7 @@ class Policy(nn.Module):
         return self.actor(h), self.critic(h).squeeze(-1)
 
 
-def make_worlds(cfg: Cfg, n: int) -> list:
+def make_worlds(cfg: Cfg, n: int, frac: float = 1.0) -> list:
     """造 n 个局面。
 
     **编成由这一侧给**：`World` 自己不生波（生波在 `game::DemoBattle`，那是
@@ -152,6 +174,13 @@ def make_worlds(cfg: Cfg, n: int) -> list:
         # 每局挑一个集结点（轮换）。**宏观层还没上**，所以这里是轮换而不是
         # 决策——CLAUDE.md「战术层必须先跑通，不要两层同时上」。
         sx, sy = spawns[(cfg.seed + i) % len(spawns)]
+        # **课程**：把出生点沿「集结点 → keep」的直线拉近 `frac` 倍。
+        # frac = 1.0 是真实距离；小 frac 让随机策略也能撞到目标、拿到
+        # 第一次奖励。行军距离是训练侧的课程旋钮，不是设计改动——
+        # 真实对局里它恒等于 1.0（`地图与场景设计.md` 的 D=40 是结构约束）。
+        kx, ky = sites["keep"]
+        sx = kx + (sx - kx) * frac
+        sy = ky + (sy - ky) * frac
         atk = []
         for q in range(squads):
             for m in range(per):
@@ -196,7 +225,11 @@ def main() -> None:
     # 位置错了不会报错，只会让「击杀数」被当成「自身损失」。
     w = np.array([REWARD_W[n] for n in R.obs.TALLY_NAMES], dtype=np.float32)
 
-    env = R.BatchedEnv(make_worlds(cfg, cfg.envs), side=R.Side.Attacker,
+    # ——课程：从最近那一档起步——
+    stage = 0
+    frac = cfg.curriculum[stage]
+    print(f"课程 {cfg.curriculum}  起于第 1 档 frac={frac}")
+    env = R.BatchedEnv(make_worlds(cfg, cfg.envs, frac), side=R.Side.Attacker,
                        ticks_per_step=cfg.ticks_per_step, threads=0)
 
     # ——缓冲区由 Python 持有、反复复用**（不是每步 new 一块）。
@@ -272,11 +305,30 @@ def main() -> None:
             for i in np.nonzero(done_np)[0]:
                 recent.append(float(ep_ret[i]))
                 ep_ret[i] = 0.0
-                env.reset_one(int(i), make_worlds(cfg, 1)[0])
+                env.reset_one(int(i), make_worlds(cfg, 1, frac)[0])
 
         # ——GAE。奖励是**逐局**的，而 agent 是逐编队的 ⇒ 把局级奖励广播到
         #   该局的所有 agent。这是「共享策略 + 团队奖励」的标准做法，也是
         #   `CLAUDE.md`「奖励：以本波战果为主」那句的直接后果（战果是全队的）。
+        # ——升档判据：近 `promote_window` 局里有多少比例拿到过正奖励——
+        #
+        # **用成功率而不是固定步数**：固定步数会在学不会时硬推到下一档，
+        # 而那正好回到「拿不到第一次奖励」那个死结。
+        if len(recent) >= cfg.promote_window and stage + 1 < len(cfg.curriculum):
+            win = recent[-cfg.promote_window:]
+            rate = sum(1 for r in win if r > 0.0) / len(win)
+            if rate >= cfg.promote_at:
+                stage += 1
+                frac = cfg.curriculum[stage]
+                recent.clear()   # 换了任务，旧成功率不再代表现在
+                print(f"  ↑ 升档：第 {stage + 1}/{len(cfg.curriculum)} 档 "
+                      f"frac={frac}（上一档成功率 {rate:.0%}）", flush=True)
+                # 全批重置到新距离。**不等旧 episode 自然结束**：那些局面
+                # 还在旧课程上，混着两档会让「成功率」这个判据失去意义。
+                for i in range(cfg.envs):
+                    env.reset_one(i, make_worlds(cfg, 1, frac)[0])
+                ep_ret[:] = 0.0
+
         with torch.no_grad():
             c, s, g, _ = observe()
             _, next_v = net(c, s, g)
@@ -324,9 +376,11 @@ def main() -> None:
 
         dt = time.perf_counter() - t_start
         mean_ret = float(np.mean(recent[-50:])) if recent else float("nan")
-        print(f"step {step_count:>9,}  {step_count / dt:>9,.0f} env-step/s  "
-              f"回报(近50局) {mean_ret:>10.2f}  完成 {len(recent)} 局",
-              flush=True)
+        win = recent[-cfg.promote_window:]
+        rate = (sum(1 for r in win if r > 0.0) / len(win)) if win else 0.0
+        print(f"step {step_count:>9,}  {step_count / dt:>8,.0f} env-step/s  "
+              f"档{stage + 1}(f={frac:.2f})  回报 {mean_ret:>9.2f}  "
+              f"有战果 {rate:>4.0%}  完成 {len(recent)} 局", flush=True)
 
     torch.save(net.state_dict(), "train/ppo_attacker.pt")
     print("权重已存 train/ppo_attacker.pt")
