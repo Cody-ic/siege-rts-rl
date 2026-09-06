@@ -245,6 +245,10 @@ private:
     // 被墙占着的格是正常输出——移动机制把那一步变成自动破坏，「绕远走缺口
     // vs 就近砸墙」由代价模型自己比较。不可达退回贪心（演示不卡死）。
     rts::UnitAction flow_step(rts::UnitId id);
+    // 这一队读哪张 field（0 = 打堡垒，1 = 打经济）。见 .cpp。
+    int squad_goal_of(rts::UnitId id) const;
+    const std::vector<rts::GridPos>& goal_cells(int set) const;
+    rts::GridPos goal_anchor(int set) const;
 
     rts::World w_;
     // 守方执行层（参数取占位默认；种子从对局种子派生，demo 因此仍是确定性的）。
@@ -275,6 +279,28 @@ private:
     // （`波次分段与侦查时序.md` §1.1），而那一刻本波的 `wave_scouted_` 刚被
     // 重置成 false，用它只会恒假。
     bool prev_wave_scouted_ = false;
+    // 攻方的编队归属：**按单位槽位下标**（`UnitId::index()`）存编队号，−1 = 不属于
+    // 任何编队（守方单位、或已被复用的空槽）。
+    //
+    // 编队是 **RL 动作空间的分组**：一支编队 = 一个 agent，动作复制给队里每个
+    // 单位、观测取队长。它因此**不进 `World`/`Command`/回放**——动作提交仍是
+    // 逐单位的（`submit_actions` 按 `enumerate_units` 序）。
+    //
+    // ⚠️ **别把它与 2026-09 移除的那套「守方编队」混起来。** 那套是**玩家下的
+    // 指令**（`MoveForce`/`SelectForce`/`Garrison`/`UpgradeForce`，移除时
+    // `kCommandKindCount` 13→10、回放 v3→v4）。这一套只在 `game/` 内部记账，
+    // 不新增任何命令，也不是把删掉的东西捡回来。
+    std::vector<int> squad_of_;
+    // 每支编队的**意图**：读哪个目标集。按单位槽位下标存（与 `squad_of_` 同款）。
+    //
+    // **这就是「编队动作」本身。** 文献一致（TStarBot2 / ROMA / RODE）：
+    // group action 是共享的**子目标**，不是共享的输出——每个成员仍在自己那一格
+    // 采样 flow field。所以这一层不需要任何「把动作抄给队员」的代码。
+    std::vector<int> squad_goal_;
+    // 两个目标集的格子。构造/生波时算好（固定序）。
+    std::vector<rts::GridPos> keep_goals_;   // 恒为 {keep}
+    std::vector<rts::GridPos> econ_goals_;   // 记忆里的采集建筑，可能为空
+    std::vector<int> econ_squads_;           // 本波派去打经济的编队号（固定序）
     // 本波生波时攻方以为守方长什么样（`AttackerMacro::read_intel` 的产物）。
     // 存下来是给测试与 runner 看的——否则「攻方读到了什么」只能从编成反推。
     AttackerIntel wave_intel_{};
@@ -297,9 +323,15 @@ private:
     // field 缓存：兵种 × 等级档，每个决策拍作废重算（墙血变了破坏代价就变）。
     // demo 的攻方全是 1 级（低档），但按契约的形状存——这就是「档数烤进
     // 下游缓存下标」的那个下游。档界用占位默认值（rts/flow.hpp）。
+    // 目标集数（形状）。0 = 打堡垒，1 = 打经济。
+    // 加这一维**按比例增加每决策拍的 field 重算量**（`flow_` 每拍全废，因为
+    // 破坏代价读实时墙血），而那直接是 RL 训练吞吐。所以刻意只有两档，
+    // 且经济那一档只分给少数编队。
+    static constexpr std::size_t kGoalSetCount = 2;
     rts::FlowTiering tiering_{};
     std::array<std::optional<rts::FlowField>,
-               static_cast<std::size_t>(rts::kUnitTypeCount) * rts::kFlowTierCount>
+               static_cast<std::size_t>(rts::kUnitTypeCount) * rts::kFlowTierCount *
+                   kGoalSetCount>
         flow_{};
 };
 

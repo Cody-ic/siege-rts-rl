@@ -297,18 +297,84 @@ void DemoBattle::spawn_wave() {
     wave_intel_ = macro_.read_intel(w_.view(rts::Side::Attacker), prev_wave_scouted_);
     const WavePlan plan = macro_.compose(curve_, wave, wave_intel_);
 
+    // ——展开成编队：一支编队 = 同兵种 `squad_cap_of()` 个（2026-09-05）——
+    //
+    // `plan` 里的数字是**编队数**（= agent 数，受 `slots_cap` 约束），
+    // 展开之后才是场上单位数（约 2.58 倍）。理由见 `WavePlan` 的注释：
+    // 约束 agent 数的是 RL 可训练规模，它不适用于单位数。
+    //
+    // **编队归属就在这里定下来**，记在 `squad_of_` 里（与 `roster` 同序）。
+    // 它不进 `World`/`Command`/回放——动作提交仍是逐单位的
+    // （`submit_actions` 按 `enumerate_units` 序），编队只是「同一个动作发给
+    // 队里每个单位」。所以这一整套不需要动 `rts_core` 一行。
+    // **编队记账逐波清空。** 槽位会被复用（`SlotPool`），上一波死掉的单位留下
+    // 的编队号若不清掉，新单位会继承它——症状是「两支不该相关的编队莫名一起
+    // 动」，而且只在高波次（槽位真的被复用之后）才发作。
+    std::fill(squad_of_.begin(), squad_of_.end(), -1);
+    std::fill(squad_goal_.begin(), squad_goal_.end(), 0);
+
+    // ——两个目标集（编队的意图选项）——
+    //
+    // 「主力打 Keep + 分队打经济」。**攻方的战果此前全是「路过顺手」**：
+    // flow 的唯一目标是 `keep`，而 60 波累计打掉 22 座采石场就是撞见了才打。
+    // 顺手已经把守方的采集建筑钉在 6 座 ⇒ 刻意打它就是掐守方唯一的成长引擎
+    // （石材 → K → 人口/建筑/兵种三个等级上限 + 塔）。这就是 CLAUDE.md 的
+    // 「攻其必救」，奖励函数也早已设计好（摧毁建筑的即时奖励 = 重建成本）。
+    keep_goals_.assign(1, w_.keep_pos());
+    // 经济目标只用**攻方记忆里见过的**采集建筑（`read_intel` 已经按地图文件序
+    // 扫出来了），不读 god 视角——没侦查过的矿，攻方不该知道。
+    econ_goals_ = wave_intel_.economy;
+    econ_squads_.clear();
+
     std::vector<rts::UnitType> roster;
-    roster.reserve(static_cast<std::size_t>(plan.total()));
-    for (int k = 0; k < plan.ghouls; ++k) roster.push_back(rts::UnitType::Ghoul);
-    for (int k = 0; k < plan.shades; ++k) roster.push_back(rts::UnitType::Shade);
-    for (int k = 0; k < plan.knights; ++k) roster.push_back(rts::UnitType::Knight);
-    for (int k = 0; k < plan.rams; ++k) roster.push_back(rts::UnitType::Ram);
-    for (int k = 0; k < plan.phoenixes; ++k) roster.push_back(rts::UnitType::Phoenix);
+    std::vector<int> squad_id;      // 与 roster 同序：这个单位属于第几支编队
+    roster.reserve(static_cast<std::size_t>(plan.units()));
+    squad_id.reserve(static_cast<std::size_t>(plan.units()));
+    int next_squad = 0;
+    const auto add_squads = [&](rts::UnitType t, int squads) {
+        const int per = squad_cap_of(t);
+        for (int q = 0; q < squads; ++q) {
+            const int sid = next_squad++;
+            for (int m = 0; m < per; ++m) {
+                roster.push_back(t);
+                squad_id.push_back(sid);
+            }
+        }
+    };
+    add_squads(rts::UnitType::Ghoul, plan.ghouls);
+    add_squads(rts::UnitType::Shade, plan.shades);
+    add_squads(rts::UnitType::Knight, plan.knights);
+    add_squads(rts::UnitType::Ram, plan.rams);
+    add_squads(rts::UnitType::Phoenix, plan.phoenixes);
     // 幽影窥使恒 1，第 2 波起。**这一只是整个侦查博弈里攻方那一半**：
     // 在它进编成之前，`Wraith` 在 `game/` 里只出现在中文展示名表里——攻方
     // 从来没有侦查过，于是「双向欺骗」只有守方那一向。
     // 从编成位里扣、不额外加人：它占的是攻方自己的预算，否则等于白送一只。
-    for (int k = 0; k < plan.wraiths; ++k) roster.push_back(rts::UnitType::Wraith);
+    add_squads(rts::UnitType::Wraith, plan.wraiths);
+
+    // ——把「打经济」这个意图分给一部分编队——
+    //
+    // **只分 `Ghoul` 与 `Knight`**（近战、便宜、能破结构），两条理由：`Ram` 是
+    // 破墙主力必须跟主攻（那条逻辑在下面的分路里也写着）、`Shade` 的活是压制
+    // 墙头；而每多一个 (兵种 × 目标集) 组合就多一张每拍重算的 field，
+    // 那直接是训练吞吐（见 `kGoalSetCount` 的注释）。
+    //
+    // 取值是**占位**：这是脚本的固定分派，RL 宏观层接管后它变成每波一次的
+    // 离散动作。经济目标集为空（没侦查到任何采集建筑）时整段不发生——
+    // 那时 `goal_cells()` 会退回打堡垒。
+    if (!econ_goals_.empty()) {
+        int raiders = std::max(1, (plan.ghouls + plan.knights) *
+                                      curve_.econ_raid_permille / 1000);
+        for (std::size_t n = 0; n < roster.size() && raiders > 0; ++n) {
+            const rts::UnitType t = roster[n];
+            if (t != rts::UnitType::Ghoul && t != rts::UnitType::Knight) continue;
+            const int sid = squad_id[n];
+            // 一队只数一次（队里第一个成员那一格）。
+            if (n > 0 && squad_id[n - 1] == sid) continue;
+            econ_squads_.push_back(sid);
+            --raiders;
+        }
+    }
 
     // ——兵力集中：主攻一路 + 佯攻一路，**不再轮转平摊**——
     //
@@ -358,11 +424,18 @@ void DemoBattle::spawn_wave() {
     // 与 `Phoenix` 整体推给佯攻那一路，而 `Ram` 是破墙的主力，它必须跟主攻走。
     int placed_at[2] = {0, 0};   // [0]=主攻路已摆几个，[1]=佯攻路
     int seen_of_type[rts::kUnitTypeCount] = {};
-    for (const rts::UnitType t : roster) {
+    // 逐兵种总数**先数一遍**，不在循环里重数（原写法是 O(n²)；单位数从 76
+    // 涨到约 70 之后仍然不是瓶颈，但没有理由留着）。
+    int count_of_type[rts::kUnitTypeCount] = {};
+    for (const rts::UnitType q : roster) ++count_of_type[static_cast<std::size_t>(q)];
+
+    // **下标循环，不是 range-for**：下面要用 `n` 去 `squad_id` 里取编队号，
+    // 而 range-for 的 `t` 是副本，拿它的地址算不出下标。
+    for (std::size_t n = 0; n < roster.size(); ++n) {
+        const rts::UnitType t = roster[n];
         const auto ti = static_cast<std::size_t>(t);
         const int idx = seen_of_type[ti]++;
-        int total = 0;
-        for (const rts::UnitType q : roster) total += (q == t) ? 1 : 0;
+        const int total = count_of_type[ti];
 
         bool to_main = true;
         if (t == rts::UnitType::Wraith) {
@@ -378,7 +451,21 @@ void DemoBattle::spawn_wave() {
         const auto& off = off_ring[static_cast<std::size_t>(slot) % off_ring.size()];
         const rts::Vec2 c = rts::center_of(spawns[si].pos);
         const std::int64_t hp = hp_at(stats, t, lv);
-        w_.spawn_unit(t, rts::Vec2{c.x + off.first, c.y + off.second}, lv, hp, hp);
+        const rts::UnitId id =
+            w_.spawn_unit(t, rts::Vec2{c.x + off.first, c.y + off.second}, lv, hp, hp);
+        // 记下编队归属。**按槽位下标记账**（`Handle::index()`），因为
+        // `submit_actions` 那一侧拿到的是 `UnitId`，而槽位会被复用——所以
+        // 每波开头要清空（见下），否则上一波死掉的单位留下的编号会被新单位
+        // 继承，症状是「两支不同的编队莫名一起动」。
+        const std::size_t ui = id.index();
+        if (ui >= squad_of_.size()) squad_of_.resize(ui + 1, -1);
+        if (ui >= squad_goal_.size()) squad_goal_.resize(ui + 1, 0);
+        squad_of_[ui] = squad_id[n];
+        squad_goal_[ui] =
+            std::find(econ_squads_.begin(), econ_squads_.end(), squad_id[n]) !=
+                    econ_squads_.end()
+                ? 1
+                : 0;
     }
 }
 
@@ -575,18 +662,48 @@ rts::UnitAction DemoBattle::greedy_move(rts::UnitId id, rts::Vec2 target) const 
 rts::UnitAction DemoBattle::flow_step(rts::UnitId id) {
     const rts::UnitType t = w_.unit_type(id);
     const int tier = rts::flow_tier_of(w_.unit_level(id), tiering_);
-    auto& slot = flow_[static_cast<std::size_t>(t) *
-                           static_cast<std::size_t>(rts::kFlowTierCount) +
-                       static_cast<std::size_t>(tier)];
+    // **目标集是编队的意图**（2026-09-05）：同一队读同一张 field，而每个成员在
+    // **自己那一格**采样方向。这正是 flow field 该有的用法（SupCom2 那篇：
+    // 「每个 agent 永远在自己那一格采样」），也是 TStarBot2 / ROMA 那条
+    // 「group action 是共享子目标、不是共享输出」的落点。
+    const std::size_t goals = static_cast<std::size_t>(squad_goal_of(id));
+    auto& slot = flow_[(static_cast<std::size_t>(t) *
+                            static_cast<std::size_t>(rts::kFlowTierCount) +
+                        static_cast<std::size_t>(tier)) *
+                           kGoalSetCount +
+                       goals];
+    const rts::GridPos fallback = goal_anchor(static_cast<int>(goals));
     if (!slot) {
-        const rts::GridPos goal[1] = {w_.keep_pos()};
+        const std::vector<rts::GridPos>& gs = goal_cells(static_cast<int>(goals));
         slot.emplace(rts::FlowField::compute(w_.view(rts::Side::Attacker), t, tier,
-                                             goal, tiering_));
+                                             gs, tiering_));
     }
     const rts::UnitAction a = slot->step_of(rts::grid_of(w_.unit_pos(id)));
-    return a == rts::UnitAction::Stop
-               ? greedy_move(id, rts::center_of(w_.keep_pos()))
-               : a;
+    return a == rts::UnitAction::Stop ? greedy_move(id, rts::center_of(fallback))
+                                      : a;
+}
+
+// 这一队该读哪张 field。**目前是脚本的固定分派**（生波时定，见 `spawn_wave`）；
+// RL 宏观层接管时它变成一个每波一次的离散动作，而下面这一层一行都不用改
+// ——那正是「编队动作 = 选目标集」这个形状的全部好处。
+int DemoBattle::squad_goal_of(rts::UnitId id) const {
+    const std::size_t ui = id.index();
+    if (ui >= squad_goal_.size()) return 0;
+    const int g = squad_goal_[ui];
+    return (g >= 0 && g < static_cast<int>(kGoalSetCount)) ? g : 0;
+}
+
+const std::vector<rts::GridPos>& DemoBattle::goal_cells(int set) const {
+    // 经济目标集为空（这张图上一个采集建筑都没侦查到）⇒ 退回打堡垒。
+    // **不能把空集交给 `FlowField::compute`**：空 goals 会让整张 field 全是
+    // +inf、`step_of` 处处返回 Stop，那一队原地不动到本波结束。
+    if (set == 1 && !econ_goals_.empty()) return econ_goals_;
+    return keep_goals_;
+}
+
+rts::GridPos DemoBattle::goal_anchor(int set) const {
+    const std::vector<rts::GridPos>& gs = goal_cells(set);
+    return gs.empty() ? w_.keep_pos() : gs.front();
 }
 
 void DemoBattle::issue_actions() {
@@ -720,6 +837,37 @@ void DemoBattle::issue_actions() {
             if (pace_dist < 0.0f || d < pace_dist) pace_dist = d;
         }
     }
+
+    // ——**步速线按整队判，不是按单兵判**（2026-09-05，编队制的连带）——
+    //
+    // 编队的动作最终会统一成队长那一个（见函数末尾）。若步速判断还留在单兵
+    // 层，队长「我没越线、走」会**盖掉**队员「我越线了、该停」——于是越线的
+    // 队员跟着一起走，散布越拉越大。这一条是实测逼出来的：`[demo]` 的
+    // 「编队推进：行军途中前锋不甩开最慢兵种」在编队一致性上线后立刻红
+    // （散布 11.86 > 允许的 11.72），把编队一致性关掉就绿。
+    //
+    // 判据取**队里最前的那个**（最保守）：任一队员越线，整队止步。于是
+    // 「没有任何单位超出步速线」这条不变量在编队制下由构造成立。
+    std::vector<std::uint8_t> squad_ahead;
+    if (pace_dist > 0.0f) {
+        const rts::Vec2 kc2 = rts::center_of(w_.keep_pos());
+        for (const rts::UnitId id : ids_) {
+            const std::size_t ui = id.index();
+            if (ui >= squad_of_.size()) continue;
+            const int sid = squad_of_[ui];
+            if (sid < 0) continue;
+            if (!rts::is_combat(w_.unit_type(id))) continue;
+            const auto sq = static_cast<std::size_t>(sid);
+            if (sq >= squad_ahead.size()) squad_ahead.resize(sq + 1, 0);
+            const rts::Vec2 p2 = w_.unit_pos(id);
+            const float ddx = p2.x - kc2.x;
+            const float ddy = p2.y - kc2.y;
+            if (std::sqrt(ddx * ddx + ddy * ddy) < pace_dist - kFormationSlack) {
+                squad_ahead[sq] = 1;
+            }
+        }
+    }
+
     for (const rts::UnitId id : ids_) {
         const std::uint16_t mask = w_.action_mask(id);
         rts::UnitAction a = rts::UnitAction::Stop;
@@ -788,18 +936,65 @@ void DemoBattle::issue_actions() {
         } else if (pace_dist > 0.0f &&
                    rts::is_combat(w_.unit_type(id))) {
             // 编队推进：比步速线超前超过 slack 就止步等后排（理由见上面那段）。
-            const rts::Vec2 p = w_.unit_pos(id);
-            const rts::Vec2 kc = rts::center_of(w_.keep_pos());
-            const float dx = p.x - kc.x;
-            const float dy = p.y - kc.y;
-            const float d = std::sqrt(dx * dx + dy * dy);
-            a = (d < pace_dist - kFormationSlack) ? rts::UnitAction::Stop
-                                                  : flow_step(id);
+            // **成队的按整队判**（`squad_ahead`，队里最前那个说话）；散兵
+            // 按自己判。
+            const std::size_t ui = id.index();
+            const int sid = ui < squad_of_.size() ? squad_of_[ui] : -1;
+            bool ahead = false;
+            if (sid >= 0 && static_cast<std::size_t>(sid) < squad_ahead.size()) {
+                ahead = squad_ahead[static_cast<std::size_t>(sid)] != 0;
+            } else {
+                const rts::Vec2 p = w_.unit_pos(id);
+                const rts::Vec2 kc = rts::center_of(w_.keep_pos());
+                const float dx = p.x - kc.x;
+                const float dy = p.y - kc.y;
+                ahead = std::sqrt(dx * dx + dy * dy) < pace_dist - kFormationSlack;
+            }
+            a = ahead ? rts::UnitAction::Stop : flow_step(id);
         } else {
             a = flow_step(id);
         }
         acts_.push_back(a);
     }
+
+    // ——**编队怎么落到单位上：共享意图，不共享方向**（2026-09-05）——
+    //
+    // 我先写错了一版，值得留着当反面教材：**把队长选的那个动作原样抄给队员**。
+    // 它当场把 `[demo]` 的队形测试打红（散布 11.86 > 允许的 11.72），
+    // 而组长一句「你做编队就要考虑这些啊，去搜索一下开源代码对编队的实现」
+    // 让我去查了文献 —— 结论是那个做法**有明确记录是错的**，不是没人试过：
+    //
+    //   * **TStarBot2**（全局 SC2 bot）把它写进自己的 ablation：给单个控制器
+    //     共享的 group macro-action 会失败，因为「macro actions don't have
+    //     control over individual units, which is inflexible」。它的解法是两层
+    //     ——上层发**意图/目标**，下层**以那个意图为条件**各自算逐单位动作。
+    //   * **ROMA / RODE**（role-based MARL）同形：role 是一个**条件输入的隐
+    //     向量**，每个 agent 仍从自己的局部状态解码出自己的动作。
+    //   * **Supreme Commander 2 的 flow field 原文**（Emerson, Game AI Pro
+    //     Ch.23）在寻路侧给出同一个答案：**每个 agent 永远在自己那一格采样**，
+    //     整条流水线里没有任何广播步骤。
+    //   * **OpenRA 根本没有编队系统**（各自下令各自寻路）；**0 A.D.** 的
+    //     `FormationController` 是一个独立实体供成员跟随；**Spring/BAR** 给
+    //     **每个单位算各自的目标点**、各自寻路。三个引擎都不广播方向。
+    //
+    // 一句话：**group action 从不是单位的字面输出**，它是一个共享的子目标 /
+    // 条件变量，喂进每个成员自己的动作头。
+    //
+    // 所以这里**什么都不做**。编队体现在两处，都已经在别处了：
+    //
+    //   1. **共享目标集**（意图）：同一队读同一张 flow field，而每个成员在
+    //      **自己那一格**采样方向。落点是 `flow_step()` 的缓存键——那一维
+    //      正是「打 Keep / 打经济」要加的那个，编队动作就是「这一队读哪张」。
+    //   2. **向最慢的成员限速**（凝聚）：`squad_ahead`，任一队员越线则整队
+    //      止步。这是 BAR 的 locked-formation 那条规则的离散时间版本，
+    //      也是**唯一**与「各自采样」兼容且有出货先例的凝聚手段。
+    //
+    // ⚠️ **刻意没做「虚拟队心 + 成员偏移」**：那是唯一被明确报告在 flow field
+    // 上失败的方案（有团队试过 formation forces 叠加在 flowfield 之上，
+    // 最后整个放弃了 flow field、退回 waypoint A*）。我们已经在 flow field
+    // 上，所以那条路排除。代价要认下来：画面上不会出现整齐的三人小队，
+    // 编队是「共享意图、各自走」。那种视觉编队要换回 waypoint A*。
+
     w_.submit_actions(rts::Side::Attacker, acts_.data(), acts_.size());
 }
 

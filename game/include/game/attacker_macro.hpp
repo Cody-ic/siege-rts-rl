@@ -82,12 +82,30 @@ namespace game {
 // 而 `AttackerMacro` 要吃它——留在原处会让本文件与 `demo_driver.hpp` 循环
 // 包含。`demo_driver.hpp` 包含本文件，所以下游（runner、测试）不受影响。
 struct WaveCurve {
-    // ——编成位（买人数）——
+    // ——编成位（买**编队**数，2026-09-05 起；此前是单位数）——
     double slots_base = 6.0;
     double slots_per_wave = 1.2;
-    // 0 = 不封顶。CLAUDE.md 要求「必须有硬上限」（RL 可训练规模），
-    // 而 2026-09-01 撤下的是**没有依据的取值 40**、不是那条结构主张。
-    int slots_cap = 0;
+    // **编队数硬顶 = RL 的 agent 数上限。取 27，这是第一个有依据的取值。**
+    //
+    // 2026-09-01 撤下的是没有依据的 40；这次的 27 有三条依据：
+    //
+    //   1. **SMAC 最大的官方图 `27m_vs_30m` 恰是 27 个 agent**，官方难度标
+    //      「Super Hard」，默认 QMIX 只有 56% 胜率、调参后才 100%。这是最
+    //      直接可比的对标——同样是战术微操、同样参数共享。
+    //   2. **我们每个 agent 的观测是 SMAC 的 18–21 倍**（3166 float = 12.4 KB
+    //      vs SMAC 的 ~150–176 float）。成因是编码方式：SMAC 是实体列表，
+    //      我们是 15×15×14 稠密网格。所以该取文献安全带（20–30）的**下沿**。
+    //   3. 检索找不到任何一例「参数共享 PPO + ~3000 维观测 + 40 个 agent」
+    //      收敛的公开工作。40 在带外、无先例背书。
+    //
+    // ⚠️ **`CLAUDE.md` 引 arXiv 1804.00810 说「40v60 胜率明显下滑」，数字对
+    // 但读法错**：那 80.5% 是**零样本泛化**（只训练到 20v30 直接拿去跑
+    // 40v60），不是「训练 40 个失败」；而且它用 93 维状态 + Sarsa(λ)，
+    // 不是 PPO。那句话不能当「40 是 RL 的墙」引。
+    //
+    // **单位数不受这个顶约束**（约 27 × 2.58 ≈ 70）：约束 agent 数的理由是
+    // RL 可训练规模，它不适用于单位数。见 `WavePlan::units()`。
+    int slots_cap = 27;
 
     // ——兵力预算（买等级）——
     enum class PowerForm {
@@ -102,9 +120,18 @@ struct WaveCurve {
     double power_half = 20.0;   // 只有 Saturating 用：转折处的波数
 
     // ——编成比例（千分比，余量全是 Ghoul）与出场门槛——
-    int shade_permille = 200;    // 原 slots/5
-    int knight_permille = 150;   // 原 slots*3/20
-    int ram_permille = 100;      // 原 slots/10
+    //
+    // **千分比现在作用在编队数上，所以 `ram_permille` 必须重标**：`Ram` 单独
+    // 成队 ⇒ Ram 台数 = Ram 队数。旧值 100‰ 在无硬顶的 76 编成位下给 7 台，
+    // 在 27 个编队下只给 2 台——而 `攻守实力模型与平衡分析.md` §3 有一条
+    // 「Ram 阈值」（要 N 台**同时**到墙下才破得开），7 → 2 是结构性变化。
+    //
+    // 250‰ = 6 台，接近旧行为。**这是占位**：真正的目标值该来自那条 Ram 阈值，
+    // 不是「凑回旧数字」。`Shade`/`Knight` 每队 3 / 2 个，所以它们的千分比
+    // 不需要同比例抬——它们的单位数本来就跟着队规模乘回来了。
+    int shade_permille = 200;
+    int knight_permille = 150;
+    int ram_permille = 250;      // 占位，见上；旧值 100 在编队语义下只给 2 台
     int shade_from_wave = 2;
     int knight_from_wave = 2;
     int ram_from_wave = 3;
@@ -128,6 +155,17 @@ struct WaveCurve {
 
     // ——分兵——
     int main_permille = 700;   // 主攻拿几成（其余给佯攻）
+
+    // **派几成的近战编队去打经济**（千分比，只算 `Ghoul` + `Knight`）。
+    //
+    // 攻方的战果此前全是「路过顺手」——flow 的唯一目标是 `keep`，60 波累计
+    // 打掉 22 座采石场都是撞见了才打，而顺手已经把守方的采集建筑**钉在 6 座**。
+    // 刻意打它就是掐守方唯一的成长引擎（石材 → K → 三个等级上限 + 塔），
+    // 也就是 CLAUDE.md 的「攻其必救」。
+    //
+    // 占位值。它有真实的两头：太小则经济打击不成立，太大则主攻路人手不够、
+    // 破不开墙（而破口才是拿下堡垒的前提）。
+    int econ_raid_permille = 250;
 
     // 第 w 波的编成位与兵力预算。**唯一实现处**，`demo_driver.cpp` 与
     // `tools/balance/budget_curves.py` 都以它为准。
@@ -188,18 +226,60 @@ struct AttackerParams {
     int flak_per_phoenix_cut = 2;
 };
 
-// 一波的编成计划。数字是**只数**，不是千分比——`DemoBattle::spawn_wave()`
-// 直接照着生成，不再自己算一遍整除式（那是「同一件事写在两处」的入口）。
+// 一支编队能装几个同兵种单位。**逐兵种不同，理由各自不同**（2026-09-05 组长定）。
+//
+// 这个上限是**结构**而不是旋钮：`Knight` 的 2 来自冲锋助跑要跑道（挤在一起
+// 互相挡住加速空间），`Ram`/`Phoenix` 的 1 来自它们各自的稀缺性与「单件威胁」
+// 定位。改它们要回头看那三条机制，不是调个数。
+constexpr int squad_cap_of(rts::UnitType t) noexcept {
+    switch (t) {
+        case rts::UnitType::Ghoul:   return 3;   // 肉盾，扎堆本来就是它的打法
+        case rts::UnitType::Shade:   return 3;   // 中程压制，齐射式火力
+        case rts::UnitType::Knight:  return 2;   // 冲锋助跑要跑道
+        case rts::UnitType::Ram:     return 1;   // 单独成队
+        case rts::UnitType::Phoenix: return 1;   // 单独成队
+        case rts::UnitType::Wraith:  return 1;   // 本来就恒 1 只，天然单独
+        default:                     return 1;   // 守方兵种：不成队（不上逐单位 RL）
+    }
+}
+
+// 一波的编成计划。
+//
+// **2026-09-05 起这些数字是「编队数」而不是「单位数」。** 编成位（`slots_at`）
+// 的语义随之改成编队数，因为它的上限来自 **RL 可训练的 agent 数**——而一支
+// 编队就是一个 agent（动作复制给队里每个单位、观测取队长）。
+//
+// 这一步同时解决了「27 个单位硬顶」那个方案的副作用：单位数回到 ~70，于是
+// 名义等级不会被摊到 165（那会把克制二部图稀释到 11%），实测 62 / 28%。
+// 兑现战力 `Σ√B = √(单位数 × 预算)` 因此还涨了 1.61 倍。
+//
+// **编队一律同兵种**：一个动作要对整队有意义，而 `Ghoul`（近战 1.2）与
+// `Shade`（中程）混编只能得到「肉盾被拖住」或「法师被推进近战」，后者正是
+// CLAUDE.md 列为机制性克制的「被贴脸即废」。契约上也只能同兵种——
+// `kObsSelfCount = kUnitTypeCount + 3`，自身向量里兵种是 one-hot，
+// 混编队表达不了。
 struct WavePlan {
-    int ghouls = 0;
+    int ghouls = 0;      // 亡灵步兵**编队**数，每队 squad_cap_of() 个
     int shades = 0;
     int knights = 0;
     int rams = 0;
     int phoenixes = 0;
     int wraiths = 0;
 
-    int total() const noexcept {
+    // 编队总数 = agent 数 = 受 `slots_cap` 约束的那个量。
+    int squads() const noexcept {
         return ghouls + shades + knights + rams + phoenixes + wraiths;
+    }
+
+    // 场上单位总数。**它不等于编队数**，也不受 `slots_cap` 约束——
+    // 约束 agent 数的理由（RL 可训练规模）不适用于单位数。
+    int units() const noexcept {
+        return ghouls * squad_cap_of(rts::UnitType::Ghoul) +
+               shades * squad_cap_of(rts::UnitType::Shade) +
+               knights * squad_cap_of(rts::UnitType::Knight) +
+               rams * squad_cap_of(rts::UnitType::Ram) +
+               phoenixes * squad_cap_of(rts::UnitType::Phoenix) +
+               wraiths * squad_cap_of(rts::UnitType::Wraith);
     }
 };
 

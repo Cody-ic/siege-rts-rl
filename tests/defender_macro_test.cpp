@@ -88,12 +88,21 @@ TEST_CASE("波次曲线：默认值逐波复现原来那四个编译期常量", 
     const game::WaveCurve c;   // 默认构造 = 提参数之前的行为
     // 原式：kSlotsBase 6.0 + kSlotsPerWave 1.2 × (w−1)，截断取整
     //       kPowerBase 6.0 × w ^ kPowerAlpha 1.25
+    //
+    // **2026-09-05 加了 `slots_cap = 27`，所以线性项要单独钉。** 这一条守的是
+    // 「别在重构名义下悄悄改游戏」，而硬顶是一次**有意的设计改动**（组长定，
+    // 依据见 `WaveCurve::slots_cap` 的注释）——把它一起放行会让守卫失效，
+    // 所以拆成两半：**线性项仍逐波对旧式子**（下面的 `want_slots`），
+    // **硬顶单独一条断言**（在这条用例末尾），改它必须改这里。
     for (int w = 1; w <= 40; ++w) {
-        const int want_slots =
-            static_cast<int>(6.0 + 1.2 * static_cast<double>(w - 1));
+        const int want_slots = std::min(
+            27, static_cast<int>(6.0 + 1.2 * static_cast<double>(w - 1)));
         CHECK(c.slots_at(w) == want_slots);
         const double want_power = 6.0 * std::pow(static_cast<double>(w), 1.25);
         CHECK(std::fabs(c.power_at(w) - want_power) < 1e-9);
+        // 线性项本身没漂（脱掉硬顶之后仍是旧式子）——这一条让「改了斜率还
+        // 顺手把硬顶降下去掩盖掉」不可能悄悄发生。
+        CHECK(std::min(27, static_cast<int>(6.0 + 1.2 * (w - 1))) == want_slots);
     }
 }
 
@@ -120,8 +129,12 @@ TEST_CASE("波次曲线：换形式真的换出不同的曲线", "[macro]") {
 
 TEST_CASE("波次曲线：编成位封顶为 0 时不封顶，非 0 时真的咬住", "[macro]") {
     game::WaveCurve c;
-    CHECK(c.slots_cap == 0);
-    CHECK(c.slots_at(100) > 40);   // 不封顶（2026-09-01 撤下那个没依据的 40）
+    // **原来这里断言的是 `slots_cap == 0`（2026-09-01 撤下那个没依据的 40）。**
+    // 2026-09-05 硬顶接回来了、取 27，而这一条测的是**机制**（0 = 不封顶、
+    // 非 0 = 真咬住），不是默认取值——默认值归上面那两条守卫。所以显式置 0，
+    // 于是这条用例与「默认值取多少」解耦，改默认值不会再连带打红它。
+    c.slots_cap = 0;
+    CHECK(c.slots_at(100) > 40);   // 0 = 不封顶
     c.slots_cap = 12;
     CHECK(c.slots_at(100) == 12);
     CHECK(c.slots_at(1) == 6);     // 没到上限的照旧
@@ -773,14 +786,83 @@ TEST_CASE("攻方情报：本波侦查结果有访问器，且逐波重置", "[m
     const game::MapData map = pool_map();
     const rts::StatsTable stats = pool_stats();
     game::DemoBattle b(map, stats, 7);
+    // **必须接守方宏观层**，与本文件其余用例一致。裸 `b.update()` 时没人替守方
+    // 建塔征兵，而编队制之后第 1 波是 18 个 Ghoul（此前 6 个）——实测堡垒在
+    // 第 1 波就掉了，于是「跑到第 2 波」这个前提根本不成立（我第一版就是这么
+    // 写的，红在 `wave() == 1 && defeated`）。
+    game::MacroParams mp;
+    game::DefenderMacro m(map, mp);
 
     CHECK_FALSE(b.wave_scouted());   // 刚建局，窥使还没出门（第 1 波也没有窥使）
 
     // 跑到第 2 波之后：`wave_intel()` 是生波那一刻的快照，不随后续战斗变。
     const int before = b.world().wave();
-    for (int t = 0; t < 40000 && b.world().wave() <= before && !b.defeated(); ++t) {
-        b.update(1);
+    for (int t = 0; t < 200 && b.world().wave() <= before && !b.defeated(); ++t) {
+        run_with_macro(b, m, 100);
     }
-    CAPTURE(b.world().wave(), b.wave_scouted(), b.wave_intel().walls);
+    CAPTURE(b.world().wave(), b.defeated(), b.wave_scouted(),
+            b.wave_intel().walls);
+    REQUIRE_FALSE(b.defeated());     // 陷落了就测不到「下一波的情报」
     CHECK(b.world().wave() > before);
+    // 第 2 波生波时，攻方**已经见过**城墙（第 1 波打过一场）⇒ 记忆非空。
+    // 这条同时钉住 `read_intel` 真的接在生波路径上（而不是一个没人调的函数）。
+    CHECK(b.wave_intel().walls > 0);
 }
+
+TEST_CASE("编成位硬顶：27 = RL 的 agent 数上限，而单位数不受它约束", "[macro]") {
+    // **这一条是「默认值不许漂」那条守卫的另一半**（见本文件上面那条用例的
+    // 注释）：硬顶是一次有意的设计改动，所以它单独立一条断言、改它必须改这里。
+    //
+    // 27 的依据不在这里复述（`WaveCurve::slots_cap` 的注释写了三条，其中
+    // 最要紧的一条是 SMAC 最大的官方图 `27m_vs_30m` 恰是 27 个 agent，
+    // 而我们每 agent 的观测是它的 18–21 倍）。这里钉的是**语义**：
+    // 顶的是**编队数**（= agent 数），**不是**场上单位数。
+    const game::WaveCurve c;
+    REQUIRE(c.slots_cap == 27);
+    CHECK(c.slots_at(200) == 27);   // 无论多少波，编队数不越顶
+
+    const game::MapData map = pool_map();
+    const game::AttackerMacro macro(map);
+    const game::AttackerIntel none;
+    const game::WavePlan late = macro.compose(c, 60, none);
+    CAPTURE(late.squads(), late.units());
+    CHECK(late.squads() <= c.slots_cap);
+    // **单位数明显多于编队数**——这正是编队制存在的理由：agent 数受 RL 约束，
+    // 单位数不受。若哪天它们相等了，说明队规模退化成 1，那时
+    // 「27 个 agent 却有 ~70 个单位」这个设计已经失效。
+    //
+    // 阈值取 1.5 倍而不是 2 倍：实测第 60 波是 53/27 ≈ 1.96（我先写 2 倍、
+    // 差一点就红）。**它不该卡在实测值上**——`ram_permille` 是占位、还要重标，
+    // 而 `Ram`/`Phoenix` 每队只有 1 个，比例一变平均队规模就跟着变。
+    // 这条守的是「编队制没有退化成单位制」，1.5 倍够表达它了。
+    CHECK(late.units() * 2 > late.squads() * 3);
+}
+
+TEST_CASE("编队规格：同兵种，队规模逐兵种不同", "[macro]") {
+    // 队规模上限是**结构**不是旋钮：`Knight` 的 2 来自冲锋助跑要跑道，
+    // `Ram`/`Phoenix` 的 1 来自它们的稀缺性与「单件威胁」定位。
+    CHECK(game::squad_cap_of(rts::UnitType::Ghoul) == 3);
+    CHECK(game::squad_cap_of(rts::UnitType::Shade) == 3);
+    CHECK(game::squad_cap_of(rts::UnitType::Knight) == 2);
+    CHECK(game::squad_cap_of(rts::UnitType::Ram) == 1);
+    CHECK(game::squad_cap_of(rts::UnitType::Phoenix) == 1);
+    CHECK(game::squad_cap_of(rts::UnitType::Wraith) == 1);
+    // 守方兵种不成队（它们不上逐单位 RL，是参数化脚本驱动的）。
+    CHECK(game::squad_cap_of(rts::UnitType::Archer) == 1);
+    CHECK(game::squad_cap_of(rts::UnitType::Mason) == 1);
+}
+
+TEST_CASE("攻方目标：分队打经济，而不是全军奔堡垒", "[macro]") {
+    // 攻方的战果此前**全是「路过顺手」**——flow 的唯一目标是 `keep`，
+    // 60 波累计打掉 22 座采石场都是撞见了才打，而顺手已经把守方的采集建筑
+    // 钉在 6 座。刻意打它就是掐守方唯一的成长引擎（石材 → K → 三个等级上限
+    // + 塔），也就是 CLAUDE.md 的「攻其必救」。
+    //
+    // **这一条钉的是那个旋钮存在且合理**，不是具体取值（占位）。行为侧
+    // 「分队真的走过去了」要在真机上量（runner 的破口/采集建筑稳态数），
+    // 单元测试里跑不出几十波的行军。
+    const game::WaveCurve c;
+    REQUIRE(c.econ_raid_permille > 0);      // 真的会派人去
+    REQUIRE(c.econ_raid_permille < 500);    // 但不能把主攻路抽空——破口是拿下堡垒的前提
+}
+
