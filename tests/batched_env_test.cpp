@@ -630,3 +630,64 @@ TEST_CASE("战果计数：progress 在换局时清零，不把上一局的位移
     CAPTURE(tally[7]);
     CHECK(tally[7] == 0.0f);
 }
+
+TEST_CASE("episode 时长：第一局按局错开，否则「最近 N 局」是同一批的一片", "[batchenv]") {
+    // **不错开时全批同时开跑、同时超时、同时重置** ⇒ 终局是同步的，
+    // 而那让「最近 N 局」这个统计口径失去意义：它永远是同一批里的一片，
+    // 不是策略的 N 次独立采样。实测症状是课程升档那个门的读数在 0% 与
+    // 99% 之间来回跳 —— 门读的是「刚结束的那一批碰巧怎么样」。
+    //
+    // 判据取**终局不同时发生**，不取具体在第几步：后者取决于 max_ticks
+    // 与 ticks_per_step 的具体取值，那是旋钮。
+    const auto first_done_steps = [](bool stagger) {
+        rts::BatchedEnvInit bi;
+        for (int k = 0; k < 8; ++k) bi.worlds.push_back(one(k, 1));
+        bi.side = rts::Side::Attacker;
+        bi.threads = 1;
+        bi.ticks_per_step = 6;
+        bi.max_ticks_per_episode = 240;   // 40 步一局，够短好测
+        bi.stagger_first_episode = stagger;
+        rts::BatchedEnv e(std::move(bi));
+        Bufs b(8);
+        // **batch × kMaxUnitsPerEnv**，不是一局的长度 —— 本文件别处的用例
+        // 都只有一局，照抄那个长度会被 `step` 的形状检查挡下（已踩）。
+        std::vector<rts::UnitAction> stay(
+            8 * static_cast<std::size_t>(rts::BatchedEnv::kMaxUnitsPerEnv),
+            rts::UnitAction::Stop);
+        // 每局第一次报 done 是在第几步。
+        std::vector<int> at(8, -1);
+        for (int step = 1; step <= 60; ++step) {
+            e.step(stay, b.done);
+            for (int i = 0; i < 8; ++i) {
+                if (at[static_cast<std::size_t>(i)] < 0 &&
+                    b.done[static_cast<std::size_t>(i)] != 0) {
+                    at[static_cast<std::size_t>(i)] = step;
+                }
+            }
+        }
+        return at;
+    };
+
+    // ——关掉：全部在同一步终局（那正是要修的形态）——
+    const std::vector<int> sync = first_done_steps(false);
+    for (const int v : sync) REQUIRE(v > 0);   // 都终局了，否则下面没意义
+    for (const int v : sync) CHECK(v == sync.front());
+
+    // ——开着：**不同时**。这一条是本用例的目的——
+    const std::vector<int> stag = first_done_steps(true);
+    for (const int v : stag) REQUIRE(v > 0);
+    int distinct = 0;
+    for (std::size_t k = 0; k < stag.size(); ++k) {
+        bool seen = false;
+        for (std::size_t j = 0; j < k; ++j) {
+            if (stag[j] == stag[k]) seen = true;
+        }
+        if (!seen) ++distinct;
+    }
+    CAPTURE(distinct, stag.front(), stag.back());
+    CHECK(distinct > 1);   // 至少不是全挤在一步
+
+    // 错开只动**第一局**：`reset_one` 照旧从 0 计时（那一条由
+    // 「战果计数：progress 在换局时清零」那条用例连带覆盖 —— 它调
+    // `reset_one` 之后立刻读，读得到就说明计时器确实重置过）。
+}

@@ -229,19 +229,21 @@ PYBIND11_MODULE(rts_native, m) {
     py::class_<rts::BatchedEnv>(m, "BatchedEnv")
         .def(py::init([](std::vector<rts::WorldInit> worlds, rts::Side side,
                          int ticks_per_step, int threads, int max_ticks_per_episode,
-                         rts::ObsNorms norms) {
+                         bool stagger_first_episode, rts::ObsNorms norms) {
                  rts::BatchedEnvInit bi;
                  bi.worlds = std::move(worlds);
                  bi.side = side;
                  bi.ticks_per_step = ticks_per_step;
                  bi.threads = threads;
                  bi.max_ticks_per_episode = max_ticks_per_episode;
+                 bi.stagger_first_episode = stagger_first_episode;
                  bi.norms = norms;
                  return std::make_unique<rts::BatchedEnv>(std::move(bi));
              }),
              py::arg("worlds"), py::arg("side") = rts::Side::Attacker,
              py::arg("ticks_per_step") = 6, py::arg("threads") = 0,
              py::arg("max_ticks_per_episode") = 2400,
+             py::arg("stagger_first_episode") = true,
              py::arg("norms") = rts::ObsNorms{})
         .def_property_readonly("batch_size", &rts::BatchedEnv::batch_size)
         .def_property_readonly("side", &rts::BatchedEnv::side)

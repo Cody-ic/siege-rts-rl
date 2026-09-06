@@ -174,6 +174,14 @@ BatchedEnv::BatchedEnv(BatchedEnvInit init) : p_(std::make_unique<Impl>()) {
     p_->leaders.resize(static_cast<std::size_t>(n));
     p_->acts.resize(static_cast<std::size_t>(n));
     p_->elapsed.assign(static_cast<std::size_t>(n), 0);
+    // 错开第一局（见 `stagger_first_episode`）。只动初值，`reset_one`
+    // 照旧归 0 —— 错峰一次就够，此后各局自然不同步。
+    if (init.stagger_first_episode && init.max_ticks_per_episode > 0 && n > 1) {
+        for (int i = 0; i < n; ++i) {
+            p_->elapsed[static_cast<std::size_t>(i)] =
+                i * init.max_ticks_per_episode / n;
+        }
+    }
     p_->flows.resize(static_cast<std::size_t>(n));
     for (auto& f : p_->flows) {
         f.resize(static_cast<std::size_t>(kUnitTypeCount) *
