@@ -99,6 +99,14 @@ PYBIND11_MODULE(rts_native, m) {
     // 下游，但语义 2026-09-05 变了 —— `train/` 侧一律从这里读，别抄数。
     obs.attr("MAX_UNITS_PER_ENV") = rts::BatchedEnv::kMaxUnitsPerEnv;
     obs.attr("NO_SQUAD") = rts::kNoSquad;
+    obs.attr("TALLY_FIELDS") = rts::BatchedEnv::kTallyFields;
+    {
+        py::list tn;
+        for (const std::string_view n : rts::BatchedEnv::kTallyNames) {
+            tn.append(std::string(n));
+        }
+        obs.attr("TALLY_NAMES") = tn;
+    }
     obs.attr("UNIT_TYPE_COUNT") = rts::kUnitTypeCount;
     obs.attr("ACTION_COUNT") = rts::kUnitActionCount;
 
@@ -261,6 +269,30 @@ PYBIND11_MODULE(rts_native, m) {
             py::arg("actions"), py::arg("done"),
             "推进一批。actions 是 uint8 的 batch × MAX_UNITS_PER_ENV，"
             "done 是 uint8 的 batch。终局的局不自动重置——重置时机归 train/。")
+        .def(
+            "action_masks",
+            [](const rts::BatchedEnv& e,
+               py::array_t<std::uint16_t, py::array::c_style> out) {
+                const auto os = as_span(out);
+                py::gil_scoped_release nogil;
+                e.action_masks(os);
+            },
+            py::arg("out"),
+            "写入动作掩码（batch × MAX_UNITS_PER_ENV，uint16）。第 k 位 = "
+            "ACTION_NAMES[k] 合法。**没有它策略学不动**：非法动作会被静默"
+            "拒成 Stop，梯度里全是噪声。没有 agent 的行填「只允许 Stop」"
+            "而不是 0 —— 全 0 掩码会让 softmax 得到 NaN。")
+        .def(
+            "take_tally",
+            [](rts::BatchedEnv& e, py::array_t<float, py::array::c_style> out) {
+                const auto os = as_span(out);
+                py::gil_scoped_release nogil;
+                e.take_tally(os);
+            },
+            py::arg("out"),
+            "读走这一步的战果（batch × TALLY_FIELDS，float32），**读走即清**。"
+            "列的顺序 = obs.TALLY_NAMES。权重不在 C++ 侧——那是训练超参，"
+            "这一层只给「发生了什么」。")
         .def("reset_one", &rts::BatchedEnv::reset_one, py::arg("i"), py::arg("init"),
              "把第 i 局换成一个新局面")
         .def(

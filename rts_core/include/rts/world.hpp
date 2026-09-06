@@ -686,6 +686,49 @@ public:
         return volley_hits_;
     }
 
+    // ——RL 战果计数器（2026-09-06）——
+    //
+    // 一侧**从上次 `take_tally` 以来**的战果。`train/` 每步读走一次，
+    // 由它按权重折成奖励——**权重不在 `rts_core` 里**，那是训练侧的超参，
+    // 而这一层只提供「发生了什么」这个事实。
+    //
+    // **为什么在 C++ 侧累计**：不变量 1 明令热路径不得向上回调 Python。
+    // 逐次伤害/击杀回调一次 Python 会让吞吐塌一到两个数量级（实测吞吐
+    // 639k agent-step/s 是在零回调的前提下量的）。
+    //
+    // **刻意不进 `state_hash`、不进回放**，同 `volley_hits()` 那条先例：
+    // 它是机制的旁观计数器，没有任何一条仿真推演读它。喂进哈希只会让
+    // 「改了一个纯诊断字段」表现为「回放对不上」。
+    //
+    // `bld_value` 用的是**重建成本**（石 + 木的基础造价），因为 `CLAUDE.md`
+    // 把摧毁建筑的即时奖励定成「该建筑的重建成本」——「这个权重等于给玩家
+    // 造成的实际资源损失，是有原则的推导而非手工试凑」。**它必须是即时的**：
+    // 摧毁经济建筑的收益要许多波之后才体现，跨 episode 学不到，不给即时奖励
+    // 的话 AI 会永远只打城墙、从不骚扰经济。
+    struct Tally {
+        std::int64_t dmg_to_units = 0;   // 对敌方单位造成的伤害
+        std::int64_t dmg_to_blds = 0;    // 对敌方建筑造成的伤害
+        std::int32_t units_killed = 0;   // 击杀的敌方单位数
+        std::int32_t blds_destroyed = 0;
+        std::int64_t bld_value = 0;      // 摧毁建筑的重建成本之和（石 + 木）
+        std::int32_t scouts_killed = 0;  // 击杀的敌方侦查单位（Scout / Wraith）
+        std::int64_t losses = 0;         // 自身损失（阵亡单位的满血之和）
+    };
+
+    // 读走并清零（`train/` 每步一次）。清零是为了让它天然是「这一步的增量」
+    // ——累计量要靠调用方自己攒，而增量做不到反过来。
+    Tally take_tally(Side side) noexcept {
+        const std::size_t i = static_cast<std::size_t>(side);
+        const Tally t = tally_[i];
+        tally_[i] = Tally{};
+        return t;
+    }
+
+    // 只读地看一眼，不清零（给测试与诊断）。
+    const Tally& peek_tally(Side side) const noexcept {
+        return tally_[static_cast<std::size_t>(side)];
+    }
+
     // **一侧活着的单位，按槽位下标升序。这是唯一的规范顺序。**
     //
     // `submit_actions` 按它取动作，观测打包必须按它写行。两处各自遍历一遍
@@ -1134,6 +1177,10 @@ private:
     // 齐射命中日志，见公开访问器 `volley_hits()` 那段注释。只增不改，
     // 不进 `state_hash`。
     std::vector<std::int32_t> volley_hits_;
+
+    // RL 战果计数器，按**造成方**记。不进 `state_hash`、不进回放，
+    // 理由见公开访问器 `take_tally()` 那段。
+    std::array<Tally, kSideCount> tally_{};
 
     // ——资源与宏观——
     std::array<std::int64_t, kResourceCount> stock_{};

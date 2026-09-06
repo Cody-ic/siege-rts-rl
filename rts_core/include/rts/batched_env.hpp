@@ -34,7 +34,9 @@
 #ifndef RTS_BATCHED_ENV_HPP
 #define RTS_BATCHED_ENV_HPP
 
+#include <array>
 #include <cstdint>
+#include <string_view>
 #include <memory>
 #include <span>
 #include <vector>
@@ -115,6 +117,32 @@ public:
     // 返回值是每一局这一步的「是否终局」。终局的局**不自动重置**：
     // 重置时机归 `train/`（要按波次分层采样，重置成哪一波是它的决定）。
     void step(std::span<const UnitAction> actions, std::span<std::uint8_t> done);
+
+    // ——战果，给 `train/` 折奖励用（2026-09-06）——
+    //
+    // 每局一行、`kTallyFields` 列，读走即清（见 `World::take_tally`）。
+    // **权重不在这一层**：那是训练侧的超参，而这里只给「发生了什么」。
+    //
+    // 列的顺序就是下面 `kTallyNames` 的顺序，`train/` 侧照它解包——
+    // 同 `kObsChannels` 那条纪律（两侧不一致时不会有任何东西报错，
+    // 张量照样 reshape 成功、网络照样收敛，收敛到一个把「击杀数」当
+    // 「自身损失」的表示上）。
+    void take_tally(std::span<float> out);
+
+    // 动作掩码：每局每 agent 一个 16 位位图（第 k 位 = `UnitAction(k)` 合法）。
+    //
+    // **没有它策略学不动**（`CLAUDE.md`「并做动作掩码」）：非法动作会被
+    // `submit_actions` 静默拒成 `Stop`，于是策略反复输出一个「看起来有效果
+    // 但实际什么都没发生」的动作，梯度里全是噪声。
+    //
+    // 掩码取**队长**的（agent = 编队）。队员的掩码可能不同（站位不一样），
+    // 那是「编队 = 一个 agent」这个抽象自带的代价，与观测取队长同源。
+    void action_masks(std::span<std::uint16_t> out) const;
+
+    static constexpr int kTallyFields = 7;
+    static constexpr std::array<std::string_view, kTallyFields> kTallyNames{
+        {"dmg_to_units", "dmg_to_blds", "units_killed", "blds_destroyed",
+         "bld_value", "scouts_killed", "losses"}};
 
     // 把第 `i` 局换成一个新局面。终局之后由 `train/` 调。
     void reset_one(int i, WorldInit init);

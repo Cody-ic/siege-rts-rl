@@ -259,6 +259,57 @@ void BatchedEnv::step(std::span<const UnitAction> actions,
     p_->refresh_counts();
 }
 
+void BatchedEnv::action_masks(std::span<std::uint16_t> out) const {
+    const int n = batch_size();
+    if (out.size() != static_cast<std::size_t>(n) *
+                          static_cast<std::size_t>(kMaxUnitsPerEnv)) {
+        throw ContractError(
+            "BatchedEnv::action_masks: out 必须是 batch × kMaxUnitsPerEnv");
+    }
+    // 尾部（没有 agent 的行）必须清成「只允许 Stop」而不是 0：全 0 掩码会让
+    // 策略侧的 softmax 得到全 -inf ⇒ NaN。`Stop` 永远合法（`action.hpp`）。
+    const std::uint16_t only_stop =
+        static_cast<std::uint16_t>(1u << static_cast<unsigned>(UnitAction::Stop));
+    std::fill(out.begin(), out.end(), only_stop);
+    p_->for_each_env(n, [&](int i) {
+        const std::size_t ui = static_cast<std::size_t>(i);
+        const World& w = *p_->worlds[ui];
+        const std::vector<UnitId>& leaders = p_->leaders[ui];
+        const int m = std::min(static_cast<int>(leaders.size()), kMaxUnitsPerEnv);
+        for (int q = 0; q < m; ++q) {
+            out[ui * static_cast<std::size_t>(kMaxUnitsPerEnv) +
+                static_cast<std::size_t>(q)] =
+                w.action_mask(leaders[static_cast<std::size_t>(q)]);
+        }
+    });
+}
+
+void BatchedEnv::take_tally(std::span<float> out) {
+    const int n = batch_size();
+    if (out.size() != static_cast<std::size_t>(n) *
+                          static_cast<std::size_t>(kTallyFields)) {
+        throw ContractError("BatchedEnv::take_tally: out 必须是 batch × kTallyFields");
+    }
+    // **不并行**：它是每步一次的 O(batch × 7) 拷贝，起线程的开销比它自己大。
+    // 而且 `take_tally` 会清零 ⇒ 它是写操作，放进 `for_each_env` 只会让
+    // 「为什么结果确定」的论证变复杂（那一段的注释专门讲这个）。
+    for (int i = 0; i < n; ++i) {
+        const std::size_t ui = static_cast<std::size_t>(i);
+        const World::Tally t = p_->worlds[ui]->take_tally(p_->side);
+        const std::size_t o = ui * static_cast<std::size_t>(kTallyFields);
+        // 顺序 = `kTallyNames`。**float 装 int64 会在很大的数上丢精度**，
+        // 但这些量的量级是伤害/造价（几千到几万），float 的 24 位有效位
+        // 装得下——而 `train/` 那侧本来就要转 float32 喂网络。
+        out[o + 0] = static_cast<float>(t.dmg_to_units);
+        out[o + 1] = static_cast<float>(t.dmg_to_blds);
+        out[o + 2] = static_cast<float>(t.units_killed);
+        out[o + 3] = static_cast<float>(t.blds_destroyed);
+        out[o + 4] = static_cast<float>(t.bld_value);
+        out[o + 5] = static_cast<float>(t.scouts_killed);
+        out[o + 6] = static_cast<float>(t.losses);
+    }
+}
+
 void BatchedEnv::reset_one(int i, WorldInit init) {
     if (i < 0 || i >= batch_size()) throw ContractError("BatchedEnv: 环境下标越界");
     const std::size_t ui = static_cast<std::size_t>(i);

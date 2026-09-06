@@ -402,3 +402,64 @@ TEST_CASE("编队：编队号进 state_hash，改了它世界就不同", "[batch
     rts::World b(std::move(alt));
     CHECK(a.state_hash() != b.state_hash());
 }
+
+TEST_CASE("战果计数：伤害与击杀按造成方记，读走即清", "[batchenv]") {
+    // 奖励此前**整个不存在**（绑定层零引用，`World` 也没有可读的战果计数），
+    // 而 PPO 循环没有它就写不了。形状由 CLAUDE.md 定：摧毁建筑的即时奖励 =
+    // 该建筑的重建成本，击杀 `Scout` 必须给即时奖励。
+    //
+    // **权重刻意不在 C++ 侧**：那是训练超参。这一层只给「发生了什么」。
+    rts::BatchedEnvInit bi;
+    bi.worlds.push_back(one(0, 3));   // 3 个 Ghoul 打一面 50 血的墙
+    bi.side = rts::Side::Attacker;
+    bi.threads = 1;
+    rts::BatchedEnv e(std::move(bi));
+    Bufs b(1);
+    std::vector<float> tally(
+        static_cast<std::size_t>(rts::BatchedEnv::kTallyFields), 0.0f);
+
+    // 开局什么都没发生。
+    e.take_tally(tally);
+    for (const float v : tally) CHECK(v == 0.0f);
+
+    // **先走到墙边再打。** `one()` 把 Ghoul 摆在 (12.5, 12.5)、墙在 (10, 10)
+    // ——隔着两三格，而 `AtkWall` 只有贴着时才在掩码里（`submit_actions` 会
+    // 按掩码拒掉非法动作）。我第一版直接发 `AtkWall` 跑 40 步，`dmg_to_blds`
+    // 恒 0 —— 那是**用例设计错**（没走过去），不是埋点没生效。
+    std::vector<rts::UnitAction> go(
+        static_cast<std::size_t>(rts::BatchedEnv::kMaxUnitsPerEnv),
+        rts::UnitAction::MoveN);   // (−1,−1)：从 (12.5,12.5) 朝 (10,10) 去
+    std::vector<rts::UnitAction> hit(
+        static_cast<std::size_t>(rts::BatchedEnv::kMaxUnitsPerEnv),
+        rts::UnitAction::AtkWall);
+    float dmg_total = 0.0f, value_total = 0.0f;
+    for (int k = 0; k < 120; ++k) {
+        // 走一段、试着砸一下。掩码不亮时 `AtkWall` 会被拒（那是设计），
+        // 所以两种动作交替发就不需要自己判「到没到」。
+        e.step(k % 2 == 0 ? go : hit, b.done);
+        e.take_tally(tally);
+        dmg_total += tally[1];    // dmg_to_blds
+        value_total += tally[4];  // bld_value
+    }
+    CAPTURE(dmg_total, value_total);
+    CHECK(dmg_total > 0.0f);   // 真的打到了墙
+
+    // **读走即清**：紧接着再读一次必须全零（上一轮循环末尾刚读过）。
+    e.take_tally(tally);
+    for (const float v : tally) CHECK(v == 0.0f);
+}
+
+TEST_CASE("战果计数：不进 state_hash——它是旁观计数器", "[batchenv]") {
+    // 同 `volley_hits()` 那条先例：没有任何一条仿真推演读它，喂进哈希只会让
+    // 「改了一个纯诊断字段」表现为「回放对不上」，把查 bug 的人引向一个
+    // 不存在的确定性缺陷。
+    rts::World a(one(0, 3));
+    rts::World c(one(0, 3));
+    const std::uint64_t h0 = a.state_hash();
+    REQUIRE(h0 == c.state_hash());
+
+    // 在 `a` 上读走战果（清零），`c` 不读 —— 两者的哈希必须仍然相同。
+    (void)a.take_tally(rts::Side::Attacker);
+    CHECK(a.state_hash() == h0);
+    CHECK(a.state_hash() == c.state_hash());
+}
