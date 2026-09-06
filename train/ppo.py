@@ -68,6 +68,15 @@ REWARD_W = {
     "bld_value": 1.0,        # **有原则的推导**：= 重建成本，见上
     "scouts_killed": 3.0,    # 适中常量，见上
     "losses": -0.001,        # 负但小，见上
+    # **基于势的 shaping**（Ng et al. 1999）：势 = 到堡垒的距离，
+    # 奖励 = 势之差。这一族 shaping 有定理保证**不改变最优策略**，
+    # 只改变学得多快 —— 所以 \`CLAUDE.md\` 那句「shaping 项权重必须小」
+    # 在它身上的约束比其余项弱：那句担心的退化策略（「在城外反复
+    # 换血但永不推进」）正是**非**基于势的 shaping 的产物。
+    #
+    # 取 0.02：一步走得最多约 0.5 格 × 27 个 agent ⇒ 每步上限 ≈ 0.27，
+    # 而拆一座塔的 \`bld_value\` 是几十。方向指得动、大小压不过真正的战果。
+    "progress": 0.02,
 }
 
 
@@ -240,6 +249,7 @@ def main() -> None:
     i_bldv = R.obs.TALLY_NAMES.index("bld_value")
     i_kill = R.obs.TALLY_NAMES.index("units_killed")
     i_loss = R.obs.TALLY_NAMES.index("losses")
+    i_prog = R.obs.TALLY_NAMES.index("progress")
 
     # ——课程：从最近那一档起步——
     stage = 0
@@ -499,6 +509,7 @@ def main() -> None:
               f"| 建筑伤 {roll_tally[i_dmg_b]:>9,.0f}  "
               f"拆了 {roll_tally[i_bldv]:>7,.0f}值  "
               f"杀 {roll_tally[i_kill]:>5,.0f}  损 {roll_tally[i_loss]:>8,.0f}  "
+              f"进 {roll_tally[i_prog]:>8,.0f}格  "
               f"[采样 {t_roll:.1f}s / 更新 {t_upd:.1f}s  "
               f"live {n_live / (T * N):.0%}]", flush=True)
 

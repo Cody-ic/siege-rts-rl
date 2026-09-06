@@ -552,3 +552,81 @@ TEST_CASE("观测必须喂方向场——否则策略不知道该往哪走", "[b
     CAPTURE(nz);
     CHECK(nz > 0);
 }
+
+TEST_CASE("战果计数：progress 是「离堡垒近了几格」，站着不动就是 0", "[batchenv]") {
+    // **这一列是 2026-09-06 一次长跑坍缩之后加的。** 只有前 7 列时，
+    // 「站着不动」是**局部最优**：攻方在集结点离堡垒 40 格，随机游走 400 个
+    // 决策的期望位移只有 9.6 格 ⇒ 前 6 列恒 0 够不着，而 `losses`（负权重）
+    // 够得着——不动就不死。实测长跑到 50 万步之后「建筑伤」与「自损」
+    // **同时**归零并再不回升。
+    //
+    // 形式是**基于势的 shaping**（势 = 到堡垒的距离，平稳），所以它有
+    // 「不改变最优策略」的定理保证，与 `CLAUDE.md` 那条「shaping 权重必须小」
+    // 不冲突（那句担心的是非基于势的 shaping）。
+    rts::BatchedEnvInit bi;
+    bi.worlds.push_back(one(0, 3));
+    bi.side = rts::Side::Attacker;
+    bi.threads = 1;
+    rts::BatchedEnv e(std::move(bi));
+    Bufs b(1);
+    std::vector<float> tally(
+        static_cast<std::size_t>(rts::BatchedEnv::kTallyFields), 0.0f);
+    const std::size_t ip = 7;   // = kTallyNames 里 "progress" 的下标
+    REQUIRE(rts::BatchedEnv::kTallyNames[ip] == "progress");
+
+    // ——一、站着不动 ⇒ 恒 0。这是那次坍缩的**局面**本身——
+    std::vector<rts::UnitAction> stay(
+        static_cast<std::size_t>(rts::BatchedEnv::kMaxUnitsPerEnv),
+        rts::UnitAction::Stop);
+    float idle = 0.0f;
+    for (int k = 0; k < 20; ++k) {
+        e.step(stay, b.done);
+        e.take_tally(tally);
+        idle += tally[ip];
+    }
+    CAPTURE(idle);
+    CHECK(idle == 0.0f);
+
+    // ——二、朝堡垒走 ⇒ 正。`keep` 在 (2,2)、Ghoul 在 (12.5,12.5) ⇒ 西北——
+    std::vector<rts::UnitAction> go(
+        static_cast<std::size_t>(rts::BatchedEnv::kMaxUnitsPerEnv),
+        rts::UnitAction::MoveN);
+    float toward = 0.0f;
+    for (int k = 0; k < 20; ++k) {
+        e.step(go, b.done);
+        e.take_tally(tally);
+        toward += tally[ip];
+    }
+    CAPTURE(toward);
+    CHECK(toward > 0.0f);
+
+    // ——三、读走即清——
+    e.take_tally(tally);
+    CHECK(tally[ip] == 0.0f);
+}
+
+TEST_CASE("战果计数：progress 在换局时清零，不把上一局的位移算进新局", "[batchenv]") {
+    // **不清就是一笔凭空的大额奖励**：新局的单位在集结点、距离是满的，
+    // 于是「上一局最后一步的位移」会被记在新局第一步头上。而 episode 的第一
+    // 步恰好是 PPO 最看重的那一段（回报要靠它 bootstrap）。
+    rts::BatchedEnvInit bi;
+    bi.worlds.push_back(one(0, 3));
+    bi.side = rts::Side::Attacker;
+    bi.threads = 1;
+    rts::BatchedEnv e(std::move(bi));
+    Bufs b(1);
+    std::vector<float> tally(
+        static_cast<std::size_t>(rts::BatchedEnv::kTallyFields), 0.0f);
+
+    // 先攒一点位移，**故意不读走**（模拟「终局那一步没来得及读」）。
+    std::vector<rts::UnitAction> go(
+        static_cast<std::size_t>(rts::BatchedEnv::kMaxUnitsPerEnv),
+        rts::UnitAction::MoveN);
+    for (int k = 0; k < 10; ++k) e.step(go, b.done);
+
+    // 换局。此后第一次读必须是 0 ——攒着那份被清掉了。
+    e.reset_one(0, one(1, 3));
+    e.take_tally(tally);
+    CAPTURE(tally[7]);
+    CHECK(tally[7] == 0.0f);
+}
