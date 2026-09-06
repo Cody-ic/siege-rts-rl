@@ -39,7 +39,9 @@ def main() -> None:
             # `game::DemoBattle` 里，那是演示的循环）。不给的话这批局面
             # 永远没有攻方单位，实测推 2400 tick 仍然是 0。
             # 这里手摆几个 Ghoul 只为冒烟；真正的编成来自宏观层。
-            attackers=[(GHOUL, 20.5 + k, 18.5, 1) for k in range(3 + i % 3)],
+            # 第五个字段是**编队号**（-1 = 散兵）。这里每人一支，因为冒烟
+            # 不测编队——但**必须给**，否则 agent 维的语义就不明确了。
+            attackers=[(GHOUL, 20.5 + k, 18.5, 1, k) for k in range(3 + i % 3)],
         )
         for i in range(n)
     ]

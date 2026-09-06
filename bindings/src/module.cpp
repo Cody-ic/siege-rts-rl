@@ -95,7 +95,10 @@ PYBIND11_MODULE(rts_native, m) {
     obs.attr("CELL_FLOATS") = rts::kObsCellFloats;
     obs.attr("SELF_FLOATS") = rts::kObsSelfFloats;
     obs.attr("GLOBAL_FLOATS") = rts::kObsGlobalFloats;
+    // **它是 agent 数（编队数）的上限，不是单位数。** 名字保留是为了不破
+    // 下游，但语义 2026-09-05 变了 —— `train/` 侧一律从这里读，别抄数。
     obs.attr("MAX_UNITS_PER_ENV") = rts::BatchedEnv::kMaxUnitsPerEnv;
+    obs.attr("NO_SQUAD") = rts::kNoSquad;
     obs.attr("UNIT_TYPE_COUNT") = rts::kUnitTypeCount;
     obs.attr("ACTION_COUNT") = rts::kUnitActionCount;
 
@@ -150,7 +153,7 @@ PYBIND11_MODULE(rts_native, m) {
         "make_world_init",
         [](const std::string& map_path, const std::string& stats_path,
            std::uint64_t seed, std::int32_t nominal_level,
-           const std::vector<std::tuple<int, float, float, int>>& attackers) {
+           const std::vector<std::tuple<int, float, float, int, int>>& attackers) {
             const game::MapData map = game::MapLoader::from_file(map_path);
             const rts::StatsTable stats = game::StatsLoader::from_file(stats_path);
             rts::WorldInit init =
@@ -165,22 +168,30 @@ PYBIND11_MODULE(rts_native, m) {
             //
             // 不给这个参数的话 `BatchedEnv` 会拿到一个**永远没有攻方单位**的局面
             // ——实测：推 2400 tick 仍然是 0。那不报错，只是每一步都在打包空张量。
-            for (const auto& [t, x, y, lvl] : attackers) {
+            // 第五个字段是**编队号**（`squad`，-1 = `kNoSquad` 散兵）。
+            // **agent = 编队**（`CLAUDE.md`「攻方 RL 控制的是每一支编队」），
+            // 所以张量的第二维是编队而不是单位 ⇒ 编成必须能表达分队，
+            // 否则 `BatchedEnv` 只能把每个单位当一支、`kMaxUnitsPerEnv`
+            // 立刻不够（攻方 ~70 个单位 vs 32 行）。
+            for (const auto& [t, x, y, lvl, sq] : attackers) {
                 const auto ut = static_cast<rts::UnitType>(t);
                 const std::int64_t hp = stats.of(ut).max_hp;
+                const auto squad = sq < 0 ? rts::kNoSquad
+                                          : static_cast<std::uint16_t>(sq);
                 init.units.push_back(rts::UnitInit{ut, rts::Vec2{x, y},
-                                                   lvl, hp, hp});
+                                                   lvl, hp, hp, squad});
             }
             return init;
         },
         py::arg("map_path"), py::arg("stats_path"), py::arg("seed") = 0,
         py::arg("nominal_level") = 1,
-        py::arg("attackers") = std::vector<std::tuple<int, float, float, int>>{},
+        py::arg("attackers") = std::vector<std::tuple<int, float, float, int, int>>{},
         "从地图 JSON + 数值表 JSON 装配建局参数。走的是游戏自己那条路"
         "（game::MapLoader / StatsLoader / make_world_init），"
         "所以 Python 造的局面与双击 exe 玩的局面是同一个来源。"
-        "attackers 是 [(unit_type, x, y, level), ...]：**本波编成由调用方给**，"
-        "因为它是宏观层的产物，而 World 自己不生波。");
+        "attackers 是 [(unit_type, x, y, level, squad), ...]：**本波编成由调用方给**，"
+        "因为它是宏观层的产物，而 World 自己不生波。squad = 编队号，-1 = 散兵；"
+        "**agent = 编队**，所以观测/动作张量的第二维是编队数而不是单位数。");
 
     py::class_<rts::BatchedEnv>(m, "BatchedEnv")
         .def(py::init([](std::vector<rts::WorldInit> worlds, rts::Side side,
