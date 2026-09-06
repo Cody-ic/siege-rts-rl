@@ -124,6 +124,10 @@ PLACEHOLDER = {
                                 # 1.6 -> 1.25 见《波次预算曲线与堡垒等级曲线.md》§1,
                                 # 低波段 1.6 太陡,而结构只要求 > 1）
     # 等级战力:战力倍率 = (1 + k(L-1))^(p+q)。k 与 p+q 都是数值。
+    # 平均队规模。**近似值**——真值随编成比例变,C++ 侧精确算（见 units()）。
+    # 2.58 是按现行比例（Ghoul/Shade 每队 3、Knight 2、Ram/Phoenix/Wraith 1）
+    # 算出来的。改编成比例时这个数要跟着重算。
+    "squad_avg": 2.58,
     "level_k": 0.22,
     "level_pq": 1.0,
     # 守方
@@ -170,6 +174,23 @@ def power_budget(w, P=PLACEHOLDER):
     return P["power_base"] * (w ** P["power_alpha"])
 
 
+def units(w, P=PLACEHOLDER):
+    """第 w 波的**场上单位数**（不是编队数）。
+
+    编成位自 2026-09-05 起买的是**编队**（一队 = 同兵种 1-3 个），所以
+    `slots(w)` 乘上平均队规模才是人数。
+
+    **这个区分不是学术的,它出过事**:`nominal_level` 那条反解要除以**人数**,
+    而它一度继续除 `slots()` ⇒ 一支编队的兵力预算被发给队里**每一个**成员,
+    前期攻方战力凭空 x2.5。C++ 侧同源修正见 `demo_driver.cpp::wave_level`。
+
+    `squad_avg` 是**近似值**:真值随编成比例变（`Ram`/`Phoenix` 每队 1 个、
+    `Ghoul`/`Shade` 3 个）,C++ 侧走 `AttackerMacro::compose().units()` 精确算。
+    本模型是聚合模型、没有编成,所以取一个常数并标明它是近似。
+    """
+    return slots(w, P) * P["squad_avg"]
+
+
 def level_power_mult(L, P=PLACEHOLDER):
     """一个 L 级单位的战力倍率 = (1 + k(L-1))^(p+q)。"""
     return (1.0 + P["level_k"] * (L - 1)) ** P["level_pq"]
@@ -190,10 +211,10 @@ def nominal_level(w, P=PLACEHOLDER):
     `c ∝ √B(L)` 落地时已定攻方反解**不跟**（§12.6 已决,
     `demo_driver.cpp::wave_level` 旁有同源注释）,两侧差异归标定时校准。
     """
-    per_unit = power_budget(w, P) / slots(w, P)
+    per_unit = power_budget(w, P) / units(w, P)
     # per_unit = base·(1 + k(L-1))，取 base = P["power_base"] / P["slots_base"]
     # 使第 1 波恰好 L=1（那是 `波次预算曲线与堡垒等级曲线.md` §1 验的关键点）
-    base = power_budget(1, P) / slots(1, P)
+    base = power_budget(1, P) / units(1, P)
     return 1.0 + (per_unit / base - 1.0) / P["level_k"]
 
 
@@ -208,7 +229,7 @@ def attacker_power(w, P=PLACEHOLDER):
     （`defender_stock_power` 也是 ΣB);别把它的绝对值读成场上战力,
     按 Σ√B 口径的模型在同目录 `siege_race.py`。
     """
-    return slots(w, P) * level_power_mult(nominal_level(w, P), P)
+    return units(w, P) * level_power_mult(nominal_level(w, P), P)
 
 
 def unlocked_outer_mines(w, P=PLACEHOLDER):
