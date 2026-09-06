@@ -107,6 +107,7 @@ set -euo pipefail
 MIRROR=\$HOME/$MIRROR_REL
 BUNDLE=\$HOME/$BUNDLE_REL
 WORK=\$HOME/$WORKDIR/siege-rts-rl
+TMPLOG=\$(mktemp); trap 'rm -f "\$TMPLOG"' EXIT
 
 if [ "$SKIP_XFER" = 1 ]; then
     : # 没有新对象要传，ref 已在上一步直接改好，这里不能去 fetch 一个旧 bundle
@@ -117,7 +118,19 @@ elif [ "$NEED_INIT" = 1 ] || [ ! -d "\$MIRROR" ]; then
     # 会得到一个**空的 master 分支且不报错**。第一次手动做时就撞上了。
     git --git-dir="\$MIRROR" symbolic-ref HEAD refs/heads/$BRANCH
 else
-    git --git-dir="\$MIRROR" fetch --update-head-ok "\$BUNDLE" "$BRANCH:$BRANCH" 2>&1 | tail -2
+    # **`+` 是必需的，不是图省事。** 没有它，本地 \`git rebase\` 之后这一步
+    # 会以 \`(non-fast-forward)\` 被拒 —— 而 2026-09-06 实测的后果是
+    # **服务器照旧编译上一个提交、48/48 全绿、报告成功**，我据此以为新代码
+    # 在 GCC 上过了。那正是 \`CLAUDE.md\` 反复点名的「绿色的子集」这一类。
+    #
+    # 强制推一个特性分支在本工作流里是正常操作（分支是我自己的、服务器上
+    # 那份是纯镜像、没有别人在它上面提交）；\`main\` 不走这条路径。
+    #
+    # ⚠️ **不能让管道吞掉退出码**（\`CLAUDE.md\` 里 \`\${PIPESTATUS[0]}\` 那条
+    # 先例）：\`... | tail -2\` 取到的是 \`tail\` 的码、恒 0，于是 \`set -e\`
+    # 不会触发 —— 上面那次静默失败就是这么漏过去的。
+    git --git-dir="\$MIRROR" fetch --update-head-ok "\$BUNDLE" "+$BRANCH:$BRANCH" >"\$TMPLOG" 2>&1         || { echo "✗ 镜像 fetch 失败："; tail -5 "\$TMPLOG"; exit 1; }
+    tail -2 "\$TMPLOG"
 fi
 echo "镜像 $BRANCH = \$(git --git-dir="\$MIRROR" rev-parse --short $BRANCH)"
 
@@ -128,7 +141,15 @@ if [ -d "\$WORK/.git" ]; then
         echo "⚠ 工作区有未提交改动，只 fetch，不动 HEAD。自行 git merge --ff-only origin/$BRANCH"
     else
         git checkout -q $BRANCH 2>/dev/null || git checkout -q -b $BRANCH origin/$BRANCH
-        git merge --ff-only origin/$BRANCH 2>&1 | tail -1
+        # **`--ff-only` 在 rebase 之后同样会拒**（历史被重写了 ⇒ 不是快进），
+        # 而上面那个 `| tail -1` 又把退出码吞了 ⇒ 工作区停在旧提交、脚本
+        # 报「工作区 = <旧 sha>」而人只会看最后那句「构建：」。所以这里
+        # 先试快进，不成就 `reset --hard`：**上面已经确认过工作区是干净的**
+        # （那个 `git status --porcelain` 分支），所以 reset 丢不掉任何东西。
+        if ! git merge --ff-only "origin/$BRANCH" >/dev/null 2>&1; then
+            echo "→ 历史被重写（本地 rebase 过），工作区硬重置到 origin/$BRANCH"
+            git reset --hard "origin/$BRANCH" >/dev/null
+        fi
     fi
 else
     git clone -q --branch $BRANCH "\$MIRROR" "\$WORK"
