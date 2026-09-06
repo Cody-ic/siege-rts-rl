@@ -332,7 +332,7 @@ def main() -> None:
     buf_r = torch.zeros((T, cfg.envs), device=dev)
     buf_d = torch.zeros((T, cfg.envs), device=dev)
 
-    step_count, t_start = 0, time.perf_counter()
+    step_count, t_start, n_roll = 0, time.perf_counter(), 0
     ep_ret = np.zeros((cfg.envs,), dtype=np.float64)
     # **两个列表，别合成一个。** `stage_ret` 是**本档**的回报（升档时清空，
     # 因为换了任务、旧成功率不代表现在）；`all_ret` 是全程累计（只增，用于
@@ -483,6 +483,12 @@ def main() -> None:
 
         t_upd = time.perf_counter() - _t0
         dt = time.perf_counter() - t_start
+        # **周期性存盘。** 长跑（几小时）只在末尾存一次，一崩就全丢；
+        # 而这台机器是四人共用的，别人一占满显存我们就 OOM（已经发生过一次，
+        # 那次已经跑到课程第 4 档）。存的是权重本身，**跨平台通用**。
+        n_roll += 1
+        if n_roll % 50 == 0:
+            torch.save(net.state_dict(), "train/ppo_attacker.pt")
         mean_ret = float(np.mean(stage_ret[-50:])) if stage_ret else float("nan")
         win = stage_ret[-cfg.promote_window:]
         rate = (sum(1 for r in win if r > 0.0) / len(win)) if win else 0.0
