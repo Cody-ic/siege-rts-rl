@@ -259,8 +259,18 @@ def main() -> None:
     dev = cfg.device
 
     ar_mu = np.arange(MU, dtype=np.int32).reshape(1, MU)
+    bits_np = (np.uint16(1) << np.arange(NA, dtype=np.uint16)).reshape(1, NA)
 
     def observe() -> tuple:
+        """一次观测。返回 (给前向用的 GPU 张量, 给 rollout 缓冲用的 numpy)。
+
+        ⚠️ **两份刻意分开，不要把 GPU 那份搬回来存。** 第一版是
+        `buf_c[t] = c.to("cpu")` —— 观测已经在 CPU 的 numpy 缓冲里，
+        那行把它送上 GPU 又原路搬回来，**每个决策拍多走 103 MB 的
+        device→host**（256 局 × 32 行 × 15 × 15 × 14 × 4 B），一个 rollout
+        6.6 GB。实测「采样 21.8s / 更新 5.5s」—— 瓶颈在搬运，不在学习，
+        而我原以为在学习。
+        """
         env.observe(cells, self_v, glob)
         env.action_masks(masks)
         # **哪些行是真的 agent。** `unit_counts` 是「这一局当前有几个属于
@@ -269,17 +279,21 @@ def main() -> None:
         #
         # 不拿「掩码只剩 Stop」当判据：那与「一个真的 agent 恰好无路可走」
         # 不可区分，而后者在被围住时真的会发生。
-        live_np = ar_mu < np.asarray(env.unit_counts, dtype=np.int32).reshape(-1, 1)
-        # (N, C, K, K)：torch 的卷积要 channel-first，而 C++ 写的是
-        # channel-last（那一侧 `kObsCellFloats` 的布局是 K*K*C）。
-        c = torch.from_numpy(cells).to(dev).view(N, K, K, C).permute(0, 3, 1, 2)
-        s = torch.from_numpy(self_v).to(dev).view(N, SELF_N)
+        live_np = (ar_mu < np.asarray(env.unit_counts, dtype=np.int32).reshape(-1, 1)
+                   ).reshape(N)
+        c_np = cells.reshape(N, K, K, C)
+        s_np = self_v.reshape(N, SELF_N)
         # 全局标量对同一局的所有 agent 相同 ⇒ 广播到每一行。
-        g = torch.from_numpy(glob).to(dev).unsqueeze(1).expand(-1, MU, -1).reshape(N, GLOB_N)
+        g_np = np.repeat(glob, MU, axis=0)
         # 掩码：uint16 位图 → (N, NA) 的 bool
-        mk = torch.from_numpy(masks.astype(np.int32)).to(dev).view(N, 1)
-        bits = torch.arange(NA, device=dev).view(1, NA)
-        return c, s, g, ((mk >> bits) & 1).bool(), torch.from_numpy(live_np.reshape(N))
+        m_np = (masks.reshape(N, 1) & bits_np) != 0
+        # 上 GPU 只为了这一次前向。channel-first 是 torch 卷积要的，
+        # 而 C++ 写的是 channel-last（`kObsCellFloats` 的布局是 K*K*C）。
+        gpu = (torch.from_numpy(c_np).to(dev).permute(0, 3, 1, 2),
+               torch.from_numpy(s_np).to(dev),
+               torch.from_numpy(g_np).to(dev),
+               torch.from_numpy(m_np).to(dev))
+        return gpu, (c_np, s_np, g_np, m_np, live_np)
 
     # ——rollout 缓冲——
     #
@@ -294,7 +308,10 @@ def main() -> None:
     # 小的那几块（动作/回报/价值）留在 GPU——它们参与 GAE 的逐步递推。
     T = cfg.rollout
     pin = dev != "cpu"
-    buf_c = torch.zeros((T, N, C, K, K), pin_memory=pin)
+    # **channel-last 存**：这样 `buf_c[t] = 那块 numpy` 是一次连续拷贝，
+    # 不需要先 permute（permute 出来的视图不连续，赋值会多一次整块搬运）。
+    # channel-first 只在更新时按 minibatch 转，那一小片的开销可忽略。
+    buf_c = torch.zeros((T, N, K, K, C), pin_memory=pin)
     buf_s = torch.zeros((T, N, SELF_N), pin_memory=pin)
     buf_g = torch.zeros((T, N, GLOB_N), pin_memory=pin)
     buf_m = torch.zeros((T, N, NA), dtype=torch.bool, pin_memory=pin)
@@ -327,7 +344,7 @@ def main() -> None:
         t_upd = 0.0
         _t0 = time.perf_counter()
         for t in range(T):
-            c, s, g, mk, lv = observe()
+            (c, s, g, mk), (c_np, s_np, g_np, m_np, lv_np) = observe()
             with torch.no_grad():
                 logits, value = net(c, s, g)
                 # **掩掉非法动作**（CLAUDE.md 明令要做掩码）。
@@ -335,12 +352,12 @@ def main() -> None:
                 dist = torch.distributions.Categorical(logits=logits)
                 act = dist.sample()
                 buf_lp[t] = dist.log_prob(act)
-            # 搬回 CPU 存（见上面那段：观测缓冲不常驻显存）。
-            buf_c[t] = c.to("cpu", non_blocking=True)
-            buf_s[t] = s.to("cpu", non_blocking=True)
-            buf_g[t] = g.to("cpu", non_blocking=True)
-            buf_m[t] = mk.to("cpu", non_blocking=True)
-            buf_live[t] = lv
+            # **从 numpy 直接存，不经 GPU**（见 `observe` 的 docstring）。
+            buf_c[t] = torch.from_numpy(c_np)
+            buf_s[t] = torch.from_numpy(s_np)
+            buf_g[t] = torch.from_numpy(g_np)
+            buf_m[t] = torch.from_numpy(m_np)
+            buf_live[t] = torch.from_numpy(lv_np)
             buf_a[t], buf_v[t] = act, value
 
             acts_np[:] = act.view(cfg.envs, MU).to("cpu").numpy().astype(np.uint8)
@@ -384,7 +401,7 @@ def main() -> None:
                 ep_ret[:] = 0.0
 
         with torch.no_grad():
-            c, s, g, _, _ = observe()
+            (c, s, g, _), _ = observe()
             _, next_v = net(c, s, g)
         t_roll = time.perf_counter() - _t0
         _t0 = time.perf_counter()
@@ -401,7 +418,7 @@ def main() -> None:
 
         # ——更新——
         # 观测那几块留在 CPU，按 minibatch 搬（见缓冲区那段注释）。
-        b_c = buf_c.reshape(T * N, C, K, K)
+        b_c = buf_c.reshape(T * N, K, K, C)
         b_s = buf_s.reshape(T * N, SELF_N)
         b_g = buf_g.reshape(T * N, GLOB_N)
         b_m = buf_m.reshape(T * N, NA)
@@ -416,13 +433,25 @@ def main() -> None:
         n_live = len(idx)
         if n_live == 0:
             raise SystemExit("一个 live agent 都没有 —— 编成或 unit_counts 坏了")
-        mb = max(1, n_live // cfg.minibatches)
+        # **向上取整**，于是恰好切成 `minibatches` 块、最后一块是余数。
+        mb = -(-n_live // cfg.minibatches)
         for _ in range(cfg.epochs):
             np.random.shuffle(idx)
             for start in range(0, n_live, mb):
+                # ⚠️ **只剩 1 个样本的尾块必须跳过。** `n_live` 不再是 2 的幂
+                # （它随编队死亡逐拍变化），而 `Tensor.std()` 默认是**无偏**的
+                # ⇒ 1 个样本时 dof = 0、返回 **NaN**，优势归一化把它传遍整张
+                # 网，此后每个 logit 都是 NaN，报错却发生在几十个 minibatch
+                # 之后的 `Categorical` 构造里 —— 与真因隔着一层。
+                #
+                # 滤 padding 行之前 `T*N` 恒是 2 的幂、整除，所以这个洞一直
+                # 存在但从未触发。torch 只给了一句 `UserWarning`。
+                if len(idx[start:start + mb]) < 2:
+                    continue
                 jc = torch.from_numpy(idx[start:start + mb])   # CPU 侧索引
                 j = jc.to(dev)
-                logits, v = net(b_c[jc].to(dev, non_blocking=True),
+                logits, v = net(b_c[jc].to(dev, non_blocking=True)
+                                .permute(0, 3, 1, 2),
                                 b_s[jc].to(dev, non_blocking=True),
                                 b_g[jc].to(dev, non_blocking=True))
                 logits = logits.masked_fill(
