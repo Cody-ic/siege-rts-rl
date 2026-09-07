@@ -6,10 +6,36 @@ import unittest
 from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'train'))
-from learning import CompletionWindow, potential_reward
+from learning import CompletionWindow, potential_reward, task_reward
 
 
 class RewardTests(unittest.TestCase):
+    def test_explicit_win_and_economic_compatibility(self):
+        self.assertEqual(task_reward(110, False, 'economic', 2000), 110)
+        self.assertEqual(task_reward(9.6, True, 'economic', 2000), 2009.6)
+        self.assertEqual(task_reward(110, False, 'victory', 1), 0)
+        self.assertEqual(task_reward(9.6, True, 'victory', 1), 1)
+        for weight in (0, -1, float('inf'), float('nan')):
+            with self.assertRaises(ValueError):
+                task_reward(0, False, 'victory', weight)
+
+    def test_victory_mode_rebuilds_timeout_and_delayed_win(self):
+        gamma = .99
+        def trajectory(economics, won):
+            # Different paths and lengths must still have identical PBRS offset.
+            phi = [-20] + [-3] * (len(economics)-1) + [0]
+            return sum(gamma**t * (task_reward(e, won and t == len(economics)-1,
+                                              'victory', 1)
+                                  + .02*potential_reward(phi[t], phi[t+1],
+                                                         t == len(economics)-1, gamma))
+                       for t, e in enumerate(economics))
+        immediate = trajectory([0], True)
+        self.assertGreater(immediate, trajectory([110, 0], True))
+        self.assertAlmostEqual(trajectory([0]*400, False),
+                               trajectory([100000]*400, False))
+        self.assertGreater(trajectory([100000]*399+[0], True),
+                           trajectory([100000]*400, False))
+
     def discounted(self, path, gamma=.99):
         return sum(gamma**t * potential_reward(a, b, t == len(path)-2, gamma)
                    for t, (a, b) in enumerate(zip(path, path[1:])))

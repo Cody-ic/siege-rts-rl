@@ -108,6 +108,57 @@ rts::BatchedEnvInit make_init(int n, int threads) {
 
 }  // namespace
 
+TEST_CASE("terminal cause is latched, timeout cannot turn into victory", "[batchenv]") {
+    using End = rts::BatchedEnv::EpisodeEnd;
+    for (int threads : {1, 2}) {
+        auto win = one(0, 1);
+        win.units.resize(1);
+        win.units[0].pos = rts::Vec2{3.5f, 2.5f};
+        win.buildings[0].hp = 1;
+        rts::BatchedEnvInit init;
+        init.worlds = {win, one(1, 1)};
+        init.threads = threads;
+        init.ticks_per_step = 6;
+        init.max_ticks_per_episode = 6;
+        rts::BatchedEnv env(std::move(init));
+        std::vector<rts::UnitAction> acts(2*rts::BatchedEnv::kMaxUnitsPerEnv,
+                                         rts::UnitAction::AtkBld);
+        Bufs bufs(2);
+        REQUIRE(env.episode_ends()[0] == End::Running);
+        env.step(acts, bufs.done);
+        CHECK(env.episode_ends()[0] == End::KeepDestroyed); // tie beats timeout
+        CHECK(env.episode_ends()[1] == End::Timeout);
+        CHECK(bufs.done == std::vector<std::uint8_t>{1, 1});
+        const auto hash0 = env.world_at(0).state_hash();
+        const auto hash1 = env.world_at(1).state_hash();
+        std::vector<float> tally(2*rts::BatchedEnv::kTallyFields);
+        env.take_tally(tally);
+        env.step(acts, bufs.done);
+        CHECK(env.world_at(0).state_hash() == hash0);
+        CHECK(env.world_at(1).state_hash() == hash1);
+        env.take_tally(tally);
+        for (float value : tally) CHECK(value == 0.0f);
+        env.reset_one(0, one(2, 1));
+        CHECK(env.episode_ends()[0] == End::Running);
+        CHECK(env.episode_ends()[1] == End::Timeout);
+    }
+}
+
+TEST_CASE("episode stops at the exact tick budget", "[batchenv]") {
+    auto init = make_init(1, 1);
+    init.max_ticks_per_episode = 7;
+    rts::BatchedEnv env(std::move(init));
+    Bufs bufs(1);
+    std::vector<rts::UnitAction> acts(rts::BatchedEnv::kMaxUnitsPerEnv,
+                                     rts::UnitAction::Stop);
+    env.step(acts, bufs.done);
+    CHECK(bufs.done[0] == 0);
+    CHECK(env.world_at(0).now() == 6);
+    env.step(acts, bufs.done);
+    CHECK(env.world_at(0).now() == 7);
+    CHECK(env.episode_ends()[0] == rts::BatchedEnv::EpisodeEnd::Timeout);
+}
+
 TEST_CASE("并行不改变结果：1 线程与 N 线程逐字节相同", "[batchenv]") {
     constexpr int kN = 9;
     constexpr int kSteps = 5;

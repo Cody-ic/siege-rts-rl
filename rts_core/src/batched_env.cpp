@@ -35,6 +35,7 @@ struct BatchedEnv::Impl {
     std::vector<std::vector<UnitAction>> acts;
     // 逐局已跑了多少 tick（`max_ticks_per_episode` 用）。
     std::vector<int> elapsed;
+    std::vector<EpisodeEnd> ends;
     int max_ticks = 0;
     // 逐局的 flow field 缓存：`(兵种 × 等级档)`，每次 `observe` 重算。
     //
@@ -174,6 +175,7 @@ BatchedEnv::BatchedEnv(BatchedEnvInit init) : p_(std::make_unique<Impl>()) {
     p_->leaders.resize(static_cast<std::size_t>(n));
     p_->acts.resize(static_cast<std::size_t>(n));
     p_->elapsed.assign(static_cast<std::size_t>(n), 0);
+    p_->ends.assign(static_cast<std::size_t>(n), EpisodeEnd::Running);
     p_->flows.resize(static_cast<std::size_t>(n));
     for (auto& f : p_->flows) {
         f.resize(static_cast<std::size_t>(kUnitTypeCount) *
@@ -194,6 +196,10 @@ int BatchedEnv::batch_size() const noexcept {
 int BatchedEnv::max_ticks_per_episode() const noexcept { return p_->max_ticks; }
 
 Side BatchedEnv::side() const noexcept { return p_->side; }
+
+std::span<const BatchedEnv::EpisodeEnd> BatchedEnv::episode_ends() const noexcept {
+    return p_->ends;
+}
 
 std::span<const int> BatchedEnv::unit_counts() const noexcept {
     return std::span<const int>(p_->counts.data(), p_->counts.size());
@@ -291,6 +297,10 @@ void BatchedEnv::step(std::span<const UnitAction> actions,
     p_->for_each_env(n, [&](int i) {
         const std::size_t ui = static_cast<std::size_t>(i);
         World& w = *p_->worlds[ui];
+        if (p_->ends[ui] != EpisodeEnd::Running) {
+            done[ui] = 1;
+            return;  // A terminal environment cannot accrue further battle rewards.
+        }
         const std::vector<UnitId>& units = p_->ids[ui];
         const int nsq = std::min(p_->counts[ui], kMaxUnitsPerEnv);
         std::vector<UnitAction>& slice = p_->acts[ui];
@@ -324,8 +334,11 @@ void BatchedEnv::step(std::span<const UnitAction> actions,
             }
         }
         w.submit_actions(p_->side, slice.data(), slice.size());
-        w.advance(p_->ticks_per_step);
-        p_->elapsed[ui] += p_->ticks_per_step;
+        const int ticks = p_->max_ticks > 0
+            ? std::min(p_->ticks_per_step, p_->max_ticks - p_->elapsed[ui])
+            : p_->ticks_per_step;
+        w.advance(ticks);
+        p_->elapsed[ui] += ticks;
 
         // 距离缩短了几格。**只算两端都活着的单位**（见 `kTallyNames` 那条
         // 警告：按「死了就距离归零」计会把送死变成正收益）。
@@ -346,7 +359,9 @@ void BatchedEnv::step(std::span<const UnitAction> actions,
         // 无限拖下去，而 PPO 收不到任何奖励信号。
         const bool timed_out =
             p_->max_ticks > 0 && p_->elapsed[ui] >= p_->max_ticks;
-        done[ui] = (Impl::keep_alive(w) && !timed_out) ? 0u : 1u;
+        p_->ends[ui] = !Impl::keep_alive(w) ? EpisodeEnd::KeepDestroyed
+            : timed_out ? EpisodeEnd::Timeout : EpisodeEnd::Running;
+        done[ui] = p_->ends[ui] == EpisodeEnd::Running ? 0u : 1u;
     });
     p_->refresh_counts();
 }
@@ -426,6 +441,7 @@ void BatchedEnv::reset_one(int i, WorldInit init) {
     // **`progress` 必须一起清**：不清的话上一局最后一步的位移会算进新局的
     // 第一步，而新局的单位在集结点、距离是满的 ⇒ 那是一笔凭空的大额奖励。
     p_->progress[ui] = 0.0;
+    p_->ends[ui] = EpisodeEnd::Running;
     p_->dist_before[ui].clear();
 }
 

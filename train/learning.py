@@ -1,5 +1,19 @@
 """Training arithmetic independent of torch and the native module."""
 from collections import deque
+import math
+
+
+def task_reward(economic: float, won: bool, mode: str, win_reward: float) -> float:
+    """Called once per transition, before resetting completed environments.
+
+    economic preserves the attrition objective; victory is an explicit alternative
+    that excludes every repeatable tally reward. PBRS is added separately.
+    """
+    if mode not in ('economic', 'victory'):
+        raise ValueError('unknown reward mode')
+    if not math.isfinite(win_reward) or win_reward <= 0:
+        raise ValueError('win_reward must be finite and positive')
+    return (economic if mode == 'economic' else 0.0) + (win_reward if won else 0.0)
 
 
 def potential_reward(before: float, after: float, done: bool, gamma: float) -> float:

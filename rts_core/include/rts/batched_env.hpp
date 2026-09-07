@@ -162,6 +162,10 @@ public:
     // train/ 用同一个 gamma 算 gamma*Phi(next)-Phi(now)，终局势置零。
     std::vector<double> potentials() const;
 
+    // Latched until reset. Keep destruction wins ties with the time limit.
+    enum class EpisodeEnd : std::uint8_t { Running, KeepDestroyed, Timeout };
+    std::span<const EpisodeEnd> episode_ends() const noexcept;
+
     static constexpr int kTallyFields = 8;
     static constexpr std::array<std::string_view, kTallyFields> kTallyNames{
         {"dmg_to_units", "dmg_to_blds", "units_killed", "blds_destroyed",

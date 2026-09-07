@@ -324,6 +324,10 @@ PYBIND11_MODULE(rts_native, m) {
             "列的顺序 = obs.TALLY_NAMES。权重不在 C++ 侧——那是训练超参，"
             "这一层只给「发生了什么」。")
         .def_property_readonly("potentials", &rts::BatchedEnv::potentials)
+        .def_property_readonly("episode_ends", [](const rts::BatchedEnv& e) {
+            const auto ends = e.episode_ends();
+            return std::vector<rts::BatchedEnv::EpisodeEnd>(ends.begin(), ends.end());
+        })
         .def("reset_one", &rts::BatchedEnv::reset_one, py::arg("i"), py::arg("init"),
              "把第 i 局换成具有完整时限的新局面")
         .def(
@@ -332,6 +336,11 @@ PYBIND11_MODULE(rts_native, m) {
                 return e.world_at(i).state_hash();
             },
             py::arg("i"), "第 i 局的状态哈希（调试与确定性核对用，不在热路径上）");
+
+    py::enum_<rts::BatchedEnv::EpisodeEnd>(m, "EpisodeEnd")
+        .value("Running", rts::BatchedEnv::EpisodeEnd::Running)
+        .value("KeepDestroyed", rts::BatchedEnv::EpisodeEnd::KeepDestroyed)
+        .value("Timeout", rts::BatchedEnv::EpisodeEnd::Timeout);
 
     // `UnitAction` 的枚举值：Python 侧构造动作数组要用它，而硬编码 0..12
     // 与硬编码通道顺序是同一类错。
