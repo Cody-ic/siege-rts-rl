@@ -206,6 +206,14 @@ public:
         return w_.phase() == rts::WavePhase::Build &&
                w_.now() - build_start_ >= kSummonGuardTicks;
     }
+    struct PlayerEvent {
+        rts::Tick tick=0;
+        int kind=0; // 0 command, 1 move, 2 garrison
+        rts::Command command{};
+        std::vector<rts::UnitId> ids;
+        rts::GridPos target{};
+    };
+    const std::vector<PlayerEvent>& player_events() const noexcept { return player_events_; }
     void submit_defender(const rts::Command* cmds, std::size_t count) {
         for (std::size_t i = 0; i < count; ++i) {
             // 护栏期内的 Summon 不进 World（见上）。交互层的「已提前召唤」
@@ -215,6 +223,7 @@ public:
                 continue;
             }
             w_.submit(rts::Side::Defender, &cmds[i], 1);
+            player_events_.push_back({w_.now(),0,cmds[i],{}, {}});
         }
     }
 
@@ -224,13 +233,16 @@ public:
     // 是「下来」（脚本清空它的登墙意愿，世界放人）。
     void issue_move_order(std::span<const rts::UnitId> ids, rts::GridPos target) {
         script_.issue_move_order(ids, target);
+        player_events_.push_back({w_.now(),1,{},std::vector<rts::UnitId>(ids.begin(),ids.end()),target});
     }
     void issue_garrison_order(std::span<const rts::UnitId> ids,
                               rts::GridPos wall_cell) {
         script_.issue_garrison_order(ids, wall_cell);
+        player_events_.push_back({w_.now(),2,{},std::vector<rts::UnitId>(ids.begin(),ids.end()),wall_cell});
     }
 
 private:
+    std::vector<PlayerEvent> player_events_;
     void issue_actions();
     void spawn_wave();
     bool keep_alive() const;

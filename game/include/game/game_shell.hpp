@@ -78,6 +78,8 @@ public:
     bool should_advance() const noexcept;
     const ChronicleDecision& chronicle() const noexcept { return chronicle_; }
     bool choose_chronicle(ChronicleChoice choice);
+    // 仅在独立恢复并校验成功后交接，失败不破坏当前对局。
+    void adopt_saved_battle(DemoBattle&& battle,int attempt,ChronicleChoice choice);
 
     // 菜单项被确认。
     void apply(MenuAction a);

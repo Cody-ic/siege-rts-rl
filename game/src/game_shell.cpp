@@ -1,6 +1,7 @@
 #include "game/game_shell.hpp"
 
 #include <utility>
+#include <stdexcept>
 
 namespace game {
 namespace {
@@ -46,6 +47,15 @@ bool GameShell::choose_chronicle(ChronicleChoice choice) {
     return true;
 }
 
+void GameShell::adopt_saved_battle(DemoBattle&& battle,int attempt,ChronicleChoice choice) {
+    ChronicleDecision decision;
+    if(choice!=ChronicleChoice::None && !decision.choose(choice,battle.world().wave()))
+        throw std::runtime_error("存档剧情选择与波次不符");
+    battle_.emplace(std::move(battle));
+    attempt_=attempt;chronicle_=decision;
+    go_(Screen::Main);
+}
+
 void GameShell::go_(Screen s) {
     screen_ = s;
     // 每次换屏都重建菜单：条目的可用性依赖状态（「继续对局」要有一局在跑），
@@ -83,6 +93,7 @@ void GameShell::start_battle_() {
 void GameShell::apply(MenuAction a) {
     switch (a) {
         case MenuAction::None:
+        case MenuAction::Save: // 磁盘 IO 属于前端；状态机保持当前屏
             break;
         case MenuAction::StartNew:
         case MenuAction::Restart:

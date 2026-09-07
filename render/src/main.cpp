@@ -49,6 +49,7 @@
 #include "game/demo_driver.hpp"
 #include "game/display_names.hpp"
 #include "game/game_shell.hpp"
+#include "game/save_game.hpp"
 #include "game/iso_projection.hpp"
 #include "game/map_loader.hpp"
 #include "game/menu_model.hpp"
@@ -171,6 +172,7 @@ struct Options {
     int journal_ending = 0;
     bool journal_bottom = false;
     bool classic_visuals = false;
+    std::string save_dir;
     int width = 1600;
     int height = 900;
 };
@@ -180,6 +182,7 @@ void print_usage(const char* argv0) {
         "用法: %s [选项]        （什么都不给 = 开始玩，路径自动找）\n"
         "\n"
         "  --battle              直接开局，跳过主菜单\n"
+        "  --save-dir <目录>     指定存档目录；截图模式完全不读写存档\n"
         "  --classic-visuals     使用原始画面；游戏中 V 可切换\n"
         "  --journal-page <0..7> 仅配合截图预览指定日记章节\n"
         "  --journal-ending <1..2> 日记截图预览结局；--journal-bottom 预览末尾\n"
@@ -221,7 +224,9 @@ bool parse(const std::vector<std::string>& args, Options& out) {
             }
             return &args[++i];
         };
-        if (a == "--classic-visuals") {
+        if (a == "--save-dir") {
+            const auto* value=next("--save-dir");if(!value) return false;out.save_dir=*value;
+        } else if (a == "--classic-visuals") {
             out.classic_visuals = true;
         } else if (a == "--journal-bottom") {
             out.journal_bottom=true;
@@ -936,8 +941,39 @@ std::string screen_subtitle(const game::GameShell& shell) {
 
 int run_game(const Options& opt) {
     // 地图与数值表**完全不碰图形**，所以在开窗之前读——数据坏了不该先弹一个窗。
-    const game::MapData map = game::MapLoader::from_file(opt.map_path);
-    const rts::StatsTable stats = game::StatsLoader::from_file(opt.stats_path);
+    const bool persistent=opt.screenshot.empty();
+    std::filesystem::path save_dir;
+    std::optional<game::BattleArchive> archive;
+    std::string storage_status;
+    int stored_wave=1;
+    bool storage_ready=false;
+    if(persistent) {
+        try {
+            save_dir=opt.save_dir.empty()?game::default_save_directory():rts::path_from_utf8(opt.save_dir);
+            std::filesystem::create_directories(save_dir);
+            storage_ready=true;
+            stored_wave=game::read_journal_progress(save_dir/"journal.json");
+        } catch(const std::exception& e) {
+            storage_status="日记记录读取失败，原文件已保留";std::fprintf(stderr,"journal: %s\n",e.what());
+        }
+        if(storage_ready && !opt.battle && opt.screen.empty()) {
+            for(const auto* name:{"campaign.json","campaign.json.bak"}) {
+                if(!std::filesystem::exists(save_dir/name)) continue;
+                try {
+                    auto candidate=game::read_archive(save_dir/name);
+                    (void)game::MapLoader::from_string(candidate.map_json);
+                    (void)game::StatsLoader::from_string(candidate.stats_json);
+                    archive=std::move(candidate);break;
+                } catch(const std::exception& e) {
+                    storage_status="存档读取失败，原文件已保留";std::fprintf(stderr,"save: %s\n",e.what());
+                }
+            }
+        }
+    }
+    std::string map_json=archive?archive->map_json:game::read_save_text(rts::path_from_utf8(opt.map_path));
+    std::string stats_json=archive?archive->stats_json:game::read_save_text(rts::path_from_utf8(opt.stats_path));
+    game::MapData map = game::MapLoader::from_string(map_json);
+    const rts::StatsTable stats = game::StatsLoader::from_string(stats_json);
     game::GameShell shell(map, stats, kBattleSeed);
     // `--battle` = 跳过主菜单直接开局。旧命令行的行为，截图模式也靠它。
     if (opt.battle) shell.apply(game::MenuAction::StartNew);
@@ -969,6 +1005,44 @@ int run_game(const Options& opt) {
     SetExitKey(KEY_NULL);
     if (opt.screenshot.empty()) SetWindowMinSize(960, 540);
 
+    const std::vector<std::string_view> cover = font_coverage(map);
+    const std::unique_ptr<render::FontSet> font =
+        render::FontSet::open(opt.font_path, kFontBakeSize, cover);
+    std::printf("字体 %s，码点 %zu 个\n", font->path().c_str(), font->codepoint_count());
+
+    bool restore_cancelled=false;
+    const auto restore_candidate=[&](const game::BattleArchive& candidate) {
+        auto restored=game::restore_battle(candidate,[&](rts::Tick current,rts::Tick total) {
+            if(WindowShouldClose()) {restore_cancelled=true;return false;}
+            BeginDrawing();ClearBackground(Color{28,34,37,255});
+            const auto message="正在恢复对局 "+std::to_string(total>0?current*100/total:100)+"%";
+            font->draw(message,{50,80},28,Color{234,218,178,255});
+            font->draw("长局恢复需要一些时间，请稍候",{50,128},22,Color{180,191,189,255});
+            EndDrawing();return true;
+        });
+        map_json=candidate.map_json;stats_json=candidate.stats_json;
+        map=game::MapLoader::from_string(map_json);
+        shell=game::GameShell(map,game::StatsLoader::from_string(stats_json),kBattleSeed);
+        shell.adopt_saved_battle(std::move(*restored),candidate.attempt,candidate.choice);
+        stored_wave=std::max(stored_wave,candidate.wave);
+        storage_status=shell.battle()->defeated() || shell.chronicle().completed()
+            ? "对局已结束，日记已保留" : "对局已恢复，选择继续对局";
+    };
+    if(archive) {
+        try {restore_candidate(*archive);}
+        catch(const std::exception& e) {
+            std::fprintf(stderr,"restore: %s\n",e.what());
+            if(!restore_cancelled) {
+                try {restore_candidate(game::read_archive(save_dir/"campaign.json.bak"));}
+                catch(const std::exception& backup_error) {
+                    storage_status="存档恢复失败，原文件已保留";
+                    std::fprintf(stderr,"backup: %s\n",backup_error.what());
+                }
+            }
+        }
+    }
+    if(restore_cancelled) {CloseWindow();return 0;}
+
     render::SpriteAtlas atlas(opt.sprite_dir);
     register_resource_decals(atlas, opt.sprite_dir);
     const game::IsoProjection proj(atlas.px_per_tile());
@@ -984,11 +1058,6 @@ int run_game(const Options& opt) {
         static_scene.sorted.push_back(keep);
         std::stable_sort(static_scene.sorted.begin(),static_scene.sorted.end(),[](const auto& lhs,const auto& rhs){return lhs.depth_f()<rhs.depth_f();});
     }
-
-    const std::vector<std::string_view> cover = font_coverage(map);
-    const std::unique_ptr<render::FontSet> font =
-        render::FontSet::open(opt.font_path, kFontBakeSize, cover);
-    std::printf("字体 %s，码点 %zu 个\n", font->path().c_str(), font->codepoint_count());
 
     const render::SceneOverlay overlay(*font, proj);
     const render::MenuView menu_view(*font);
@@ -1091,11 +1160,41 @@ int run_game(const Options& opt) {
     bool atmosphere_on = !opt.classic_visuals;
     render::BattleAtmosphere atmosphere;
     render::ChronicleView journal;
-    int reached_wave = 1;
+    int reached_wave = stored_wave;
     if(opt.journal_page>=0) { journal.preview(opt.journal_page,opt.journal_ending,opt.journal_bottom); reached_wave=70; }
     bool choice_presented = false;
-    std::size_t known_chapters = 1;
+    std::size_t known_chapters = game::chronicle_unlocked(reached_wave);
     int preloaded_attempt = 0;
+    rts::Tick last_save_tick=shell.battle()?shell.battle()->world().now():0;
+    int last_save_wave=shell.battle()?shell.battle()->world().wave():0;
+    bool saved_terminal=shell.battle() && (shell.battle()->defeated() || shell.chronicle().completed());
+    double storage_notice_until=GetTime()+12;
+    double next_auto_save=0;
+    const auto save_now=[&]() -> bool {
+        if(!persistent || !shell.battle()) return true;
+        bool saved=false;
+        next_auto_save=GetTime()+10;
+        try {
+            if(!storage_ready) throw std::runtime_error("存档目录不可用");
+            game::write_archive(save_dir/"campaign.json",game::capture_battle(shell,map_json,stats_json));
+            reached_wave=std::max(reached_wave,shell.battle()->world().wave());
+            game::write_journal_progress(save_dir/"journal.json",reached_wave);
+            last_save_tick=shell.battle()->world().now();last_save_wave=shell.battle()->world().wave();
+            saved_terminal=shell.battle()->defeated() || shell.chronicle().completed();
+            storage_status="对局已保存";saved=true;
+        } catch(const std::exception& e) {storage_status="保存失败，请检查存档目录";std::fprintf(stderr,"save: %s\n",e.what());}
+        storage_notice_until=GetTime()+8;
+        return saved;
+    };
+    const auto apply_menu=[&](game::MenuAction action) {
+        if(action==game::MenuAction::Save) save_now();
+        else {
+            if(action==game::MenuAction::Quit && !save_now()) return;
+            shell.apply(action);
+            if(action==game::MenuAction::StartNew || action==game::MenuAction::Restart || action==game::MenuAction::ToMain || action==game::MenuAction::Quit)
+                save_now();
+        }
+    };
 
     // 新的一局开始时把它的实体图全预载一遍：缺素材要在**看见之前**报出来，
     // 而不是等某个单位第一次走进画面（见 SpriteAtlas::preload_idle 的理由）。
@@ -1367,6 +1466,8 @@ int run_game(const Options& opt) {
         EndMode2D();
         if(atmosphere_on) atmosphere.draw_screen(vp,*font);
         if(journal.open) { journal.draw(*font,vp,reached_wave); return; }
+        if(GetTime()<storage_notice_until && !storage_status.empty() && shell.screen()==game::Screen::Battle)
+            font->draw(storage_status,{24,vp.y-104},20,Color{239,217,165,255});
 
         if (shell.screen() == game::Screen::Battle && b != nullptr) {
             draw_battle_hud(*font, *b, paused, selected.size());
@@ -1497,6 +1598,8 @@ int run_game(const Options& opt) {
         } else {
             menu_view.draw(shell.menu(), chrome, vp);
         }
+        if(GetTime()<storage_notice_until && !storage_status.empty())
+            font->draw(storage_status,{24,vp.y-28},18,Color{239,217,165,255});
     };
 
     if (!opt.screenshot.empty()) {
@@ -1585,6 +1688,11 @@ int run_game(const Options& opt) {
             const auto count=game::chronicle_unlocked(reached_wave);
             if(count>known_chapters) {notice="日记已更新 · 按 J 阅读";notice_until=GetTime()+6;known_chapters=count;}
         }
+        if(persistent && reached_wave>stored_wave && storage_ready) {
+            try {game::write_journal_progress(save_dir/"journal.json",reached_wave);stored_wave=reached_wave;}
+            catch(const std::exception& e) {std::fprintf(stderr,"journal: %s\n",e.what());storage_ready=false;storage_status="日记保存失败，请检查存档目录";storage_notice_until=GetTime()+12;}
+        }
+        if(IsKeyPressed(KEY_F5)) save_now();
         journal.decision_enabled=shell.battle() && !shell.battle()->defeated() &&
             shell.chronicle().pending(shell.battle()->world().wave());
         if(journal.decision_enabled && !choice_presented) {
@@ -1597,6 +1705,7 @@ int run_game(const Options& opt) {
             const auto choice=journal.take_choice();
             if(choice!=game::ChronicleChoice::None) {
                 shell.choose_chronicle(choice);
+                save_now();
                 journal.decision_enabled=false;
             }
         } else if(IsKeyPressed(KEY_J) || (in_menu && shell.screen()!=game::Screen::Help && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
@@ -1624,10 +1733,10 @@ int run_game(const Options& opt) {
             // 三条确认路径（点击 / 回车 / Esc）全部汇到 `GameShell::apply`，
             // 可用性只在那里判一次。
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && hovered >= 0) {
-                shell.apply(shell.menu().action_at(hovered));
+                apply_menu(shell.menu().action_at(hovered));
             } else if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER) ||
                        IsKeyPressed(KEY_SPACE)) {
-                shell.apply(shell.menu().confirm());
+                apply_menu(shell.menu().confirm());
             } else if (IsKeyPressed(KEY_ESCAPE)) {
                 shell.on_escape();
             }
@@ -1908,9 +2017,13 @@ int run_game(const Options& opt) {
         BeginDrawing();
         draw_frame(vp, !in_menu, cell);
         EndDrawing();
+        if(GetTime()>=next_auto_save && shell.battle() && (shell.battle()->world().wave()!=last_save_wave ||
+            shell.battle()->world().now()-last_save_tick>=1200 ||
+            (!saved_terminal && (shell.battle()->defeated() || shell.chronicle().completed())))) save_now();
     }
+    const bool saved_on_exit=save_now();
     CloseWindow();
-    return 0;
+    return saved_on_exit?0:3;
 }
 
 // 真正的入口。**约定：进来的每一条参数都是 UTF-8**，由 `cli_entry.cpp` 保证。

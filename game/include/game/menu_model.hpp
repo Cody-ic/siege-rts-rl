@@ -39,6 +39,7 @@ enum class MenuAction : std::uint8_t {
     Back,       // 从操作说明返回来处
     ToMain,     // 回主菜单（丢掉当前对局）
     Quit,       // 退出程序
+    Save,       // 由前端持久化当前完整对局
 };
 
 struct MenuItem {
