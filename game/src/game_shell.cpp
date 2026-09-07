@@ -36,7 +36,7 @@ GameShell::GameShell(MapData map, rts::StatsTable stats, std::uint64_t base_seed
 
 bool GameShell::should_advance() const noexcept {
     return screen_ == Screen::Battle && battle_ && !battle_->defeated() &&
-           !chronicle_.completed() && !chronicle_.pending(battle_->world().wave());
+           (battle_->developer() || (!chronicle_.completed() && !chronicle_.pending(battle_->world().wave())));
 }
 
 bool GameShell::choose_chronicle(ChronicleChoice choice) {
@@ -71,6 +71,7 @@ void GameShell::go_(Screen s) {
         case Screen::Defeat:
             menu_.reset(defeat_menu_items());
             break;
+        case Screen::Guide:
         case Screen::Help:
             menu_.reset(help_menu_items());
             break;
@@ -112,6 +113,8 @@ void GameShell::apply(MenuAction a) {
                 go_(Screen::Defeat);
             }
             break;
+        case MenuAction::Guide:
+            help_from_=screen_;go_(Screen::Guide);break;
         case MenuAction::Help:
             help_from_ = screen_;
             go_(Screen::Help);
@@ -142,6 +145,7 @@ void GameShell::on_escape() {
         case Screen::Paused:
             apply(MenuAction::Resume);
             break;
+        case Screen::Guide:
         case Screen::Help:
             apply(MenuAction::Back);
             break;

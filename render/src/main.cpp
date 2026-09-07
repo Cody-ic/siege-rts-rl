@@ -63,6 +63,7 @@
 #include "game/chronicle.hpp"
 #include "render/cli.hpp"
 #include "render/menu_view.hpp"
+#include "render/field_guide.hpp"
 #include "render/scene_overlay.hpp"
 #include "render/scene_renderer.hpp"
 #include "render/sprite_atlas.hpp"
@@ -170,6 +171,8 @@ struct Options {
     std::string screen;          // 开局前先切到哪一屏（main / help / paused），截图用
     int ticks = 0;               // 截图模式下先推进这么多 tick 再拍
     int inspect_x=-1,inspect_y=-1;
+    int guide_entry = 0;
+    int developer_wave = 0;
     int journal_page = -1;
     int journal_ending = 0;
     bool journal_bottom = false;
@@ -189,7 +192,7 @@ void print_usage(const char* argv0) {
         "  --journal-page <0..7> 仅配合截图预览指定日记章节\n"
         "  --journal-ending <1..2> 日记截图预览结局；--journal-bottom 预览末尾\n"
         "  --menu                停在主菜单（窗口模式下与默认相同；给截图用）\n"
-        "  --screen <名>         先切到哪一屏再拍：main / help / paused。只给截图用\n"
+        "  --screen <名>         先切到哪一屏再拍：main / help / paused / guide / developer。只给截图用\n"
         "  --map <路径>          地图文件。只给它（不给 --battle/--menu）= 地图查看器\n"
         "  --stats <路径>        JSON 数值表，通常是 game/data/stats_placeholder.json\n"
         "  --sprites <目录>      精灵成品目录，通常是 tools/sprite_gen/out_3d\n"
@@ -227,7 +230,17 @@ bool parse(const std::vector<std::string>& args, Options& out) {
             }
             return &args[++i];
         };
-        if (a == "--save-dir") {
+        if(a=="--guide-entry") {
+            const auto* value=next("--guide-entry");if(!value) return false;
+            const auto result=std::from_chars(value->data(),value->data()+value->size(),out.guide_entry);
+            if(result.ec!=std::errc{} || result.ptr!=value->data()+value->size() || out.guide_entry<0 || out.guide_entry>24) return false;
+            out.screen="guide";
+        } else if(a=="--developer-wave") {
+            const auto* value=next("--developer-wave");if(!value) return false;
+            const auto result=std::from_chars(value->data(),value->data()+value->size(),out.developer_wave);
+            if(result.ec!=std::errc{} || result.ptr!=value->data()+value->size() || out.developer_wave<1 || out.developer_wave>9999) return false;
+            out.battle=true;
+        } else if (a == "--save-dir") {
             const auto* value=next("--save-dir");if(!value) return false;out.save_dir=*value;
         } else if (a == "--classic-visuals") {
             out.classic_visuals = true;
@@ -284,7 +297,7 @@ bool parse(const std::vector<std::string>& args, Options& out) {
             if (!v) return false;
             // 名字**在这里就校验**，不留到 run_game 里去悄悄忽略：拼错一个屏名
             // 而截图照样出来（拍的是主菜单），正是那种「该红却绿」。
-            if (*v != "main" && *v != "help" && *v != "paused") {
+            if (*v != "main" && *v != "help" && *v != "paused" && *v != "guide" && *v != "developer") {
                 std::fprintf(stderr, "--screen 只能是 main / help / paused，收到: %s\n",
                              v->c_str());
                 return false;
@@ -313,6 +326,8 @@ bool parse(const std::vector<std::string>& args, Options& out) {
         }
     }
     if(out.inspect_x>=0 && (out.screenshot.empty() || !out.battle)) {std::fprintf(stderr,"--inspect requires --battle --screenshot\n");return false;}
+    if(out.developer_wave>0 && out.screenshot.empty()) return false;
+    if((out.screen=="developer" || out.guide_entry!=0) && out.screenshot.empty()) return false;
     if(out.journal_page>=0 && out.screenshot.empty()) { std::fprintf(stderr,"--journal-page 仅用于截图预览\n"); return false; }
     if((out.journal_ending>0 || out.journal_bottom) && out.journal_page<0) return false;
     if(out.journal_ending>0 && out.journal_page!=7) return false;
@@ -454,6 +469,9 @@ std::vector<std::string_view> font_coverage(const game::MapData& map) {
     cover.insert(cover.end(), menu.begin(), menu.end());
     const auto story = render::ChronicleView::strings();
     cover.insert(cover.end(), story.begin(), story.end());
+    cover.push_back("开发者对局不保存 开发者模式 资源无限 人口无限 下一波 输入波数 回车应用 关闭面板 本局不保存不解锁剧情 窥使侦查成功 情报影响下一波 窥使尚未得手 沿用旧情报 攻城锤 不死鸟 编队调整 本波编队 无调整 敌军将参考当前城防 石木金人口∞");
+    for(auto text:render::guide_strings()) cover.push_back(text);
+    for(auto text:render::developer_strings) cover.push_back(text);
     cover.push_back(map.name());
     cover.push_back(map.map_id());
     return cover;
@@ -859,8 +877,8 @@ void draw_battle_hud(const render::FontSet& font,
     }
     // Keep combat priorities above the resource strip; controls have their own bar.
     const float panel_w = std::min(700.0f, static_cast<float>(GetScreenWidth())-28.0f);
-    DrawRectangleRec(Rectangle{14,14,panel_w,136}, Color{23,28,30,238});
-    DrawRectangleRec(Rectangle{14,14,4,136}, Color{221,185,114,255});
+    DrawRectangleRec(Rectangle{14,14,panel_w,158}, Color{23,28,30,238});
+    DrawRectangleRec(Rectangle{14,14,4,158}, Color{221,185,114,255});
     std::snprintf(buf,sizeof(buf), "第 %d 波   %s%s", w.wave(), phase,
                   paused ? " · 已暂停" : "");
     font.draw(buf, rts::Vec2{30,24}, 30, Color{246,231,200,255});
@@ -879,7 +897,13 @@ void draw_battle_hud(const render::FontSet& font,
                   static_cast<int>(w.stock(rts::Resource::Stone)),
                   static_cast<int>(w.stock(rts::Resource::Wood)),
                   static_cast<int>(w.stock(rts::Resource::Gold)),bv.defender_pop(),bv.defender_pop_cap(),selected_count);
+    if(w.developer()) std::snprintf(buf,sizeof(buf),"开发者模式 · 石 ∞  木 ∞  金 ∞  人口 ∞");
     font.draw(buf,rts::Vec2{30,111},22,Color{227,219,195,255});
+    const auto& actual=battle.wave_plan();const auto& base=battle.baseline_plan();
+    std::snprintf(buf,sizeof(buf),"%s · 本波编队：攻城锤 %+d / 不死鸟 %+d",
+                  battle.wave_scouted()?"窥使侦查成功，情报影响下一波":"窥使尚未得手，沿用旧情报",
+                  actual.rams-base.rams,actual.phoenixes-base.phoenixes);
+    font.draw(buf,rts::Vec2{30,145},16,Color{235,190,140,255});
 }
 
 std::array<Rectangle,5> battle_buttons(float width, float height) {
@@ -906,6 +930,8 @@ ScreenText screen_text(game::Screen s) {
             return {"圣城守望", "siege-rts-rl  /  方向键选择   回车确认"};
         case game::Screen::Paused:
             return {"已暂停", "方向键选择   回车确认   Esc 继续对局"};
+        case game::Screen::Guide:
+            return {"图鉴", "Esc 返回"};
         case game::Screen::Help:
             return {"操作说明", "Esc 返回"};
         case game::Screen::Defeat:
@@ -943,6 +969,7 @@ std::string screen_subtitle(const game::GameShell& shell) {
             // 胜率在一个必败的模式里没有定义）。所以败局屏上最该显示的是它。
             std::snprintf(buf, sizeof(buf), "存活 %d 波", b->world().wave());
             return buf;
+        case game::Screen::Guide:
         case game::Screen::Help:
         case game::Screen::Battle:
             return {};
@@ -996,9 +1023,11 @@ int run_game(const Options& opt) {
     game::GameShell shell(map, stats, kBattleSeed);
     // `--battle` = 跳过主菜单直接开局。旧命令行的行为，截图模式也靠它。
     if (opt.battle) shell.apply(game::MenuAction::StartNew);
+    if(opt.developer_wave>0) {shell.battle()->enable_developer();shell.battle()->developer_wave(opt.developer_wave);}
     // `--screen` 只是**把状态机走到那一屏**，走的是与玩家一样的那几条边
     //（不是直接给 `screen_` 赋值）。所以它不会造出一个玩家到不了的状态，
     // 拍出来的也就一定是玩家看得到的画面。
+    if(opt.screen=="guide") shell.apply(game::MenuAction::Guide);
     if (opt.screen == "help") {
         shell.apply(game::MenuAction::Help);
     } else if (opt.screen == "paused") {
@@ -1031,8 +1060,11 @@ int run_game(const Options& opt) {
 
     bool restore_cancelled=false;
     const auto restore_candidate=[&](const game::BattleArchive& candidate) {
+        double next_restore_paint=0;
         auto restored=game::restore_battle(candidate,[&](rts::Tick current,rts::Tick total) {
             if(WindowShouldClose()) {restore_cancelled=true;return false;}
+            if(current<total && GetTime()<next_restore_paint) return true;
+            next_restore_paint=GetTime()+0.1;
             BeginDrawing();ClearBackground(Color{28,34,37,255});
             const auto message="正在恢复对局 "+std::to_string(total>0?current*100/total:100)+"%";
             font->draw(message,{50,80},28,Color{234,218,178,255});
@@ -1185,6 +1217,13 @@ int run_game(const Options& opt) {
     render::ChronicleView journal;
     int reached_wave = stored_wave;
     if(opt.journal_page>=0) { journal.preview(opt.journal_page,opt.journal_ending,opt.journal_bottom); reached_wave=70; }
+    int enemy_report_wave=0;
+    bool enemy_reported=false;
+    bool developer_panel=opt.screen=="developer";
+    render::FieldGuide guide;guide.preview(opt.guide_entry);
+    std::string developer_wave_text="1";
+    int story_wave_seen=shell.battle()?shell.battle()->world().wave():0;
+    int story_attempt=shell.attempt();
     bool choice_presented = false;
     std::size_t known_chapters = game::chronicle_unlocked(reached_wave);
     int preloaded_attempt = 0;
@@ -1194,7 +1233,7 @@ int run_game(const Options& opt) {
     double storage_notice_until=GetTime()+12;
     double next_auto_save=0;
     const auto save_now=[&]() -> bool {
-        if(!persistent || !shell.battle()) return true;
+        if(!persistent || !shell.battle() || shell.battle()->developer()) return true;
         bool saved=false;
         next_auto_save=GetTime()+10;
         try {
@@ -1617,6 +1656,8 @@ int run_game(const Options& opt) {
 
         // 菜单几屏：先压暗，再画面板。主菜单压得重一些（后面没有正在发生的事，
         // 压暗让面板成为唯一焦点）；暂停与败局压得轻，好让人还能看清战场。
+        if(developer_panel) {render::draw_developer(*font,developer_wave_text);return;}
+        if(shell.screen()==game::Screen::Guide) {guide.draw(*font,atlas,stats,vp);return;}
         menu_view.dim(vp, shell.screen() == game::Screen::Main ? 150 : 140);
         if(shell.screen()==game::Screen::Main && atmosphere_on && vp.x>=1150) {
             const Vector2 crest{vp.x*0.77f,vp.y*0.42f};
@@ -1708,6 +1749,7 @@ int run_game(const Options& opt) {
             paused = false;
             atmosphere.reset();
             choice_presented = false;
+            enemy_report_wave=0;enemy_reported=false;
             popup = Popup{};
             selected.clear();
             dragging = false;
@@ -1725,24 +1767,62 @@ int run_game(const Options& opt) {
         const bool in_menu = shell.screen() != game::Screen::Battle;
         rts::GridPos cell{};
 
-        if(shell.battle()) {
-            reached_wave=std::max(reached_wave,shell.battle()->world().wave());
+        if(IsKeyPressed(KEY_F12) && (IsKeyDown(KEY_LEFT_ALT)||IsKeyDown(KEY_RIGHT_ALT))) {
+            if(!shell.battle() || shell.battle()->defeated() || shell.chronicle().completed()) shell.apply(game::MenuAction::StartNew);
+            if(shell.screen()!=game::Screen::Battle) shell.apply(game::MenuAction::Resume);
+            if(!shell.battle()->developer()) {save_now();shell.battle()->enable_developer();journal.open=false;}
+            developer_panel=!developer_panel;developer_wave_text.clear();
+        }
+        if(developer_panel) {
+            for(int ch=GetCharPressed();ch>0;ch=GetCharPressed()) if(ch>='0'&&ch<='9'&&developer_wave_text.size()<4) developer_wave_text+=static_cast<char>(ch);
+            if(IsKeyPressed(KEY_BACKSPACE)&&!developer_wave_text.empty()) developer_wave_text.pop_back();
+            if((IsKeyPressed(KEY_ENTER) || (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(mouse,render::developer_apply_button(vp))))&&!developer_wave_text.empty()) {
+                const int wave=std::stoi(developer_wave_text);
+                if(wave>=1) {shell.battle()->developer_wave(wave);developer_panel=false;acc=0;}
+            }
+            if(IsKeyPressed(KEY_ESCAPE)) developer_panel=false;
+            BeginDrawing();ClearBackground(Color{28,34,37,255});
+            render::draw_developer(*font,developer_wave_text);
+            EndDrawing();acc=0;continue;
+        }
+        if(shell.battle() && !shell.battle()->developer()) {
+            const int wave=shell.battle()->world().wave();
+            if(story_attempt!=shell.attempt()) {story_attempt=shell.attempt();story_wave_seen=0;}
+            const int chapter=game::chronicle_to_present(story_wave_seen,wave,false);
+            if(shell.screen()==game::Screen::Battle && chapter>=0) {
+                journal.preview(chapter);
+                popup=Popup{};dragging=false;dragged_garrison.reset();
+            }
+            story_wave_seen=wave;
+            reached_wave=std::max(reached_wave,wave);
             const auto count=game::chronicle_unlocked(reached_wave);
             if(count>known_chapters) {notice="日记已更新 · 按 J 阅读";notice_until=GetTime()+6;known_chapters=count;}
+        }
+        if(shell.battle() && !shell.battle()->developer()) {
+            const int wave=shell.battle()->world().wave();
+            if(enemy_report_wave!=wave) {enemy_report_wave=wave;enemy_reported=false;}
+            if(shell.battle()->wave_scouted() && !enemy_reported) {
+                notice="窥使侦查成功：敌军下一波将参考当前城防";notice_until=GetTime()+10;enemy_reported=true;
+            }
         }
         if(persistent && reached_wave>stored_wave && storage_ready) {
             try {game::write_journal_progress(save_dir/"journal.json",reached_wave);stored_wave=reached_wave;}
             catch(const std::exception& e) {std::fprintf(stderr,"journal: %s\n",e.what());storage_ready=false;storage_status="日记保存失败，请检查存档目录";storage_notice_until=GetTime()+12;}
         }
-        if(IsKeyPressed(KEY_F5)) save_now();
-        journal.decision_enabled=shell.battle() && !shell.battle()->defeated() &&
+        if(IsKeyPressed(KEY_F5)) {
+            if(shell.battle() && shell.battle()->developer()) {notice="开发者对局不保存";notice_until=GetTime()+6;}
+            else save_now();
+        }
+        journal.decision_enabled=shell.battle() && !shell.battle()->developer() && !shell.battle()->defeated() &&
             shell.chronicle().pending(shell.battle()->world().wave());
         if(journal.decision_enabled && !choice_presented) {
             journal.preview(7);choice_presented=true;
             popup=Popup{};dragging=false;dragged_garrison.reset();
         }
         if(!journal.open && IsKeyPressed(KEY_V)) atmosphere_on=!atmosphere_on;
-        if(journal.open) {
+        if(shell.screen()==game::Screen::Guide) {
+            if(guide.input(vp)) shell.apply(game::MenuAction::Back);
+        } else if(journal.open) {
             journal.update(vp,reached_wave);
             const auto choice=journal.take_choice();
             if(choice!=game::ChronicleChoice::None) {

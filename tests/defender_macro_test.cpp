@@ -815,7 +815,9 @@ TEST_CASE("攻方情报：本波侦查结果有访问器，且逐波重置", "[m
     CHECK(b.world().wave() > before);
     // 第 2 波生波时，攻方**已经见过**城墙（第 1 波打过一场）⇒ 记忆非空。
     // 这条同时钉住 `read_intel` 真的接在生波路径上（而不是一个没人调的函数）。
-    CHECK(b.wave_intel().walls > 0);
+    // 第一波没有窥使：普通进攻单位见过城墙也不冒充侦查成功。
+    CHECK_FALSE(b.wave_intel().fresh);
+    CHECK(b.wave_intel().walls == 0);
 }
 
 TEST_CASE("编成位硬顶：27 = RL 的 agent 数上限，而单位数不受它约束", "[macro]") {

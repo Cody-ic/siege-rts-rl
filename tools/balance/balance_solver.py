@@ -126,13 +126,13 @@ class Prices:
     def tower_cost(self, ld):
         """一座 `ld` 级塔的总石材（建 + 升到该级）。
 
-        `sqrt` = **现行**（`World::bld_upgrade_cost_stone()`）：累计
-        `cost + up × (√B(L) − 1)`；`up == cost` 时退化成 `cost × √B(L)`
-        ⇒ 每石买到的火力与等级无关。
+        `sqrt` = 现行成长差价 + 递增工料下限（Stats/13）。
+        逐级至少支付标度的 40% + 10% × (当前等级 - 1)。
+        此分析用连续近似；游戏内以 World 的整数舍入为准。
         `linear` = 2026-09-03 之前的定价，留作对照（历史常数，不读表）。
         """
         if self.tower_up_mode == 'sqrt':
-            return self.tower_build + self.tower_up * (sq(ld) - 1.0)
+            return self.tower_build + sum(max(self.tower_up * (sq(level+1)-sq(level)), self.tower_up*(0.4+0.1*(level-1))) for level in range(1, ld))
         return self.tower_build + (ld - 1) * TOWER_UP_S_LEGACY
 
     def bld_cap(self, K):

@@ -65,6 +65,7 @@ std::vector<MenuItem> main_menu_items(bool can_resume) {
         // 首次启动时它是灰的，**但仍然在**（见 `MenuItem::enabled` 的注释）。
         MenuItem{MenuAction::Resume, "继续对局", can_resume},
         MenuItem{MenuAction::Help, "操作说明", true},
+        MenuItem{MenuAction::Guide, "图鉴", true},
         MenuItem{MenuAction::Quit, "退出游戏", true},
     };
 }
@@ -75,6 +76,7 @@ std::vector<MenuItem> pause_menu_items() {
         MenuItem{MenuAction::Save, "保存对局", true},
         MenuItem{MenuAction::Restart, "重新开始", true},
         MenuItem{MenuAction::Help, "操作说明", true},
+        MenuItem{MenuAction::Guide, "图鉴", true},
         MenuItem{MenuAction::ToMain, "返回主菜单", true},
         MenuItem{MenuAction::Quit, "退出游戏", true},
     };
@@ -133,8 +135,10 @@ const std::vector<HelpEntry>& help_entries() {
         {"斥候侦查", "斥候到了集结点会掷一次死活：活着拿回本波编成，死了本波编成不明"},
         {"幽影窥使", "敌侦查机只在你的视野里现形；瞭望塔看得最远，想提前发现就造它"},
         {"空格 / 底部按钮", "暂停 / 继续仿真；底部按钮也可回到堡垒或查看全图"},
-        {"J / 日记按钮", "阅读暂停；日记永久解锁。到第70波作出结局选择"},
+        {"J / 日记按钮", "每10波自动暂停展示新剧情；日记永久解锁，第70波选择结局"},
         {"选中箭楼 / 弩楼", "显示实际射程边界：箭楼对地，蔽空弩楼仅对空"},
+        {"Alt + F12", "开启开发者模式：资源、人口无限，输入下一波波数并回车；不保存、不解锁剧情，重新开局退出"},
+        {"窥使情报", "窥使成功后显示提醒；本波编队增减来自上一波情报，侦查不到就沿用旧情报"},
         {"保存 / F5", "每波、每分钟和退出时自动保存；暂停菜单可手动保存，下次启动继续对局"},
         {"V", "切换黄昏氛围与原始画面，不影响战斗规则"},
         {"方向键 / WASD", "平移镜头"},

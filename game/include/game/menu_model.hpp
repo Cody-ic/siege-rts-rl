@@ -31,6 +31,7 @@ namespace game {
 // 菜单项被确认之后要发生什么。**这一层只说「要什么」，不说「怎么做」**
 // ——怎么做归 `GameShell::apply()`，那里才知道有没有对局在跑。
 enum class MenuAction : std::uint8_t {
+    Guide,      // 图鉴
     None,       // 没有可确认的项（空菜单、或当前项被禁用）
     StartNew,   // 开始新对局
     Resume,     // 回到已有对局

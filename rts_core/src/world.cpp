@@ -153,6 +153,11 @@ World::World(WorldInit init)
 
 // ——波次——
 
+void World::developer_wave(int wave, std::int32_t level) {
+    if(!developer_ || wave<1 || wave>9999) throw ContractError("invalid developer wave");
+    wave_=wave;nominal_level_=level;phase_=WavePhase::Build;
+}
+
 void World::begin_assault() noexcept { phase_ = WavePhase::Assault; }
 
 void World::begin_next_wave(std::int32_t next_nominal_level) {
@@ -1016,6 +1021,7 @@ int World::defender_pop() const noexcept {
 }
 
 int World::defender_pop_cap() const noexcept {
+    if(developer_) return std::numeric_limits<int>::max();
     // Keep 格位定位与 `unit_level_cap()` 逐字同款，公式不同：
     // `cap = base + per × 堡垒等级`。
     const int slot = keep_slot();
@@ -1069,13 +1075,15 @@ std::int64_t level_scaled_cost(std::int64_t base, std::int32_t level,
 // `cost + up × (√B(L) − 1)` 的差分，所以逐级加起来必然精确等于累计值。
 // 直接写增量再取整会让「逐级升到 L」与「累计定价」在舍入上分叉，
 // 于是那条「每石买到的火力与等级无关」的性质在某些等级上悄悄不成立。
+// Stats/13 adds a rising materials floor to the historical growth difference.
 std::int64_t World::bld_upgrade_cost_stone(BldType bt,
                                           std::int32_t from_level) const noexcept {
     const BldStats& s = stats_.of(bt);
     if (bt == BldType::Keep) return s.upgrade_cost_stone;
     const std::int32_t k = stats_.global.hp_permille_per_level;
-    return level_scaled_cost(s.upgrade_cost_stone, from_level + 1, k) -
-           level_scaled_cost(s.upgrade_cost_stone, from_level, k);
+    const auto marginal = level_scaled_cost(s.upgrade_cost_stone, from_level + 1, k) -
+                          level_scaled_cost(s.upgrade_cost_stone, from_level, k);
+    return std::max<std::int64_t>(marginal, s.upgrade_cost_stone * (40LL + 10LL * (from_level - 1)) / 100);
 }
 
 std::int64_t World::bld_upgrade_cost_wood(BldType bt,
@@ -1083,8 +1091,9 @@ std::int64_t World::bld_upgrade_cost_wood(BldType bt,
     const BldStats& s = stats_.of(bt);
     if (bt == BldType::Keep) return s.upgrade_cost_wood;
     const std::int32_t k = stats_.global.hp_permille_per_level;
-    return level_scaled_cost(s.upgrade_cost_wood, from_level + 1, k) -
-           level_scaled_cost(s.upgrade_cost_wood, from_level, k);
+    const auto marginal = level_scaled_cost(s.upgrade_cost_wood, from_level + 1, k) -
+                          level_scaled_cost(s.upgrade_cost_wood, from_level, k);
+    return std::max<std::int64_t>(marginal, s.upgrade_cost_wood * (40LL + 10LL * (from_level - 1)) / 100);
 }
 
 // ——状态哈希——
@@ -1126,6 +1135,7 @@ std::uint64_t World::state_hash() const noexcept {
     h.feed_pod(tick_);
     h.feed_pod(wave_);
     h.feed_pod(phase_);
+    h.feed_pod(developer_);
     h.feed_pod(nominal_level_);
 
     const Rng::State rs = rng_.state();

@@ -78,10 +78,24 @@ TEST_CASE("跨多波战斗与宏观操作恢复后仍继续一致", "[save]") {
         }
         battle.update(1);
     }
+    INFO("tick="<<battle.world().now()<<" defeated="<<battle.defeated());
     REQUIRE(battle.world().wave()>=4);
     const auto file=temp.path/"campaign.json";
     game::write_archive(file,game::capture_battle(original,text,stats_text()));
-    auto restored=game::restore_battle(game::read_archive(file));
+    auto saved=game::read_archive(file);
+    const auto begin=std::chrono::steady_clock::now();
+    int snapshot_steps=0;
+    auto restored=game::restore_battle(saved,[&](auto current,auto total){++snapshot_steps;CHECK(current==total);return true;});
+    REQUIRE(snapshot_steps==1);
+    const auto snapshot_done=std::chrono::steady_clock::now();
+    auto replay_archive=saved;replay_archive.snapshot.clear();
+    auto replayed=game::restore_battle(replay_archive);
+    const auto replay_done=std::chrono::steady_clock::now();
+    std::printf("SAVE_BENCH ticks=%d wave=%d snapshot_ms=%.2f replay_ms=%.2f bytes=%zu\n",int(saved.tick),saved.wave,
+        std::chrono::duration<double,std::milli>(snapshot_done-begin).count(),
+        std::chrono::duration<double,std::milli>(replay_done-snapshot_done).count(),saved.snapshot.size());
+    REQUIRE(replayed->world().state_hash()==restored->world().state_hash());
+
     for(int step=0;step<20;++step) {
         battle.update(20);restored->update(20);
         REQUIRE(restored->world().state_hash()==battle.world().state_hash());
@@ -120,4 +134,26 @@ TEST_CASE("损坏与取消读档不能替换当前对局", "[save]") {
         REQUIRE(game::read_archive(file).hash!=hash);
     }
     REQUIRE(active.battle()->world().state_hash()==hash);
+}
+TEST_CASE("完整快照直接恢复而非从头重演，损坏快照退回操作日志", "[save]") {
+    auto active=shell();active.apply(game::MenuAction::StartNew);active.battle()->update(600);
+    auto archive=game::capture_battle(active,map_text(),stats_text());
+    REQUIRE_FALSE(archive.snapshot.empty());int callbacks=0;
+    auto restored=game::restore_battle(archive,[&](auto current,auto total){++callbacks;CHECK(current==total);return true;});
+    REQUIRE(callbacks==1);
+    REQUIRE(restored->world().state_hash()==active.battle()->world().state_hash());
+    archive.snapshot="broken";callbacks=0;
+    restored=game::restore_battle(archive,[&](auto,auto){++callbacks;return true;});
+    REQUIRE(callbacks>1);REQUIRE(restored->world().state_hash()==active.battle()->world().state_hash());
+    active.battle()->enable_developer();REQUIRE_THROWS(game::capture_battle(active,map_text(),stats_text()));
+}
+
+TEST_CASE("剧情按本局十波里程碑展示，开发者模式不触发", "[save]") {
+    REQUIRE(game::chronicle_to_present(0,1,false)==0);
+    REQUIRE(game::chronicle_to_present(9,10,false)==1);
+    REQUIRE(game::chronicle_to_present(10,10,false)==-1);
+    REQUIRE(game::chronicle_to_present(69,70,false)==7);
+    REQUIRE(game::chronicle_to_present(0,70,true)==-1);
+    auto active=shell();active.apply(game::MenuAction::StartNew);active.battle()->enable_developer();active.battle()->developer_wave(70);
+    REQUIRE(active.should_advance());
 }

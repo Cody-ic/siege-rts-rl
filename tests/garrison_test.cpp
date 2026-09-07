@@ -461,7 +461,8 @@ TEST_CASE("低处打墙上单位：miss 与伤害打折（两端确定，可无�
         init.units.push_back(
             rts::UnitInit{rts::UnitType::Archer, rts::Vec2{6.5f, 3.5f}, 1, 20, 20});
         init.units.push_back(
-            rts::UnitInit{rts::UnitType::Ghoul, rts::Vec2{5.5f, 4.5f}, 1, 30, 30});
+            rts::UnitInit{rts::UnitType::Shade, rts::Vec2{5.5f, 4.5f}, 1, 30, 30});
+        init.stats.unit[static_cast<std::size_t>(rts::UnitType::Shade)]=init.stats.unit[static_cast<std::size_t>(rts::UnitType::Ghoul)];
         return init;
     };
     const auto run = [](rts::WorldInit init, int ticks) {

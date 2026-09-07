@@ -314,3 +314,30 @@ if(RTS_BUILD_TESTS)
     add_test(NAME render_journal_rejects_ninth COMMAND rts_render --journal-page 8 --screenshot never_ninth.png)
     set_tests_properties(render_journal_rejects_ninth PROPERTIES WILL_FAIL TRUE)
 endif()
+
+if(RTS_BUILD_TESTS)
+    add_test(NAME render_developer_wave COMMAND rts_render --developer-wave 70
+        --map "${CMAKE_SOURCE_DIR}/game/data/maps/pool/gen_01001000.json"
+        --sprites "${CMAKE_SOURCE_DIR}/tools/sprite_gen/out_3d"
+        --stats "${CMAKE_SOURCE_DIR}/game/data/stats_placeholder.json"
+        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/developer-wave.png" --size 1200 800)
+    add_test(NAME render_developer_rejects_interactive_cli COMMAND rts_render --developer-wave 70)
+    set_tests_properties(render_developer_rejects_interactive_cli PROPERTIES WILL_FAIL TRUE)
+endif()
+
+if(RTS_BUILD_TESTS)
+    add_test(NAME render_developer_panel COMMAND rts_render --screen developer --screenshot "${CMAKE_CURRENT_BINARY_DIR}/developer-panel.png" --size 960 540)
+    foreach(entry RANGE 0 24)
+        add_test(NAME render_guide_${entry} COMMAND rts_render --guide-entry ${entry} --screenshot "${CMAKE_CURRENT_BINARY_DIR}/guide-${entry}.png" --size 960 540)
+    endforeach()
+endif()
+
+if(RTS_BUILD_TESTS)
+    foreach(res IN ITEMS 1920x1080 2559x1368 2560x1440 3840x2160 3440x1440)
+        string(REPLACE "x" ";" dimensions "${res}")
+        list(GET dimensions 0 width)
+        list(GET dimensions 1 height)
+        add_test(NAME render_guide_resolution_${res} COMMAND rts_render --guide-entry 15
+            --screenshot "${CMAKE_CURRENT_BINARY_DIR}/guide-${res}.png" --size ${width} ${height})
+    endforeach()
+endif()

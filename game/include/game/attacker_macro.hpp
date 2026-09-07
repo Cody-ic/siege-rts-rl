@@ -284,6 +284,7 @@ struct WavePlan {
 };
 
 class AttackerMacro {
+    friend struct SnapshotCodec;
 public:
     explicit AttackerMacro(const MapData& map, const AttackerParams& params = {});
 

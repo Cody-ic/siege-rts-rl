@@ -521,71 +521,26 @@ TEST_CASE("堡垒被摧毁之后三个上限返回 0，而不是越界读", "[ec
     CHECK(w.building_level_cap() == 0);
 }
 
-TEST_CASE("建筑升级定价：累计 ∝ √B(L) ⇒ 每石买到的战力与等级无关", "[econ]") {
-    // 这一条钉的是**定价与它买到的东西同阶**，而不是某个价钱。
-    //
-    // 背景：2026-09-03 之前非 `Keep` 的升级是「每级一个常数」⇒ 累计造价线性、
-    // 而血量与伤害都 `∝ √B(L)` ⇒ 每石买到的战力 `∝ 1/√L`，**堆量严格占优、
-    // 最优档恒为 1 级**，于是「堡垒等级 → 建筑等级上限」这个输出从未被使用
-    // （`攻守配平的数学模型.md` §2.2）。修法与 `数值设计与成本产出矩阵.md`
-    // §12 给单位那条同型（`c ∝ √B(L)`）。
-    //
-    // 它不会被别的测试覆盖：价钱错了仿真照样跑、回放照样一致，只有「最优
-    // 决策」变了——那不是任何断言看得见的东西。
-    rts::WorldInit init = arena();
-    init.stats.global.hp_permille_per_level = 220;   // 与正式表同值
-    init.stats.global.dmg_permille_per_level = 220;
-    // 标度 = 造价，就是「每石买到的战力与等级无关」那个取值。
-    rts::BldStats& ts = init.stats.bld[static_cast<std::size_t>(rts::BldType::Tower)];
-    ts.cost_stone = 80;
-    ts.upgrade_cost_stone = 80;
-    rts::World w(std::move(init));
-
-    std::int64_t cum = ts.cost_stone;
-    for (std::int32_t L = 1; L <= 20; ++L) {
-        const double power =
-            static_cast<double>(rts::level_permille(L, 220)) / 1000.0;
-        const double per = static_cast<double>(cum) / power;
-        INFO("L=" << L << " 累计 " << cum << " 石，战力 " << power << "x，每份 "
-                  << per);
-        // 1% 的余量给整数舍入（每一步都是两个已取整的累计值之差）。
-        REQUIRE(per > static_cast<double>(ts.cost_stone) * 0.99);
-        REQUIRE(per < static_cast<double>(ts.cost_stone) * 1.01);
-        cum += w.bld_upgrade_cost_stone(rts::BldType::Tower, L);
+TEST_CASE("建筑升级定价：工料下限递增，保留堡垒独立价格", "[econ]") {
+    auto init=arena();init.stats.global.hp_permille_per_level=220;init.stats.global.dmg_permille_per_level=220;
+    auto& tower=init.stats.bld[static_cast<std::size_t>(rts::BldType::Tower)];tower.upgrade_cost_stone=80;tower.upgrade_cost_wood=30;
+    rts::World w(init);
+    REQUIRE(w.bld_upgrade_cost_stone(rts::BldType::Tower,1)==32);
+    REQUIRE(w.bld_upgrade_cost_wood(rts::BldType::Tower,1)==12);
+    auto previous=w.bld_upgrade_cost_stone(rts::BldType::Tower,1);
+    for(int level=2;level<20;++level) {
+        const auto cost=w.bld_upgrade_cost_stone(rts::BldType::Tower,level);
+        REQUIRE(cost>previous);previous=cost;
+        REQUIRE(w.bld_upgrade_cost_stone(rts::BldType::Keep,level)==w.stats().of(rts::BldType::Keep).upgrade_cost_stone);
     }
-
-    // 一步的价钱：**永不为负**，且大势是缩小（`√` 的增量在缩小）。
-    //
-    // 头号失败形态是「负价钱 = 升级倒赚」——「差分」这个实现形态天生带着它，
-    // 所以那一条钉死。
-    //
-    // **但「逐级单调不增」不成立，这条第一版就是这么红的（L=8 那步 6 > 上一步
-    // 5），而它红得对。** 每一步是两个**已取整**的累计值之差，于是精确增量
-    // 8.36 / 7.6 / 7.0 … 落成 8 8 7 7 6 6 5 6 5 5 5——±1 的抖动是取整噪声，
-    // 不是定价错了。真正被承诺的是**累计曲线**（上面那段已经逐级钉过），
-    // 逐级的差分只承诺「不为负」与「大势缩小」。把噪声写进断言，就是让一条
-    // 结构测试随任何一次系数改动变红。
-    const std::int64_t first = w.bld_upgrade_cost_stone(rts::BldType::Tower, 1);
-    std::int64_t prev = first;
-    for (std::int32_t L = 2; L <= 20; ++L) {
-        const std::int64_t step = w.bld_upgrade_cost_stone(rts::BldType::Tower, L);
-        INFO("L=" << L << " 这一步 " << step << "，上一步 " << prev);
-        REQUIRE(step >= 0);
-        REQUIRE(step <= prev + 1);   // 允许 1 石的取整抖动，不允许反弹上涨
-        prev = step;
-    }
-    // 大势：走到高位那一步必须明显比第一步便宜（等级越高，一级买到的战力越少）。
-    REQUIRE(w.bld_upgrade_cost_stone(rts::BldType::Tower, 20) < first);
-
-    // **`Keep` 走另一条（线性），这不是漏抄**：它卖的是三个线性上限
-    // （人口 8+2K / 建筑等级 ceil(K/2) / 兵种等级 K），线性输出配线性定价
-    // 本来就同阶。所以它每一级都是表里那个常数，不随等级衰减。
-    // 同上：`stats()` 的所有者是 `World`，直接问它，不经临时 `WorldView`。
-    const rts::BldStats& ks = w.stats().of(rts::BldType::Keep);
-    for (std::int32_t L = 1; L <= 20; ++L) {
-        REQUIRE(w.bld_upgrade_cost_stone(rts::BldType::Keep, L) == ks.upgrade_cost_stone);
-        REQUIRE(w.bld_upgrade_cost_wood(rts::BldType::Keep, L) == ks.upgrade_cost_wood);
-    }
+}
+TEST_CASE("受损建筑升级不再附送满血", "[econ]") {
+    auto init=arena();init.stats.global.hp_permille_per_level=3000;init.stats.global.dmg_permille_per_level=3000;
+    init.buildings[0].hp=init.buildings[0].max_hp/2;
+    rts::World w(init);w.set_stock(rts::Resource::Stone,10000);w.set_stock(rts::Resource::Wood,10000);
+    w.spawn_unit(rts::UnitType::Mason,rts::center_of(w.keep_pos()),1,10,10);level_keep_to(w,2);
+    const auto v=w.view(rts::Side::Defender);const auto k=bld_slot(v,rts::BldType::Keep);
+    REQUIRE(v.bld_hp()[k]*2==v.bld_max_hp()[k]);
 }
 
 TEST_CASE("Upgrade 与 Repair 互斥：同一时刻只能有一件工程在推进", "[econ]") {
