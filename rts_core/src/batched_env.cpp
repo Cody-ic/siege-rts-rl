@@ -174,14 +174,6 @@ BatchedEnv::BatchedEnv(BatchedEnvInit init) : p_(std::make_unique<Impl>()) {
     p_->leaders.resize(static_cast<std::size_t>(n));
     p_->acts.resize(static_cast<std::size_t>(n));
     p_->elapsed.assign(static_cast<std::size_t>(n), 0);
-    // 错开第一局（见 `stagger_first_episode`）。只动初值，`reset_one`
-    // 照旧归 0 —— 错峰一次就够，此后各局自然不同步。
-    if (init.stagger_first_episode && init.max_ticks_per_episode > 0 && n > 1) {
-        for (int i = 0; i < n; ++i) {
-            p_->elapsed[static_cast<std::size_t>(i)] =
-                i * init.max_ticks_per_episode / n;
-        }
-    }
     p_->flows.resize(static_cast<std::size_t>(n));
     for (auto& f : p_->flows) {
         f.resize(static_cast<std::size_t>(kUnitTypeCount) *
@@ -413,15 +405,24 @@ void BatchedEnv::take_tally(std::span<float> out) {
     }
 }
 
-void BatchedEnv::reset_one(int i, WorldInit init, int elapsed0) {
+std::vector<double> BatchedEnv::potentials() const {
+    std::vector<double> result(p_->worlds.size(), 0.0);
+    for (std::size_t i = 0; i < p_->worlds.size(); ++i) {
+        for (const UnitId id : p_->ids[i]) {
+            result[i] -= Impl::dist_to_keep(*p_->worlds[i], id);
+        }
+    }
+    return result;
+}
+
+void BatchedEnv::reset_one(int i, WorldInit init) {
     if (i < 0 || i >= batch_size()) throw ContractError("BatchedEnv: 环境下标越界");
     const std::size_t ui = static_cast<std::size_t>(i);
     p_->worlds[ui] = std::make_unique<World>(std::move(init));
     p_->worlds[ui]->enumerate_units(p_->side, p_->ids[ui]);
     p_->worlds[ui]->enumerate_squads(p_->side, p_->leaders[ui]);
     p_->counts[ui] = static_cast<int>(p_->leaders[ui].size());
-    // 新 episode 的计时起点（默认 0；批量重置时用它重新错峰）。
-    p_->elapsed[ui] = elapsed0 > 0 ? elapsed0 : 0;
+    p_->elapsed[ui] = 0;   // 每个任务具有相同的完整时限
     // **`progress` 必须一起清**：不清的话上一局最后一步的位移会算进新局的
     // 第一步，而新局的单位在集结点、距离是满的 ⇒ 那是一笔凭空的大额奖励。
     p_->progress[ui] = 0.0;

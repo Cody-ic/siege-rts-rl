@@ -44,6 +44,7 @@ import torch
 import torch.nn as nn
 
 import rts_native as R
+from learning import CompletionWindow, potential_reward
 
 # ——奖励权重。**只有这一处有权重**，C++ 侧只给计数——
 #
@@ -68,16 +69,13 @@ REWARD_W = {
     "bld_value": 1.0,        # **有原则的推导**：= 重建成本，见上
     "scouts_killed": 3.0,    # 适中常量，见上
     "losses": -0.001,        # 负但小，见上
-    # **基于势的 shaping**（Ng et al. 1999）：势 = 到堡垒的距离，
-    # 奖励 = 势之差。这一族 shaping 有定理保证**不改变最优策略**，
-    # 只改变学得多快 —— 所以 \`CLAUDE.md\` 那句「shaping 项权重必须小」
-    # 在它身上的约束比其余项弱：那句担心的退化策略（「在城外反复
-    # 换血但永不推进」）正是**非**基于势的 shaping 的产物。
-    #
-    # 取 0.02：一步走得最多约 0.5 格 × 27 个 agent ⇒ 每步上限 ≈ 0.27，
-    # 而拆一座塔的 \`bld_value\` 是几十。方向指得动、大小压不过真正的战果。
-    "progress": 0.02,
+    "progress": 0.0,       # 只作位移日志，不把未折扣的距离差当奖励
 }
+
+
+# Phi = 当前存活攻方到堡垒的负距离和。死亡造成的势跳变保留，
+# episode 终局（包括任务规定的超时）势归零，折扣累计才会消去整条路径。
+POTENTIAL_W = 0.02
 
 
 @dataclass
@@ -113,7 +111,7 @@ class Cfg:
     # 0.15 ⇒ 7.5 格（随机游走够得到）、之后每档靠上一档学到的
     # 「朝目标走」迁移过去。
     curriculum: tuple = (0.15, 0.3, 0.5, 0.75, 1.0)
-    # 升档判据：近 `promote_window` 局里有 `promote_at` 比例**真的打到了
+    # 升档判据：至少 `promote_window` 局（保留完整终局批次）中 `promote_at` 比例**真的打到了
     # 建筑**（`dmg_to_blds > 0`）。
     #
     # ⚠️ **判据不能是「拿到过正奖励」，那个版本已经坦过一次。**
@@ -164,7 +162,7 @@ class Policy(nn.Module):
         return self.actor(h), self.critic(h).squeeze(-1)
 
 
-def make_worlds(cfg: Cfg, n: int, frac: float = 1.0) -> list:
+def make_worlds(cfg: Cfg, n: int, frac: float = 1.0, start: int = 0) -> list:
     """造 n 个局面。
 
     **编成由这一侧给**：`World` 自己不生波（生波在 `game::DemoBattle`，那是
@@ -187,7 +185,7 @@ def make_worlds(cfg: Cfg, n: int, frac: float = 1.0) -> list:
         raise SystemExit(f"{cfg.map_path} 没有集结点——攻方无处生成")
     squads, per = 9, 3      # 9 支 × 3 = 27 个单位，编队数 9 < MAX_UNITS_PER_ENV
     out = []
-    for i in range(n):
+    for i in range(start, start + n):
         # 每局挑一个集结点（轮换）。**宏观层还没上**，所以这里是轮换而不是
         # 决策——CLAUDE.md「战术层必须先跑通，不要两层同时上」。
         sx, sy = spawns[(cfg.seed + i) % len(spawns)]
@@ -364,7 +362,9 @@ def main() -> None:
     # 逐局「这一局有没有真的打到建筑」。**升档判据读它，不读回报**（见
     # `promote_at` 那段：回报里含 shaping，而 shaping 不是战果）。
     ep_hit = np.zeros((cfg.envs,), dtype=np.float64)
-    stage_hit: list[float] = []
+    stage_hits = CompletionWindow(cfg.promote_window)
+    next_episode = cfg.envs
+    phi = env.potentials
 
     while step_count < cfg.total_steps:
         t_roll = 0.0
@@ -397,7 +397,10 @@ def main() -> None:
             env.take_tally(tally)
 
             roll_tally += tally.sum(axis=0, dtype=np.float64)
-            rew = (tally * w).sum(axis=1)
+            after = env.potentials  # 必须在 reset 之前读
+            shaping = np.array([potential_reward(p, q, bool(d), cfg.gamma)
+                                for p, q, d in zip(phi, after, done_np)])
+            rew = (tally * w).sum(axis=1) + POTENTIAL_W * shaping
             buf_r[t] = torch.from_numpy(rew).to(dev)
             buf_d[t] = torch.from_numpy(done_np.astype(np.float32)).to(dev)
             ep_ret += rew
@@ -406,48 +409,20 @@ def main() -> None:
 
             # 终局的局重置。**重置时机归 train/**（`BatchedEnv::reset_one` 的
             # 注释：要按波次分层采样，重置成哪一波是训练侧的决定）。
-            for i in np.nonzero(done_np)[0]:
+            completed = np.nonzero(done_np)[0]
+            stage_hits.add(ep_hit[completed])
+            for i in completed:
                 stage_ret.append(float(ep_ret[i]))
                 all_ret.append(float(ep_ret[i]))
-                stage_hit.append(float(ep_hit[i]))
                 ep_ret[i] = 0.0
                 ep_hit[i] = 0.0
-                env.reset_one(int(i), make_worlds(cfg, 1, frac)[0])
+                env.reset_one(int(i), make_worlds(cfg, 1, frac, next_episode)[0])
+                next_episode += 1
+            phi = env.potentials
 
         # ——GAE。奖励是**逐局**的，而 agent 是逐编队的 ⇒ 把局级奖励广播到
         #   该局的所有 agent。这是「共享策略 + 团队奖励」的标准做法，也是
         #   `CLAUDE.md`「奖励：以本波战果为主」那句的直接后果（战果是全队的）。
-        # ——升档判据：近 `promote_window` 局里有多少比例拿到过正奖励——
-        #
-        # **用成功率而不是固定步数**：固定步数会在学不会时硬推到下一档，
-        # 而那正好回到「拿不到第一次奖励」那个死结。
-        if len(stage_hit) >= cfg.promote_window and stage + 1 < len(cfg.curriculum):
-            win = stage_hit[-cfg.promote_window:]
-            rate = sum(1 for h in win if h > 0.0) / len(win)
-            if rate >= cfg.promote_at:
-                stage += 1
-                frac = cfg.curriculum[stage]
-                stage_ret.clear()   # 换了任务，旧成功率不再代表现在
-                stage_hit.clear()
-                print(f"  ↑ 升档：第 {stage + 1}/{len(cfg.curriculum)} 档 "
-                      f"frac={frac}（上一档成功率 {rate:.0%}）", flush=True)
-                # 全批重置到新距离。**不等旧 episode 自然结束**：那些局面
-                # 还在旧课程上，混着两档会让「成功率」这个判据失去意义。
-                #
-                # ⚠️ **传 `elapsed0` 重新错峰。** 不传的话这一下把
-                # `stagger_first_episode` 好不容易错开的相位**又对齐回去**
-                # —— 实测到过：局数先是 40 / 122（错开了），第一次升档之后
-                # 又回到 378 / 634 / 890……整 256 一跳。**修一处不够，两处都要。**
-                # **问环境要这个数，不在这里拄一份 2400**：它与
-                # `WaveTiming` 有渊源、会改，而两侧不一致时什么都不会报错
-                # —— 只会让错峰偏移静静地错一截。
-                mt = env.max_ticks_per_episode
-                for i in range(cfg.envs):
-                    env.reset_one(i, make_worlds(cfg, 1, frac)[0],
-                                  i * mt // cfg.envs)
-                ep_ret[:] = 0.0
-                ep_hit[:] = 0.0
-
         with torch.no_grad():
             (c, s, g, _), _ = observe()
             _, next_v = net(c, s, g)
@@ -463,6 +438,24 @@ def main() -> None:
             last = delta + cfg.gamma * cfg.gae_lambda * (1.0 - d) * last
             adv[t] = last
         ret = adv + buf_v
+
+        # GAE 已用旧任务的末状态完成 bootstrap，之后才允许全批升档。
+        if stage_hits.ready and stage + 1 < len(cfg.curriculum):
+            rate = stage_hits.rate
+            if rate >= cfg.promote_at:
+                stage += 1
+                frac = cfg.curriculum[stage]
+                print(f"  ↑ 升档：第 {stage + 1}/{len(cfg.curriculum)} 档 "
+                      f"frac={frac}（完整批次 {stage_hits.count} 局，成功率 {rate:.0%}）",
+                      flush=True)
+                stage_ret.clear()
+                stage_hits.clear()
+                for i, world in enumerate(make_worlds(cfg, cfg.envs, frac, next_episode)):
+                    env.reset_one(i, world)
+                next_episode += cfg.envs
+                ep_ret[:] = 0.0
+                ep_hit[:] = 0.0
+                phi = env.potentials
 
         # ——更新——
         # 观测那几块留在 CPU，按 minibatch 搬（见缓冲区那段注释）。
@@ -527,11 +520,10 @@ def main() -> None:
         if n_roll % 50 == 0:
             torch.save(net.state_dict(), "train/ppo_attacker.pt")
         mean_ret = float(np.mean(stage_ret[-50:])) if stage_ret else float("nan")
-        win = stage_hit[-cfg.promote_window:]
-        rate = (sum(1 for h in win if h > 0.0) / len(win)) if win else 0.0
+        rate = stage_hits.rate
         print(f"step {step_count:>9,}  {step_count / dt:>8,.0f} env-step/s  "
               f"档{stage + 1}(f={frac:.2f})  回报 {mean_ret:>9.2f}  "
-              f"打到建筑 {rate:>4.0%}  本档 {len(stage_ret)} 局  "
+              f"打到建筑 {rate:>4.0%}（窗口 {stage_hits.count} 局）  本档 {len(stage_ret)} 局  "
               f"累计 {len(all_ret)} 局  "
               f"| 建筑伤 {roll_tally[i_dmg_b]:>9,.0f}  "
               f"拆了 {roll_tally[i_bldv]:>7,.0f}值  "

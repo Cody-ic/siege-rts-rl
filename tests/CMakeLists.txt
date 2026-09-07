@@ -186,6 +186,8 @@ if(NOT Python3_FOUND AND RTS_REQUIRE_DETERMINISM_GUARD)
 endif()
 
 if(Python3_FOUND)
+    add_test(NAME training_math
+             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/training_math_test.py")
     set(_checker "${CMAKE_SOURCE_DIR}/tools/check_determinism_bans.py")
     # 扫 rts_core/ 与 game/ 两处。
     #
