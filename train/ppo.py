@@ -36,15 +36,17 @@ C++ 只给「发生了什么」（`take_tally` 的 7 个计数）。**权重是�
 from __future__ import annotations
 
 import argparse
+import json
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from pathlib import Path
 
 import numpy as np
 import torch
 import torch.nn as nn
 
 import rts_native as R
-from learning import CompletionWindow, potential_reward
+from learning import CompletionWindow, potential_reward, task_reward
 
 # ——奖励权重。**只有这一处有权重**，C++ 侧只给计数——
 #
@@ -94,6 +96,10 @@ class Cfg:
     vf_coef: float = 0.5
     max_grad_norm: float = 0.5
     seed: int = 1
+    # Keep the documented attrition objective by default. Victory-only is an
+    # explicit comparison, not a silent rewrite of the game design contract.
+    reward_mode: str = "economic"
+    win_reward: float = 2000.0  # tunable starting value, NOT an anti-delay bound
     # ——课程学习（2026-09-06）——
     #
     # **不做课程就学不动，这是算出来的**：攻方在集结点离 `keep` 50 格，
@@ -215,6 +221,8 @@ def main() -> None:
     for f, t in (("envs", int), ("rollout", int), ("total-steps", int),
                  ("lr", float), ("seed", int), ("device", str)):
         ap.add_argument(f"--{f}", type=t, default=None)
+    ap.add_argument("--reward-mode", choices=("economic", "victory"), default=None)
+    ap.add_argument("--win-reward", type=float, default=None)
     a = ap.parse_args()
     cfg = Cfg()
     for f in ("envs", "rollout", "lr", "seed", "device"):
@@ -222,6 +230,12 @@ def main() -> None:
             setattr(cfg, f, getattr(a, f))
     if a.total_steps is not None:
         cfg.total_steps = a.total_steps
+    if a.reward_mode is not None:
+        cfg.reward_mode = a.reward_mode
+    if a.win_reward is not None:
+        cfg.win_reward = a.win_reward
+    task_reward(0.0, False, cfg.reward_mode, cfg.win_reward)  # fail before setup
+    print(f"奖励模式 {cfg.reward_mode}  胜利奖励 {cfg.win_reward:g}")
 
     torch.manual_seed(cfg.seed)
     np.random.seed(cfg.seed)
@@ -364,7 +378,21 @@ def main() -> None:
     ep_hit = np.zeros((cfg.envs,), dtype=np.float64)
     stage_hits = CompletionWindow(cfg.promote_window)
     next_episode = cfg.envs
+    stage_wins = CompletionWindow(cfg.promote_window)
+    wins = timeouts = curriculum_resets = 0
+    ep_steps = np.zeros(cfg.envs, dtype=np.int64)
+    completed_steps = 0
     phi = env.potentials
+
+    def save_checkpoint():
+        torch.save(net.state_dict(), "train/ppo_attacker.pt")
+        Path("train/ppo_attacker.json").write_text(json.dumps({
+            "config": asdict(cfg), "potential_weight": POTENTIAL_W,
+            "env_steps": step_count, "wins": wins, "timeouts": timeouts,
+            "curriculum_resets": curriculum_resets,
+            "completed_steps": completed_steps,
+            "active_partial_episodes": int(np.count_nonzero(ep_steps)),
+        }, indent=2), encoding="utf-8")
 
     while step_count < cfg.total_steps:
         t_roll = 0.0
@@ -400,18 +428,29 @@ def main() -> None:
             after = env.potentials  # 必须在 reset 之前读
             shaping = np.array([potential_reward(p, q, bool(d), cfg.gamma)
                                 for p, q, d in zip(phi, after, done_np)])
-            rew = (tally * w).sum(axis=1) + POTENTIAL_W * shaping
+            ends = env.episode_ends  # terminal cause must be read before reset
+            won = np.array([e == R.EpisodeEnd.KeepDestroyed for e in ends])
+            economic = (tally * w).sum(axis=1)
+            rew = np.array([task_reward(float(r), bool(v), cfg.reward_mode,
+                                        cfg.win_reward) for r, v in zip(economic, won)])
+            rew += POTENTIAL_W * shaping
             buf_r[t] = torch.from_numpy(rew).to(dev)
             buf_d[t] = torch.from_numpy(done_np.astype(np.float32)).to(dev)
             ep_ret += rew
             ep_hit += tally[:, i_dmg_b]
             step_count += cfg.envs
+            ep_steps += 1
 
             # 终局的局重置。**重置时机归 train/**（`BatchedEnv::reset_one` 的
             # 注释：要按波次分层采样，重置成哪一波是训练侧的决定）。
             completed = np.nonzero(done_np)[0]
             stage_hits.add(ep_hit[completed])
+            stage_wins.add(won[completed])
             for i in completed:
+                wins += int(won[i])
+                timeouts += int(ends[i] == R.EpisodeEnd.Timeout)
+                completed_steps += int(ep_steps[i])
+                ep_steps[i] = 0
                 stage_ret.append(float(ep_ret[i]))
                 all_ret.append(float(ep_ret[i]))
                 ep_ret[i] = 0.0
@@ -450,6 +489,11 @@ def main() -> None:
                       flush=True)
                 stage_ret.clear()
                 stage_hits.clear()
+                stage_wins.clear()
+                # Freshly reset environments have zero steps: do not count them
+                # as interrupted episodes when a promotion lands on completion.
+                curriculum_resets += int(np.count_nonzero(ep_steps))
+                ep_steps[:] = 0
                 for i, world in enumerate(make_worlds(cfg, cfg.envs, frac, next_episode)):
                     env.reset_one(i, world)
                 next_episode += cfg.envs
@@ -518,13 +562,16 @@ def main() -> None:
         # 那次已经跑到课程第 4 档）。存的是权重本身，**跨平台通用**。
         n_roll += 1
         if n_roll % 50 == 0:
-            torch.save(net.state_dict(), "train/ppo_attacker.pt")
+            save_checkpoint()
         mean_ret = float(np.mean(stage_ret[-50:])) if stage_ret else float("nan")
         rate = stage_hits.rate
         print(f"step {step_count:>9,}  {step_count / dt:>8,.0f} env-step/s  "
               f"档{stage + 1}(f={frac:.2f})  回报 {mean_ret:>9.2f}  "
               f"打到建筑 {rate:>4.0%}（窗口 {stage_hits.count} 局）  本档 {len(stage_ret)} 局  "
               f"累计 {len(all_ret)} 局  "
+              f"胜利 {wins} / 超时 {timeouts} / 升档中断 {curriculum_resets}  "
+              f"胜率 {stage_wins.rate:.1%}（本档窗口 {stage_wins.count} 局）  "
+              f"完成局均长 {completed_steps / max(1, len(all_ret)):.1f}步  "
               f"| 建筑伤 {roll_tally[i_dmg_b]:>9,.0f}  "
               f"拆了 {roll_tally[i_bldv]:>7,.0f}值  "
               f"杀 {roll_tally[i_kill]:>5,.0f}  损 {roll_tally[i_loss]:>8,.0f}  "
@@ -532,7 +579,7 @@ def main() -> None:
               f"[采样 {t_roll:.1f}s / 更新 {t_upd:.1f}s  "
               f"live {n_live / (T * N):.0%}]", flush=True)
 
-    torch.save(net.state_dict(), "train/ppo_attacker.pt")
+    save_checkpoint()
     print("权重已存 train/ppo_attacker.pt")
     # **策略权重是跨平台通用的**（回放文件不是——CLAUDE.md 明令不要建立
     # 依赖跨平台回放的工作流）。所以「服务器上发现精彩局 → 在 Windows 上
