@@ -42,6 +42,7 @@
 namespace game {
 
 enum class Screen : std::uint8_t {
+    Guide,    // 图鉴
     Main,     // 主菜单
     Battle,   // 对局中（唯一会推进仿真的一屏）
     Paused,   // 暂停菜单，战场仍画着、只是不动

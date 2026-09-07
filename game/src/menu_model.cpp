@@ -65,6 +65,7 @@ std::vector<MenuItem> main_menu_items(bool can_resume) {
         // 首次启动时它是灰的，**但仍然在**（见 `MenuItem::enabled` 的注释）。
         MenuItem{MenuAction::Resume, "继续对局", can_resume},
         MenuItem{MenuAction::Help, "操作说明", true},
+        MenuItem{MenuAction::Guide, "图鉴", true},
         MenuItem{MenuAction::Quit, "退出游戏", true},
     };
 }
@@ -75,6 +76,7 @@ std::vector<MenuItem> pause_menu_items() {
         MenuItem{MenuAction::Save, "保存对局", true},
         MenuItem{MenuAction::Restart, "重新开始", true},
         MenuItem{MenuAction::Help, "操作说明", true},
+        MenuItem{MenuAction::Guide, "图鉴", true},
         MenuItem{MenuAction::ToMain, "返回主菜单", true},
         MenuItem{MenuAction::Quit, "退出游戏", true},
     };

@@ -9,6 +9,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 存档 v3 优先逐字段快照，操作日志仅作回退；规则 World/16、Stats/13。Alt+F12 本局开发者模式不保存、不解锁剧情；普通局每十波里程碑自动暂停展示，剧情仍八篇、第70波选择结局。本节覆盖旧文中“升级完工即满血”“高等级升级越来越便宜”“猎骑自动出城摸攻城锤”的约定。
 
+新增主菜单/暂停菜单图鉴，数值直接来自 StatsTable，正式精灵来自 SpriteAtlas；字体文案与绘制共源，25 条目全部渲染回归。攻方战斗单位优先袭击附近可见的城外采集建筑，侦查单位与正在破墙的攻城锤保持原职责。设计与截图见 `docs/defense-and-campaign.md`。
+
 ## 当前状态
 
 **骨架、接口契约与仿真本体（1c 六批）都已落地，「不考虑 RL 的基本可玩」已成立；PPO 训练循环尚未开工（`train/` 至今只有冒烟脚本）。**

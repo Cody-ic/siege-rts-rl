@@ -63,6 +63,7 @@
 #include "game/chronicle.hpp"
 #include "render/cli.hpp"
 #include "render/menu_view.hpp"
+#include "render/field_guide.hpp"
 #include "render/scene_overlay.hpp"
 #include "render/scene_renderer.hpp"
 #include "render/sprite_atlas.hpp"
@@ -170,6 +171,7 @@ struct Options {
     std::string screen;          // 开局前先切到哪一屏（main / help / paused），截图用
     int ticks = 0;               // 截图模式下先推进这么多 tick 再拍
     int inspect_x=-1,inspect_y=-1;
+    int guide_entry = 0;
     int developer_wave = 0;
     int journal_page = -1;
     int journal_ending = 0;
@@ -190,7 +192,7 @@ void print_usage(const char* argv0) {
         "  --journal-page <0..7> 仅配合截图预览指定日记章节\n"
         "  --journal-ending <1..2> 日记截图预览结局；--journal-bottom 预览末尾\n"
         "  --menu                停在主菜单（窗口模式下与默认相同；给截图用）\n"
-        "  --screen <名>         先切到哪一屏再拍：main / help / paused。只给截图用\n"
+        "  --screen <名>         先切到哪一屏再拍：main / help / paused / guide / developer。只给截图用\n"
         "  --map <路径>          地图文件。只给它（不给 --battle/--menu）= 地图查看器\n"
         "  --stats <路径>        JSON 数值表，通常是 game/data/stats_placeholder.json\n"
         "  --sprites <目录>      精灵成品目录，通常是 tools/sprite_gen/out_3d\n"
@@ -228,7 +230,12 @@ bool parse(const std::vector<std::string>& args, Options& out) {
             }
             return &args[++i];
         };
-        if(a=="--developer-wave") {
+        if(a=="--guide-entry") {
+            const auto* value=next("--guide-entry");if(!value) return false;
+            const auto result=std::from_chars(value->data(),value->data()+value->size(),out.guide_entry);
+            if(result.ec!=std::errc{} || result.ptr!=value->data()+value->size() || out.guide_entry<0 || out.guide_entry>24) return false;
+            out.screen="guide";
+        } else if(a=="--developer-wave") {
             const auto* value=next("--developer-wave");if(!value) return false;
             const auto result=std::from_chars(value->data(),value->data()+value->size(),out.developer_wave);
             if(result.ec!=std::errc{} || result.ptr!=value->data()+value->size() || out.developer_wave<1 || out.developer_wave>9999) return false;
@@ -290,7 +297,7 @@ bool parse(const std::vector<std::string>& args, Options& out) {
             if (!v) return false;
             // 名字**在这里就校验**，不留到 run_game 里去悄悄忽略：拼错一个屏名
             // 而截图照样出来（拍的是主菜单），正是那种「该红却绿」。
-            if (*v != "main" && *v != "help" && *v != "paused") {
+            if (*v != "main" && *v != "help" && *v != "paused" && *v != "guide" && *v != "developer") {
                 std::fprintf(stderr, "--screen 只能是 main / help / paused，收到: %s\n",
                              v->c_str());
                 return false;
@@ -320,6 +327,7 @@ bool parse(const std::vector<std::string>& args, Options& out) {
     }
     if(out.inspect_x>=0 && (out.screenshot.empty() || !out.battle)) {std::fprintf(stderr,"--inspect requires --battle --screenshot\n");return false;}
     if(out.developer_wave>0 && out.screenshot.empty()) return false;
+    if((out.screen=="developer" || out.guide_entry!=0) && out.screenshot.empty()) return false;
     if(out.journal_page>=0 && out.screenshot.empty()) { std::fprintf(stderr,"--journal-page 仅用于截图预览\n"); return false; }
     if((out.journal_ending>0 || out.journal_bottom) && out.journal_page<0) return false;
     if(out.journal_ending>0 && out.journal_page!=7) return false;
@@ -462,6 +470,8 @@ std::vector<std::string_view> font_coverage(const game::MapData& map) {
     const auto story = render::ChronicleView::strings();
     cover.insert(cover.end(), story.begin(), story.end());
     cover.push_back("开发者对局不保存 开发者模式 资源无限 人口无限 下一波 输入波数 回车应用 关闭面板 本局不保存不解锁剧情 窥使侦查成功 情报影响下一波 窥使尚未得手 沿用旧情报 攻城锤 不死鸟 编队调整 本波编队 无调整 敌军将参考当前城防 石木金人口∞");
+    for(auto text:render::guide_strings()) cover.push_back(text);
+    for(auto text:render::developer_strings) cover.push_back(text);
     cover.push_back(map.name());
     cover.push_back(map.map_id());
     return cover;
@@ -920,6 +930,8 @@ ScreenText screen_text(game::Screen s) {
             return {"圣城守望", "siege-rts-rl  /  方向键选择   回车确认"};
         case game::Screen::Paused:
             return {"已暂停", "方向键选择   回车确认   Esc 继续对局"};
+        case game::Screen::Guide:
+            return {"图鉴", "Esc 返回"};
         case game::Screen::Help:
             return {"操作说明", "Esc 返回"};
         case game::Screen::Defeat:
@@ -957,6 +969,7 @@ std::string screen_subtitle(const game::GameShell& shell) {
             // 胜率在一个必败的模式里没有定义）。所以败局屏上最该显示的是它。
             std::snprintf(buf, sizeof(buf), "存活 %d 波", b->world().wave());
             return buf;
+        case game::Screen::Guide:
         case game::Screen::Help:
         case game::Screen::Battle:
             return {};
@@ -1014,6 +1027,7 @@ int run_game(const Options& opt) {
     // `--screen` 只是**把状态机走到那一屏**，走的是与玩家一样的那几条边
     //（不是直接给 `screen_` 赋值）。所以它不会造出一个玩家到不了的状态，
     // 拍出来的也就一定是玩家看得到的画面。
+    if(opt.screen=="guide") shell.apply(game::MenuAction::Guide);
     if (opt.screen == "help") {
         shell.apply(game::MenuAction::Help);
     } else if (opt.screen == "paused") {
@@ -1205,7 +1219,8 @@ int run_game(const Options& opt) {
     if(opt.journal_page>=0) { journal.preview(opt.journal_page,opt.journal_ending,opt.journal_bottom); reached_wave=70; }
     int enemy_report_wave=0;
     bool enemy_reported=false;
-    bool developer_panel=false;
+    bool developer_panel=opt.screen=="developer";
+    render::FieldGuide guide;guide.preview(opt.guide_entry);
     std::string developer_wave_text="1";
     int story_wave_seen=shell.battle()?shell.battle()->world().wave():0;
     int story_attempt=shell.attempt();
@@ -1641,6 +1656,8 @@ int run_game(const Options& opt) {
 
         // 菜单几屏：先压暗，再画面板。主菜单压得重一些（后面没有正在发生的事，
         // 压暗让面板成为唯一焦点）；暂停与败局压得轻，好让人还能看清战场。
+        if(developer_panel) {render::draw_developer(*font,developer_wave_text);return;}
+        if(shell.screen()==game::Screen::Guide) {guide.draw(*font,atlas,stats,vp);return;}
         menu_view.dim(vp, shell.screen() == game::Screen::Main ? 150 : 140);
         if(shell.screen()==game::Screen::Main && atmosphere_on && vp.x>=1150) {
             const Vector2 crest{vp.x*0.77f,vp.y*0.42f};
@@ -1759,16 +1776,13 @@ int run_game(const Options& opt) {
         if(developer_panel) {
             for(int ch=GetCharPressed();ch>0;ch=GetCharPressed()) if(ch>='0'&&ch<='9'&&developer_wave_text.size()<4) developer_wave_text+=static_cast<char>(ch);
             if(IsKeyPressed(KEY_BACKSPACE)&&!developer_wave_text.empty()) developer_wave_text.pop_back();
-            if(IsKeyPressed(KEY_ENTER)&&!developer_wave_text.empty()) {
+            if((IsKeyPressed(KEY_ENTER) || (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(mouse,render::developer_apply_button(vp))))&&!developer_wave_text.empty()) {
                 const int wave=std::stoi(developer_wave_text);
                 if(wave>=1) {shell.battle()->developer_wave(wave);developer_panel=false;acc=0;}
             }
             if(IsKeyPressed(KEY_ESCAPE)) developer_panel=false;
             BeginDrawing();ClearBackground(Color{28,34,37,255});
-            font->draw("开发者模式",{60,70},36,Color{240,210,155,255});
-            font->draw("资源无限 · 人口无限 · 本局不保存、不解锁剧情",{60,140},22,WHITE);
-            font->draw("下一波："+developer_wave_text,{60,220},30,WHITE);
-            font->draw("输入波数（1–9999），回车应用；Esc 关闭面板",{60,290},22,WHITE);
+            render::draw_developer(*font,developer_wave_text);
             EndDrawing();acc=0;continue;
         }
         if(shell.battle() && !shell.battle()->developer()) {
@@ -1806,7 +1820,9 @@ int run_game(const Options& opt) {
             popup=Popup{};dragging=false;dragged_garrison.reset();
         }
         if(!journal.open && IsKeyPressed(KEY_V)) atmosphere_on=!atmosphere_on;
-        if(journal.open) {
+        if(shell.screen()==game::Screen::Guide) {
+            if(guide.input(vp)) shell.apply(game::MenuAction::Back);
+        } else if(journal.open) {
             journal.update(vp,reached_wave);
             const auto choice=journal.take_choice();
             if(choice!=game::ChronicleChoice::None) {

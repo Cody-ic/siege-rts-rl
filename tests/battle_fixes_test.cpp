@@ -158,3 +158,20 @@ TEST_CASE("攻方必须由窥使观察才能得到新情报，情报用于下一
     w.begin_assault();b.update(1);
     REQUIRE(b.world().wave()==2);REQUIRE(b.wave_intel().fresh);REQUIRE(b.wave_intel().towers>0);
 }
+
+TEST_CASE("攻方沿途优先破坏可见城外采集建筑", "[battlefix]") {
+    for(auto type:{rts::UnitType::Ghoul,rts::UnitType::Shade,rts::UnitType::Phoenix}) for(float distance:{1.0f,4.0f}) {
+        game::DemoBattle battle(pool_map(),stats(),72);auto& w=const_cast<rts::World&>(battle.world());clear_units(w);
+        const auto site=std::find_if(w.resources().begin(),w.resources().end(),[](const auto& s){return s.tier==rts::ResourceTier::Outer;});
+        REQUIRE(site!=w.resources().end());
+        auto building=w.bld_at(site->pos);
+        if(!building.valid()) building=w.place_bld(rts::gatherer_of(site->kind),site->pos,10000,10000);
+        REQUIRE(building.valid());
+        const auto c=rts::center_of(site->pos);
+        const auto enemy=w.spawn_unit(type,{c.x+distance,c.y},1,10000,10000);
+        REQUIRE(enemy.valid());
+        const auto before=w.bld_hp(building);w.begin_assault();
+        for(int tick=0;tick<160;++tick) battle.update(1);
+        REQUIRE(w.bld_hp(building)<before);
+    }
+}

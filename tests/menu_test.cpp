@@ -335,3 +335,14 @@ TEST_CASE("剧情伪通关冻结本局且不能从菜单恢复", "[menu]") {
     REQUIRE(shell.chronicle().choice()==game::ChronicleChoice::None);
     REQUIRE(shell.should_advance());
 }
+
+TEST_CASE("图鉴从主菜单和暂停菜单进入并返回原处", "[menu]") {
+    game::GameShell s=make_shell();
+    REQUIRE(enabled(s.menu(),game::MenuAction::Guide));
+    s.apply(game::MenuAction::Guide);REQUIRE(s.screen()==game::Screen::Guide);
+    REQUIRE_FALSE(s.should_advance());s.on_escape();REQUIRE(s.screen()==game::Screen::Main);
+    s.apply(game::MenuAction::StartNew);s.battle()->update(20);s.on_escape();
+    s.apply(game::MenuAction::Guide);REQUIRE_FALSE(s.should_advance());
+    s.apply(game::MenuAction::Back);REQUIRE(s.screen()==game::Screen::Paused);
+    REQUIRE(s.battle()->world().now()==20);
+}

@@ -884,10 +884,41 @@ void DemoBattle::issue_actions() {
         }
     }
 
+    // Opportunistic raids use only currently visible outer collection buildings.
+    // Scouts keep scouting and rams already breaching a wall keep their assignment.
+    struct RaidRoute {rts::UnitType type;int tier;rts::GridPos goal;rts::FlowField field;};
+    std::vector<RaidRoute> raid_routes;
+    const auto raid_view=w_.view(rts::Side::Attacker);
+    std::vector<rts::GridPos> raid_sites;
+    for(std::size_t k=0;k<raid_view.bld_type().size();++k) {
+        if(!raid_view.bld_alive()[k] || !rts::is_gatherer(raid_view.bld_type()[k])) continue;
+        const auto pos=raid_view.bld_pos()[k];
+        for(const auto& site:w_.resources()) if(site.pos==pos && site.tier==rts::ResourceTier::Outer) {raid_sites.push_back(pos);break;}
+    }
     for (const rts::UnitId id : ids_) {
         const std::uint16_t mask = w_.action_mask(id);
         rts::UnitAction a = rts::UnitAction::Stop;
-        if (w_.unit_type(id) == rts::UnitType::Phoenix) {
+        const auto type=w_.unit_type(id);
+        const auto pos=w_.unit_pos(id);
+        std::optional<rts::GridPos> raid;
+        float raid_distance=w_.stats().of(type).vision*w_.stats().of(type).vision;
+        if(rts::is_combat(type) && !(type==rts::UnitType::Ram && has(mask,rts::UnitAction::AtkWall))) {
+            for(auto target:raid_sites) {const auto c=rts::center_of(target);const float dx=c.x-pos.x,dy=c.y-pos.y;const float d=dx*dx+dy*dy;if(d<=raid_distance) {raid_distance=d;raid=target;}}
+        }
+        if(raid) {
+            const float range=w_.stats().of(type).range;
+            if(raid_distance<=range*range && has(mask,rts::UnitAction::AtkBld)) a=rts::UnitAction::AtkBld;
+            else if(!muster) {
+                const int tier=rts::flow_tier_of(w_.unit_level(id),tiering_);
+                auto route=std::find_if(raid_routes.begin(),raid_routes.end(),[&](const auto& r){return r.type==type && r.tier==tier && r.goal==*raid;});
+                if(route==raid_routes.end()) {
+                    raid_routes.push_back({type,tier,*raid,rts::FlowField::compute(raid_view,type,tier,std::vector<rts::GridPos>{*raid},tiering_)});
+                    route=raid_routes.end()-1;
+                }
+                a=route->field.step_of(rts::grid_of(pos));
+                if(a==rts::UnitAction::Stop) a=has(mask,rts::UnitAction::AtkNear)?rts::UnitAction::AtkNear:flow_step(id);
+            }
+        } else if (w_.unit_type(id) == rts::UnitType::Phoenix) {
             // Phoenix 单走一档（2026-09-01 试玩反馈：它原先与步兵同一套
             // 「AtkNear 否则奔堡垒」，于是径直飞进墙上弓手的火网、到了堡垒
             // 又因为射程内没有单位而干悬着——「手术刀」全程没切过一刀）：
