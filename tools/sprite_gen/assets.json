@@ -959,7 +959,13 @@
             ]
           }
         }
-      }
+      },
+      "directional_ground_anchor": true,
+      "ground_reference": [
+        0,
+        0,
+        0
+      ]
     },
     "Flak": {
       "cn": "蔽空弩楼",
@@ -1042,7 +1048,13 @@
             ]
           }
         }
-      }
+      },
+      "directional_ground_anchor": true,
+      "ground_reference": [
+        0,
+        0,
+        0
+      ]
     },
     "Keep": {
       "cn": "领主堡垒",

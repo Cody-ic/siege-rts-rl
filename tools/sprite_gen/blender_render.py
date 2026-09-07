@@ -856,6 +856,10 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
                       spec.get("max_width", 1.45), spec.get("kind") == "tile",
                       spec.get("modules"))
 
+    # Stacked towers stand on the first base part, not the weapon-biased bounds.
+    if "ground_reference" in spec:
+        pivot["ground_reference"] = tuple(spec["ground_reference"])
+
     # 子网格的逐帧变换要在归一化之后收集（静止量含归一化后的缩放），
     # 且必须在取景之前——撞木伸出去那一帧决定了画布该多宽。
     mesh_rest = collect_mesh_anim(objs, spec["mesh_anim"]) if spec.get("mesh_anim") else []
