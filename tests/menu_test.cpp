@@ -272,9 +272,10 @@ TEST_CASE("日记解锁边界与章节顺序", "[menu]") {
     REQUIRE(game::chronicle_unlocked(1)==1);
     REQUIRE(game::chronicle_unlocked(9)==1);
     REQUIRE(game::chronicle_unlocked(10)==2);
-    REQUIRE(game::chronicle_unlocked(79)==8);
-    REQUIRE(game::chronicle_unlocked(80)==9);
-    REQUIRE(game::chronicle_unlocked(800)==9);
+    REQUIRE(game::chronicle_unlocked(69)==7);
+    REQUIRE(game::chronicle_unlocked(70)==8);
+    REQUIRE(game::chronicle_unlocked(80)==8);
+    REQUIRE(game::chronicle_unlocked(800)==8);
     int previous=0;
     for(const auto& entry:game::kChronicle) {
         REQUIRE(entry.wave>previous);
@@ -285,4 +286,52 @@ TEST_CASE("日记解锁边界与章节顺序", "[menu]") {
     }
     REQUIRE_FALSE(game::kChronicleGuard.empty());
     REQUIRE_FALSE(game::kChronicleRelease.empty());
+}
+
+TEST_CASE("第七十波剧情选择只提交一次", "[menu]") {
+    game::ChronicleDecision release;
+    REQUIRE_FALSE(release.choose(game::ChronicleChoice::Release,69));
+    REQUIRE_FALSE(release.pending(69));
+    REQUIRE(release.pending(70));
+    REQUIRE(release.choose(game::ChronicleChoice::Release,70));
+    REQUIRE(release.completed());
+    REQUIRE_FALSE(release.pending(70));
+    REQUIRE_FALSE(release.choose(game::ChronicleChoice::Guard,80));
+    game::ChronicleDecision guard;
+    REQUIRE(guard.choose(game::ChronicleChoice::Guard,70));
+    REQUIRE_FALSE(guard.completed());
+    REQUIRE_FALSE(guard.pending(80));
+    REQUIRE_FALSE(guard.choose(game::ChronicleChoice::Release,80));
+}
+
+TEST_CASE("剧情伪通关冻结本局且不能从菜单恢复", "[menu]") {
+    auto shell=make_shell();
+    REQUIRE_FALSE(shell.choose_chronicle(game::ChronicleChoice::Release));
+    shell.apply(game::MenuAction::StartNew);
+    REQUIRE_FALSE(shell.choose_chronicle(game::ChronicleChoice::Release));
+    // 仅测试夹具：底层对象实际非 const，使用 World 公开波次接口快速抵达边界，
+    // 不运行七十波战斗，也不为生产 UI 增加任意修改世界的接口。
+    auto& world=const_cast<rts::World&>(shell.battle()->world());
+    for(int wave=1;wave<70;++wave) world.begin_next_wave(1);
+    REQUIRE_FALSE(shell.should_advance());
+    SECTION("放下武器结束本局，返回和 Resume 都不能继续") {
+        const auto tick=world.now();
+        REQUIRE(shell.choose_chronicle(game::ChronicleChoice::Release));
+        REQUIRE(shell.screen()==game::Screen::Main);
+        REQUIRE_FALSE(enabled(shell.menu(),game::MenuAction::Resume));
+        shell.apply(game::MenuAction::Resume);
+        shell.on_escape();shell.poll();
+        REQUIRE_FALSE(shell.should_advance());
+        REQUIRE(world.now()==tick);
+        REQUIRE_FALSE(shell.choose_chronicle(game::ChronicleChoice::Guard));
+    }
+    SECTION("继续守护恢复无尽推进") {
+        REQUIRE(shell.choose_chronicle(game::ChronicleChoice::Guard));
+        REQUIRE(shell.should_advance());
+        REQUIRE_FALSE(shell.choose_chronicle(game::ChronicleChoice::Release));
+    }
+    shell.apply(game::MenuAction::Restart);
+    REQUIRE(shell.battle()->world().wave()==1);
+    REQUIRE(shell.chronicle().choice()==game::ChronicleChoice::None);
+    REQUIRE(shell.should_advance());
 }

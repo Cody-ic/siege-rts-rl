@@ -168,6 +168,8 @@ struct Options {
     std::string screen;          // 开局前先切到哪一屏（main / help / paused），截图用
     int ticks = 0;               // 截图模式下先推进这么多 tick 再拍
     int journal_page = -1;
+    int journal_ending = 0;
+    bool journal_bottom = false;
     bool classic_visuals = false;
     int width = 1600;
     int height = 900;
@@ -179,7 +181,8 @@ void print_usage(const char* argv0) {
         "\n"
         "  --battle              直接开局，跳过主菜单\n"
         "  --classic-visuals     使用原始画面；游戏中 V 可切换\n"
-        "  --journal-page <0..8> 仅配合截图预览指定日记章节\n"
+        "  --journal-page <0..7> 仅配合截图预览指定日记章节\n"
+        "  --journal-ending <1..2> 日记截图预览结局；--journal-bottom 预览末尾\n"
         "  --menu                停在主菜单（窗口模式下与默认相同；给截图用）\n"
         "  --screen <名>         先切到哪一屏再拍：main / help / paused。只给截图用\n"
         "  --map <路径>          地图文件。只给它（不给 --battle/--menu）= 地图查看器\n"
@@ -220,9 +223,15 @@ bool parse(const std::vector<std::string>& args, Options& out) {
         };
         if (a == "--classic-visuals") {
             out.classic_visuals = true;
+        } else if (a == "--journal-bottom") {
+            out.journal_bottom=true;
+        } else if (a == "--journal-ending") {
+            const std::string* v=next("--journal-ending");
+            if(!v || (*v!="1" && *v!="2")) return false;
+            out.journal_ending=(*v)[0]-'0';
         } else if (a == "--journal-page") {
             const std::string* v = next("--journal-page");
-            if(!v || v->size()!=1 || (*v)[0]<'0' || (*v)[0]>'8') return false;
+            if(!v || v->size()!=1 || (*v)[0]<'0' || (*v)[0]>'7') return false;
             out.journal_page=(*v)[0]-'0'; out.menu=true;
         } else if (a == "--map") {
             const std::string* v = next("--map");
@@ -289,6 +298,8 @@ bool parse(const std::vector<std::string>& args, Options& out) {
         }
     }
     if(out.journal_page>=0 && out.screenshot.empty()) { std::fprintf(stderr,"--journal-page 仅用于截图预览\n"); return false; }
+    if((out.journal_ending>0 || out.journal_bottom) && out.journal_page<0) return false;
+    if(out.journal_ending>0 && out.journal_page!=7) return false;
     // **这里不再判「哪个参数是必需的」。** 缺的路径由 `resolve_paths()` 用素材
     // 自动发现补齐，补不上才报错——而那条报错要说出「试过哪些目录」，
     // 比「--map 是必需的」有用得多（双击启动的人根本没有命令行可给）。
@@ -1081,7 +1092,8 @@ int run_game(const Options& opt) {
     render::BattleAtmosphere atmosphere;
     render::ChronicleView journal;
     int reached_wave = 1;
-    if(opt.journal_page>=0) { journal.preview(opt.journal_page); reached_wave=80; }
+    if(opt.journal_page>=0) { journal.preview(opt.journal_page,opt.journal_ending,opt.journal_bottom); reached_wave=70; }
+    bool choice_presented = false;
     std::size_t known_chapters = 1;
     int preloaded_attempt = 0;
 
@@ -1550,6 +1562,7 @@ int run_game(const Options& opt) {
             cam.focus_keep(proj, shell.battle()->world().keep_pos(), vp);
             paused = false;
             atmosphere.reset();
+            choice_presented = false;
             popup = Popup{};
             selected.clear();
             dragging = false;
@@ -1572,9 +1585,20 @@ int run_game(const Options& opt) {
             const auto count=game::chronicle_unlocked(reached_wave);
             if(count>known_chapters) {notice="日记已更新 · 按 J 阅读";notice_until=GetTime()+6;known_chapters=count;}
         }
+        journal.decision_enabled=shell.battle() && !shell.battle()->defeated() &&
+            shell.chronicle().pending(shell.battle()->world().wave());
+        if(journal.decision_enabled && !choice_presented) {
+            journal.preview(7);choice_presented=true;
+            popup=Popup{};dragging=false;dragged_garrison.reset();
+        }
         if(!journal.open && IsKeyPressed(KEY_V)) atmosphere_on=!atmosphere_on;
         if(journal.open) {
             journal.update(vp,reached_wave);
+            const auto choice=journal.take_choice();
+            if(choice!=game::ChronicleChoice::None) {
+                shell.choose_chronicle(choice);
+                journal.decision_enabled=false;
+            }
         } else if(IsKeyPressed(KEY_J) || (in_menu && shell.screen()!=game::Screen::Help && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
                    CheckCollisionPointRec(mouse,{vp.x-190,20,170,42}))) {
             journal.open=true; popup=Popup{}; dragging=false; dragged_garrison.reset();
@@ -1850,7 +1874,7 @@ int run_game(const Options& opt) {
             acc += static_cast<double>(GetFrameTime());
             int steps = 0;
             // 单帧最多补 5 个 tick：掉帧时宁可仿真慢下来，也不追出一大步。
-            while (acc >= kTickDt && steps < 5) {
+            while (acc >= kTickDt && steps < 5 && shell.should_advance()) {
                 shell.battle()->update(1);
                 atmosphere.observe(shell.battle()->world().view(rts::Side::Defender),
                                    shell.battle()->world().now(),shell.battle()->world().wave());

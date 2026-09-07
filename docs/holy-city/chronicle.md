@@ -1,13 +1,10 @@
-#ifndef GAME_CHRONICLE_HPP
-#define GAME_CHRONICLE_HPP
-#include <array>
-#include <cstddef>
-#include <string_view>
-namespace game {
-// PR #151 八篇日记精简改写；审阅全文见 docs/holy-city/chronicle.md。
-struct ChronicleEntry { int wave; std::string_view title, text; };
-inline constexpr std::array<ChronicleEntry,8> kChronicle{{
-{1,"上任",R"(今天是我到圣城的第一天。
+# 指挥官日记：重写审阅稿
+
+依据 PR #151 八篇日记精简改写。保留原题、主线顺序与两种结局；游戏按波次解锁，叙事不把原作天数解释为实际战斗时长。文字有重新组织和补写，非原文逐字摘录。
+
+## 第 1 波：上任
+
+今天是我到圣城的第一天。
 
 从王都走了整整十七天，脚底磨出三个水泡。母亲塞给我的干粮昨天吃完了。最后一块饼硬得像石头，我在路边坐了很久，慢慢把它啃完，没舍得扔。
 
@@ -33,8 +30,11 @@ inline constexpr std::array<ChronicleEntry,8> kChronicle{{
 
 也许只是赶路太久，我太紧张了。今晚早点睡，明天还有许多事要学。
 
-希望我能活着回家，再吃一碗母亲做的热汤面。)"},
-{10,"适应",R"(我开始适应这里的生活了。
+希望我能活着回家，再吃一碗母亲做的热汤面。
+
+## 第 10 波：适应
+
+我开始适应这里的生活了。
 
 天不亮起床，巡视城墙，检查资源，建造、征兵、迎敌。打退亡灵以后修补缺口，清点损失，再准备下一次。最初握着城防图时手会发抖，现在已经能一边听汇报，一边安排工匠去哪里。
 
@@ -70,8 +70,11 @@ inline constexpr std::array<ChronicleEntry,8> kChronicle{{
 
 昨夜梦见母亲做汤面。醒来时枕头湿了一小块，竟不知道是口水，还是别的什么。
 
-有点丢人。不能让参谋知道。)"},
-{20,"习惯",R"(我已经能摸出守城的节奏了。哪里先补墙，什么时候留资源，哪段防线需要预备队，不必像刚来时那样翻来覆去地算。
+有点丢人。不能让参谋知道。
+
+## 第 20 波：习惯
+
+我已经能摸出守城的节奏了。哪里先补墙，什么时候留资源，哪段防线需要预备队，不必像刚来时那样翻来覆去地算。
 
 我甚至觉得，边关也没那么难熬。
 
@@ -109,8 +112,11 @@ inline constexpr std::array<ChronicleEntry,8> kChronicle{{
 
 深夜醒来，外面只有整齐的巡逻脚步。我躺着听了很久，等谁咳嗽一声，谁绊一下，谁低声骂一句。
 
-一直没有。)"},
-{30,"真相",R"(我做了一件不该做的事。
+一直没有。
+
+## 第 30 波：真相
+
+我做了一件不该做的事。
 
 我去翻了圣城的档案库。
 
@@ -172,8 +178,11 @@ inline constexpr std::array<ChronicleEntry,8> kChronicle{{
 
 我过去听着这个声音，会觉得安心。
 
-今天我坐在床边，听到天亮，一次也没能闭上眼睛。)"},
-{40,"例外",R"(知道真相以后，我仍照常巡视、建造、征兵。参谋没有发现什么。他汇报时，我点头；该下命令时，我下命令。
+今天我坐在床边，听到天亮，一次也没能闭上眼睛。
+
+## 第 40 波：例外
+
+知道真相以后，我仍照常巡视、建造、征兵。参谋没有发现什么。他汇报时，我点头；该下命令时，我下命令。
 
 只是我开始看他们的脸。
 
@@ -215,8 +224,11 @@ inline constexpr std::array<ChronicleEntry,8> kChronicle{{
 
 我不知道能替他做什么。我只知道，不能把这些写进报告。
 
-也不能让他出事。)"},
-{50,"牺牲",R"(我把 037 调进了亲卫队。
+也不能让他出事。
+
+## 第 50 波：牺牲
+
+我把 037 调进了亲卫队。
 
 理由是表现优异。参谋没有反对。我只是想把他放在身边，让他离最危险的缺口远一点。
 
@@ -290,8 +302,11 @@ inline constexpr std::array<ChronicleEntry,8> kChronicle{{
 
 有时觉得它也看了我一眼。
 
-哪怕只是错觉，我也需要那一眼。)"},
-{60,"镜像",R"(我终于又拿起了那盏油灯。
+哪怕只是错觉，我也需要那一眼。
+
+## 第 60 波：镜像
+
+我终于又拿起了那盏油灯。
 
 这些日子，我只做该做的事。参谋问是不是身体不舒服，我说没有，他便不再问。城墙修好了，新石和旧石之间留着一条清晰的线。我常坐在那里，像看一道伤疤。
 
@@ -349,8 +364,11 @@ inline constexpr std::array<ChronicleEntry,8> kChronicle{{
 
 窗外，白鸟在云层里盘旋。也许它在等我，也许没有。
 
-这一次，我不能再拿不知道当作继续守下去的理由了。)"},
-{70,"选择",R"(亡灵在城外集结。
+这一次，我不能再拿不知道当作继续守下去的理由了。
+
+## 第 70 波：选择
+
+亡灵在城外集结。
 
 弓手站在墙头，枪卫守着缺口，蔽空弩楼慢慢转向天空。白色的鸟在那里盘旋。参谋拿着城防图走到我身边，像过去无数次一样，等我下令。
 
@@ -384,9 +402,11 @@ inline constexpr std::array<ChronicleEntry,8> kChronicle{{
 
 他们等了太久。
 
-这一次，我不能让沉默替我下令。)"}
-}};
-inline constexpr std::string_view kChronicleGuard = R"(你选择了继续守护。
+这一次，我不能让沉默替我下令。
+
+## 结局一：继续守护
+
+你选择了继续守护。
 
 你下令迎击。
 
@@ -418,8 +438,11 @@ inline constexpr std::string_view kChronicleGuard = R"(你选择了继续守护�
 
 无尽模式已开启。
 
-你还能守到第几波？)";
-inline constexpr std::string_view kChronicleRelease = R"(你选择了放下武器。
+你还能守到第几波？
+
+## 结局二：放下武器
+
+你选择了放下武器。
 
 你下令停止抵抗。
 
@@ -475,24 +498,4 @@ inline constexpr std::string_view kChronicleRelease = R"(你选择了放下武�
 
 伪通关达成。
 
-圣城这一局结束了。你们的路还很长。)";
-constexpr std::size_t chronicle_unlocked(int wave) noexcept {
-    std::size_t count = 0;
-    for (const auto& e : kChronicle) if (wave >= e.wave) ++count;
-    return count;
-}
-enum class ChronicleChoice { None, Guard, Release };
-class ChronicleDecision {
-public:
-    ChronicleChoice choice() const noexcept { return choice_; }
-    bool choose(ChronicleChoice value,int wave) noexcept {
-        if(wave<70 || choice_!=ChronicleChoice::None || value==ChronicleChoice::None) return false;
-        choice_=value; return true;
-    }
-    bool pending(int wave) const noexcept { return wave>=70 && choice_==ChronicleChoice::None; }
-    bool completed() const noexcept { return choice_==ChronicleChoice::Release; }
-private:
-    ChronicleChoice choice_=ChronicleChoice::None;
-};
-} // namespace game
-#endif
+圣城这一局结束了。你们的路还很长。

@@ -278,11 +278,21 @@ if(RTS_BUILD_TESTS)
 endif()
 
 if(RTS_BUILD_TESTS)
-    foreach(_chapter RANGE 0 8)
+    foreach(_chapter RANGE 0 7)
         add_test(NAME render_journal_${_chapter}
             COMMAND rts_render --menu --journal-page ${_chapter}
                 --screenshot "${CMAKE_CURRENT_BINARY_DIR}/journal_${_chapter}.png" --size 1100 700)
+        add_test(NAME render_journal_bottom_${_chapter}
+            COMMAND rts_render --menu --journal-page ${_chapter} --journal-bottom
+                --screenshot "${CMAKE_CURRENT_BINARY_DIR}/journal_bottom_${_chapter}.png" --size 960 540)
     endforeach()
-    add_test(NAME render_journal_requires_screenshot COMMAND rts_render --journal-page 8)
+    foreach(_ending RANGE 1 2)
+        add_test(NAME render_journal_ending_${_ending}
+            COMMAND rts_render --menu --journal-page 7 --journal-ending ${_ending} --journal-bottom
+                --screenshot "${CMAKE_CURRENT_BINARY_DIR}/journal_ending_${_ending}.png" --size 960 540)
+    endforeach()
+    add_test(NAME render_journal_requires_screenshot COMMAND rts_render --journal-page 7)
     set_tests_properties(render_journal_requires_screenshot PROPERTIES WILL_FAIL TRUE)
+    add_test(NAME render_journal_rejects_ninth COMMAND rts_render --journal-page 8 --screenshot never_ninth.png)
+    set_tests_properties(render_journal_rejects_ninth PROPERTIES WILL_FAIL TRUE)
 endif()
