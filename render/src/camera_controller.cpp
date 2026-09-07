@@ -37,6 +37,17 @@ void CameraController::fit(const game::IsoProjection& proj, int w, int h, Vector
     cam_.zoom = std::clamp(z, min_zoom_, max_zoom_);
 }
 
+void CameraController::focus_keep(const game::IsoProjection& proj, rts::GridPos keep,
+                                  Vector2 viewport) noexcept {
+    set_viewport(viewport);
+    const auto center = proj.grid_to_screen(keep);
+    cam_.target = Vector2{center.x, center.y - 2.0f * proj.tile_h()};
+    // Frame the keep and nearby defenses, independent of the whole map's size.
+    cam_.zoom = std::clamp(std::min(viewport.x / (30.0f * proj.tile_w()),
+                                   viewport.y / (23.0f * proj.tile_h())),
+                           min_zoom_, max_zoom_);
+}
+
 void CameraController::update(float dt) noexcept {
     // 平移：缩得越远，同样的按键要扫过更多世界像素，否则大图上慢到没法用。
     const float speed = pan_px_per_sec_ * dt / std::max(cam_.zoom, min_zoom_);

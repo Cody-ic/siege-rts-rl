@@ -1,8 +1,6 @@
 // 相机：平移与缩放。
 //
-// 缩放初值刻意**不写死一个数**，而是由「让整张地图入画」算出来——地图尺寸待标定
-// （`地图与场景设计.md` 第 3 节只锁了不变量、没锁数字），写死的 zoom 换一张图就不对。
-// 这与 CLAUDE.md「关于数值」是同一条：能推导的就不要拍。
+// 对局开场聚焦堡垒；全图视角按地图尺寸推导缩放。两者都随窗口尺寸适配。
 
 #ifndef RENDER_CAMERA_CONTROLLER_HPP
 #define RENDER_CAMERA_CONTROLLER_HPP
@@ -21,6 +19,9 @@ public:
     // 而堡垒能高到 4 格边长，不留边距的话它的塔顶会被裁掉。
     void fit(const game::IsoProjection& proj, int w, int h, Vector2 viewport,
              float top_margin_tiles = 4.0f) noexcept;
+
+    void focus_keep(const game::IsoProjection& proj, rts::GridPos keep,
+                    Vector2 viewport) noexcept;
 
     // 每帧调一次。读键鼠：方向键 / WASD 平移，滚轮缩放，中键拖拽。
     void update(float dt) noexcept;
