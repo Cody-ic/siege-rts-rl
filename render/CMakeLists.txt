@@ -82,6 +82,8 @@ add_library(render_lib STATIC
     src/text.cpp
     src/scene_overlay.cpp
     src/menu_view.cpp
+    src/chronicle_view.cpp
+    src/battle_atmosphere.cpp
     ${_render_self_contained_srcs}
 )
 
@@ -273,4 +275,14 @@ if(RTS_BUILD_TESTS)
                          --font "C:/Windows/Fonts/msyh.ttc")
         set_tests_properties(render_ttc_font_is_red PROPERTIES WILL_FAIL TRUE)
     endif()
+endif()
+
+if(RTS_BUILD_TESTS)
+    foreach(_chapter RANGE 0 8)
+        add_test(NAME render_journal_${_chapter}
+            COMMAND rts_render --menu --journal-page ${_chapter}
+                --screenshot "${CMAKE_CURRENT_BINARY_DIR}/journal_${_chapter}.png" --size 1100 700)
+    endforeach()
+    add_test(NAME render_journal_requires_screenshot COMMAND rts_render --journal-page 8)
+    set_tests_properties(render_journal_requires_screenshot PROPERTIES WILL_FAIL TRUE)
 endif()

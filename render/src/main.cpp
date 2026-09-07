@@ -56,6 +56,9 @@
 #include "game/scene_model.hpp"
 #include "game/stats_loader.hpp"
 #include "render/camera_controller.hpp"
+#include "render/chronicle_view.hpp"
+#include "render/battle_atmosphere.hpp"
+#include "game/chronicle.hpp"
 #include "render/cli.hpp"
 #include "render/menu_view.hpp"
 #include "render/scene_overlay.hpp"
@@ -164,6 +167,8 @@ struct Options {
     bool menu = false;           // 游戏模式，停在主菜单（截图用；窗口下同默认）
     std::string screen;          // 开局前先切到哪一屏（main / help / paused），截图用
     int ticks = 0;               // 截图模式下先推进这么多 tick 再拍
+    int journal_page = -1;
+    bool classic_visuals = false;
     int width = 1600;
     int height = 900;
 };
@@ -173,6 +178,8 @@ void print_usage(const char* argv0) {
         "用法: %s [选项]        （什么都不给 = 开始玩，路径自动找）\n"
         "\n"
         "  --battle              直接开局，跳过主菜单\n"
+        "  --classic-visuals     使用原始画面；游戏中 V 可切换\n"
+        "  --journal-page <0..8> 仅配合截图预览指定日记章节\n"
         "  --menu                停在主菜单（窗口模式下与默认相同；给截图用）\n"
         "  --screen <名>         先切到哪一屏再拍：main / help / paused。只给截图用\n"
         "  --map <路径>          地图文件。只给它（不给 --battle/--menu）= 地图查看器\n"
@@ -211,7 +218,13 @@ bool parse(const std::vector<std::string>& args, Options& out) {
             }
             return &args[++i];
         };
-        if (a == "--map") {
+        if (a == "--classic-visuals") {
+            out.classic_visuals = true;
+        } else if (a == "--journal-page") {
+            const std::string* v = next("--journal-page");
+            if(!v || v->size()!=1 || (*v)[0]<'0' || (*v)[0]>'8') return false;
+            out.journal_page=(*v)[0]-'0'; out.menu=true;
+        } else if (a == "--map") {
             const std::string* v = next("--map");
             if (!v) return false;
             out.map_path = *v;
@@ -275,6 +288,7 @@ bool parse(const std::vector<std::string>& args, Options& out) {
             return false;
         }
     }
+    if(out.journal_page>=0 && out.screenshot.empty()) { std::fprintf(stderr,"--journal-page 仅用于截图预览\n"); return false; }
     // **这里不再判「哪个参数是必需的」。** 缺的路径由 `resolve_paths()` 用素材
     // 自动发现补齐，补不上才报错——而那条报错要说出「试过哪些目录」，
     // 比「--map 是必需的」有用得多（双击启动的人根本没有命令行可给）。
@@ -411,6 +425,8 @@ std::vector<std::string_view> font_coverage(const game::MapData& map) {
     // 「打开那一屏就抛」。
     const std::vector<std::string_view>& menu = game::all_menu_strings();
     cover.insert(cover.end(), menu.begin(), menu.end());
+    const auto story = render::ChronicleView::strings();
+    cover.insert(cover.end(), story.begin(), story.end());
     cover.push_back(map.name());
     cover.push_back(map.map_id());
     return cover;
@@ -662,6 +678,7 @@ int run(const Options& opt) {
     register_resource_decals(atlas, opt.sprite_dir);
     const game::IsoProjection proj(atlas.px_per_tile());
     render::SceneRenderer renderer(atlas, proj);
+    renderer.set_presentation(!opt.classic_visuals, 0.0f);
 
     // 缺素材要**在渲之前**一次性全部报出来，而不是渲到一半才炸。
     renderer.preload(lists);
@@ -838,9 +855,9 @@ void draw_battle_hud(const render::FontSet& font,
     font.draw(buf,rts::Vec2{30,111},22,Color{227,219,195,255});
 }
 
-std::array<Rectangle,4> battle_buttons(float width, float height) {
-    const float button_w = std::min(148.0f, (width-70.0f)/4.0f);
-    std::array<Rectangle,4> result{};
+std::array<Rectangle,5> battle_buttons(float width, float height) {
+    const float button_w = std::min(148.0f, (width-80.0f)/5.0f);
+    std::array<Rectangle,5> result{};
     for(std::size_t i=0;i<result.size();++i)
         result[i]=Rectangle{14.0f+static_cast<float>(i)*(button_w+10),height-59,button_w,42};
     return result;
@@ -859,7 +876,7 @@ ScreenText screen_text(game::Screen s) {
     switch (s) {
         case game::Screen::Main:
             // 标题用仓库名（纯 ASCII，永远不会缺字），中文放副标题。
-            return {"siege-rts-rl", "方向键选择   回车确认"};
+            return {"圣城守望", "siege-rts-rl  /  方向键选择   回车确认"};
         case game::Screen::Paused:
             return {"已暂停", "方向键选择   回车确认   Esc 继续对局"};
         case game::Screen::Help:
@@ -885,7 +902,7 @@ std::string screen_subtitle(const game::GameShell& shell) {
     char buf[160];
     switch (shell.screen()) {
         case game::Screen::Main:
-            return "不对称波次生存 · 人类王国 vs 亡灵大军";
+            return "黄昏圣城 · 无尽围城";
         case game::Screen::Paused:
             if (b == nullptr) return {};
             std::snprintf(buf, sizeof(buf), "波 %d   守方 %d   攻方 %d",
@@ -949,7 +966,13 @@ int run_game(const Options& opt) {
     // 主菜单的背景画的是**地图的静态场景**（地砖 + 城墙 + 林地 + 岩壁），
     // 与地图查看器同一份装配。只画 `tiles` 的话背景是一块空荡荡的草地——
     // 墙、树、石头全是叠加物，不在地砖那一层里。
-    const game::DrawLists static_scene = game::SceneModel::build(map);
+    game::DrawLists static_scene = game::SceneModel::build(map);
+    if(std::none_of(static_scene.sorted.begin(),static_scene.sorted.end(),[](const auto& item){return item.sprite=="Keep";})) {
+        game::DrawItem keep;
+        keep.pos=map.keep(); keep.sprite="Keep";
+        static_scene.sorted.push_back(keep);
+        std::stable_sort(static_scene.sorted.begin(),static_scene.sorted.end(),[](const auto& lhs,const auto& rhs){return lhs.depth_f()<rhs.depth_f();});
+    }
 
     const std::vector<std::string_view> cover = font_coverage(map);
     const std::unique_ptr<render::FontSet> font =
@@ -962,6 +985,8 @@ int run_game(const Options& opt) {
     render::CameraController cam;
     cam.fit(proj, map.width(), map.height(),
             Vector2{static_cast<float>(opt.width), static_cast<float>(opt.height)});
+    if(!shell.battle() && !opt.classic_visuals)
+        cam.focus_keep(proj,map.keep(),Vector2{static_cast<float>(opt.width),static_cast<float>(opt.height)},0.75f);
     const Color bg{30, 30, 38, 255};
 
     // ——交互状态——
@@ -1052,6 +1077,12 @@ int run_game(const Options& opt) {
     Vector2 drag_world_start{};    // 世界像素坐标：拖动结束时拼框选矩形
     constexpr float kDragThreshold = 6.0f;   // 像素；小于它算「点」不算「拖」
     bool paused = false;
+    bool atmosphere_on = !opt.classic_visuals;
+    render::BattleAtmosphere atmosphere;
+    render::ChronicleView journal;
+    int reached_wave = 1;
+    if(opt.journal_page>=0) { journal.preview(opt.journal_page); reached_wave=80; }
+    std::size_t known_chapters = 1;
     int preloaded_attempt = 0;
 
     // 新的一局开始时把它的实体图全预载一遍：缺素材要在**看见之前**报出来，
@@ -1257,6 +1288,7 @@ int run_game(const Options& opt) {
         ClearBackground(bg);
         // 血条按屏幕尺寸画，所以每帧把当前缩放告诉渲染器（见 set_screen_scale）。
         renderer.set_screen_scale(1.0f / cam.camera().zoom);
+        renderer.set_presentation(atmosphere_on,b?static_cast<float>(b->world().now())/rts::kTicksPerSecond:static_cast<float>(GetTime()));
         BeginMode2D(cam.camera());
         if (b != nullptr) {
             renderer.draw(tiles, game::BattleScene::sorted(
@@ -1319,7 +1351,10 @@ int run_game(const Options& opt) {
                                    Color{120, 220, 255, 220});
             }
         }
+        if(b && atmosphere_on) atmosphere.draw_world(proj,atlas,cam.camera().zoom);
         EndMode2D();
+        if(atmosphere_on) atmosphere.draw_screen(vp,*font);
+        if(journal.open) { journal.draw(*font,vp,reached_wave); return; }
 
         if (shell.screen() == game::Screen::Battle && b != nullptr) {
             draw_battle_hud(*font, *b, paused, selected.size());
@@ -1327,8 +1362,8 @@ int run_game(const Options& opt) {
             const float screen_h = static_cast<float>(GetScreenHeight());
             DrawRectangleRec(Rectangle{0,screen_h-76,screen_w,76},Color{23,28,30,245});
             const auto buttons=battle_buttons(screen_w,screen_h);
-            const std::array<std::string_view,4> labels{
-                "菜单",paused ? "继续" : "暂停", "回到堡垒", "查看全图"};
+            const std::array<std::string_view,5> labels{
+                "菜单",paused ? "继续" : "暂停", "回到堡垒", "查看全图", "指挥官日记"};
             for(std::size_t i=0;i<buttons.size();++i) {
                 const bool hover=has_cursor && CheckCollisionPointRec(GetMousePosition(),buttons[i]);
                 DrawRectangleRec(buttons[i], hover ? Color{77,74,56,255}:Color{42,48,46,255});
@@ -1341,7 +1376,7 @@ int run_game(const Options& opt) {
             if(screen_w-hint_x>420) {
                 std::snprintf(hint,sizeof(hint),"已选 %zu 名   右键移动 / 驻墙",selected.size());
                 font->draw(hint,rts::Vec2{hint_x,screen_h-60},20,Color{218,221,207,255});
-                std::snprintf(hint,sizeof(hint),"滚轮缩放   N 提前迎敌   [/] 征兵等级 %d",train_level_sel);
+                std::snprintf(hint,sizeof(hint),"J 日记  V 氛围  N 迎敌  [/] 征兵等级 %d",train_level_sel);
                 font->draw(hint,rts::Vec2{hint_x,screen_h-33},18,Color{162,174,167,255});
             }
             const auto info=b->world().view(rts::Side::Defender);
@@ -1428,6 +1463,19 @@ int run_game(const Options& opt) {
         // 菜单几屏：先压暗，再画面板。主菜单压得重一些（后面没有正在发生的事，
         // 压暗让面板成为唯一焦点）；暂停与败局压得轻，好让人还能看清战场。
         menu_view.dim(vp, shell.screen() == game::Screen::Main ? 150 : 140);
+        if(shell.screen()==game::Screen::Main && atmosphere_on && vp.x>=1150) {
+            const Vector2 crest{vp.x*0.77f,vp.y*0.42f};
+            const float radius=std::min(vp.x*0.14f,vp.y*0.25f);
+            for(int ring=0;ring<3;++ring) DrawCircleLines(static_cast<int>(crest.x),static_cast<int>(crest.y),radius-static_cast<float>(ring)*12,Color{189,164,112,static_cast<unsigned char>(100-ring*24)});
+            DrawLineEx({crest.x,crest.y-radius*1.20f},{crest.x,crest.y+radius*1.2f},2,Color{191,164,112,155});
+            DrawLineEx({crest.x-radius*0.58f,crest.y},{crest.x+radius*0.58f,crest.y},2,Color{191,164,112,155});
+            font->draw("第 47 任守城指挥官",{crest.x-radius,vp.y*0.78f},22,Color{227,211,174,255});
+            font->draw("这里太安静了。",{crest.x-radius,vp.y*0.83f},20,Color{163,174,178,255});
+        }
+        if(shell.screen()!=game::Screen::Help) {
+            DrawRectangleLinesEx({vp.x-190,20,170,42},1,Color{170,145,92,255});
+            font->draw("指挥官日记",{vp.x-177,30},22,Color{228,214,181,255});
+        }
         const ScreenText st = screen_text(shell.screen());
         const std::string sub = screen_subtitle(shell);
         const render::MenuView::Chrome chrome{st.title, sub, st.footer,
@@ -1446,12 +1494,15 @@ int run_game(const Options& opt) {
         if (game::DemoBattle* b = shell.battle()) {
             for (int i = 0; i < opt.ticks; ++i) {
                 b->update(1);
+                atmosphere.observe(b->world().view(rts::Side::Defender),b->world().now(),b->world().wave());
                 advance_recon_alert();
             }
         }
         shell.poll();
         if (shell.attempt() != preloaded_attempt) preload_for_battle();
         const Vector2 vp{static_cast<float>(opt.width), static_cast<float>(opt.height)};
+        if(shell.battle()) atmosphere.observe(shell.battle()->world().view(rts::Side::Defender),
+                                              shell.battle()->world().now(),shell.battle()->world().wave());
         RenderTexture2D rt = LoadRenderTexture(opt.width, opt.height);
         BeginTextureMode(rt);
         draw_frame(vp, /*has_cursor=*/false, rts::GridPos{});
@@ -1498,6 +1549,7 @@ int run_game(const Options& opt) {
             // 建造模式会跟到新局里，而玩家并不知道自己还在建造模式。
             cam.focus_keep(proj, shell.battle()->world().keep_pos(), vp);
             paused = false;
+            atmosphere.reset();
             popup = Popup{};
             selected.clear();
             dragging = false;
@@ -1515,7 +1567,24 @@ int run_game(const Options& opt) {
         const bool in_menu = shell.screen() != game::Screen::Battle;
         rts::GridPos cell{};
 
-        if (in_menu) {
+        if(shell.battle()) {
+            reached_wave=std::max(reached_wave,shell.battle()->world().wave());
+            const auto count=game::chronicle_unlocked(reached_wave);
+            if(count>known_chapters) {notice="日记已更新 · 按 J 阅读";notice_until=GetTime()+6;known_chapters=count;}
+        }
+        if(!journal.open && IsKeyPressed(KEY_V)) atmosphere_on=!atmosphere_on;
+        if(journal.open) {
+            journal.update(vp,reached_wave);
+        } else if(IsKeyPressed(KEY_J) || (in_menu && shell.screen()!=game::Screen::Help && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
+                   CheckCollisionPointRec(mouse,{vp.x-190,20,170,42}))) {
+            journal.open=true; popup=Popup{}; dragging=false; dragged_garrison.reset();
+        } else if (in_menu) {
+            if(shell.screen()==game::Screen::Help) {
+                float scroll=GetMouseWheelMove()*60;
+                if(IsKeyPressed(KEY_PAGE_DOWN)) scroll-=vp.y*0.6f;
+                if(IsKeyPressed(KEY_PAGE_UP)) scroll+=vp.y*0.6f;
+                menu_view.scroll_help(scroll);
+            }
             // **拾取与绘制必须用同一份 chrome**（见 MenuView::Chrome 的注释）。
             const ScreenText st = screen_text(shell.screen());
             const std::string sub = screen_subtitle(shell);
@@ -1558,6 +1627,7 @@ int run_game(const Options& opt) {
                 if(CheckCollisionPointRec(mouse,buttons[1])) paused=!paused;
                 if(CheckCollisionPointRec(mouse,buttons[2])) cam.focus_keep(proj,b->world().keep_pos(),vp);
                 if(CheckCollisionPointRec(mouse,buttons[3])) show_full_map();
+                if(CheckCollisionPointRec(mouse,buttons[4])) journal.open=true;
                 dragging=false;
                 dragged_garrison.reset();
             }
@@ -1776,12 +1846,14 @@ int run_game(const Options& opt) {
             }
         }
 
-        if (shell.should_advance() && !paused) {
+        if (shell.should_advance() && !paused && !journal.open) {
             acc += static_cast<double>(GetFrameTime());
             int steps = 0;
             // 单帧最多补 5 个 tick：掉帧时宁可仿真慢下来，也不追出一大步。
             while (acc >= kTickDt && steps < 5) {
                 shell.battle()->update(1);
+                atmosphere.observe(shell.battle()->world().view(rts::Side::Defender),
+                                   shell.battle()->world().now(),shell.battle()->world().wave());
                 advance_recon_alert();
                 acc -= kTickDt;
                 ++steps;

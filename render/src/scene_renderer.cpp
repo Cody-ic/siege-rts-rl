@@ -5,8 +5,45 @@
 #include <set>
 #include <string>
 #include <vector>
+#include "rts/roster.hpp"
 
 namespace render {
+namespace {
+bool hostile(std::string_view id) {
+    for(int i=rts::kDefenderUnitCount;i<rts::kUnitTypeCount;++i)
+        if(rts::ident_of(static_cast<rts::UnitType>(i))==id) return true;
+    return false;
+}
+}
+void SceneRenderer::shadow(const game::DrawItem& item) {
+    if(!presentation_ || atlas_->is_projectile(item.sprite) || !item.stand_on.empty()) return;
+    const auto c=item.continuous?proj_.world_to_screen(item.world):proj_.grid_to_screen(item.pos);
+    const float w=static_cast<float>(proj_.tile_w());
+    if(item.sprite=="Keep") {
+        const float r=w*1.35f;
+        for(int ring=0;ring<2;++ring) {
+            const float rx=r*(ring==0?1.0f:0.86f),ry=r*(ring==0?0.48f:0.41f);
+            for(int j=0;j<64;++j) {
+                const float a=static_cast<float>(j)*0.09817477f,b=a+0.09817477f;
+                DrawLineEx({c.x+rx*std::cos(a),c.y+ry*std::sin(a)},
+                           {c.x+rx*std::cos(b),c.y+ry*std::sin(b)},ui_scale_,Color{190,173,115,120});
+            }
+        }
+        for(int i=0;i<8;++i) {
+            const float angle=static_cast<float>(i)*0.785398f;
+            const Vector2 p{c.x+std::cos(angle)*r,c.y+std::sin(angle)*r*0.48f};
+            DrawLineEx({p.x-w*0.04f,p.y},{p.x+w*0.04f,p.y},w*0.012f,Color{218,194,127,165});
+            DrawLineEx({p.x,p.y-w*0.035f},{p.x,p.y+w*0.035f},w*0.012f,Color{218,194,127,165});
+        }
+    }
+    const bool unit=item.continuous;
+    const float rx=w*(unit?0.16f:0.50f), ry=w*(unit?0.06f:0.14f);
+    DrawEllipse(static_cast<int>(c.x+rx*0.4f),static_cast<int>(c.y+ry*0.3f),rx,ry,Color{19,28,36,48});
+    if(unit && hostile(item.sprite)) {
+        DrawEllipseLines(static_cast<int>(c.x),static_cast<int>(c.y),rx,ry,Color{148,198,200,145});
+    }
+}
+
 
 void SceneRenderer::place(const game::DrawItem& item) {
     // 状态回落：不是每个实体都有每种状态（`_sprite_meta.json` 的 note：
@@ -48,6 +85,11 @@ void SceneRenderer::place(const game::DrawItem& item) {
         const Vector2 pivot = atlas_->pivot_of(item.sprite, state);
         const float w = static_cast<float>(s.texture.width);
         const float h = static_cast<float>(s.texture.height);
+        if(presentation_) {
+            const float length=std::sqrt(dx*dx+dy*dy);
+            if(length>0.01f) DrawLineEx({c.x-dx/length*proj_.tile_w()*0.24f,c.y-dy/length*proj_.tile_w()*0.24f},
+                                      {c.x,c.y},std::max(2.0f,2.0f*ui_scale_),Color{231,224,189,150});
+        }
         DrawTexturePro(s.texture, Rectangle{0.0f, 0.0f, w, h},
                        Rectangle{c.x, c.y, w, h}, pivot, deg, WHITE);
         return;   // 弹丸不画血条
@@ -65,8 +107,26 @@ void SceneRenderer::place(const game::DrawItem& item) {
     // 锚点里确实有 .5（例如 Archer 的 227.5），两种取法差一个像素——
     // 差一个像素本身无所谓，但**两边不一致**会让「照抄那份 Python 校验渲染结果」
     // 这条验收手段失效。
+    Color tint=WHITE;
+    if(presentation_) {
+        const bool terrain=item.sprite.substr(0,5)=="Plain" || item.sprite=="Forest";
+        tint=terrain?Color{221,205,170,255}:Color{255,230,196,255};
+        if(item.sprite=="Water") tint=Color{168,191,213,255};
+        if(hostile(item.sprite)) tint=Color{183,206,226,255};
+        if(item.sprite=="Phoenix") tint=Color{247,250,255,255};
+    }
     DrawTexture(s.texture, static_cast<int>(c.x - s.ground_anchor.x),
-                static_cast<int>(c.y - s.ground_anchor.y), WHITE);
+                static_cast<int>(c.y - s.ground_anchor.y), tint);
+    if(presentation_ && (item.sprite=="Keep" || item.sprite=="Gate")) {
+        const float w=static_cast<float>(proj_.tile_w());
+        const Vector2 pole{c.x+w*0.15f,c.y-s.ground_anchor.y*0.81f};
+        const float flutter=std::sin(seconds_*2.4f+c.x)*w*0.018f;
+        DrawLineEx(pole,{pole.x,pole.y-w*0.28f},w*0.012f,Color{171,141,86,255});
+        DrawTriangle({pole.x,pole.y-w*0.28f},{pole.x,pole.y-w*0.10f},
+                     {pole.x+w*0.22f,pole.y-w*0.17f+flutter},Color{43,69,77,255});
+        DrawLineEx({pole.x+w*0.025f,pole.y-w*0.24f},
+                   {pole.x+w*0.14f,pole.y-w*0.19f+flutter},w*0.014f,Color{216,191,133,255});
+    }
 
     // 血条：满血不画（画面干净，且「谁在挨打」一眼可见）。
     //
@@ -121,12 +181,14 @@ void SceneRenderer::draw(const game::DrawLists& lists) {
 
     // 第二遍：叠加物件与实体，`game/` 已经排好了。
     // **它们在同一个序列里**——站在岩壁前面的单位要遮住岩壁，站在后面的要被遮住。
+    for (const auto& o : lists.sorted) shadow(o);
     for (const game::DrawItem& o : lists.sorted) place(o);
 }
 
 void SceneRenderer::draw(const std::vector<game::DrawItem>& tiles,
                          const std::vector<game::DrawItem>& sorted) {
     for (const game::DrawItem& t : tiles) place(t);
+    for (const auto& o : sorted) shadow(o);
     for (const game::DrawItem& o : sorted) place(o);
 }
 

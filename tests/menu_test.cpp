@@ -6,6 +6,7 @@
 // 挂在那儿的测试在默认构建里根本不存在、ctest 照样全绿。
 
 #include <cstddef>
+#include "game/chronicle.hpp"
 #include <string>
 #include <vector>
 
@@ -264,4 +265,24 @@ TEST_CASE("每一屏的文案都进了字体覆盖清单", "[menu]") {
     }
     // 说明表不能是空的：空表会让上面几条断言全部空过（同「扫到 0 个文件即失败」）。
     REQUIRE(game::help_entries().size() >= 6);
+}
+
+TEST_CASE("日记解锁边界与章节顺序", "[menu]") {
+    REQUIRE(game::chronicle_unlocked(0)==0);
+    REQUIRE(game::chronicle_unlocked(1)==1);
+    REQUIRE(game::chronicle_unlocked(9)==1);
+    REQUIRE(game::chronicle_unlocked(10)==2);
+    REQUIRE(game::chronicle_unlocked(79)==8);
+    REQUIRE(game::chronicle_unlocked(80)==9);
+    REQUIRE(game::chronicle_unlocked(800)==9);
+    int previous=0;
+    for(const auto& entry:game::kChronicle) {
+        REQUIRE(entry.wave>previous);
+        REQUIRE_FALSE(entry.title.empty());
+        REQUIRE_FALSE(entry.text.empty());
+        REQUIRE(game::chronicle_unlocked(entry.wave)==game::chronicle_unlocked(entry.wave-1)+1);
+        previous=entry.wave;
+    }
+    REQUIRE_FALSE(game::kChronicleGuard.empty());
+    REQUIRE_FALSE(game::kChronicleRelease.empty());
 }

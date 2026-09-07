@@ -21,7 +21,7 @@ public:
              float top_margin_tiles = 4.0f) noexcept;
 
     void focus_keep(const game::IsoProjection& proj, rts::GridPos keep,
-                    Vector2 viewport) noexcept;
+                    Vector2 viewport, float horizontal = 0.5f) noexcept;
 
     // 每帧调一次。读键鼠：方向键 / WASD 平移，滚轮缩放，中键拖拽。
     void update(float dt) noexcept;
