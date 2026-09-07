@@ -331,3 +331,13 @@ if(RTS_BUILD_TESTS)
         add_test(NAME render_guide_${entry} COMMAND rts_render --guide-entry ${entry} --screenshot "${CMAKE_CURRENT_BINARY_DIR}/guide-${entry}.png" --size 960 540)
     endforeach()
 endif()
+
+if(RTS_BUILD_TESTS)
+    foreach(res IN ITEMS 1920x1080 2559x1368 2560x1440 3840x2160 3440x1440)
+        string(REPLACE "x" ";" dimensions "${res}")
+        list(GET dimensions 0 width)
+        list(GET dimensions 1 height)
+        add_test(NAME render_guide_resolution_${res} COMMAND rts_render --guide-entry 15
+            --screenshot "${CMAKE_CURRENT_BINARY_DIR}/guide-${res}.png" --size ${width} ${height})
+    endforeach()
+endif()

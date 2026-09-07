@@ -110,6 +110,18 @@ inline std::vector<std::string_view> guide_strings() {
     for(auto t:resource_notes) result.push_back(t);
     return result;
 }
+// All layout, pointer input and clipping share one logical coordinate system.
+// A 960x540 baseline grows uniformly on large screens; ultrawide content stays centered.
+struct GuideViewport {
+    float zoom;
+    Vector2 size,offset;
+    explicit GuideViewport(Vector2 pixels) : zoom(std::max(0.01f,std::min(pixels.x/960.0f,pixels.y/540.0f))),
+        size{std::min(pixels.x/zoom,1280.0f),std::min(pixels.y/zoom,800.0f)},
+        offset{(pixels.x-size.x*zoom)/2,(pixels.y-size.y*zoom)/2} {}
+    Vector2 pointer(Vector2 p) const {return {(p.x-offset.x)/zoom,(p.y-offset.y)/zoom};}
+    Rectangle pixels(Rectangle r) const {return {offset.x+r.x*zoom,offset.y+r.y*zoom,r.width*zoom,r.height*zoom};}
+    Camera2D camera() const {return {offset,{0,0},0,zoom};}
+};
 inline Rectangle guide_back_button(Vector2 vp) {return {vp.x-120,25,90,42};}
 class FieldGuide {
     int tab_=0,selected_=0;
@@ -119,7 +131,8 @@ class FieldGuide {
 public:
     void preview(int index) {tab_=index<5?0:index<16?1:index<22?2:3;selected_=index-(tab_==0?0:tab_==1?5:tab_==2?16:22);}
     bool input(Vector2 vp) {
-        auto mouse=GetMousePosition();
+        const GuideViewport viewport(vp);vp=viewport.size;
+        const auto mouse=viewport.pointer(GetMousePosition());
         if(IsKeyPressed(KEY_ESCAPE) || (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)&&CheckCollisionPointRec(mouse,guide_back_button(vp)))) return true;
         for(int t=0;t<4;++t) if(IsMouseButtonPressed(MOUSE_BUTTON_LEFT)&&CheckCollisionPointRec(mouse,{24+static_cast<float>(t)*160,100,150,36})) {tab_=t;selected_=0;scroll_=0;}
         int next=selected_;
@@ -131,6 +144,9 @@ public:
         return false;
     }
     void draw(const FontSet& font,SpriteAtlas& atlas,const rts::StatsTable& stats,Vector2 vp) {
+        archive_backdrop(vp);
+        const GuideViewport viewport(vp);vp=viewport.size;
+        BeginMode2D(viewport.camera());
         archive_backdrop(vp);
         const Color gold{228,201,149,255},white{210,219,207,255};
         font.draw("SANCTUM / FIELD ARCHIVE",{30,26},14,Color{153,153,126,255});
@@ -194,10 +210,12 @@ public:
         DrawRectangleRec({252,note_top,3,25},Color{155,92,62,255});
         font.draw("战术备忘",{269,note_top+9},18,gold);
         const float top=note_top+40,bottom=vp.y-54,width=vp.x-324;float ty=top-scroll_;
-        BeginScissorMode(269,static_cast<int>(top),static_cast<int>(width),static_cast<int>(std::max(1.0f,bottom-top)));
+        const auto clip=viewport.pixels({269,top,width,std::max(1.0f,bottom-top)});
+        BeginScissorMode(static_cast<int>(clip.x),static_cast<int>(clip.y),static_cast<int>(clip.width),static_cast<int>(clip.height));
         line.clear();auto flush=[&]() {font.draw(line,{269,ty},19,white);ty+=27;line.clear();};
         for(std::size_t i=0;i<notes.size();) {int bytes=0;GetCodepointNext(notes.c_str()+i,&bytes);auto glyph=notes.substr(i,static_cast<std::size_t>(bytes));if(!line.empty()&&font.measure(line+glyph,19).x>width && std::string_view("，。；、！？：）").find(glyph)==std::string_view::npos) flush();line+=glyph;i+=static_cast<std::size_t>(bytes);}if(!line.empty()) flush();EndScissorMode();max_scroll_=std::max(0.0f,ty+scroll_-bottom);
         font.draw("方向键选择 · 滚轮阅读 · Esc 返回",{28,vp.y-34},15,Color{169,158,121,255});
+        EndMode2D();
 
     }
 };
