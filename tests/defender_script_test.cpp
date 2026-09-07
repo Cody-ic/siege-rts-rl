@@ -379,6 +379,33 @@ TEST_CASE("工匠自动找活：走进半径，工时才开始动", "[script]") 
     REQUIRE(w.view(rts::Side::Defender).bld_work_left()[slot] < 60);   // 真开工了
 }
 
+TEST_CASE("工匠自动认领堡垒升级并走到现场完工", "[script]") {
+    rts::WorldInit init = sarena(18, 9);
+    init.keep = rts::GridPos{9, 4};
+    init.buildings[0].pos = init.keep;
+    init.stats.bld[static_cast<std::size_t>(rts::BldType::Keep)].upgrade_ticks = 60;
+    init.units.push_back(
+        rts::UnitInit{rts::UnitType::Mason, rts::Vec2{9.5f, 1.5f}, 1, 12, 12});
+    rts::World w(std::move(init));
+    w.set_stock(rts::Resource::Stone, 10000);
+    w.set_stock(rts::Resource::Wood, 10000);
+    rts::Command upgrade{};
+    upgrade.kind = rts::CommandKind::Upgrade;
+    upgrade.slot = rts::slot_of(w.keep_pos(), w.width());
+    w.submit(rts::Side::Defender, &upgrade, 1);
+    w.advance(1);
+    const auto before = w.view(rts::Side::Defender);
+    REQUIRE(before.bld_work_left()[0] == 0); // 升级使用独立工时，不能被漏掉。
+    REQUIRE(before.bld_upgrade_left()[0] == 60);
+    REQUIRE(before.bld_level()[0] == 1);
+
+    game::DefenderScript script(game::ScriptParams{}, 3);
+    run(w, script, 240);
+    const auto after = w.view(rts::Side::Defender);
+    REQUIRE(after.bld_upgrade_left()[0] == 0);
+    REQUIRE(after.bld_level()[0] == 2);
+}
+
 TEST_CASE("工匠任务认领：两处工地各去一人，不挤同一处", "[script]") {
     // 试玩反馈「多个工匠常一起执行同一个任务」。两名工匠**同位**出发、两处
     // 工地等距：各算各的最近则两人挤同一处；认领表（`bld_claimed_`）强制

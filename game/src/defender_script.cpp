@@ -313,13 +313,15 @@ rts::UnitAction DefenderScript::decide_unit(const rts::WorldView& view,
             // 「到了」的判据就是那个半径。
             const auto bp = view.bld_pos();
             const auto bw = view.bld_work_left();
+            const auto bu = view.bld_upgrade_left();
             const auto ba = view.bld_alive();
             int best = -1;        // 最近的任务（不论认领与否，兜底用）
             float best_d2 = 0.0f;
             int best_free = -1;   // 最近的未认领任务
             float best_free_d2 = 0.0f;
             for (std::size_t s = 0; s < bp.size(); ++s) {
-                if (!ba[s] || bw[s] <= 0) continue;
+                // 升级有独立工时，也需要工匠到场；不能按建造/维修工时漏掉它。
+                if (!ba[s] || (bw[s] <= 0 && bu[s] <= 0)) continue;
                 const float d2 = dist2(me, rts::center_of(bp[s]));
                 if (best < 0 || d2 < best_d2) {
                     best = static_cast<int>(s);

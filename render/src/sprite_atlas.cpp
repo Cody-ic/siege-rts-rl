@@ -392,6 +392,26 @@ const Sprite& SpriteAtlas::get(std::string_view ident, std::string_view state,
     return cache_.emplace(name, Sprite{tex, sm.ground_anchor}).first->second;
 }
 
+bool SpriteAtlas::opaque_at(const Sprite& sprite, int x, int y) {
+    const int w = sprite.texture.width, h = sprite.texture.height;
+    if (x < 0 || y < 0 || x >= w || y >= h) return false;
+    auto it = pick_alpha_.find(sprite.texture.id);
+    if (it == pick_alpha_.end()) {
+        Image image = LoadImageFromTexture(sprite.texture);
+        Color* pixels = LoadImageColors(image);
+        if (pixels == nullptr) {
+            UnloadImage(image);
+            throw AssetError("无法读取精灵拾取遮罩");
+        }
+        std::vector<unsigned char> alpha(static_cast<std::size_t>(w)*h);
+        for (std::size_t i = 0; i < alpha.size(); ++i) alpha[i] = pixels[i].a;
+        UnloadImageColors(pixels);
+        UnloadImage(image);
+        it = pick_alpha_.emplace(sprite.texture.id, std::move(alpha)).first;
+    }
+    return it->second[static_cast<std::size_t>(y)*w+x] >= 64;
+}
+
 std::size_t SpriteAtlas::verify_all_declared() {
     std::vector<std::string> missing;
     std::size_t loaded = 0;

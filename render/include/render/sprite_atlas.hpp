@@ -58,6 +58,9 @@ public:
     const Sprite& get(std::string_view ident, std::string_view state,
                       std::string_view facing, int frame = 0);
 
+    // Lazy alpha-mask cache for visual picking; transparent canvas is not a hit.
+    bool opaque_at(const Sprite& sprite, int x, int y);
+
     // 预先把一批标识符的 idle 四朝向全部载入，缺一个就抛。
     //
     // 存在的理由是 `preview_map.py` 的 `build()` 已经踩过：**渲到一半才报错**
@@ -284,6 +287,7 @@ private:
     // 而且报错信息里列出「有哪些可用标识符」时有序的输出好读得多。
     std::map<std::string, std::map<std::string, StateMeta>> meta_;
     std::map<std::string, Sprite> cache_;
+    std::map<unsigned int, std::vector<unsigned char>> pick_alpha_;
 
     // 元数据顶层的 `dirs`，以及自带 `dirs` 的那些实体（当前只有弹丸）。
     // 分开存而不是给每个 ident 都复制一份：默认值改动时只有一个地方要改，

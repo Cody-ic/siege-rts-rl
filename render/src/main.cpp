@@ -28,10 +28,12 @@
 // 哪些目录**——而不是打一句「--map 是必需的」了事。
 
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstdint>
 #include <algorithm>
+#include <array>
 #include <exception>
 #include <initializer_list>
 #include <memory>
@@ -371,6 +373,28 @@ int run_verify(const Options& opt) {
     return rc;
 }
 
+std::optional<rts::GridPos> pick_building_sprite(
+    const game::MapData& map, const rts::WorldView& view, rts::Tick tick,
+    const game::IsoProjection& proj, render::SpriteAtlas& atlas, Vector2 mouse) {
+    const auto items = game::BattleScene::sorted(map, view, tick);
+    for (auto it = items.rbegin(); it != items.rend(); ++it) {
+        if (it->continuous || atlas.is_projectile(it->sprite)) continue;
+        const auto& sprite = atlas.get(it->sprite, "idle", game::to_string(it->facing));
+        const auto c = proj.grid_to_screen(it->pos);
+        const int x = static_cast<int>(std::floor(mouse.x - static_cast<float>(
+            static_cast<int>(c.x-sprite.ground_anchor.x))));
+        const int y = static_cast<int>(std::floor(mouse.y - static_cast<float>(
+            static_cast<int>(c.y-sprite.ground_anchor.y))));
+        if (!atlas.opaque_at(sprite, x, y)) continue;
+        for (std::size_t k = 0; k < view.bld_pos().size(); ++k) {
+            if (view.bld_alive()[k] && view.bld_pos()[k] == it->pos &&
+                rts::ident_of(view.bld_type()[k]) == it->sprite) return it->pos;
+        }
+        return std::nullopt; // an opaque foreground prop occludes the building
+    }
+    return std::nullopt;
+}
+
 // 字体要覆盖的全部串。
 //
 // **地图的 `name` 也在里面，这一条容易漏**：它是来自数据文件的任意中文
@@ -448,15 +472,16 @@ void draw_panel_lines(const render::FontSet& font,
         max_w = std::max(max_w, font.measure(s, kHudSize).x);
     }
     const float pad = 8.0f;
-    const float x = static_cast<float>(screen_w) - max_w - 14.0f;
-    DrawRectangleRec(Rectangle{x - pad, 12.0f - pad, max_w + pad * 2.0f,
+    const float x = std::max(14.0f, static_cast<float>(screen_w) - max_w - 14.0f);
+    const float top = x < 730.0f ? 164.0f : 12.0f;
+    DrawRectangleRec(Rectangle{x - pad, top - pad, max_w + pad * 2.0f,
                                kHudLine * static_cast<float>(lines.size()) +
                                    pad * 2.0f - 4.0f},
                      Color{18, 18, 24, 205});
     for (std::size_t k = 0; k < lines.size(); ++k) {
         const Color col = (k == 0) ? Color{235, 235, 245, 255}
                                    : Color{225, 195, 195, 255};
-        font.draw(lines[k], rts::Vec2{x, 12.0f + kHudLine * static_cast<float>(k)},
+        font.draw(lines[k], rts::Vec2{x, top + kHudLine * static_cast<float>(k)},
                   kHudSize, col);
     }
 }
@@ -754,12 +779,9 @@ int run(const Options& opt) {
 // 第 n 局」可复现；每局怎么从它派生见 `game::GameShell`。
 constexpr std::uint64_t kBattleSeed = 20260830u;
 
-// 演示对局的 HUD：波次 / 阶段 / tick / 双方存活 / 三种资源存量 / 选中集。
-// 全是真数据。第四行（选中集）原先在调用点单独画，**于是底板盖不住它**
-// （底板按行数现算高度）——2026-09-01 起传进来一起画。
-void draw_battle_hud(const render::FontSet& font, const game::MapData& map,
-                     const game::DemoBattle& battle, bool paused,
-                     std::size_t selected_count, int train_level_sel) {
+// 战况卡突出波次、堡垒血量与资源；操作提示放在底部工具栏。
+void draw_battle_hud(const render::FontSet& font,
+                     const game::DemoBattle& battle, bool paused, std::size_t selected_count) {
     const rts::World& w = battle.world();
     char buf[320];
     char phase[48];
@@ -783,21 +805,6 @@ void draw_battle_hud(const render::FontSet& font, const game::MapData& map,
     } else {
         std::snprintf(phase, sizeof(phase), "交战");
     }
-    // 已用时长取 `分:秒`：几十波下来它会到几十分钟，纯秒数读不出量级。
-    const int elapsed = static_cast<int>(w.now()) / rts::kTicksPerSecond;
-    // **地图 `map_id` 不给玩家**（同上一条反馈）：它是内部标识（生成器把种子
-    // 编在里面），玩家既用不上也改不了它。名字留着——那是「我在哪张图上」，
-    // 而 id 是「这张图怎么生成的」，后者属工具链。
-    std::snprintf(buf, sizeof(buf), "地图 %s   波 %d   %s   用时 %d:%02d%s",
-                  map.name().c_str(), w.wave(), phase, elapsed / 60, elapsed % 60,
-                  paused ? "   已暂停" : "");
-    const std::string line1 = buf;
-    // 主攻方向：**免费情报**（CLAUDE.md 的情报划分——要花钱侦查的是「编成构成」
-    // 与「精确分兵」，方向与总兵力是白给的）。迷雾一开，敌军在画面上消失，
-    // 没有这一行玩家就是全盲乱找；而它诚实的对象由攻方控制，佯攻堆得更多
-    // 它就成了诱饵——这是设计要的，不是缺陷。
-    //
-    // 本波还没生（`strongest_spawn` 返回 -1）时整段不出现，不显示一个假方向。
     const rts::WorldView bv = w.view(rts::Side::Defender);
     const int lead = game::strongest_spawn(bv);
     std::string dir;
@@ -806,30 +813,37 @@ void draw_battle_hud(const render::FontSet& font, const game::MapData& map,
               std::string(game::display_name(game::compass_of(
                   w.keep_pos(), bv.spawns()[static_cast<std::size_t>(lead)].pos)));
     }
-    std::snprintf(buf, sizeof(buf), "守方 %d   攻方 %d   人口 %d/%d   石 %d   木 %d   金 %d",
-                  w.live_unit_count(rts::Side::Defender),
-                  w.live_unit_count(rts::Side::Attacker),
-                  bv.defender_pop(), bv.defender_pop_cap(),
+    // Keep combat priorities above the resource strip; controls have their own bar.
+    const float panel_w = std::min(700.0f, static_cast<float>(GetScreenWidth())-28.0f);
+    DrawRectangleRec(Rectangle{14,14,panel_w,136}, Color{23,28,30,238});
+    DrawRectangleRec(Rectangle{14,14,4,136}, Color{221,185,114,255});
+    std::snprintf(buf,sizeof(buf), "第 %d 波   %s%s", w.wave(), phase,
+                  paused ? " · 已暂停" : "");
+    font.draw(buf, rts::Vec2{30,24}, 30, Color{246,231,200,255});
+    std::int64_t hp = 0, max_hp = 1;
+    for (std::size_t k=0;k<bv.bld_pos().size();++k)
+        if(bv.bld_alive()[k] && bv.bld_type()[k]==rts::BldType::Keep) {
+            hp=bv.bld_hp()[k]; max_hp=std::max<std::int64_t>(1,bv.bld_max_hp()[k]);
+        }
+    std::snprintf(buf,sizeof(buf),"堡垒 %lld / %lld%s",static_cast<long long>(hp),
+                  static_cast<long long>(max_hp),dir.c_str());
+    font.draw(buf,rts::Vec2{30,64},22,Color{223,224,214,255});
+    DrawRectangleRec(Rectangle{30,95,panel_w-32,5},Color{65,66,60,255});
+    DrawRectangleRec(Rectangle{30,95,(panel_w-32)*static_cast<float>(hp)/static_cast<float>(max_hp),5},
+                     hp*3<max_hp ? Color{230,108,88,255}:Color{131,186,146,255});
+    std::snprintf(buf,sizeof(buf),"石 %d    木 %d    金 %d    人口 %d/%d    已选 %zu",
                   static_cast<int>(w.stock(rts::Resource::Stone)),
                   static_cast<int>(w.stock(rts::Resource::Wood)),
-                  static_cast<int>(w.stock(rts::Resource::Gold)));
-    const std::string line2 = std::string(buf) + dir;
+                  static_cast<int>(w.stock(rts::Resource::Gold)),bv.defender_pop(),bv.defender_pop_cap(),selected_count);
+    font.draw(buf,rts::Vec2{30,111},22,Color{227,219,195,255});
+}
 
-    // **`Esc 菜单` 摆在最前面。** 这一行是玩家唯一会读的操作提示，而「怎么退出」
-    // 是他第一个要找的东西——找不到就只能点窗口的叉，那看起来像卡住了。
-    const std::string line3 = "Esc 菜单   空格暂停   方向键平移   滚轮缩放   F 重新入画";
-    std::snprintf(buf, sizeof(buf),
-                  "选中 %zu   右键下令   N 召唤下一波   [/] 征兵等级(当前 %d)",
-                  selected_count, train_level_sel);
-    const std::string line4 = buf;
-    draw_hud_backing(font, {line1, line2, line3, line4});
-    font.draw(line1, rts::Vec2{14.0f, 12.0f}, kHudSize, Color{235, 235, 245, 255});
-    font.draw(line2, rts::Vec2{14.0f, 12.0f + kHudLine}, kHudSize,
-              Color{190, 195, 210, 255});
-    font.draw(line3, rts::Vec2{14.0f, 12.0f + kHudLine * 2.0f}, kHudSize,
-              Color{190, 195, 210, 255});
-    font.draw(line4, rts::Vec2{14.0f, 12.0f + kHudLine * 3.0f}, kHudSize,
-              Color{200, 205, 160, 255});
+std::array<Rectangle,4> battle_buttons(float width, float height) {
+    const float button_w = std::min(148.0f, (width-70.0f)/4.0f);
+    std::array<Rectangle,4> result{};
+    for(std::size_t i=0;i<result.size();++i)
+        result[i]=Rectangle{14.0f+static_cast<float>(i)*(button_w+10),height-59,button_w,42};
+    return result;
 }
 
 // 各屏的标题与脚注（静态串）。副标题另取——它要读对局状态、要拼。
@@ -974,6 +988,12 @@ int run_game(const Options& opt) {
         Vector2 anchor{};          // 菜单画在哪（点开那一刻的屏幕坐标）
     };
     Popup popup;
+    std::optional<rts::GridPos> inspected;
+    std::optional<rts::GridPos> order_target;
+    double order_until = 0.0;
+    std::string notice;
+    double notice_until = 0.0;
+    bool inspected_busy = false;
     // 侦查警报的跨帧状态（`draw_alert_banner`）：斥候回报/阵亡两条闪抓的是
     // **二元判定的边沿**（#139：`DemoBattle::scout_outcome()` 三态，逐波重置
     // 为 `None`——重新武装由此是现成的，不需要再记「上一帧看见没有」）。
@@ -1048,6 +1068,10 @@ int run_game(const Options& opt) {
         preloaded_attempt = shell.attempt();
     };
     preload_for_battle();
+    if (shell.battle() != nullptr) {
+        cam.focus_keep(proj, shell.battle()->world().keep_pos(),
+                       Vector2{static_cast<float>(opt.width), static_cast<float>(opt.height)});
+    }
 
     // 弹出菜单的一个选项：屏幕坐标的一个矩形 + 显示文字 + 是否合法（决定
     // 描边颜色，接管了旧版按格描红/描绿那条提示的职责）。
@@ -1205,6 +1229,24 @@ int run_game(const Options& opt) {
             case PopupKind::None:
                 break;
         }
+        // Lay out once; drawing and hit testing use the same clamped rectangles.
+        if (!out.empty()) {
+            const float margin = 12.0f;
+            float label_width = kW;
+            for (const auto& option : out)
+                label_width = std::max(label_width, font->measure(option.label, kHudSize*0.8f).x+20.0f);
+            const float width = std::min(label_width, std::max(1.0f, GetScreenWidth()-2*margin));
+            const float available = std::max(1.0f, GetScreenHeight()-2*margin-76.0f);
+            const float stride = std::min(kH+kGap, available/static_cast<float>(out.size()));
+            const float height = stride*static_cast<float>(out.size());
+            const float x = std::clamp(p.anchor.x, margin,
+                                      std::max(margin, GetScreenWidth()-margin-width));
+            const float y = std::clamp(p.anchor.y, margin,
+                                      std::max(margin, GetScreenHeight()-margin-height-76.0f));
+            for (std::size_t i = 0; i < out.size(); ++i)
+                out[i].box = Rectangle{x, y+stride*static_cast<float>(i), width,
+                                       std::max(1.0f, stride-kGap)};
+        }
         return out;
     };
 
@@ -1240,8 +1282,19 @@ int run_game(const Options& opt) {
                 const std::size_t s = id.index();
                 if (s >= ualive.size() || !ualive[s]) continue;
                 const rts::Vec2 sp = unit_draw_anchor(v, s, proj, atlas);
-                DrawCircleLines(static_cast<int>(sp.x), static_cast<int>(sp.y), 14.0f,
-                                Color{255, 214, 120, 235});
+                const float radius = 10.0f / cam.camera().zoom;
+                DrawRing(Vector2{sp.x, sp.y}, radius, radius+2.0f/cam.camera().zoom,
+                         0, 360, 32, Color{255, 214, 120, 235});
+            }
+            if (inspected) overlay.draw_cell_outline(*inspected, Color{255,214,120,255},
+                                                     3.0f/cam.camera().zoom);
+            if (order_target && GetTime() < order_until) {
+                const auto p = proj.grid_to_screen(*order_target);
+                const float r = 13.0f/cam.camera().zoom;
+                DrawRing(Vector2{p.x,p.y}, r, r+2.0f/cam.camera().zoom, 0,360,32,
+                         Color{100,220,245,230});
+                DrawLineEx(Vector2{p.x-r,p.y}, Vector2{p.x+r,p.y},
+                           2.0f/cam.camera().zoom, Color{100,220,245,230});
             }
             // 空地起手是框选；墙头士兵起手则画一条调兵线，终点就是下墙后的
             // 单兵目标格。两种手势共用左键拖拽，但反馈形状明确区分。
@@ -1269,8 +1322,63 @@ int run_game(const Options& opt) {
         EndMode2D();
 
         if (shell.screen() == game::Screen::Battle && b != nullptr) {
-            draw_battle_hud(*font, map, *b, paused, selected.size(),
-                            train_level_sel);
+            draw_battle_hud(*font, *b, paused, selected.size());
+            const float screen_w = static_cast<float>(GetScreenWidth());
+            const float screen_h = static_cast<float>(GetScreenHeight());
+            DrawRectangleRec(Rectangle{0,screen_h-76,screen_w,76},Color{23,28,30,245});
+            const auto buttons=battle_buttons(screen_w,screen_h);
+            const std::array<std::string_view,4> labels{
+                "菜单",paused ? "继续" : "暂停", "回到堡垒", "查看全图"};
+            for(std::size_t i=0;i<buttons.size();++i) {
+                const bool hover=has_cursor && CheckCollisionPointRec(GetMousePosition(),buttons[i]);
+                DrawRectangleRec(buttons[i], hover ? Color{77,74,56,255}:Color{42,48,46,255});
+                DrawRectangleLinesEx(buttons[i],1,Color{124,116,86,255});
+                font->draw(std::string(labels[i]),rts::Vec2{buttons[i].x+15,buttons[i].y+9},22,
+                           Color{244,228,194,255});
+            }
+            char hint[160];
+            const float hint_x=buttons.back().x+buttons.back().width+22;
+            if(screen_w-hint_x>420) {
+                std::snprintf(hint,sizeof(hint),"已选 %zu 名   右键移动 / 驻墙",selected.size());
+                font->draw(hint,rts::Vec2{hint_x,screen_h-60},20,Color{218,221,207,255});
+                std::snprintf(hint,sizeof(hint),"滚轮缩放   N 提前迎敌   [/] 征兵等级 %d",train_level_sel);
+                font->draw(hint,rts::Vec2{hint_x,screen_h-33},18,Color{162,174,167,255});
+            }
+            const auto info=b->world().view(rts::Side::Defender);
+            if(inspected) {
+                for(std::size_t k=0;k<info.bld_pos().size();++k) {
+                    if(!info.bld_alive()[k] || info.bld_pos()[k]!=*inspected) continue;
+                    const float y=screen_h-210;
+                    const float width=std::min(700.0f,screen_w-28);
+                    DrawRectangleRec(Rectangle{14,y,width,120},Color{23,28,30,238});
+                    std::snprintf(hint,sizeof(hint),"%s   Lv%d   %lld / %lld",
+                        std::string(game::display_name(info.bld_type()[k])).c_str(),info.bld_level()[k],
+                        static_cast<long long>(info.bld_hp()[k]),static_cast<long long>(info.bld_max_hp()[k]));
+                    font->draw(hint,rts::Vec2{30,y+14},24,Color{244,228,194,255});
+                    std::string status="可用：点击建筑查看维修、升级或招募";
+                    int ticks=0;
+                    bool engineering = true;
+                    if(!info.bld_built()[k]) {status="建造中";ticks=info.bld_work_left()[k];}
+                    else if(info.bld_work_left()[k]>0) {status="维修中";ticks=info.bld_work_left()[k];}
+                    else if(info.bld_upgrade_left()[k]>0) {status="升级中";ticks=info.bld_upgrade_left()[k];}
+                    else if(info.bld_train_type()[k]!=rts::kNoTrain) {
+                        engineering = false;
+                        ticks=info.bld_train_left()[k];
+                        status=ticks>0 ? "招募中" : "招募完成，等待空闲出兵位置";
+                    }
+                    if(ticks>0) status+=(engineering ? " · 剩余单人工时 " : " · 剩余 ")+
+                        std::to_string((ticks+rts::kTicksPerSecond-1)/rts::kTicksPerSecond)+" 秒";
+                    font->draw(status,rts::Vec2{30,y+51},22,Color{157,204,174,255});
+                    font->draw(engineering && ticks>0 ? "需工兵到场施工，多人可加速" : "金色边框标记当前建筑",rts::Vec2{30,y+84},18,Color{166,178,168,255});
+                    break;
+                }
+            }
+            if(!notice.empty() && GetTime()<notice_until) {
+                const float y=screen_h-250;
+                const float width=std::min(screen_w-28,font->measure(notice,20).x+32);
+                DrawRectangleRec(Rectangle{14,y,width,32},Color{31,47,42,245});
+                font->draw(notice,rts::Vec2{28,y+5},20,Color{240,226,192,255});
+            }
             // 侦查面板（右上角）：**本波**侦查到的来袭编成 + 克制提示。
             draw_intel_panel(*font, *b, GetScreenWidth());
 
@@ -1305,11 +1413,13 @@ int run_game(const Options& opt) {
                                         ok ? Color{120, 220, 120, 255}
                                           : Color{160, 90, 90, 255});
                     font->draw(o.label,
-                              rts::Vec2{o.box.x + 8.0f, o.box.y + 6.0f}, kHudSize * 0.8f,
+                              rts::Vec2{o.box.x + 8.0f, o.box.y + 4.0f},
+                              std::min(kHudSize * 0.8f, o.box.height-6.0f),
                               Color{230, 230, 235, 255});
                 }
-                font->draw("右键 / Esc 关闭菜单",
-                          rts::Vec2{popup.anchor.x, popup.anchor.y - kHudLine},
+                if (!opts.empty()) font->draw("右键 / Esc 关闭菜单",
+                          rts::Vec2{opts.front().box.x,
+                                    std::max(2.0f, opts.front().box.y-kHudLine)},
                           kHudSize * 0.8f, Color{170, 175, 190, 255});
             }
             return;
@@ -1386,12 +1496,16 @@ int run_game(const Options& opt) {
             preload_for_battle();
             // 新的一局：镜头重新入画，交互状态归零。不归零的话上一局留下的
             // 建造模式会跟到新局里，而玩家并不知道自己还在建造模式。
-            cam.fit(proj, map.width(), map.height(), vp);
+            cam.focus_keep(proj, shell.battle()->world().keep_pos(), vp);
             paused = false;
             popup = Popup{};
             selected.clear();
             dragging = false;
             dragged_garrison.reset();
+            inspected.reset();
+            order_target.reset();
+            notice.clear();
+            inspected_busy=false;
             scout_prev = game::DemoBattle::ScoutOutcome::None;
             recon_flash_until = 0;
             summon_flash_until = 0;
@@ -1425,8 +1539,30 @@ int run_game(const Options& opt) {
                 shell.on_escape();
             }
         } else if (game::DemoBattle* b = shell.battle()) {
+            const bool on_toolbar=mouse.y>=vp.y-76;
+            const bool on_hud=mouse.x>=14 && mouse.x<=714 && mouse.y>=14 && mouse.y<=150;
+            bool has_inspector = false;
+            const auto input_view = b->world().view(rts::Side::Defender);
+            for (std::size_t k=0; inspected && k<input_view.bld_pos().size(); ++k)
+                if (input_view.bld_alive()[k] && input_view.bld_pos()[k]==*inspected)
+                    has_inspector = true;
+            const bool on_inspector=has_inspector && mouse.x>=14 && mouse.x<=714 &&
+                                     mouse.y>=vp.y-210 && mouse.y<vp.y-90;
+            const auto show_full_map = [&] {
+                cam.fit(proj, map.width(), map.height(), Vector2{vp.x, std::max(1.0f,vp.y-152.0f)});
+                cam.set_viewport(vp);
+            };
+            if(popup.kind==PopupKind::None && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && on_toolbar) {
+                const auto buttons=battle_buttons(vp.x,vp.y);
+                if(CheckCollisionPointRec(mouse,buttons[0])) shell.on_escape();
+                if(CheckCollisionPointRec(mouse,buttons[1])) paused=!paused;
+                if(CheckCollisionPointRec(mouse,buttons[2])) cam.focus_keep(proj,b->world().keep_pos(),vp);
+                if(CheckCollisionPointRec(mouse,buttons[3])) show_full_map();
+                dragging=false;
+                dragged_garrison.reset();
+            }
             if (IsKeyPressed(KEY_ESCAPE)) shell.on_escape();   // → 暂停菜单
-            if (IsKeyPressed(KEY_F)) cam.fit(proj, map.width(), map.height(), vp);
+            if (IsKeyPressed(KEY_F)) show_full_map();
             if (IsKeyPressed(KEY_SPACE)) paused = !paused;
             // 征兵等级。下限钳在这里（1，恒合法）；
             // 上限用 `b->world()` 现算，不用 `view`——这段代码跑在 `view`
@@ -1454,7 +1590,7 @@ int run_game(const Options& opt) {
             // 拾取（与地图查看器同一条链路：screen → world → grid）。
             const Vector2 wpos = GetScreenToWorld2D(mouse, cam.camera());
             cell = proj.screen_to_grid(rts::Vec2{wpos.x, wpos.y});
-            const bool in_map = map.in_bounds(cell.i, cell.j);
+            const bool in_map = map.in_bounds(cell.i, cell.j) && !on_toolbar && !on_hud && !on_inspector;
             const rts::WorldView view = b->world().view(rts::Side::Defender);
 
             if (popup.kind != PopupKind::None) {
@@ -1506,7 +1642,13 @@ int run_game(const Options& opt) {
                                 have = false;
                                 break;
                         }
-                        if (have) b->submit_defender(&c, 1);
+                        if (have) {
+                            b->submit_defender(&c, 1);
+                            inspected = popup.cell;
+                            inspected_busy=false;
+                            notice = "指令已提交：" + opts[i].label;
+                            notice_until = GetTime()+3.0;
+                        }
                         break;
                     }
                     popup = Popup{};   // 点中选项或点在菜单外：都关掉
@@ -1516,8 +1658,8 @@ int run_game(const Options& opt) {
                 // 否则地图内照旧进入框选/点建筑流程。
                 std::vector<rts::UnitId> defenders;
                 b->world().enumerate_units(rts::Side::Defender, defenders);
-                dragged_garrison = pick_garrisoned_unit(
-                    view, defenders, proj, atlas, wpos);
+                dragged_garrison = in_map ? pick_garrisoned_unit(
+                    view, defenders, proj, atlas, wpos) : std::nullopt;
                 if (dragged_garrison || in_map) {
                     dragging = true;
                     drag_screen_start = mouse;
@@ -1551,6 +1693,10 @@ int run_game(const Options& opt) {
                             view, ids, proj, game::Rect{x0, y0, x1 - x0, y1 - y0});
                     }
                 } else if (in_map && !dragged) {
+                    if (const auto hit = pick_building_sprite(map, view, b->world().now(),
+                                                              proj, atlas, wpos)) cell = *hit;
+                    inspected = cell;
+                    inspected_busy=false;
                     // 点（没拖开）：这一格能不能弹出菜单。**练兵优先于维修**——
                     // 能练兵的格子（完工的兵营/堡垒、没在练）一律走 Train 弹窗，
                     // 维修选项由 `popup_options` 按需插进那份清单最前面，两者
@@ -1607,6 +1753,10 @@ int run_game(const Options& opt) {
                 switch (game::classify_click(view, cell)) {
                     case game::ClickTarget::Wall:
                         b->issue_garrison_order(selected, cell);
+                        order_target = cell;
+                        order_until = GetTime()+2.5;
+                        notice = "已下达驻墙指令";
+                        notice_until = GetTime()+3.0;
                         break;
                     case game::ClickTarget::Obstacle: {
                         const rts::Command c = game::clear_command(cell, map.width());
@@ -1615,6 +1765,10 @@ int run_game(const Options& opt) {
                     }
                     case game::ClickTarget::Ground:
                         b->issue_move_order(selected, cell);
+                        order_target = cell;
+                        order_until = GetTime()+2.5;
+                        notice = "已下达移动指令，到达后恢复自主作战";
+                        notice_until = GetTime()+3.0;
                         break;
                     case game::ClickTarget::None:
                         break;
@@ -1638,6 +1792,23 @@ int run_game(const Options& opt) {
             acc = 0.0;
         }
 
+        if (inspected && shell.battle()) {
+            const auto view = shell.battle()->world().view(rts::Side::Defender);
+            bool busy = false;
+            bool found = false;
+            for (std::size_t k=0;k<view.bld_pos().size();++k) {
+                if (!view.bld_alive()[k] || view.bld_pos()[k]!=*inspected) continue;
+                found = true;
+                busy = view.bld_work_left()[k]>0 || view.bld_upgrade_left()[k]>0 ||
+                       view.bld_train_type()[k]!=rts::kNoTrain;
+                break;
+            }
+            if (found && inspected_busy && !busy) {
+                notice = "生产已完成";
+                notice_until = GetTime()+3.0;
+            }
+            inspected_busy = busy;
+        }
         BeginDrawing();
         draw_frame(vp, !in_menu, cell);
         EndDrawing();
