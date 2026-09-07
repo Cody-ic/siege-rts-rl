@@ -50,6 +50,7 @@ add_library(game STATIC
     src/player_input.cpp
     src/menu_model.cpp
     src/game_shell.cpp
+    src/save_game.cpp
     ${_game_self_contained_srcs}
 )
 
