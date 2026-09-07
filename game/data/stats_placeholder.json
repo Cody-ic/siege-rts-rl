@@ -269,7 +269,7 @@
     "Flak": {
       "max_hp": 450,
       "damage": 45,
-      "range": 5.0,
+      "range": 7.0,
       "vision": 9.0,
       "windup_ticks": 6,
       "cooldown_ticks": 40,

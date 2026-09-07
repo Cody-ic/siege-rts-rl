@@ -3,6 +3,19 @@
 #include <cassert>
 
 namespace game {
+bool MapData::gate_approach(rts::GridPos p) const noexcept {
+    for(const auto& gate:walls_) {
+        if(gate.kind!=WallKind::Gate) continue;
+        const int dx=keep_.i-gate.pos.i,dy=keep_.j-gate.pos.j;
+        const int ax=dx<0?-dx:dx,ay=dy<0?-dy:dy;
+        const int sx=ax>=ay?(dx>0?1:-1):0,sy=ax>=ay?0:(dy>0?1:-1);
+        const int px=p.i-gate.pos.i,py=p.j-gate.pos.j;
+        const int inward=px*sx+py*sy,lateral=px*sy-py*sx;
+        if(inward>=1 && inward<=3 && lateral>=-1 && lateral<=1) return true;
+    }
+    return false;
+}
+
 
 Terrain MapData::terrain_at(int x, int y) const noexcept {
     assert(in_bounds(x, y));

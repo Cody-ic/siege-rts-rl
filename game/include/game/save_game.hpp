@@ -9,7 +9,7 @@
 namespace game {
 // 玩家操作日志重建完整 DemoBattle（包括脚本/RNG/波次机），末态哈希必须一致。
 // 修改 DemoBattle 的规则/默认参数时须提升兼容版本；旧档保留并明确报错。
-inline constexpr int kSaveVersion=1;
+inline constexpr int kSaveVersion=2;
 struct BattleArchive {
     std::string map_json,stats_json;
     std::uint64_t seed=0,hash=0;
@@ -23,6 +23,7 @@ BattleArchive capture_battle(const GameShell& shell,std::string map_json,std::st
 std::unique_ptr<DemoBattle> restore_battle(const BattleArchive& archive,const RestoreProgress& progress={});
 void write_archive(const std::filesystem::path& file,const BattleArchive& archive);
 BattleArchive read_archive(const std::filesystem::path& file);
+void preserve_incompatible_archive(const std::filesystem::path& file);
 int read_journal_progress(const std::filesystem::path& file);
 void write_journal_progress(const std::filesystem::path& file,int highest_wave);
 std::filesystem::path default_save_directory();

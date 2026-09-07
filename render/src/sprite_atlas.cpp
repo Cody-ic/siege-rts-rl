@@ -111,6 +111,14 @@ SpriteAtlas::SpriteAtlas(const std::string& sprite_dir) : dir_(sprite_dir) {
             }
             sm.ground_anchor = need_vec2(st.value()["ground_anchor"],
                                          where + ".ground_anchor");
+            if(st.value().contains("muzzle_by_facing")) {
+                for(auto a=st.value()["muzzle_by_facing"].begin();a!=st.value()["muzzle_by_facing"].end();++a)
+                    sm.muzzle_by_facing[a.key()]=need_vec2(a.value(),where+".muzzle_by_facing");
+            }
+            if(st.value().contains("ground_anchor_by_facing")) {
+                for(auto a=st.value()["ground_anchor_by_facing"].begin();a!=st.value()["ground_anchor_by_facing"].end();++a)
+                    sm.ground_by_facing[a.key()]=need_vec2(a.value(),where+".ground_anchor_by_facing");
+            }
             if (st.value().contains("canvas")) {
                 sm.canvas = need_vec2(st.value()["canvas"], where + ".canvas");
             }
@@ -201,6 +209,15 @@ const SpriteAtlas::StateMeta& SpriteAtlas::state_meta(std::string_view ident,
 const std::vector<int>& SpriteAtlas::frames_of(std::string_view ident,
                                                std::string_view state) const {
     return state_meta(ident, state).frames;
+}
+
+Vector2 SpriteAtlas::muzzle_offset(std::string_view ident,std::string_view facing) const {
+    const auto& sm=state_meta(ident,"attack");
+    const auto it=sm.muzzle_by_facing.find(std::string(facing));
+    if(it==sm.muzzle_by_facing.end()) return {0,-stand_lift_px(ident)};
+    const auto a=sm.ground_by_facing.find(std::string(facing));
+    const auto anchor=a==sm.ground_by_facing.end()?sm.ground_anchor:a->second;
+    return {it->second.x-anchor.x,it->second.y-anchor.y};
 }
 
 int SpriteAtlas::impact_frame_of(std::string_view ident,
@@ -327,11 +344,14 @@ std::size_t SpriteAtlas::verify_linear_anchor() {
 }
 
 float SpriteAtlas::stand_lift_px(std::string_view ident,
-                                 std::string_view state) const {
+                                 std::string_view state,std::string_view facing) const {
     // `state_meta` 找不到就抛（同本类其余读取点）：驻守单位脚下那座建筑的精灵
     // 一定已经画在同一帧里，取不到说明标识符错了，不该退化成「贴地画」——
     // 那会把「建筑标识符写错」变成一个要盯着画面才看得出的问题。
-    return state_meta(ident, state).ground_anchor.y * kStandFrac;
+    const auto& sm=state_meta(ident,state);
+    const auto found=sm.ground_by_facing.find(std::string(facing));
+    const float adjustment=found==sm.ground_by_facing.end()?0:found->second.y-sm.ground_anchor.y;
+    return sm.ground_anchor.y*kStandFrac+adjustment;
 }
 
 std::string SpriteAtlas::file_name(std::string_view ident, std::string_view state,
@@ -389,7 +409,8 @@ const Sprite& SpriteAtlas::get(std::string_view ident, std::string_view state,
         throw AssetError("传不上 GPU：" + path);
     }
     const StateMeta& sm = state_meta(ident, state);
-    return cache_.emplace(name, Sprite{tex, sm.ground_anchor}).first->second;
+    const auto anchor=sm.ground_by_facing.find(std::string(facing));
+    return cache_.emplace(name, Sprite{tex,anchor==sm.ground_by_facing.end()?sm.ground_anchor:anchor->second}).first->second;
 }
 
 bool SpriteAtlas::opaque_at(const Sprite& sprite, int x, int y) {

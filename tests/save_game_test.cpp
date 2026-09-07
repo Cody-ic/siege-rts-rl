@@ -108,5 +108,16 @@ TEST_CASE("损坏与取消读档不能替换当前对局", "[save]") {
         REQUIRE_THROWS(game::read_archive(file));
         REQUIRE(game::restore_battle(game::read_archive(temp.path/"campaign.json.bak"))->world().state_hash()==hash);
     }
+    SECTION("版本备份不随新存档轮换而丢失") {
+        const auto file=temp.path/"campaign.json";
+        game::write_archive(file,archive);
+        game::preserve_incompatible_archive(file);
+        game::preserve_incompatible_archive(file);
+        const auto backup=temp.path/("campaign.json.legacy-v"+std::to_string(game::kSaveVersion)+"-"+std::to_string(hash)+".json");
+        auto newer=shell();newer.apply(game::MenuAction::StartNew);newer.battle()->update(310);
+        game::write_archive(file,game::capture_battle(newer,map_text(),stats_text()));
+        REQUIRE(game::read_archive(backup).hash==hash);
+        REQUIRE(game::read_archive(file).hash!=hash);
+    }
     REQUIRE(active.battle()->world().state_hash()==hash);
 }

@@ -479,10 +479,19 @@ def place_inner_content(cv, cfg, rng):
     # 生效摆法）。金矿场是 2026-09-01 追加的——试玩反馈「城内外完全不会
     # 刷新金矿」：金点在数据里一直在，但资源点没有可见物，木/石有预置建筑
     # 当地标而金没有，等于不存在。
+    def gate_approach(c):
+        for gx, gy in cv.gates:
+            dx, dy = kx-gx, ky-gy
+            sx, sy = ((1 if dx > 0 else -1), 0) if abs(dx) >= abs(dy) else (0, (1 if dy > 0 else -1))
+            px, py = c[0]-gx, c[1]-gy
+            if 1 <= px*sx+py*sy <= 3 and abs(px*sy-py*sx) <= 1:
+                return True
+        return False
+
     anchors = list(cv.gates) + list(cv.breaches)
     for _ in range(cfg.towers):
         cands = [c for c in plain_cands(R - 1, 4)
-                 if any(max(abs(c[0] - a[0]), abs(c[1] - a[1])) <= 2
+                 if not gate_approach(c) and any(max(abs(c[0] - a[0]), abs(c[1] - a[1])) <= 2
                         for a in anchors)]
         if not cands:
             return False

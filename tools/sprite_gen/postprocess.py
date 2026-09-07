@@ -228,7 +228,8 @@ def main():
                 # 顺序不可颠倒：先描边，再把投影合成到描边之下。
                 # 反过来的话投影自己也会被描边，变成带黑边的独立圆盘。
                 img = add_outline(img, ol_col, ol_w)
-                img = add_shadow(img, specs.get(ident, {}), ratio, st.get("ground_anchor"))
+                anchor = st.get("ground_anchor_by_facing", {}).get(dr, st.get("ground_anchor"))
+                img = add_shadow(img, specs.get(ident, {}), ratio, anchor)
                 save_marked(img, os.path.join(outdir, fn))
         counts[ident] = counts.get(ident, 0) + 1
         if state != "idle":

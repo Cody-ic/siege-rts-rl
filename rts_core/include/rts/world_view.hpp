@@ -223,6 +223,9 @@ public:
     // （放箭那刻定格、随压实搬移、进哈希），只是没暴露。加数组要动 `World`
     // 布局、`state_hash` 喂入清单与 `kWorldHashTag`（旧回放重录）；
     // 加一个**只读访问器**这三样一个都不动。
+    std::span<const Vec2> proj_origin() const noexcept { return sp(w_->p_origin_); }
+    std::span<const Vec2> bld_aim() const noexcept { return sp(w_->b_aim_); }
+    std::span<const std::int32_t> bld_cooldown() const noexcept { return sp(w_->b_cd_); }
     std::span<const Vec2> proj_pos() const noexcept { return sp(w_->p_pos_); }
     std::span<const Vec2> proj_aim() const noexcept { return sp(w_->p_aim_); }
     std::span<const std::uint8_t> proj_src_bld() const noexcept {
