@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cmath>
 
 #include "rts/fog.hpp"
 #include "rts/roster.hpp"
@@ -144,6 +145,20 @@ std::vector<DrawItem> BattleScene::sorted(const MapData& map,
         if (b_type[k] == rts::BldType::Wall || b_type[k] == rts::BldType::Gate) {
             it.facing = SceneModel::run_direction(map, it.pos, SceneModel::RunKind::Wall);
         }
+        if(b_type[k]==rts::BldType::Tower || b_type[k]==rts::BldType::Flak) {
+            const auto& stats=view.stats().of(b_type[k]);
+            const int left=view.bld_windup()[k],cd=view.bld_cooldown()[k];
+            const int elapsed=stats.cooldown_ticks-cd;
+            it.facing=facing_from_delta(view.bld_aim()[k].x-rts::center_of(it.pos).x,view.bld_aim()[k].y-rts::center_of(it.pos).y);
+            if(left>0 || (cd>0 && elapsed<stats.windup_ticks+8)) {
+                // 箭楼旧攻击图烘焙了一支位置/方向不符的箭；用稳定楼体与出口闪光。
+                // 弩楼使用现有四帧机械攻击动画。
+                it.state=b_type[k]==rts::BldType::Flak?"attack":"idle";
+                it.aim=view.bld_aim()[k];
+                it.attack_progress=left>0?1.0f-static_cast<float>(left)/static_cast<float>(std::max(1,stats.windup_ticks))
+                    :1.0f+static_cast<float>(std::max(0,elapsed-stats.windup_ticks))/8.0f;
+            }
+        }
         it.hp_frac = hp_frac_of(b_hp[k], b_max[k]);
         out.push_back(it);
         // 拐角格补竖板（同 `SceneModel::build` 那条纪律）：城圈四角横竖两条边
@@ -203,6 +218,7 @@ std::vector<DrawItem> BattleScene::sorted(const MapData& map,
         // **抬多少不在这里定**——只说踩着哪座建筑，像素归渲染侧（见 `stand_on`）。
         if (u_garrison[k] != rts::kNoSlot && u_mount[k] == 0) {
             it.stand_on = garrison_stand_sprite(view, u_garrison[k]);
+            it.stand_facing=SceneModel::run_direction(map,rts::pos_of_slot(u_garrison[k],view.width()),SceneModel::RunKind::Wall);
         }
         const bool winding = u_windup[k] > 0 && u_tgt[k] != rts::TgtKind::None;
         it.facing = facing_of(u_action[k], u_pos[k], u_aim[k], winding);
@@ -252,7 +268,15 @@ std::vector<DrawItem> BattleScene::sorted(const MapData& map,
             it.sprite = (p_side[k] == rts::Side::Attacker) ? "Magic" : "Arrow";
         }
         it.aim = p_aim[k];
-        it.lift = 0.4f;   // 飞行高度的视觉占位——箭不贴地滑
+        it.lift = 0.4f;
+        if(p_src[k]!=rts::kProjFromUnit) {
+            it.projectile_source=p_src[k]==static_cast<std::uint8_t>(rts::BldType::Flak)?"Flak":"Tower";
+            const auto origin=view.proj_origin()[k];
+            const float dx=it.aim.x-origin.x,dy=it.aim.y-origin.y,d2=dx*dx+dy*dy;
+            it.facing=facing_from_delta(dx,dy);
+            it.flight_progress=d2>0?std::clamp(((it.world.x-origin.x)*dx+(it.world.y-origin.y)*dy)/d2,0.0f,1.0f):1.0f;
+            if(it.projectile_source=="Flak") it.lift=1.2f;
+        }
         out.push_back(it);
     }
 

@@ -30,7 +30,7 @@ bool has(std::uint16_t mask, rts::UnitAction a) noexcept {
 
 constexpr float kInvSqrt2 = 0.70710678f;
 
-// 防空塔摆哪：**城门内侧**那一格（没有门则退回离堡垒最近的墙段内侧）。
+// 防空塔摆在墙线内侧，避开城门内三格、宽三格的通行区。
 //
 // **不写固定偏移**，理由见调用点。判据分三步，与 `place_inner_content` 摆预置塔
 // 的做法同构（贴着墙线、避开已占的格）：
@@ -67,6 +67,7 @@ std::optional<rts::GridPos> flak_site(const MapData& map, const rts::WorldInit& 
 
     const auto occupied = [&](rts::GridPos p) {
         if (!map.in_bounds(p.i, p.j)) return true;
+        if(map.gate_approach(p) || map.no_build_at(p.i,p.j) || map.terrain_at(p.i,p.j)!=Terrain::Plain) return true;
         if (map.wall_at(p.i, p.j) != nullptr) return true;
         if (p.i == keep.i && p.j == keep.j) return true;
         for (const BuildingNode& b : map.buildings()) {
@@ -790,30 +791,6 @@ void DemoBattle::issue_actions() {
             break;
         }
     }
-    // 最近的非墙建筑是不是 Keep——镜像 mechanics 的 AtkBld 选择（全场最近者；
-    // 掩码位亮着就保证它在射程内，因为「有一座在射程内」蕴含「最近那座在
-    // 射程内」）。Phoenix 用它绕开 Keep，理由见下。
-    const auto nearest_bld_is_keep = [&](rts::Vec2 p) {
-        bool found = false;
-        bool keep = false;
-        float best = 0.0f;
-        for (std::size_t b = 0; b < av.bld_type().size(); ++b) {
-            if (!av.bld_alive()[b]) continue;
-            const rts::BldType t = av.bld_type()[b];
-            if (t == rts::BldType::Wall || t == rts::BldType::Gate) continue;
-            const rts::Vec2 c = rts::center_of(av.bld_pos()[b]);
-            const float dx = c.x - p.x;
-            const float dy = c.y - p.y;
-            const float d2 = dx * dx + dy * dy;
-            if (!found || d2 < best) {
-                found = true;
-                best = d2;
-                keep = (t == rts::BldType::Keep);
-            }
-        }
-        return found && keep;
-    };
-
     // ——集结期待命与编队步速线（2026-09-02，《地图生成器大改方案.md》§4）——
     //
     // **集结期**：建造阶段里战斗单位在集结点待命（Stop），一个都不动——
@@ -845,6 +822,8 @@ void DemoBattle::issue_actions() {
         for (const rts::UnitId id : ids_) {
             const rts::UnitType t = w_.unit_type(id);
             if (!rts::is_combat(t) || t == rts::UnitType::Phoenix) continue;
+            // 正在破墙的攻城锤不再充当步兵的行军步速线。
+            if(t==rts::UnitType::Ram && has(w_.action_mask(id),rts::UnitAction::AtkWall)) continue;
             const float s = st.of(t).speed;
             if (slowest < 0.0f || s < slowest) slowest = s;
         }
@@ -852,6 +831,8 @@ void DemoBattle::issue_actions() {
         for (const rts::UnitId id : ids_) {
             const rts::UnitType t = w_.unit_type(id);
             if (!rts::is_combat(t) || t == rts::UnitType::Phoenix) continue;
+            // 正在破墙的攻城锤不再充当步兵的行军步速线。
+            if(t==rts::UnitType::Ram && has(w_.action_mask(id),rts::UnitAction::AtkWall)) continue;
             if (st.of(t).speed != slowest) continue;
             const rts::Vec2 p = w_.unit_pos(id);
             const float dx = p.x - kc.x;
@@ -900,18 +881,21 @@ void DemoBattle::issue_actions() {
             // 又因为射程内没有单位而干悬着——「手术刀」全程没切过一刀）：
             // 优先点杀射程内最脆的单位（AtkWeak，工匠/斥候先遭殃），其次
             // 俯冲最近的非墙建筑（AtkBld，点杀防御塔是设计明写的用途）。
-            // **最近那座是 Keep 就不发**：CLAUDE.md「空中单位」明写它无法
-            // 攻击核心建筑，而机制侧的 AtkBld 目前不区分 Keep（demo 从前
-            // 不发 AtkBld，这条差异一直休眠）——demo 不该示范一个违反设计
-            // 契约的行为，先在脚本侧绕开；机制侧要不要把 Keep 排除出
-            // AtkBld，留给团队定。
+            // 机制层排除不可伤害的堡垒；脚本层在无近身目标时追逐有效目标。
             if (has(mask, rts::UnitAction::AtkWeak)) {
                 a = rts::UnitAction::AtkWeak;
-            } else if (has(mask, rts::UnitAction::AtkBld) &&
-                       !nearest_bld_is_keep(w_.unit_pos(id))) {
+            } else if (has(mask, rts::UnitAction::AtkBld)) {
                 a = rts::UnitAction::AtkBld;
             } else {
-                a = flow_step(id);
+                // 无法伤害堡垒；追逐可攻击的单位或非核心建筑，不能以堡垒为落点。
+                const auto p=w_.unit_pos(id);rts::Vec2 goal=p;float nearest=-1.0f;
+                const auto consider=[&](rts::Vec2 q) {const float dx=q.x-p.x,dy=q.y-p.y,d=dx*dx+dy*dy;if(nearest<0 || d<nearest){nearest=d;goal=q;}};
+                for(std::size_t k=0;k<av.unit_alive().size();++k)
+                    if(av.unit_alive()[k] && rts::side_of(av.unit_type()[k])==rts::Side::Defender) consider(av.unit_pos()[k]);
+                for(std::size_t k=0;k<av.bld_alive().size();++k)
+                    if(av.bld_alive()[k] && av.bld_type()[k]!=rts::BldType::Keep && av.bld_type()[k]!=rts::BldType::Wall && av.bld_type()[k]!=rts::BldType::Gate) consider(rts::center_of(av.bld_pos()[k]));
+                if(nearest<0) for(const auto& spawn:w_.spawns()) consider(rts::center_of(spawn.pos));
+                a=nearest>=0?greedy_move(id,goal):rts::UnitAction::Stop;
             }
         } else if (w_.unit_type(id) == rts::UnitType::Wraith) {
             // 幽影窥使：**无战力**（`is_combat()` 为假 ⇒ 攻击掩码永远不亮），

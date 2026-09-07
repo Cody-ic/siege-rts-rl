@@ -530,7 +530,7 @@ inline GridPos pos_of_slot(std::uint16_t slot, int width) noexcept {
 // 随之移除（`u_upgrade_left_` 删，升级只经 `Train` 选级）。布局与行为双重变更。
 // `World/12` → `World/13`：新增 `CommandKind::Demolish`，`deferred_` 的长度随
 // `kCommandKindCount` 增加一格并进入哈希；与上面 `World/1 → World/2` 同类。
-inline constexpr std::string_view kWorldHashTag = "World/14";
+inline constexpr std::string_view kWorldHashTag = "World/15";
 
 class WorldView;
 
@@ -1162,6 +1162,7 @@ private:
     // 字段含义见私有 `ProjSpec`（两边由 proj_at() / launch_projectile() 互换，
     // 不会各自漂移）。
     std::vector<Vec2> p_pos_;
+    std::vector<Vec2> p_origin_; // 发射原点，渲染出口与弹道插值使用
     std::vector<Vec2> p_aim_;
     std::vector<float> p_speed_;
     std::vector<TgtKind> p_kind_;

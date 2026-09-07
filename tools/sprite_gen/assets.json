@@ -866,13 +866,15 @@
       "model": "models/kenney_castle/glb/wall-narrow.glb",
       "yaw": 0,
       "cn": "城墙",
-      "modules": 1
+      "modules": 1,
+      "directional_ground_anchor": true
     },
     "Gate": {
       "model": "models/kenney_castle/glb/wall-narrow-gate.glb",
       "yaw": 0,
       "cn": "城门",
-      "modules": 1
+      "modules": 1,
+      "directional_ground_anchor": true
     },
     "Tower": {
       "cn": "镇野箭楼",
@@ -937,6 +939,24 @@
                 false
               ]
             }
+          },
+          "muzzle_uv_by_facing": {
+            "SE": [
+              0.4524714828897338,
+              0.511727078891258
+            ],
+            "NE": [
+              0.4524714828897338,
+              0.511727078891258
+            ],
+            "SW": [
+              0.24714828897338403,
+              0.511727078891258
+            ],
+            "NW": [
+              0.24714828897338403,
+              0.511727078891258
+            ]
           }
         }
       }
@@ -1002,6 +1022,24 @@
                 ]
               ]
             }
+          },
+          "muzzle_uv_by_facing": {
+            "SE": [
+              0.4090909090909091,
+              0.14096916299559473
+            ],
+            "NE": [
+              0.42272727272727273,
+              0.197136563876652
+            ],
+            "SW": [
+              0.6636363636363637,
+              0.14096916299559473
+            ],
+            "NW": [
+              0.65,
+              0.197136563876652
+            ]
           }
         }
       }

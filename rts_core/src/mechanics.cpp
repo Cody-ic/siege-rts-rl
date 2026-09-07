@@ -165,6 +165,7 @@ World::TargetPick World::pick_target(std::size_t k, UnitAction a) const {
                 const BldType bt = b_type_[s];
                 const bool is_wall = (bt == BldType::Wall || bt == BldType::Gate);
                 if (is_wall != wants_wall) continue;
+                if (bt == BldType::Keep && !beh.can_break_structure()) continue;
                 const Vec2 c = center_of(b_pos_[s]);
                 const float d2 = dist2(my_pos, c);
                 if (!best.found || d2 < best.dist2) {
@@ -843,6 +844,7 @@ void World::launch_projectile(const ProjSpec& p) {
         return;
     }
     p_pos_.push_back(p.pos);
+    p_origin_.push_back(p.pos);
     p_aim_.push_back(p.aim);
     p_speed_.push_back(p.speed);
     p_kind_.push_back(p.kind);
@@ -955,6 +957,7 @@ void World::tick_projectiles() {
         if (gone) continue;
         if (out != i) {
             p_pos_[out] = p_pos_[i];
+            p_origin_[out] = p_origin_[i];
             p_aim_[out] = p_aim_[i];
             p_speed_[out] = p_speed_[i];
             p_kind_[out] = p_kind_[i];
@@ -969,6 +972,7 @@ void World::tick_projectiles() {
         ++out;
     }
     p_pos_.resize(out);
+    p_origin_.resize(out);
     p_aim_.resize(out);
     p_speed_.resize(out);
     p_kind_.resize(out);

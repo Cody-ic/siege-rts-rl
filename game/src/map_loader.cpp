@@ -1,6 +1,8 @@
 #include "game/map_loader.hpp"
 
 #include <cstdint>
+#include <algorithm>
+#include <cstdlib>
 #include <fstream>
 #include <ios>
 #include <map>
@@ -387,6 +389,28 @@ MapData MapLoader::from_string(std::string_view json_text, const std::string& or
         m.buildings_.push_back(node);
     }
 
+    // 旧地图池也要获得门内净空；只移动挡路的防御塔，按距离与坐标稳定挑选。
+    for(auto& b:m.buildings_) {
+        if((b.type!=rts::BldType::Tower && b.type!=rts::BldType::Flak) || !m.gate_approach(b.pos)) continue;
+        bool found=false;
+        for(int radius=1;radius<=4 && !found;++radius) {
+            for(int y=b.pos.j-radius;y<=b.pos.j+radius && !found;++y) {
+                for(int x=b.pos.i-radius;x<=b.pos.i+radius && !found;++x) {
+                    const rts::GridPos p{static_cast<std::int16_t>(x),static_cast<std::int16_t>(y)};
+                    if(!m.in_bounds(x,y) || m.gate_approach(p) || m.wall_at(x,y) || m.no_build_at(x,y) || m.terrain_at(x,y)!=Terrain::Plain || p==m.keep_) continue;
+                    bool occupied=false;
+                    for(const auto& v:m.buildings_) if(v.pos==p) occupied=true;
+                    for(const auto& v:m.resources_) if(v.pos==p) occupied=true;
+                    for(const auto& v:m.obstacles_) if(v.pos==p) occupied=true;
+                    // 保持在原城圈内，不能把塔迁移到墙外。
+                    const int old_dist=std::max(std::abs(b.pos.i-m.keep_.i),std::abs(b.pos.j-m.keep_.j));
+                    if(std::max(std::abs(x-m.keep_.i),std::abs(y-m.keep_.j))>old_dist) continue;
+                    if(!occupied) {b.pos=p;found=true;}
+                }
+            }
+        }
+        if(!found) fail(origin,"城门通道被防御塔占用，附近没有安全摆位");
+    }
     return m;
 }
 

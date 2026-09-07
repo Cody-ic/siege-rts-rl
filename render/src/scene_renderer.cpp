@@ -59,6 +59,15 @@ void SceneRenderer::place(const game::DrawItem& item) {
         frame = frames[static_cast<std::size_t>(item.anim) % frames.size()];
     }
 
+    if(item.attack_progress>=0 && state=="attack" && !frames.empty()) {
+        const auto hit=std::find(frames.begin(),frames.end(),atlas_->impact_frame_of(item.sprite,state));
+        const auto impact=hit==frames.end()?frames.size()-1:static_cast<std::size_t>(hit-frames.begin());
+        const auto index=item.attack_progress<1.0f
+            ?std::min(impact==0?std::size_t{0}:impact-1,static_cast<std::size_t>(item.attack_progress*static_cast<float>(impact)))
+            :std::min(frames.size()-1,impact+static_cast<std::size_t>((item.attack_progress-1.0f)*static_cast<float>(frames.size()-impact)));
+        frame=frames[index];
+    }
+
     // 弹丸走「按飞行角旋转」的绘制路径，不按朝向选图：它只有一张 FREE 图
     // （横躺、箭头朝屏幕右 = 0°，§8.3）。角度从**投影后的**方向算——
     // 等距投影不保角，拿世界角直接用的症状是「箭大致朝目标飞、但总歪一个
@@ -73,6 +82,12 @@ void SceneRenderer::place(const game::DrawItem& item) {
     if (projectile) {
         // 角度在抬升之前算（起点与目的地同高，抬升是纯视觉的整体平移）。
         const rts::Vec2 to = proj_.world_to_screen(item.aim);
+        if(!item.projectile_source.empty()) {
+            const auto offset=atlas_->muzzle_offset(item.projectile_source,game::to_string(item.facing));
+            const float remain=1.0f-item.flight_progress;
+            c.x+=offset.x*remain;
+            c.y+=(offset.y+item.lift*proj_.tile_z())*remain;
+        }
         const float dx = to.x - c.x;
         const float dy = to.y - c.y;
         const float deg = (dx == 0.0f && dy == 0.0f)
@@ -102,7 +117,7 @@ void SceneRenderer::place(const game::DrawItem& item) {
     //   * `lift`（弹丸的飞行高度）——世界量，单位是竖直格边长，用 `tile_z()` 换算。
     //     **不是 `tile_h()`**：那是菱形半高、属于地面两轴，混用会让抬升偏小 22%。
     c.y -= item.lift * proj_.tile_z();
-    if (!item.stand_on.empty()) c.y -= atlas_->stand_lift_px(item.stand_on);
+    if (!item.stand_on.empty()) c.y -= atlas_->stand_lift_px(item.stand_on,"idle",game::to_string(item.stand_facing));
     // 截断而不是四舍五入，与 `preview_map.py` 的 `int(x - ax)` 一致。
     // 锚点里确实有 .5（例如 Archer 的 227.5），两种取法差一个像素——
     // 差一个像素本身无所谓，但**两边不一致**会让「照抄那份 Python 校验渲染结果」
@@ -117,6 +132,11 @@ void SceneRenderer::place(const game::DrawItem& item) {
     }
     DrawTexture(s.texture, static_cast<int>(c.x - s.ground_anchor.x),
                 static_cast<int>(c.y - s.ground_anchor.y), tint);
+    if(item.sprite=="Tower" && item.attack_progress>=1.0f && item.attack_progress<1.5f) {
+        const auto offset=atlas_->muzzle_offset(item.sprite,game::to_string(item.facing));
+        const Vector2 port{c.x+offset.x,c.y+offset.y};
+        DrawCircleV(port,proj_.tile_w()*0.022f,Color{255,222,141,210});
+    }
     if(presentation_ && (item.sprite=="Keep" || item.sprite=="Gate")) {
         const float w=static_cast<float>(proj_.tile_w());
         const Vector2 pole{c.x+w*0.15f,c.y-s.ground_anchor.y*0.81f};

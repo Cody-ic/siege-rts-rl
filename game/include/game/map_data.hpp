@@ -150,6 +150,8 @@ public:
     Terrain terrain_at(int x, int y) const noexcept;
     bool no_build_at(int x, int y) const noexcept;
 
+    bool gate_approach(rts::GridPos p) const noexcept;
+
     rts::GridPos keep() const noexcept { return keep_; }
     const std::vector<SpawnPoint>& spawns() const noexcept { return spawns_; }
     const std::vector<ResourceNode>& resources() const noexcept { return resources_; }

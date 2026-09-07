@@ -174,6 +174,7 @@ public:
     // 本类是这个字段在 C++ 侧的**唯一**读取点。放在这里而不是等用到时再另读一遍
     // JSON，是为了不制造第二个读取点——那正是 `_sprite_meta.json` 作为「像素几何
     // 唯一来源」要防的事（§7）。
+    Vector2 muzzle_offset(std::string_view ident, std::string_view facing) const;
     int impact_frame_of(std::string_view ident, std::string_view state) const;
 
     // 某个标识符有没有某个状态。**状态名不是固定集合**（元数据的 `note` 明写：
@@ -224,7 +225,7 @@ public:
     // `tests/sprite_atlas_test.cpp` 钉住：抬升必须落在半墙高与精灵顶端之间——
     // 低于前者人会陷进墙里、高于后者人会飘在垛口上方，两种都是画面上的硬伤。
     float stand_lift_px(std::string_view ident,
-                        std::string_view state = "idle") const;
+                        std::string_view state = "idle", std::string_view facing = "SE") const;
 
     // 见 `stand_lift_px`。**改它要重新目视**，不要凭「看起来该是多少」调。
     static constexpr float kStandFrac = 0.67f;
@@ -273,6 +274,8 @@ public:
 
 private:
     struct StateMeta {
+        std::map<std::string,Vector2> ground_by_facing;
+        std::map<std::string,Vector2> muzzle_by_facing;
         Vector2 canvas{};
         Vector2 ground_anchor{};
         Vector2 pivot{};        // kind == "projectile" 才有；否则复制 ground_anchor

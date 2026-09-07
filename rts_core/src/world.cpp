@@ -1194,6 +1194,9 @@ std::uint64_t World::state_hash() const noexcept {
         h.feed_f32(p.x);
         h.feed_f32(p.y);
     }
+    for (const Vec2& p : p_origin_) {
+        h.feed_f32(p.x);h.feed_f32(p.y);
+    }
     for (const Vec2& p : p_aim_) {
         h.feed_f32(p.x);
         h.feed_f32(p.y);

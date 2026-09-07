@@ -42,7 +42,7 @@ def sprite(ident, state="idle", d="SE", frame=None):
     """取图并返回它的地面锚点。锚点是画布内代表「脚底 / 格心」的像素坐标。"""
     st = SPRITES[ident]["states"][state]
     name = f"{ident}_{state}_{d}" + (f"_{frame}" if frame else "") + ".png"
-    return Image.open(os.path.join(DIR, name)).convert("RGBA"), st["ground_anchor"]
+    return Image.open(os.path.join(DIR, name)).convert("RGBA"), st.get("ground_anchor_by_facing", {}).get(d, st["ground_anchor"])
 
 
 def grid_to_screen(gi, gj, ox, oy):

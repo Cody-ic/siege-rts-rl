@@ -52,6 +52,7 @@ add_executable(rts_tests
     msvc_debug_to_stderr.cpp
     rng_test.cpp
     save_game_test.cpp
+    battle_fixes_test.cpp
     hash_test.cpp
     types_test.cpp
     map_loader_test.cpp
@@ -143,7 +144,7 @@ target_compile_definitions(rts_tests PRIVATE
 #     ./build/tests/Release/rts_tests "<用例名>"
 foreach(_tag rng hash types map scene iso names utf8path roster action command obs
         terrain fog world replay behavior stats mech econ garrison charge proj flow
-        script input menu assets demo obspack batchenv macro save)
+        script input menu assets demo obspack batchenv macro save battlefix)
     add_test(NAME rts_tests_${_tag} COMMAND rts_tests "[${_tag}]")
 endforeach()
 

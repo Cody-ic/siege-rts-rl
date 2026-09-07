@@ -360,6 +360,7 @@ def normalize(objs, target_h, lift, max_w=1.45, tile=False, modules=None):
     for o in objs:
         if o.parent is None:
             o.parent = pivot
+    pivot["ground_reference"] = (cx, cy, lo.z)
     pivot.scale = (s, s, s)
     pivot.location = (-cx * s, -cy * s, -lo.z * s + lift * TILE_SIDE)
     return pivot
@@ -865,12 +866,17 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
     setup_render(W, H)
     cam = setup_camera(ortho, shift_x, shift_y)
 
+    directional_anchors = {}
     n = 0
     for d in dirs:
         for i, fr in enumerate(frames):
             bpy.context.scene.frame_set(fr)
             apply_mesh_anim(mesh_rest, i)      # 顺序不可颠倒：frame_set 之后才施加
             pivot.rotation_euler[2] = math.radians(DIR_YAW[d] + spec.get("yaw", 0))
+            if spec.get("directional_ground_anchor"):
+                bpy.context.view_layer.update()
+                point = pivot.matrix_world @ Vector(pivot["ground_reference"])
+                directional_anchors[d] = ground_anchor(cam, W, H, point)
             suffix = f"_{fr}" if len(frames) > 1 else ""
             bpy.context.scene.render.filepath = os.path.join(out_dir, f"{ident}_{d}{suffix}.png")
             bpy.ops.render.render(write_still=True)
@@ -879,6 +885,10 @@ def render_entry(ident, spec, base_dir, out_dir, px_per_tile, margin, dirs):
     # frames 写进元数据：多帧时文件名带 _<帧号> 后缀，单帧时不带，前端据此取名
     info = {"canvas": [W, H], "ground_anchor": ground_anchor(cam, W, H),
             "frames": list(frames)}
+    if directional_anchors:
+        info["ground_anchor_by_facing"] = directional_anchors
+    if spec.get("muzzle_uv_by_facing"):
+        info["muzzle_by_facing"] = {d: [round(v[0]*W, 2), round(v[1]*H, 2)] for d, v in spec["muzzle_uv_by_facing"].items()}
     if spec.get("kind"):
         info["kind"] = spec["kind"]        # 后处理据此跳过描边与地面投影
     if spec.get("kind") == "projectile":
@@ -976,7 +986,7 @@ def frame_for(objs, spec, dirs, frames, px_per_tile, margin, mesh_rest=()):
     return W, H, ortho, (u0 + u1) / 2 / ortho, (v0 + v1) / 2 / ortho
 
 
-def ground_anchor(cam, W, H):
+def ground_anchor(cam, W, H, point=None):
     """世界原点在画布中的像素坐标 —— 即单位脚底所在处。
 
     前端要把精灵对齐到等距格子，必须知道图里哪个像素是脚底。
@@ -984,7 +994,7 @@ def ground_anchor(cam, W, H):
     披风、长矛、尾羽时会明显偏移。
     """
     from bpy_extras.object_utils import world_to_camera_view
-    co = world_to_camera_view(bpy.context.scene, cam, Vector((0.0, 0.0, 0.0)))
+    co = world_to_camera_view(bpy.context.scene, cam, Vector((0.0, 0.0, 0.0)) if point is None else point)
     return [round(co.x * W, 1), round((1.0 - co.y) * H, 1)]
 
 

@@ -50,6 +50,7 @@
 #include "game/display_names.hpp"
 #include "game/game_shell.hpp"
 #include "game/save_game.hpp"
+#include <charconv>
 #include "game/iso_projection.hpp"
 #include "game/map_loader.hpp"
 #include "game/menu_model.hpp"
@@ -107,20 +108,20 @@ std::string_view stand_sprite_at(const rts::WorldView& view,
 
 rts::Vec2 unit_draw_anchor(const rts::WorldView& view, std::size_t unit_slot,
                            const game::IsoProjection& proj,
-                           render::SpriteAtlas& atlas) {
+                           render::SpriteAtlas& atlas,const game::MapData& map) {
     rts::Vec2 p = proj.world_to_screen(view.unit_pos()[unit_slot]);
     const auto garrison = view.unit_garrison();
     const auto mount = view.unit_mount();
     if (garrison[unit_slot] != rts::kNoSlot && mount[unit_slot] == 0) {
         const std::string_view stand = stand_sprite_at(view, garrison[unit_slot]);
-        if (!stand.empty()) p.y -= atlas.stand_lift_px(stand);
+        if (!stand.empty()) p.y -= atlas.stand_lift_px(stand,"idle",game::to_string(game::SceneModel::run_direction(map,rts::pos_of_slot(garrison[unit_slot],view.width()),game::SceneModel::RunKind::Wall)));
     }
     return p;
 }
 
 std::optional<rts::UnitId> pick_garrisoned_unit(
     const rts::WorldView& view, const std::vector<rts::UnitId>& defenders,
-    const game::IsoProjection& proj, render::SpriteAtlas& atlas, Vector2 world_mouse) {
+    const game::IsoProjection& proj, render::SpriteAtlas& atlas, Vector2 world_mouse,const game::MapData& map) {
     const auto type = view.unit_type();
     const auto garrison = view.unit_garrison();
     const auto mount = view.unit_mount();
@@ -130,7 +131,7 @@ std::optional<rts::UnitId> pick_garrisoned_unit(
     for (const rts::UnitId id : defenders) {
         const std::size_t k = id.index();
         if (garrison[k] == rts::kNoSlot || mount[k] != 0) continue;
-        const rts::Vec2 foot = unit_draw_anchor(view, k, proj, atlas);
+        const rts::Vec2 foot = unit_draw_anchor(view, k, proj, atlas,map);
         const render::Sprite& sprite =
             atlas.get(rts::ident_of(type[k]), "idle", "SE");
 
@@ -168,6 +169,7 @@ struct Options {
     bool menu = false;           // 游戏模式，停在主菜单（截图用；窗口下同默认）
     std::string screen;          // 开局前先切到哪一屏（main / help / paused），截图用
     int ticks = 0;               // 截图模式下先推进这么多 tick 再拍
+    int inspect_x=-1,inspect_y=-1;
     int journal_page = -1;
     int journal_ending = 0;
     bool journal_bottom = false;
@@ -197,6 +199,7 @@ void print_usage(const char* argv0) {
         "  --font <路径>         中文字体，必须是**纯 TTF**（.ttc 字体集合不行，理由见\n"
         "                        render/text.hpp）。不给则依次试 simhei.ttf、Deng.ttf\n"
         "  --size <宽> <高>      画面尺寸，默认 1600x900\n"
+        "  --inspect <X,Y>      截图时选中该格建筑，需 --battle --screenshot\n"
         "  --ticks <N>           与 --screenshot 连用：先推进 N 个 tick 再拍（20 tick = 1 秒）\n"
         "\n"
         "上面三条路径不给时，会从「工作目录」与「exe 所在目录」逐级向上找仓库根，\n"
@@ -265,6 +268,13 @@ bool parse(const std::vector<std::string>& args, Options& out) {
                 std::fprintf(stderr, "--size 必须为正\n");
                 return false;
             }
+        } else if(a=="--inspect") {
+            const std::string* v=next("--inspect");
+            if(!v) return false;
+            const auto comma=v->find(',');if(comma==std::string::npos) return false;
+            const auto x=std::from_chars(v->data(),v->data()+comma,out.inspect_x);
+            const auto y=std::from_chars(v->data()+comma+1,v->data()+v->size(),out.inspect_y);
+            if(x.ec!=std::errc{} || y.ec!=std::errc{} || x.ptr!=v->data()+comma || y.ptr!=v->data()+v->size() || out.inspect_x<0 || out.inspect_y<0) return false;
         } else if (a == "--battle") {
             out.battle = true;
         } else if (a == "--menu") {
@@ -302,6 +312,7 @@ bool parse(const std::vector<std::string>& args, Options& out) {
             return false;
         }
     }
+    if(out.inspect_x>=0 && (out.screenshot.empty() || !out.battle)) {std::fprintf(stderr,"--inspect requires --battle --screenshot\n");return false;}
     if(out.journal_page>=0 && out.screenshot.empty()) { std::fprintf(stderr,"--journal-page 仅用于截图预览\n"); return false; }
     if((out.journal_ending>0 || out.journal_bottom) && out.journal_page<0) return false;
     if(out.journal_ending>0 && out.journal_page!=7) return false;
@@ -966,6 +977,14 @@ int run_game(const Options& opt) {
                     archive=std::move(candidate);break;
                 } catch(const std::exception& e) {
                     storage_status="存档读取失败，原文件已保留";std::fprintf(stderr,"save: %s\n",e.what());
+                    if(std::string(e.what()).find("不兼容")!=std::string::npos) {
+                        try {
+                            game::preserve_incompatible_archive(save_dir/name);
+                            storage_status="旧版对局已备份，请用旧版继续；日记不受影响";
+                        } catch(const std::exception& copy_error) {
+                            std::fprintf(stderr,"legacy backup: %s\n",copy_error.what());
+                        }
+                    }
                 }
             }
         }
@@ -1094,6 +1113,10 @@ int run_game(const Options& opt) {
     };
     Popup popup;
     std::optional<rts::GridPos> inspected;
+    if(opt.inspect_x>=0) {
+        if(!map.in_bounds(opt.inspect_x,opt.inspect_y)) throw std::runtime_error("inspect cell out of bounds");
+        inspected=rts::GridPos{static_cast<std::int16_t>(opt.inspect_x),static_cast<std::int16_t>(opt.inspect_y)};
+    }
     std::optional<rts::GridPos> order_target;
     double order_until = 0.0;
     std::string notice;
@@ -1424,13 +1447,29 @@ int run_game(const Options& opt) {
             for (const rts::UnitId id : selected) {
                 const std::size_t s = id.index();
                 if (s >= ualive.size() || !ualive[s]) continue;
-                const rts::Vec2 sp = unit_draw_anchor(v, s, proj, atlas);
+                const rts::Vec2 sp = unit_draw_anchor(v, s, proj, atlas,map);
                 const float radius = 10.0f / cam.camera().zoom;
                 DrawRing(Vector2{sp.x, sp.y}, radius, radius+2.0f/cam.camera().zoom,
                          0, 360, 32, Color{255, 214, 120, 235});
             }
             if (inspected) overlay.draw_cell_outline(*inspected, Color{255,214,120,255},
                                                      3.0f/cam.camera().zoom);
+            if(inspected) {
+                for(std::size_t k=0;k<v.bld_pos().size();++k) {
+                    if(!v.bld_alive()[k] || v.bld_pos()[k]!=*inspected || !v.bld_built()[k]) continue;
+                    const auto type=v.bld_type()[k];
+                    if(type!=rts::BldType::Tower && type!=rts::BldType::Flak) continue;
+                    const float range=v.stats().of(type).range;
+                    const auto center=rts::center_of(*inspected);
+                    const Color color=type==rts::BldType::Flak?Color{110,215,245,210}:Color{246,207,116,210};
+                    rts::Vec2 last=proj.world_to_screen({center.x+range,center.y});
+                    for(int segment=1;segment<=96;++segment) {
+                        const float angle=static_cast<float>(segment)*6.283185307f/96.0f;
+                        const auto next=proj.world_to_screen({center.x+range*std::cos(angle),center.y+range*std::sin(angle)});
+                        DrawLineEx({last.x,last.y},{next.x,next.y},2.0f/cam.camera().zoom,color);last=next;
+                    }
+                }
+            }
             if (order_target && GetTime() < order_until) {
                 const auto p = proj.grid_to_screen(*order_target);
                 const float r = 13.0f/cam.camera().zoom;
@@ -1445,7 +1484,7 @@ int run_game(const Options& opt) {
                 const Vector2 cur = GetScreenToWorld2D(GetMousePosition(), cam.camera());
                 const std::size_t s = dragged_garrison->index();
                 if (s < ualive.size() && ualive[s]) {
-                    const rts::Vec2 from = unit_draw_anchor(v, s, proj, atlas);
+                    const rts::Vec2 from = unit_draw_anchor(v, s, proj, atlas,map);
                     DrawLineEx(Vector2{from.x, from.y}, cur, 3.0f / cam.camera().zoom,
                                Color{255, 214, 120, 220});
                     DrawCircleLines(static_cast<int>(cur.x), static_cast<int>(cur.y), 10.0f,
@@ -1504,6 +1543,9 @@ int run_game(const Options& opt) {
                         static_cast<long long>(info.bld_hp()[k]),static_cast<long long>(info.bld_max_hp()[k]));
                     font->draw(hint,rts::Vec2{30,y+14},24,Color{244,228,194,255});
                     std::string status="可用：点击建筑查看维修、升级或招募";
+                    if(info.bld_type()[k]==rts::BldType::Tower || info.bld_type()[k]==rts::BldType::Flak) {
+                        status="射程 "+std::to_string(static_cast<int>(info.stats().of(info.bld_type()[k]).range))+" 格 · "+(info.bld_type()[k]==rts::BldType::Flak?"仅对空":"仅对地");
+                    }
                     int ticks=0;
                     bool engineering = true;
                     if(!info.bld_built()[k]) {status="建造中";ticks=info.bld_work_left()[k];}
@@ -1862,7 +1904,7 @@ int run_game(const Options& opt) {
                 std::vector<rts::UnitId> defenders;
                 b->world().enumerate_units(rts::Side::Defender, defenders);
                 dragged_garrison = in_map ? pick_garrisoned_unit(
-                    view, defenders, proj, atlas, wpos) : std::nullopt;
+                    view, defenders, proj, atlas, wpos,map) : std::nullopt;
                 if (dragged_garrison || in_map) {
                     dragging = true;
                     drag_screen_start = mouse;

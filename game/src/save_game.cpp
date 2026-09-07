@@ -110,6 +110,17 @@ void write_archive(const std::filesystem::path& file,const BattleArchive& a) {
         {"world",rts::kWorldHashTag},{"map",a.map_json},{"stats",a.stats_json},{"seed",a.seed},{"hash",a.hash},
         {"tick",a.tick},{"wave",a.wave},{"attempt",a.attempt},{"choice",static_cast<int>(a.choice)},{"events",events}});
 }
+void preserve_incompatible_archive(const std::filesystem::path& file) {
+    const auto j=load_json(file);
+    require(j.at("format")=="siege-save","不是对局存档");
+    const int version=j.at("version").get<int>();
+    const auto hash=j.at("hash").get<std::uint64_t>();
+    auto backup=file;
+    backup+=".legacy-v"+std::to_string(version)+"-"+std::to_string(hash)+".json";
+    // 永不覆盖：同一旧档重复启动只保留一份，新快照按状态哈希另存。
+    std::filesystem::copy_file(file,backup,std::filesystem::copy_options::skip_existing);
+}
+
 BattleArchive read_archive(const std::filesystem::path& file) {
     const auto j=load_json(file);
     require(j.at("format")=="siege-save" && j.at("version")==kSaveVersion,"存档版本不兼容");

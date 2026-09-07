@@ -61,6 +61,11 @@ struct DrawItem {
     // FREE 图，方向由渲染侧按「投影后的 aim − world」算屏幕角 2D 旋转
     // （§8.3——等距下世界角 ≠ 屏幕角，所以这里给的是点、不是角）。
     rts::Vec2 aim{};
+    Facing stand_facing=Facing::SE;
+    float attack_progress=-1.0f; // [0,1) 前摇，[1,2] 释放，素材侧映射命中帧
+    std::string_view projectile_source{};
+    float flight_progress=0.0f;
+
 
     // 画家算法的深度键：gi + gj。**叠加物与实体必须在同一个序列里排**，
     // 否则站在岩壁前面的单位不会遮住岩壁。
