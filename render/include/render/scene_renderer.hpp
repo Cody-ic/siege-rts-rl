@@ -50,7 +50,11 @@ public:
         ui_scale_ = world_px_per_screen_px > 0.0f ? world_px_per_screen_px : 1.0f;
     }
 
+    void set_presentation(bool enabled, float seconds) noexcept { presentation_=enabled; seconds_=seconds; }
 private:
+    bool presentation_ = true;
+    float seconds_ = 0;
+    void shadow(const game::DrawItem& item);
     // 关键一步：把**锚点**对齐到格心，而不是把图片左上角对齐到格心。
     // 各精灵画布尺寸不同（地砖 256×128、密林 532×758），按左上角贴会让高个子
     // 整体上浮，而那是一眼看得出、却不容易想到原因的错。

@@ -34,6 +34,7 @@
 #include <optional>
 
 #include "game/demo_driver.hpp"
+#include "game/chronicle.hpp"
 #include "game/map_data.hpp"
 #include "game/menu_model.hpp"
 #include "rts/stats.hpp"
@@ -75,6 +76,8 @@ public:
 
     // 这一帧该不该推进仿真。见文件头「它不推进仿真」。
     bool should_advance() const noexcept;
+    const ChronicleDecision& chronicle() const noexcept { return chronicle_; }
+    bool choose_chronicle(ChronicleChoice choice);
 
     // 菜单项被确认。
     void apply(MenuAction a);
@@ -106,6 +109,7 @@ private:
     MenuModel menu_;
     int attempt_ = 0;
     bool quitting_ = false;
+    ChronicleDecision chronicle_;
 };
 
 }  // namespace game

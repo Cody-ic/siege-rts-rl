@@ -38,7 +38,7 @@ void CameraController::fit(const game::IsoProjection& proj, int w, int h, Vector
 }
 
 void CameraController::focus_keep(const game::IsoProjection& proj, rts::GridPos keep,
-                                  Vector2 viewport) noexcept {
+                                  Vector2 viewport, float horizontal) noexcept {
     set_viewport(viewport);
     const auto center = proj.grid_to_screen(keep);
     cam_.target = Vector2{center.x, center.y - 2.0f * proj.tile_h()};
@@ -46,6 +46,7 @@ void CameraController::focus_keep(const game::IsoProjection& proj, rts::GridPos 
     cam_.zoom = std::clamp(std::min(viewport.x / (30.0f * proj.tile_w()),
                                    viewport.y / (23.0f * proj.tile_h())),
                            min_zoom_, max_zoom_);
+    cam_.target.x -= (horizontal-0.5f)*viewport.x/cam_.zoom;
 }
 
 void CameraController::update(float dt) noexcept {

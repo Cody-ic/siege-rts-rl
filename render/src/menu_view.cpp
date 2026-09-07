@@ -1,6 +1,8 @@
 #include "render/menu_view.hpp"
 
 #include <cstddef>
+#include <algorithm>
+#include <vector>
 #include <string>
 
 #include "rts/types.hpp"
@@ -15,17 +17,16 @@ constexpr float kFootSize = 18.0f;
 constexpr float kHelpSize = 20.0f;
 constexpr float kPad = 30.0f;
 constexpr float kItemH = 46.0f;
-constexpr float kHelpRowH = 30.0f;
 constexpr float kHelpKeyCol = 190.0f;   // 按键栏宽度（两栏对齐靠它，不靠空格）
 
-const Color kPanel{16, 17, 24, 232};
-const Color kPanelEdge{92, 98, 124, 255};
+const Color kPanel{23, 30, 34, 240};
+const Color kPanelEdge{147, 128, 89, 255};
 const Color kTitle{240, 236, 220, 255};
-const Color kSub{150, 156, 175, 255};
+const Color kSub{171, 181, 176, 255};
 const Color kItem{214, 219, 234, 255};
 const Color kItemOn{250, 250, 255, 255};
 const Color kItemOff{104, 107, 120, 255};
-const Color kBar{52, 62, 96, 240};
+const Color kBar{69, 67, 51, 240};
 const Color kAccent{236, 190, 96, 255};
 
 float clampf(float v, float lo, float hi) noexcept {
@@ -88,26 +89,27 @@ Rows menu_rows(int n, Vector2 vp, bool has_sub, bool has_foot, MenuView::Align a
 }
 
 Rows help_rows(int entries, int n, Vector2 vp) {
-    const float title_h = kTitleSize + 16.0f;
-    const float body_h = static_cast<float>(entries) * kHelpRowH + 14.0f;
-    const float items_h = static_cast<float>(n) * kItemH;
-    const float foot_h = kFootSize + 24.0f;
+    (void)entries;
     Rows r;
-    // 说明面板比菜单宽、上限也更高：右栏是整句中文（最长那句 30 余字），
-    // 挤在菜单那个 720 px 里右边会贴着框。**它的高度要把脚注算进去**——
-    // 不算的话脚注落在下边距里，看起来像溢出了一行。
-    r.panel = frame_of(vp, vp.x * 0.72f, 1040.0f,
-                       kPad * 2.0f + title_h + body_h + items_h + foot_h,
-                       MenuView::Align::Center);   // 说明屏永远居中
-    float y = r.panel.y + kPad;
-    r.title_y = y;
-    y += title_h;
-    r.body_y = y;
-    y += body_h;
-    r.items_y = y;
-    y += items_h;
-    r.foot_y = y + 6.0f;
+    r.panel=frame_of(vp,vp.x-48,1250,vp.y-32,MenuView::Align::Center);
+    r.title_y=r.panel.y+24;
+    r.body_y=r.title_y+kTitleSize+24;
+    r.items_y=r.panel.y+r.panel.height-98-static_cast<float>(n-1)*kItemH;
+    r.foot_y=r.panel.y+r.panel.height-39;
     return r;
+}
+std::vector<std::string> help_wrap(const FontSet& font,std::string_view text,float width) {
+    std::vector<std::string> lines;
+    std::string line;
+    for(std::size_t i=0;i<text.size();) {
+        int n=0; GetCodepointNext(text.data()+i,&n);
+        const auto bytes=static_cast<std::size_t>(std::max(1,n));
+        const std::string glyph(text.substr(i,bytes));
+        if(!line.empty() && font.measure(line+glyph,kHelpSize).x>width) {lines.push_back(line);line.clear();}
+        line+=glyph;i+=bytes;
+    }
+    if(!line.empty()) lines.push_back(line);
+    return lines;
 }
 
 int hit_row(const Rows& r, int n, Vector2 mouse) {
@@ -203,14 +205,28 @@ void MenuView::draw_help(const game::MenuModel& menu, const Chrome& chrome,
     const Rows r = help_rows(static_cast<int>(entries.size()),
                              static_cast<int>(menu.items().size()), viewport);
     draw_shell(*font_, r, chrome.title, /*subtitle=*/{}, chrome.footer);
-    for (std::size_t k = 0; k < entries.size(); ++k) {
-        const float y = r.body_y + static_cast<float>(k) * kHelpRowH;
-        font_->draw(std::string(entries[k].keys), rts::Vec2{r.panel.x + kPad, y},
-                    kHelpSize, kAccent);
-        font_->draw(std::string(entries[k].what),
-                    rts::Vec2{r.panel.x + kPad + kHelpKeyCol, y}, kHelpSize, kItem);
+    const float view_h=std::max(1.0f,r.items_y-r.body_y-22);
+    float y=r.body_y-help_scroll_;
+    BeginScissorMode(static_cast<int>(r.panel.x+kPad),static_cast<int>(r.body_y),
+                     static_cast<int>(r.panel.width-kPad*2),static_cast<int>(view_h));
+    for(const auto& entry:entries) {
+        const auto keys=help_wrap(*font_,entry.keys,kHelpKeyCol-20);
+        const auto body=help_wrap(*font_,entry.what,r.panel.width-kPad*2-kHelpKeyCol-12);
+        for(std::size_t i=0;i<keys.size();++i)
+            font_->draw(keys[i],{r.panel.x+kPad,y+static_cast<float>(i)*26},kHelpSize,kAccent);
+        for(std::size_t i=0;i<body.size();++i)
+            font_->draw(body[i],{r.panel.x+kPad+kHelpKeyCol,y+static_cast<float>(i)*26},kHelpSize,kItem);
+        y+=static_cast<float>(std::max(keys.size(),body.size()))*26+12;
     }
+    EndScissorMode();
+    help_max_scroll_=std::max(0.0f,y+help_scroll_-r.body_y-view_h);
+    help_scroll_=std::clamp(help_scroll_,0.0f,help_max_scroll_);
+    font_->draw("滚轮 / PageUp / PageDown 翻阅",{r.panel.x+kPad,r.items_y-22},16,kSub);
     draw_items(*font_, r, menu);
+}
+
+void MenuView::scroll_help(float pixels) const noexcept {
+    help_scroll_=std::clamp(help_scroll_-pixels,0.0f,help_max_scroll_);
 }
 
 int MenuView::hit_test_help(const game::MenuModel& menu, const Chrome& chrome,

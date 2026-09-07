@@ -82,6 +82,8 @@ add_library(render_lib STATIC
     src/text.cpp
     src/scene_overlay.cpp
     src/menu_view.cpp
+    src/chronicle_view.cpp
+    src/battle_atmosphere.cpp
     ${_render_self_contained_srcs}
 )
 
@@ -273,4 +275,24 @@ if(RTS_BUILD_TESTS)
                          --font "C:/Windows/Fonts/msyh.ttc")
         set_tests_properties(render_ttc_font_is_red PROPERTIES WILL_FAIL TRUE)
     endif()
+endif()
+
+if(RTS_BUILD_TESTS)
+    foreach(_chapter RANGE 0 7)
+        add_test(NAME render_journal_${_chapter}
+            COMMAND rts_render --menu --journal-page ${_chapter}
+                --screenshot "${CMAKE_CURRENT_BINARY_DIR}/journal_${_chapter}.png" --size 1100 700)
+        add_test(NAME render_journal_bottom_${_chapter}
+            COMMAND rts_render --menu --journal-page ${_chapter} --journal-bottom
+                --screenshot "${CMAKE_CURRENT_BINARY_DIR}/journal_bottom_${_chapter}.png" --size 960 540)
+    endforeach()
+    foreach(_ending RANGE 1 2)
+        add_test(NAME render_journal_ending_${_ending}
+            COMMAND rts_render --menu --journal-page 7 --journal-ending ${_ending} --journal-bottom
+                --screenshot "${CMAKE_CURRENT_BINARY_DIR}/journal_ending_${_ending}.png" --size 960 540)
+    endforeach()
+    add_test(NAME render_journal_requires_screenshot COMMAND rts_render --journal-page 7)
+    set_tests_properties(render_journal_requires_screenshot PROPERTIES WILL_FAIL TRUE)
+    add_test(NAME render_journal_rejects_ninth COMMAND rts_render --journal-page 8 --screenshot never_ninth.png)
+    set_tests_properties(render_journal_rejects_ninth PROPERTIES WILL_FAIL TRUE)
 endif()

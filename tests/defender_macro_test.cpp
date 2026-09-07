@@ -244,13 +244,23 @@ TEST_CASE("宏观层：给堡垒配的近卫塔真的够得着堡垒", "[macro]"
     p.keep_guard_towers = 2;
     game::DefenderMacro macro(map, p);
 
-    game::DemoBattle b(map, stats, /*seed=*/1);
-    // **要给够时间**：开局 120 石，封两个缺口先花掉 60，而一座塔 80——
-    // 头几百拍根本攒不出来。1200 拍时实测 0 座（这条断言第一版就是这么红的，
-    // 红得对：那时确实还没建）。石材收入 9/5s ⇒ 4000 拍（200 s）足够。
-    run_with_macro(b, macro, 4000);
-
-    const rts::WorldView v = b.world().view(rts::Side::Defender);
+    // 这里验证塔位几何，不验证开局经济。工匠真正响应升级后，旧用例的
+    // 有限资源会用于升级，不能再把「4000 拍内攒得起塔」当作几何的前提。
+    // 给足资源，仍经过真实宏观选址、Build 命令及 World 的合法性检查。
+    rts::World world(game::make_world_init(map, stats, 1, 1));
+    world.set_stock(rts::Resource::Stone, 10000);
+    world.set_stock(rts::Resource::Wood, 10000);
+    std::vector<rts::Command> commands;
+    std::vector<game::UnitOrder> orders;
+    for(int tick=0;tick<400;++tick) {
+        if(tick%20==0) {
+            commands.clear();orders.clear();
+            macro.decide(world,commands,orders);
+            world.submit(rts::Side::Defender,commands.data(),commands.size());
+        }
+        world.advance(1);
+    }
+    const rts::WorldView v = world.view(rts::Side::Defender);
     const auto bt = v.bld_type();
     const auto bp = v.bld_pos();
     const auto ba = v.bld_alive();
@@ -266,7 +276,6 @@ TEST_CASE("宏观层：给堡垒配的近卫塔真的够得着堡垒", "[macro]"
     // 以内；要拦的失败形态是「所有塔都摆在环上、堡垒周围一座没有」（= 0）。
     // 「N 拍之内建得起几座」是经济速度问题，而收入、造价、封缺口与铺矿的先后
     // 全是占位值——把它写进断言，就是让一条几何测试随任何一次数值改动变红。
-    // （第一版写的 >= 2，实测 4000 拍只建得起 1 座。）
     CHECK(guards >= 1);
 }
 

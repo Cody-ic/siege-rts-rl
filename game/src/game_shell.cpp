@@ -34,7 +34,16 @@ GameShell::GameShell(MapData map, rts::StatsTable stats, std::uint64_t base_seed
 }
 
 bool GameShell::should_advance() const noexcept {
-    return screen_ == Screen::Battle && battle_ && !battle_->defeated();
+    return screen_ == Screen::Battle && battle_ && !battle_->defeated() &&
+           !chronicle_.completed() && !chronicle_.pending(battle_->world().wave());
+}
+
+bool GameShell::choose_chronicle(ChronicleChoice choice) {
+    if(!battle_ || battle_->defeated() || !chronicle_.choose(choice,battle_->world().wave())) return false;
+    // 结局作为文字过场完成；不向仿真伪造伤害或训练胜负。
+    // Release 终止本局的交互推进，回主菜单后不可 Resume。
+    if(chronicle_.completed()) go_(Screen::Main);
+    return true;
 }
 
 void GameShell::go_(Screen s) {
@@ -44,7 +53,7 @@ void GameShell::go_(Screen s) {
     switch (s) {
         case Screen::Main:
             menu_.reset(main_menu_items(/*can_resume=*/battle_ &&
-                                        !battle_->defeated()));
+                                        !battle_->defeated() && !chronicle_.completed()));
             break;
         case Screen::Paused:
             menu_.reset(pause_menu_items());
@@ -62,6 +71,7 @@ void GameShell::go_(Screen s) {
 }
 
 void GameShell::start_battle_() {
+    chronicle_=ChronicleDecision{};
     ++attempt_;
     // 先 reset 再 emplace：`DemoBattle` 里有一整个 `World`，两局同时活着没有
     // 意义，而 `optional::emplace` 本来就会先析构旧的——写出来是为了让
@@ -83,7 +93,9 @@ void GameShell::apply(MenuAction a) {
             // 只在真有一局能接着打时才回战场。菜单那边已经把它灰掉了，
             // 这里再挡一次——键盘、鼠标、Esc 三条路都汇到 apply()，
             // 而「可用性只在一处判」比「三处各判一次」可靠。
-            if (battle_ && !battle_->defeated()) {
+            if (chronicle_.completed()) {
+                go_(Screen::Main);
+            } else if (battle_ && !battle_->defeated()) {
                 go_(Screen::Battle);
             } else if (battle_) {
                 go_(Screen::Defeat);

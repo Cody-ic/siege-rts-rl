@@ -65,7 +65,9 @@ public:
     int hit_test_help(const game::MenuModel& menu, const Chrome& chrome, Vector2 mouse,
                       Vector2 viewport) const;
 
+    void scroll_help(float pixels) const noexcept;
 private:
+    mutable float help_scroll_ = 0, help_max_scroll_ = 0;
     const FontSet* font_;
 };
 
