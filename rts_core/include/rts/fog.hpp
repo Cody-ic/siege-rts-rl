@@ -51,6 +51,8 @@
 #include "rts/roster.hpp"
 #include "rts/types.hpp"
 
+namespace game { struct SnapshotCodec; }
+
 namespace rts {
 
 // **`Unseen` 必须是 0**：零初始化的迷雾 = 全图未探索，那是唯一正确的开局状态。
@@ -122,6 +124,7 @@ inline constexpr std::uint16_t kFullPermille = 1000;
 // 「逐字节查一张 3 项的表」而不是逐格解结构体——`地图与场景设计.md` 4.2
 // 说「观测打包退化成 memcpy」时指的就是这种形状。
 class FogLayer {
+    friend struct ::game::SnapshotCodec;
 public:
     FogLayer(int width, int height);
 

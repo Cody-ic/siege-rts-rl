@@ -111,6 +111,7 @@ struct ScriptParams {
 };
 
 class DefenderScript {
+    friend struct SnapshotCodec;
 public:
     DefenderScript(ScriptParams p, std::uint64_t seed) noexcept
         : p_(p), rng_(seed) {}

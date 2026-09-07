@@ -134,6 +134,9 @@ World::TargetPick World::pick_target(std::size_t k, UnitAction a) const {
                 // 通则由 behavior 给；驻守上下文的唯一例外是已登上
                 // 墙段的 Archer 可以对空。
                 if (!unit_can_engage(k, their)) continue;
+                // Ground melee cannot reach a defender who has finished mounting.
+                if (!is_aerial(my_type) && beh.engage_range() != EngageRange::Ranged &&
+                    u_garrison_[s] != kNoSlot && u_mount_[s] == 0) continue;
                 const float d2 = dist2(my_pos, u_pos_[s]);
                 const bool better =
                     !best.found ||
@@ -375,6 +378,7 @@ void World::land_attack(std::size_t k) {
         case TgtKind::Unit:
             if (unit_pool_.alive(unit_from_raw(raw))) {
                 const std::size_t t = static_cast<std::size_t>(raw >> 16);
+                if (!is_aerial(my_type) && beh.engage_range()!=EngageRange::Ranged && u_garrison_[t]!=kNoSlot && u_mount_[t]==0) break;
                 if (!misses_high(t)) {
                     deal_damage(kind, raw, dmg_vs_unit(t), my_side);
                 }
@@ -1174,9 +1178,9 @@ void World::finish_upgrade(std::size_t k) {
     const std::int64_t new_max = apply_permille(
         stats_.of(b_type_[k]).max_hp,
         {level_permille(new_level, stats_.global.hp_permille_per_level)});
+    b_hp_[k] = std::max<std::int64_t>(1, b_hp_[k] * new_max / b_max_hp_[k]);
     b_level_[k] = new_level;
-    b_max_hp_[k] = new_max;
-    b_hp_[k] = new_max;   // 完工即满血的「ding」时刻，不留半血尾巴
+    b_max_hp_[k] = new_max; // Upgrading preserves the damage fraction; repairs remain necessary.
     b_upgrade_left_[k] = 0;
 }
 

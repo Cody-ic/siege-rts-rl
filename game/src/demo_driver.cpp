@@ -306,8 +306,10 @@ void DemoBattle::spawn_wave() {
     // §1.1）：否则玩家侦查到的编成会在她建造之后变掉，「花钱知道编成」这件事
     // 直接失去意义。所以这里传的 `fresh` 是**上一波**的侦查结果——本波的
     // `wave_scouted_` 此刻刚被重置成 false，用它只会恒假。
-    wave_intel_ = macro_.read_intel(w_.view(rts::Side::Attacker), prev_wave_scouted_);
+    wave_intel_ = recon_intel_;
+    wave_intel_.fresh=prev_wave_scouted_;
     const WavePlan plan = macro_.compose(curve_, wave, wave_intel_);
+    wave_plan_=plan;baseline_plan_=macro_.compose(curve_,wave,AttackerIntel{});
 
     // ——展开成编队：一支编队 = 同兵种 `squad_cap_of()` 个（2026-09-05）——
     //
@@ -775,7 +777,17 @@ void DemoBattle::issue_actions() {
             }
             const rts::GridPos p = b_pos[b];
             if (af.in_bounds(p.i, p.j) && af.at(p.i, p.j) == rts::Vis::Visible) {
+                bool witnessed=false;
+                for(std::size_t u=0;u<av.unit_type().size();++u) {
+                    if(!av.unit_alive()[u] || av.unit_type()[u]!=rts::UnitType::Wraith) continue;
+                    const auto up=av.unit_pos()[u];const auto center=rts::center_of(p);
+                    const float r=w_.stats().of(rts::UnitType::Wraith).vision;
+                    const float dx=up.x-center.x,dy=up.y-center.y;
+                    if(dx*dx+dy*dy<=r*r) {witnessed=true;break;}
+                }
+                if(!witnessed) continue;
                 wave_scouted_ = true;
+                recon_intel_=macro_.read_intel(av,true);
                 break;
             }
         }
@@ -1005,6 +1017,19 @@ void DemoBattle::issue_actions() {
     w_.submit_actions(rts::Side::Attacker, acts_.data(), acts_.size());
 }
 
+void DemoBattle::enable_developer() {
+    w_.enable_developer();
+    for(int r=0;r<rts::kResourceCount;++r) w_.set_stock(static_cast<rts::Resource>(r),1000000000);
+}
+void DemoBattle::developer_wave(int wave) {
+    if(!developer() || wave<1 || wave>9999) return;
+    withdraw_all_attackers();
+    w_.developer_wave(wave,wave_level(wave,macro_.units_at(curve_,wave),w_.stats(),curve_));
+    build_left_=timing_.build_ticks;build_start_=w_.now();assault_ticks_=0;
+    wave_scouted_=false;prev_wave_scouted_=false;scout_outcome_=ScoutOutcome::None;
+    scout_report_.clear();scout_rolled_.clear();spawn_wave();issue_actions();since_decision_=0;
+}
+
 void DemoBattle::update(int ticks) {
     for (int k = 0; k < ticks; ++k) {
         if (defeated_) return;   // 败局定格：世界停在最后一帧
@@ -1054,6 +1079,7 @@ void DemoBattle::update(int ticks) {
             issue_actions();
             since_decision_ = 0;
         }
+        if(developer()) enable_developer();
         w_.advance(1);
         // 斥候的到达判定：**每拍查一次**。它必须在 `advance` 之后——单位是
         // 在那里面移动的，判前查等于永远慢一拍。

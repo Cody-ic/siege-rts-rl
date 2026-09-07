@@ -7,12 +7,12 @@
 #include <vector>
 #include "game/game_shell.hpp"
 namespace game {
-// 玩家操作日志重建完整 DemoBattle（包括脚本/RNG/波次机），末态哈希必须一致。
+// 优先恢复完整快照（含脚本/RNG/波次机）；损坏时回退操作日志，末态哈希必须一致。
 // 修改 DemoBattle 的规则/默认参数时须提升兼容版本；旧档保留并明确报错。
-inline constexpr int kSaveVersion=2;
+inline constexpr int kSaveVersion=3;
 struct BattleArchive {
-    std::string map_json,stats_json;
-    std::uint64_t seed=0,hash=0;
+    std::string map_json,stats_json,snapshot;
+    std::uint64_t seed=0,hash=0,snapshot_hash=0;
     rts::Tick tick=0;
     int wave=1,attempt=1;
     ChronicleChoice choice=ChronicleChoice::None;

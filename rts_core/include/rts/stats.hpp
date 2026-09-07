@@ -77,7 +77,8 @@ namespace rts {
 // `fingerprint()` 算出来一模一样，于是旧回放**不报 `StatsMismatch` 而静默算出
 // 不同的结果**——那是本仓库通篇最防的一类失效（「布局改了」与「跑歪了」不可
 // 区分）。**下一个只改语义不改字段的人照此办理。**
-inline constexpr std::string_view kStatsShapeTag = "Stats/12";
+// Stats/13: non-Keep upgrades have a rising materials floor (40% + 10% per prior level).
+inline constexpr std::string_view kStatsShapeTag = "Stats/13";
 
 // 每兵种一行。**结构性属性不在这里**（能否对空、能否破坏结构、三轴定位归
 // `rts/unit_behavior.hpp` 与 `rts/roster.hpp`）；这里只有会随标定变的数。

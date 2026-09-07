@@ -263,8 +263,8 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
     // **stats/11 → stats/12 是同一类的第二例**，而它比第一例更难自查：一张
     // stats/11 的表在新公式下不但每个数合法，连 `Keep` 那一行都还完全正确
     // （它走的仍是线性分支），只有另外十座的价钱悄悄变了。
-    if (schema != "stats/12") {
-        fail(origin, "`schema` = \"" + schema + "\"，本程序只认 \"stats/12\"");
+    if (schema != "stats/13") {
+        fail(origin, "`schema` = \"" + schema + "\"，本程序只认 \"stats/13\"");
     }
 
     rts::StatsTable t;

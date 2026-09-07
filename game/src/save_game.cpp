@@ -5,6 +5,7 @@
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <cstdlib>
+#include <cstdio>
 #include <fstream>
 #include <limits>
 #include <stdexcept>
@@ -13,6 +14,8 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #endif
+// Snapshot codec stays in the game layer; the core has no JSON dependency.
+#include "battle_snapshot.hpp"
 namespace game {
 namespace {
 using Json=nlohmann::json;
@@ -64,17 +67,40 @@ std::filesystem::path default_save_directory() {
 BattleArchive capture_battle(const GameShell& shell,std::string map_json,std::string stats_json) {
     require(shell.battle()!=nullptr,"没有可保存的对局");
     const auto& battle=*shell.battle();
+    require(!battle.developer(),"开发者对局不写入正式存档");
     require(battle.world().now()<=kMaxSaveTicks && battle.player_events().size()<=kMaxEvents,"对局超出当前存档容量");
     BattleArchive result;
     result.map_json=std::move(map_json);result.stats_json=std::move(stats_json);
     result.seed=battle.world().seed();result.hash=battle.world().state_hash();result.tick=battle.world().now();
     result.wave=battle.world().wave();result.attempt=shell.attempt();result.choice=shell.chronicle().choice();
-    result.events=battle.player_events();return result;
+    result.events=battle.player_events();result.snapshot=SnapshotCodec::capture(battle);
+    rts::StateHash digest;digest.feed(result.snapshot.data(),result.snapshot.size());result.snapshot_hash=digest.value();return result;
 }
 std::unique_ptr<DemoBattle> restore_battle(const BattleArchive& a,const RestoreProgress& progress) {
     require(a.tick>=0 && a.tick<=kMaxSaveTicks && a.events.size()<=kMaxEvents,"存档超出恢复范围");
     const auto map=MapLoader::from_string(a.map_json);
     auto battle=std::make_unique<DemoBattle>(map,StatsLoader::from_string(a.stats_json),a.seed);
+    require(a.attempt>0 && a.attempt<1000000,"存档局次无效");
+    require(a.choice==ChronicleChoice::None || (a.wave>=70 && (a.choice==ChronicleChoice::Guard || a.choice==ChronicleChoice::Release)),"存档结局无效");
+    rts::Tick checked_tick=0;
+    for(const auto& e:a.events) {require(e.tick>=checked_tick && e.tick<=a.tick && e.kind>=0 && e.kind<=2,"存档操作时间无效");checked_tick=e.tick;}
+    bool snapshot_restored=false;
+    if(!a.snapshot.empty()) {
+        try {
+            rts::StateHash digest;digest.feed(a.snapshot.data(),a.snapshot.size());
+            require(digest.value()==a.snapshot_hash,"快照校验失败");
+            SnapshotCodec::restore(*battle,a.snapshot,a.events);
+            require(battle->world().state_hash()==a.hash && battle->world().now()==a.tick && battle->world().wave()==a.wave,"快照校验失败");
+            snapshot_restored=true;
+        } catch(const std::exception& e) {
+            std::fprintf(stderr,"snapshot fallback: %s\n",e.what());
+            battle=std::make_unique<DemoBattle>(map,StatsLoader::from_string(a.stats_json),a.seed);
+        }
+    }
+    if(snapshot_restored) {
+        if(progress && !progress(a.tick,a.tick)) throw std::runtime_error("已取消恢复");
+        return battle;
+    }
     rts::Tick previous=0;
     const auto advance_to=[&](rts::Tick target) {
         while(battle->world().now()<target) {
@@ -108,7 +134,7 @@ void write_archive(const std::filesystem::path& file,const BattleArchive& a) {
     }
     atomic_json(file,{{"format","siege-save"},{"version",kSaveVersion},{"platform",rts::kPlatformFingerprint},
         {"world",rts::kWorldHashTag},{"map",a.map_json},{"stats",a.stats_json},{"seed",a.seed},{"hash",a.hash},
-        {"tick",a.tick},{"wave",a.wave},{"attempt",a.attempt},{"choice",static_cast<int>(a.choice)},{"events",events}});
+        {"tick",a.tick},{"wave",a.wave},{"attempt",a.attempt},{"choice",static_cast<int>(a.choice)},{"events",events},{"snapshot",a.snapshot},{"snapshot_hash",a.snapshot_hash}});
 }
 void preserve_incompatible_archive(const std::filesystem::path& file) {
     const auto j=load_json(file);
@@ -126,6 +152,8 @@ BattleArchive read_archive(const std::filesystem::path& file) {
     require(j.at("format")=="siege-save" && j.at("version")==kSaveVersion,"存档版本不兼容");
     require(j.at("platform").get<std::string>()==rts::kPlatformFingerprint && j.at("world").get<std::string>()==rts::kWorldHashTag,"存档平台或仿真版本不兼容");
     BattleArchive a;
+    a.snapshot_hash=j.value("snapshot_hash",std::uint64_t{0});
+    a.snapshot=j.value("snapshot",std::string{});
     a.map_json=j.at("map").get<std::string>();a.stats_json=j.at("stats").get<std::string>();
     a.seed=j.at("seed").get<std::uint64_t>();a.hash=j.at("hash").get<std::uint64_t>();
     a.tick=j.at("tick").get<rts::Tick>();a.wave=j.at("wave").get<int>();a.attempt=j.at("attempt").get<int>();

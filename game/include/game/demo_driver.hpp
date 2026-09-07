@@ -146,6 +146,7 @@ struct DefenderSetup {
 };
 
 class DemoBattle {
+    friend struct SnapshotCodec;
 public:
     // 建世界并摆守方开局兵力（城内一小队 + 箭楼与防空各一座）。
     // 攻方**不再开局就位**：波次循环生效后，每波在建造阶段结束时于集结点
@@ -160,6 +161,9 @@ public:
     void update(int ticks);
 
     const rts::World& world() const noexcept { return w_; }
+    bool developer() const noexcept {return w_.developer();}
+    void enable_developer();
+    void developer_wave(int wave);
     bool defeated() const noexcept { return defeated_; }
     int build_ticks_left() const noexcept { return build_left_; }
 
@@ -185,6 +189,8 @@ public:
     // 两者此前一个访问器都没有——于是「杀掉窥使让 AI 带错情报」这条设计
     // 在测试里断言不了、在报告里也量不出来。
     bool wave_scouted() const noexcept { return wave_scouted_; }
+    const WavePlan& wave_plan() const noexcept {return wave_plan_;}
+    const WavePlan& baseline_plan() const noexcept {return baseline_plan_;}
     const AttackerIntel& wave_intel() const noexcept { return wave_intel_; }
 
     // 玩家命令的入口（交互层从这里进，不直接碰 World——写入面收在一处）。
@@ -316,6 +322,8 @@ private:
     // 本波生波时攻方以为守方长什么样（`AttackerMacro::read_intel` 的产物）。
     // 存下来是给测试与 runner 看的——否则「攻方读到了什么」只能从编成反推。
     AttackerIntel wave_intel_{};
+    AttackerIntel recon_intel_{};
+    WavePlan wave_plan_{},baseline_plan_{};
     // ——斥候侦查的本波状态（逐波重置）——
     //
     // `recon_rng_` 与 `script_` 的种子同源派生，所以 demo 仍然是确定性的。

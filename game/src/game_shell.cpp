@@ -36,7 +36,7 @@ GameShell::GameShell(MapData map, rts::StatsTable stats, std::uint64_t base_seed
 
 bool GameShell::should_advance() const noexcept {
     return screen_ == Screen::Battle && battle_ && !battle_->defeated() &&
-           !chronicle_.completed() && !chronicle_.pending(battle_->world().wave());
+           (battle_->developer() || (!chronicle_.completed() && !chronicle_.pending(battle_->world().wave())));
 }
 
 bool GameShell::choose_chronicle(ChronicleChoice choice) {

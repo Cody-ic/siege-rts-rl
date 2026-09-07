@@ -220,7 +220,7 @@ TEST_CASE("枪卫守家迎击：敌人进堡垒圈就主动出击，出圈不追
     }
 }
 
-TEST_CASE("游骑：骑士靠近就脱离，没命令时主动摸攻城锤", "[script]") {
+TEST_CASE("游骑：骑士靠近就脱离，没命令时拦截城内攻城锤", "[script]") {
     SECTION("避骑士：距离只增不减（不与骑士对冲）") {
         rts::WorldInit init = sarena();
         init.units.push_back(
@@ -241,13 +241,13 @@ TEST_CASE("游骑：骑士靠近就脱离，没命令时主动摸攻城锤", "[s
         const float dy = w.unit_pos(r).y - w.unit_pos(k).y;
         REQUIRE(dx * dx + dy * dy > 3.0f * 3.0f);   // 已脱离保持距离圈
     }
-    SECTION("摸攻城锤：没有别的命令就贴上去打（出城的执行手段）") {
+    SECTION("拦截攻城锤：城内目标主动迎击") {
         rts::WorldInit init = sarena();
         init.units.push_back(
             rts::UnitInit{rts::UnitType::Ranger, rts::Vec2{4.5f, 2.5f}, 1, 18, 18});
         rts::World w(std::move(init));
         const rts::UnitId ram =
-            w.spawn_unit(rts::UnitType::Ram, rts::Vec2{12.5f, 2.5f}, 1, 60, 60);
+            w.spawn_unit(rts::UnitType::Ram, rts::Vec2{7.5f, 2.5f}, 1, 60, 60);
 
         game::DefenderScript s(game::ScriptParams{}, 3);
         run(w, s, 200, rts::UnitAction::Stop);
@@ -545,4 +545,21 @@ TEST_CASE("同种子同输入 ⇒ 同一局：脚本不是不确定性的来源"
     run(w1, s1, 80, rts::UnitAction::MoveNW);
     run(w2, s2, 80, rts::UnitAction::MoveNW);
     REQUIRE(w1.state_hash() == w2.state_hash());
+}
+TEST_CASE("攻击目标进入射程后迎击指令会开火，不再只顾冲到敌人格子", "[script]") {
+    auto init=sarena();init.units.push_back({rts::UnitType::Archer,{4.5f,2.5f},1,20,20});rts::World w(init);
+    const auto target=w.spawn_unit(rts::UnitType::Ghoul,{8.5f,2.5f},1,100,100);
+    std::vector<rts::UnitId> ids;w.enumerate_units(rts::Side::Defender,ids);
+    game::DefenderScript script({},1);script.issue_move_order(ids,{8,2});run(w,script,20);
+    REQUIRE(w.unit_hp(target)<100);
+    REQUIRE(w.unit_pos(ids[0]).x<6.0f);
+}
+TEST_CASE("猎骑不会自动追出封闭城圈", "[script]") {
+    auto init=sarena(20,20);init.keep={10,10};init.buildings[0].pos=init.keep;
+    for(int x=5;x<=15;++x) for(int y=5;y<=15;++y) if(x==5||x==15||y==5||y==15)
+        init.buildings.push_back({x==15&&y==10?rts::BldType::Gate:rts::BldType::Wall,{static_cast<std::int16_t>(x),static_cast<std::int16_t>(y)},40,40});
+    init.units.push_back({rts::UnitType::Ranger,{12.5f,10.5f},1,18,18});rts::World w(init);
+    w.spawn_unit(rts::UnitType::Ram,{17.5f,10.5f},1,60,60);
+    std::vector<rts::UnitId> ids;w.enumerate_units(rts::Side::Defender,ids);game::DefenderScript script({},1);
+    for(int t=0;t<200;t+=4) {run(w,script,4);REQUIRE(w.unit_pos(ids[0]).x<15.0f);}
 }

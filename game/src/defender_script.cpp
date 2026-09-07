@@ -1,6 +1,10 @@
 #include "game/defender_script.hpp"
 
 #include <cstddef>
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <queue>
 
 #include "rts/fog.hpp"
 #include "rts/roster.hpp"
@@ -73,6 +77,87 @@ bool is_melee_ground_threat(rts::UnitType t) noexcept {
     return b.combat() && !rts::is_aerial(t) &&
            b.engage_range() != rts::EngageRange::Ranged;
 }
+
+// Conservative movement for noncombat workers. All costs are deterministic.
+
+struct CityBounds {
+    int l,r,t,b;
+    bool contains(rts::GridPos p) const {return p.i>l && p.i<r && p.j>t && p.j<b;}
+};
+CityBounds city_bounds(const rts::WorldView& v) {
+    CityBounds b{v.width(),-1,v.height(),-1};
+    for(std::size_t k=0;k<v.bld_type().size();++k) {
+        if(v.bld_type()[k]!=rts::BldType::Wall && v.bld_type()[k]!=rts::BldType::Gate) continue;
+        const auto p=v.bld_pos()[k];b.l=std::min(b.l,int(p.i));b.r=std::max(b.r,int(p.i));b.t=std::min(b.t,int(p.j));b.b=std::max(b.b,int(p.j));
+    }
+    if(b.r<=b.l || b.b<=b.t) return {-1,v.width(),-1,v.height()};
+    return b;
+}
+rts::UnitAction safe_worker(const rts::WorldView& v,std::size_t slot,std::uint16_t mask,
+                            std::vector<std::size_t>& claimed,const rts::GridPos* manual=nullptr) {
+    const int w=v.width(),h=v.height(),n=w*h;
+    const auto here=rts::grid_of(v.unit_pos()[slot]);const auto bounds=city_bounds(v);const bool inside=bounds.contains(here);
+    bool outside_safe=v.phase()==rts::WavePhase::Build;
+    for(std::size_t u=0;u<v.unit_pos().size();++u) if(v.unit_alive()[u] && rts::side_of(v.unit_type()[u])==rts::Side::Attacker && rts::is_combat(v.unit_type()[u])) {
+        const auto p=v.unit_pos()[u];
+        if(p.x>float(bounds.l)-10 && p.x<float(bounds.r)+10 && p.y>float(bounds.t)-10 && p.y<float(bounds.b)+10) outside_safe=false;
+    }
+    const auto idx=[&](rts::GridPos p){return int(p.j)*w+int(p.i);};
+    const auto cell=[&](int c){return rts::GridPos{static_cast<std::int16_t>(c%w),static_cast<std::int16_t>(c/w)};};
+    std::vector<unsigned char> open(static_cast<std::size_t>(n),0);
+    std::vector<float> risk(static_cast<std::size_t>(n),0);
+    for(int c=0;c<n;++c) if(v.terrain().passable(c%w,c/w) && (!inside || outside_safe || bounds.contains(cell(c)))) open[static_cast<std::size_t>(c)]=1;
+    for(std::size_t b=0;b<v.bld_pos().size();++b) if(v.bld_alive()[b] && !(v.bld_type()[b]==rts::BldType::Gate && v.bld_built()[b])) open[static_cast<std::size_t>(idx(v.bld_pos()[b]))]=0;
+    for(std::size_t b=0;b<v.obstacle_pos().size();++b) if(v.obstacle_alive()[b]) open[static_cast<std::size_t>(idx(v.obstacle_pos()[b]))]=0;
+    for(std::size_t e=0;e<v.unit_pos().size();++e) {
+        if(!v.unit_alive()[e] || rts::side_of(v.unit_type()[e])!=rts::Side::Attacker || !rts::is_combat(v.unit_type()[e])) continue;
+        const auto ep=v.unit_pos()[e];const float r=v.stats().of(v.unit_type()[e]).range+3;
+        for(int y=std::max(0,int(ep.y-r));y<std::min(h,int(ep.y+r)+1);++y) for(int x=std::max(0,int(ep.x-r));x<std::min(w,int(ep.x+r)+1);++x) {
+            const float d=std::sqrt(dist2({float(x)+0.5f,float(y)+0.5f},ep));
+            if(d<r) risk[static_cast<std::size_t>(y*w+x)]+=r-d;
+        }
+    }
+    const int start=idx(here);open[static_cast<std::size_t>(start)]=1;
+    const float inf=std::numeric_limits<float>::infinity();
+    std::vector<float> cost(static_cast<std::size_t>(n),inf);
+    std::vector<rts::UnitAction> first(static_cast<std::size_t>(n),rts::UnitAction::Stop);
+    using Node=std::pair<float,int>;std::priority_queue<Node,std::vector<Node>,std::greater<Node>> q;
+    cost[static_cast<std::size_t>(start)]=0;q.push({0.0f,start});
+    while(!q.empty()) {
+        const auto [d,c]=q.top();q.pop();if(d!=cost[static_cast<std::size_t>(c)]) continue;
+        for(int k=0;k<rts::kMoveDirCount;++k) {
+            const auto a=rts::move_of(k);if(rts::is_grid_diagonal(a) || (c==start && !has(mask,a))) continue;
+            const auto delta=rts::move_delta(a);const int x=c%w+delta.di,y=c/w+delta.dj;
+            if(x<0||y<0||x>=w||y>=h) continue;
+            const int next=y*w+x;if(!open[static_cast<std::size_t>(next)]) continue;
+            const float nd=d+1+1000*risk[static_cast<std::size_t>(next)];
+            if(nd<cost[static_cast<std::size_t>(next)]) {cost[static_cast<std::size_t>(next)]=nd;first[static_cast<std::size_t>(next)]=c==start?a:first[static_cast<std::size_t>(c)];q.push({nd,next});}
+        }
+    }
+    int goal=-1;float best=inf;std::size_t job=0;
+    const float radius=v.stats().global.mason_work_radius;
+    if(risk[static_cast<std::size_t>(start)]==0 && !manual) for(std::size_t b=0;b<v.bld_pos().size();++b) {
+        if(!v.bld_alive()[b] || (v.bld_work_left()[b]<=0 && v.bld_upgrade_left()[b]<=0)) continue;
+        const auto bp=v.bld_pos()[b];
+        for(int y=std::max(0,int(bp.j)-2);y<std::min(h,int(bp.j)+3);++y) for(int x=std::max(0,int(bp.i)-2);x<std::min(w,int(bp.i)+3);++x) {
+            const int c=y*w+x;
+            const bool wall=v.bld_type()[b]==rts::BldType::Wall || v.bld_type()[b]==rts::BldType::Gate;
+            if(((!outside_safe || wall) && !bounds.contains(cell(c))) || !open[static_cast<std::size_t>(c)] || risk[static_cast<std::size_t>(c)]>0 || dist2(rts::center_of(cell(c)),rts::center_of(bp))>radius*radius) continue;
+            if(c==start && dist2(v.unit_pos()[slot],rts::center_of(bp))>radius*radius) continue;
+            const float score=cost[static_cast<std::size_t>(c)]+(std::find(claimed.begin(),claimed.end(),b)!=claimed.end()?100.0f:0.0f);
+            if(score<best) {best=score;goal=c;job=b;}
+        }
+    }
+    if(goal>=0) claimed.push_back(job);
+    else for(int c=0;c<n;++c) {
+        if(!open[static_cast<std::size_t>(c)] || !bounds.contains(cell(c)) || !std::isfinite(cost[static_cast<std::size_t>(c)])) continue;
+        const float score=100000*risk[static_cast<std::size_t>(c)]+cost[static_cast<std::size_t>(c)]+4*dist2(rts::center_of(cell(c)),rts::center_of(manual?*manual:v.keep_pos()));
+        if(score<best) {best=score;goal=c;}
+    }
+    if(goal==start && manual) {const auto center=rts::center_of(cell(goal));return greedy_dir(mask,center.x-v.unit_pos()[slot].x,center.y-v.unit_pos()[slot].y);}
+    return goal>=0?first[static_cast<std::size_t>(goal)]:rts::UnitAction::Stop;
+}
+
 
 }  // namespace
 
@@ -155,6 +240,16 @@ rts::UnitAction DefenderScript::decide_unit(const rts::WorldView& view,
     const rts::Vec2 me = view.unit_pos()[slot];
     wish = rts::kNoSlot;
 
+    if(t==rts::UnitType::Mason) {
+        const rts::GridPos* target=nullptr;
+        if(slot<manual_order_.size() && manual_order_[slot].active && manual_order_[slot].generation==id.generation()) {
+            auto& order=manual_order_[slot];
+            if(dist2(me,rts::center_of(order.target))<2.25f) order.active=false;
+            else target=&order.target;
+        }
+        return safe_worker(view,slot,mask,bld_claimed_,target);
+    }
+
     // ——手动临时指令（辅助性覆盖）：优先于一切自主默认——
     //
     // 世代不匹配说明槽位被复用了，旧指令是上一个死掉的单位留下的痕迹，
@@ -184,8 +279,13 @@ rts::UnitAction DefenderScript::decide_unit(const rts::WorldView& view,
             if (!wall_ok) {
                 order = ManualOrder{};
             } else {
-                const std::uint16_t cell =
-                    rts::slot_of(order.target, view.width());
+                auto cell = rts::slot_of(order.target, view.width());
+                if(view.unit_garrison()[slot]!=cell && std::find(wall_claimed_.begin(),wall_claimed_.end(),cell)!=wall_claimed_.end()) {
+                    const auto own=view.unit_garrison()[slot];
+                    const int alternative=own!=rts::kNoSlot?static_cast<int>(own):find_wall_post(view,rts::center_of(order.target));
+                    if(alternative<0) {order.active=false;return rts::UnitAction::Stop;}
+                    cell=static_cast<std::uint16_t>(alternative);order.target=rts::pos_of_slot(cell,view.width());
+                }
                 if (view.unit_garrison()[slot] == cell &&
                     view.unit_mount()[slot] == 0) {
                     order = ManualOrder{};   // 已登顶：指令完成，回归自主
@@ -208,6 +308,11 @@ rts::UnitAction DefenderScript::decide_unit(const rts::WorldView& view,
             // 开拔。已上墙的先下来：意愿清空，这一拍钉着等世界放人。
             if (view.unit_garrison()[slot] != rts::kNoSlot) {
                 return rts::UnitAction::Stop;
+            }
+            if(has(mask,rts::UnitAction::AtkNear)) {
+                float target_d2=0;
+                const int enemy=nearest_enemy(view,rts::center_of(order.target),[](rts::UnitType){return true;},&target_d2);
+                if(enemy>=0 && target_d2<2.25f) return rts::UnitAction::AtkNear;
             }
             if (dist2(me, rts::center_of(order.target)) >
                 p_.arrive_cells * p_.arrive_cells) {
@@ -282,77 +387,27 @@ rts::UnitAction DefenderScript::decide_unit(const rts::WorldView& view,
             return hold_position(view, slot, mask);
         }
         case rts::UnitType::Ranger: {
-            // 不与骑士对冲：保持距离（克制表「Ranger ──► Knight」的另一半）。
-            float d2 = 0.0f;
-            const int knight = nearest_enemy(
-                view, me, [](rts::UnitType u) { return u == rts::UnitType::Knight; },
-                &d2);
-            if (knight >= 0 && d2 < p_.avoid_knight_cells * p_.avoid_knight_cells) {
-                return flee_from(view, slot,
-                                 view.unit_pos()[static_cast<std::size_t>(knight)],
-                                 mask);
+            float knight_d2=0;
+            const int knight=nearest_enemy(view,me,[](rts::UnitType u){return u==rts::UnitType::Knight;},&knight_d2);
+            if(knight>=0 && knight_d2<p_.avoid_knight_cells*p_.avoid_knight_cells)
+                return move_towards(view,slot,hold_point_for(slot,view.keep_pos()),mask);
+            const auto bounds=city_bounds(view);
+            int enemies=0,friends=0,target=-1;float best=1000000;
+            for(std::size_t u=0;u<view.unit_pos().size();++u) {
+                if(!view.unit_alive()[u] || !rts::is_combat(view.unit_type()[u])) continue;
+                const auto p=view.unit_pos()[u];
+                if(dist2(me,p)<16) {if(rts::side_of(view.unit_type()[u])==rts::Side::Attacker) ++enemies;else ++friends;}
+                if(rts::side_of(view.unit_type()[u])!=rts::Side::Attacker || rts::is_aerial(view.unit_type()[u]) || !bounds.contains(rts::grid_of(p)) || dist2(p,rts::center_of(view.keep_pos()))>p_.spear_engage_cells*p_.spear_engage_cells) continue;
+                const float score=dist2(me,p)+(view.unit_type()[u]==rts::UnitType::Shade?0.0f:20.0f);
+                if(score<best) {best=score;target=static_cast<int>(u);}
             }
-            if (has(mask, rts::UnitAction::AtkNear)) return rts::UnitAction::AtkNear;
-            // 没有更近的威胁：主动摸向敌方攻城锤（「出城的执行手段」，
-            // 「Ram ──► Ranger 快速切入」）。
-            const int ram = nearest_enemy(
-                view, me, [](rts::UnitType u) { return u == rts::UnitType::Ram; });
-            if (ram >= 0) {
-                return move_towards(
-                    view, slot,
-                    rts::grid_of(view.unit_pos()[static_cast<std::size_t>(ram)]),
-                    mask);
-            }
-            return hold_position(view, slot, mask);
+            if(!bounds.contains(rts::grid_of(me)) || enemies>friends+1 || view.unit_hp()[slot]*100<view.unit_max_hp()[slot]*40)
+                return move_towards(view,slot,hold_point_for(slot,view.keep_pos()),mask);
+            if(has(mask,rts::UnitAction::AtkNear)) return rts::UnitAction::AtkNear;
+            if(target>=0) return move_towards(view,slot,rts::grid_of(view.unit_pos()[static_cast<std::size_t>(target)]),mask);
+            return hold_position(view,slot,mask);
         }
-        case rts::UnitType::Mason: {
-            // 自动找活 + 任务认领：优先挑「本拍还没别的工匠认领」的最近
-            // 任务，各管一个（一窝蜂挤同一个工地是试玩抓出来的形态）；任务
-            // 数少于工匠数时才多人同任务——同任务的加速在机制层
-            // （`mason_count` 线性加速）。半径内工时才会走（机制第二批），
-            // 「到了」的判据就是那个半径。
-            const auto bp = view.bld_pos();
-            const auto bw = view.bld_work_left();
-            const auto bu = view.bld_upgrade_left();
-            const auto ba = view.bld_alive();
-            int best = -1;        // 最近的任务（不论认领与否，兜底用）
-            float best_d2 = 0.0f;
-            int best_free = -1;   // 最近的未认领任务
-            float best_free_d2 = 0.0f;
-            for (std::size_t s = 0; s < bp.size(); ++s) {
-                // 升级有独立工时，也需要工匠到场；不能按建造/维修工时漏掉它。
-                if (!ba[s] || (bw[s] <= 0 && bu[s] <= 0)) continue;
-                const float d2 = dist2(me, rts::center_of(bp[s]));
-                if (best < 0 || d2 < best_d2) {
-                    best = static_cast<int>(s);
-                    best_d2 = d2;
-                }
-                bool claimed = false;
-                for (const std::size_t c : bld_claimed_) {
-                    if (c == s) {
-                        claimed = true;
-                        break;
-                    }
-                }
-                if (!claimed && (best_free < 0 || d2 < best_free_d2)) {
-                    best_free = static_cast<int>(s);
-                    best_free_d2 = d2;
-                }
-            }
-            const int pick = best_free >= 0 ? best_free : best;
-            if (pick >= 0) {
-                bld_claimed_.push_back(static_cast<std::size_t>(pick));
-                const float d2 =
-                    dist2(me, rts::center_of(bp[static_cast<std::size_t>(pick)]));
-                const float r = view.stats().global.mason_work_radius;
-                if (d2 > r * r) {
-                    return move_towards(view, slot,
-                                        bp[static_cast<std::size_t>(pick)], mask);
-                }
-                return rts::UnitAction::Stop;   // 已在半径内干活
-            }
-            return hold_position(view, slot, mask);
-        }
+        case rts::UnitType::Mason: return rts::UnitAction::Stop; // handled before manual orders
         default: {
             // Scout 与任何后加的兵种：打得着就打（Scout 无战力，掩码永远
             // 不给它攻击位），否则巡逻集结点——攻方从那里来。

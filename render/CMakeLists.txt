@@ -314,3 +314,13 @@ if(RTS_BUILD_TESTS)
     add_test(NAME render_journal_rejects_ninth COMMAND rts_render --journal-page 8 --screenshot never_ninth.png)
     set_tests_properties(render_journal_rejects_ninth PROPERTIES WILL_FAIL TRUE)
 endif()
+
+if(RTS_BUILD_TESTS)
+    add_test(NAME render_developer_wave COMMAND rts_render --developer-wave 70
+        --map "${CMAKE_SOURCE_DIR}/game/data/maps/pool/gen_01001000.json"
+        --sprites "${CMAKE_SOURCE_DIR}/tools/sprite_gen/out_3d"
+        --stats "${CMAKE_SOURCE_DIR}/game/data/stats_placeholder.json"
+        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/developer-wave.png" --size 1200 800)
+    add_test(NAME render_developer_rejects_interactive_cli COMMAND rts_render --developer-wave 70)
+    set_tests_properties(render_developer_rejects_interactive_cli PROPERTIES WILL_FAIL TRUE)
+endif()

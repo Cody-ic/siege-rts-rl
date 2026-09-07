@@ -94,3 +94,67 @@ TEST_CASE("已进城步兵不等待仍在破墙的攻城锤", "[battlefix]") {
     REQUIRE(w.unit_pos(ghoul).x<90.0f);
     REQUIRE(w.alive(w.bld_at({95,86})));
 }
+TEST_CASE("墙头驻军不被地面近战直接选中", "[battlefix]") {
+    rts::WorldInit init;init.width=16;init.height=16;init.terrain.assign(256,rts::Terrain::Plain);
+    init.keep={8,8};init.stats=stats();init.stats.unit[static_cast<std::size_t>(rts::UnitType::Archer)].damage=0;
+    init.buildings.push_back({rts::BldType::Keep,{8,8},10000,10000});
+    init.buildings.push_back({rts::BldType::Wall,{9,8},1200,1200});
+    rts::World w(init);const auto archer=w.spawn_unit(rts::UnitType::Archer,{8.5f,8.5f},1,240,240);
+    const std::uint16_t wish=rts::slot_of({9,8},16);w.submit_garrison_wishes(rts::Side::Defender,&wish,1);w.advance(100);
+    REQUIRE(w.view(rts::Side::Defender).unit_garrison()[archer.index()]==wish);
+    const auto ghoul=w.spawn_unit(rts::UnitType::Ghoul,{10.0f,8.5f},1,1000,1000);
+    const auto bit=1u<<static_cast<unsigned>(rts::UnitAction::AtkNear);
+    REQUIRE((w.action_mask(ghoul)&bit)==0);
+    const auto shade=w.spawn_unit(rts::UnitType::Shade,{11.5f,8.5f},1,1000,1000);
+    REQUIRE((w.action_mask(shade)&bit)!=0);
+}
+TEST_CASE("开发者指定波次重新生成对应攻方且不受人口约束", "[battlefix]") {
+    const auto map=pool_map();game::DemoBattle b(map,stats(),1);
+    b.enable_developer();b.developer_wave(37);
+    REQUIRE(b.world().wave()==37);REQUIRE(b.world().phase()==rts::WavePhase::Build);
+    REQUIRE(b.world().defender_pop_cap()>1000000);
+    for(auto r:{rts::Resource::Stone,rts::Resource::Wood,rts::Resource::Gold}) REQUIRE(b.world().stock(r)>=1000000000);
+    std::vector<rts::UnitId> ids;b.world().enumerate_units(rts::Side::Attacker,ids);
+    REQUIRE_FALSE(ids.empty());REQUIRE(b.wave_plan().units()==static_cast<int>(ids.size()));
+    b.developer_wave(70);REQUIRE(b.world().wave()==70);
+    REQUIRE(b.build_ticks_left()>0);
+}
+TEST_CASE("工匠从城内修墙并在敌人靠近时撤离", "[battlefix]") {
+    rts::WorldInit init;init.width=16;init.height=16;init.terrain.assign(256,rts::Terrain::Plain);
+    init.keep={7,7};init.stats=stats();init.buildings.push_back({rts::BldType::Keep,{7,7},10000,10000});
+    for(int i=3;i<=12;++i) for(int j=3;j<=12;++j) if(i==3||i==12||j==3||j==12)
+        init.buildings.push_back({i==12&&j==7?rts::BldType::Gate:rts::BldType::Wall,{static_cast<std::int16_t>(i),static_cast<std::int16_t>(j)},1200,1200});
+    for(auto& building:init.buildings) if(building.pos==rts::GridPos{12,8}) building.hp=600;
+    rts::World w(init);const auto target=w.bld_at({12,8});
+    w.set_stock(rts::Resource::Wood,10000);
+    rts::Command repair;repair.kind=rts::CommandKind::Repair;repair.slot=rts::slot_of({12,8},16);w.submit(rts::Side::Defender,&repair,1);
+    const auto mason=w.spawn_unit(rts::UnitType::Mason,{7.5f,8.5f},1,120,120);
+    game::DefenderScript script({},1);std::vector<rts::UnitId> ids;std::vector<rts::UnitAction> acts;std::vector<std::uint16_t> wishes;
+    const auto step=[&](){w.enumerate_units(rts::Side::Defender,ids);script.decide(w.view(rts::Side::Defender),ids,acts,wishes);w.submit_actions(rts::Side::Defender,acts.data(),acts.size());w.submit_garrison_wishes(rts::Side::Defender,wishes.data(),wishes.size());w.advance(4);};
+    for(int k=0;k<25;++k) {step();REQUIRE(w.unit_pos(mason).x<12.0f);}
+    REQUIRE(w.bld_hp(target)>600);
+    w.spawn_unit(rts::UnitType::Ghoul,{12.5f,8.5f},1,10000,10000);
+    const auto before=w.unit_pos(mason);
+    for(int k=0;k<10;++k) step();
+    REQUIRE(w.unit_pos(mason).x<before.x);
+}
+TEST_CASE("建筑升级最低工料随等级增加", "[battlefix]") {
+    const auto map=pool_map();rts::World w(game::make_world_init(map,stats(),1,1));
+    REQUIRE(w.bld_upgrade_cost_stone(rts::BldType::Tower,1)>=32);
+    REQUIRE(w.bld_upgrade_cost_wood(rts::BldType::Tower,1)>=12);
+    REQUIRE(w.bld_upgrade_cost_stone(rts::BldType::Tower,8)>w.bld_upgrade_cost_stone(rts::BldType::Tower,1));
+}
+TEST_CASE("攻方必须由窥使观察才能得到新情报，情报用于下一波", "[battlefix]") {
+    game::DemoBattle b(pool_map(),stats(),1);auto& w=const_cast<rts::World&>(b.world());
+    std::vector<rts::UnitId> ids;w.enumerate_units(rts::Side::Attacker,ids);for(auto id:ids) w.kill_unit(id);
+    rts::GridPos tower{};const auto v=w.view(rts::Side::Attacker);
+    for(std::size_t k=0;k<v.bld_pos().size();++k) if(v.bld_alive()[k]&&v.bld_type()[k]==rts::BldType::Tower) {tower=v.bld_pos()[k];break;}
+    const auto point=rts::center_of(tower);
+    w.spawn_unit(rts::UnitType::Ghoul,point,1,10000,10000);b.update(16);
+    REQUIRE_FALSE(b.wave_scouted());
+    w.spawn_unit(rts::UnitType::Wraith,point,1,10000,10000);b.update(16);
+    REQUIRE(b.wave_scouted());
+    w.enumerate_units(rts::Side::Attacker,ids);for(auto id:ids) w.kill_unit(id);
+    w.begin_assault();b.update(1);
+    REQUIRE(b.world().wave()==2);REQUIRE(b.wave_intel().fresh);REQUIRE(b.wave_intel().towers>0);
+}

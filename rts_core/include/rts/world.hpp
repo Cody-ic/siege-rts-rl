@@ -127,6 +127,8 @@
 #include "rts/terrain.hpp"
 #include "rts/types.hpp"
 
+namespace game { struct SnapshotCodec; }
+
 namespace rts {
 
 // 调用方违反了接口契约：动作数组长度不对、命令给错了侧、句柄已失效、槽位越界。
@@ -201,6 +203,7 @@ constexpr std::string_view ident_of(TgtKind k) noexcept {
 // `Id` 就是 `UnitId`，传错一组在编译期就挡住了。
 template <class Tag>
 class SlotPool {
+    friend struct ::game::SnapshotCodec;
 public:
     using Id = Handle<Tag>;
 
@@ -530,11 +533,12 @@ inline GridPos pos_of_slot(std::uint16_t slot, int width) noexcept {
 // 随之移除（`u_upgrade_left_` 删，升级只经 `Train` 选级）。布局与行为双重变更。
 // `World/12` → `World/13`：新增 `CommandKind::Demolish`，`deferred_` 的长度随
 // `kCommandKindCount` 增加一格并进入哈希；与上面 `World/1 → World/2` 同类。
-inline constexpr std::string_view kWorldHashTag = "World/15";
+inline constexpr std::string_view kWorldHashTag = "World/16";
 
 class WorldView;
 
 class World {
+    friend struct ::game::SnapshotCodec;
 public:
     // 构造即校验：尺寸、数组长度、坐标在界内、`keep` 处确有一座 `Keep`。
     // 不合法抛 `ContractError`——与 `game::MapData`「存在即合法」同一条纪律。
@@ -800,6 +804,9 @@ public:
     // 直写存量。机制内的增减不走它（收入 / 扣款 / 清野产出都在解算里直接记）；
     // 留着它是给建局方设置初始资金（`game::make_world_init` 之后）与测试用。
     void set_stock(Resource r, std::int64_t v) noexcept;
+    void enable_developer() noexcept { developer_=true; }
+    bool developer() const noexcept { return developer_; }
+    void developer_wave(int wave, std::int32_t level);
 
     // ——攻方宏观状态——
     //
@@ -1085,6 +1092,7 @@ private:
     std::int32_t pop_cap_per_keep_level_ = 2;
 
     // ——时间与波次——
+    bool developer_ = false;
     Tick tick_ = 0;
     int wave_ = 1;
     WavePhase phase_ = WavePhase::Build;
