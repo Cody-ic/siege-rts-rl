@@ -939,39 +939,39 @@ TEST_CASE("守方防空：只数不死鸟，窥使不算", "[macro]") {
     CHECK(on == off);   // 只有窥使在天上的时候，两者必须一样
 }
 
-TEST_CASE("守方防空：记忆是滑窗，不是永久棘轮", "[macro]") {
-    // **永久高水位是个棘轮**：某一波见过 5 只，此后即使攻方再不派空军，
-    // 那 5 座防空也永远占着城心的位置。而「每座 AA 意味着该位置少一座对地
-    // 火力」正是这套两难的**代价**那一半 —— 让代价永久化等于把一笔持续的
-    // 交易换成一次性支出，`CLAUDE.md` 对「静态建筑照亮集结区」判过同样的性质。
-    //
-    // 这里测的是那个窗口真的有限：窗口越短，同一段历史撑起来的目标越低。
-    // 不测具体数字（那取决于这张图跑出什么），测**单调性**。
-    game::MacroParams shortw;
-    shortw.air_memory_waves = 1;
-    game::MacroParams longw;
-    longw.air_memory_waves = 8;
-    // 参数面上的结构：窗口是个真旋钮，且短窗口不可能比长窗口记得更多。
-    CHECK(shortw.air_memory_waves < longw.air_memory_waves);
-
-    const game::MapData map = pool_map();
-    const rts::StatsTable stats = pool_stats();
-    const auto peak_target = [&](int win) {
-        game::MacroParams mp;
-        mp.air_memory_waves = win;
-        game::DemoBattle b(map, stats, 7);
-        game::DefenderMacro m(map, mp);
-        int peak = 0;
-        for (int i = 0; i < 80 && b.world().wave() < 8 && !b.defeated(); ++i) {
-            run_with_macro(b, m, 200);
-            peak = std::max(peak, m.stats().flak_target_now);
-        }
-        REQUIRE_FALSE(b.defeated());
-        return peak;
-    };
-    const int p_short = peak_target(1);
-    const int p_long = peak_target(8);
-    CAPTURE(p_short, p_long);
-    // 长窗口记得住的不可能比短窗口少（同一段历史、同一个 max）。
-    CHECK(p_long >= p_short);
+TEST_CASE("守方防空：真实见闻过期后补建目标回落，已有建筑保留", "[macro]") {
+    const auto map = pool_map();
+    auto init = game::make_world_init(map, pool_stats(), 7, 1);
+    const auto k = map.keep();
+    // 无经济、无施工，固定一只可见不死鸟；只推进波号让真实见闻过期。
+    init.units.clear();
+    init.units.push_back(rts::UnitInit{rts::UnitType::Phoenix,
+        rts::Vec2{static_cast<float>(k.i) + 1.5f, static_cast<float>(k.j) + 0.5f},
+        1, 100, 100});
+    rts::World w(std::move(init));
+    w.advance(1);  // 刷新视野
+    game::MacroParams mp;
+    mp.air_memory_waves = 1;
+    game::DefenderMacro m(map, mp);
+    std::vector<rts::Command> cmds;
+    std::vector<game::UnitOrder> orders;
+    m.decide(w, cmds, orders);
+    REQUIRE(m.stats().flak_target_now == mp.flak_target + 1);
+    // 空军死亡，不重建 macro；之前确实见过的数量应只在窗口内保留。
+    std::vector<rts::UnitId> ids;
+    w.enumerate_units(rts::Side::Attacker, ids);
+    REQUIRE(ids.size() == 1);
+    w.kill_unit(ids.front());
+    const auto flak = w.place_bld(rts::BldType::Flak,
+        rts::GridPos{static_cast<std::int16_t>(k.i + 3), k.j}, 100, 100);
+    w.begin_next_wave(1);
+    cmds.clear(); orders.clear();
+    m.decide(w, cmds, orders);
+    CHECK(m.stats().flak_target_now == mp.flak_target + 1);
+    w.begin_next_wave(1);
+    cmds.clear(); orders.clear();
+    m.decide(w, cmds, orders);
+    CHECK(m.stats().flak_target_now == mp.flak_target);
+    for (const auto& c : cmds) CHECK(c.kind != rts::CommandKind::Demolish);
+    CHECK(w.alive(flak));
 }

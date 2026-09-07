@@ -560,9 +560,7 @@ TEST_CASE("战果计数：progress 是「离堡垒近了几格」，站着不动
     // 够得着——不动就不死。实测长跑到 50 万步之后「建筑伤」与「自损」
     // **同时**归零并再不回升。
     //
-    // 形式是**基于势的 shaping**（势 = 到堡垒的距离，平稳），所以它有
-    // 「不改变最优策略」的定理保证，与 `CLAUDE.md` 那条「shaping 权重必须小」
-    // 不冲突（那句担心的是非基于势的 shaping）。
+    // 本项只验证位移诊断；折扣奖励与终局条件在 training_math 中验证。
     rts::BatchedEnvInit bi;
     bi.worlds.push_back(one(0, 3));
     bi.side = rts::Side::Attacker;
@@ -631,63 +629,50 @@ TEST_CASE("战果计数：progress 在换局时清零，不把上一局的位移
     CHECK(tally[7] == 0.0f);
 }
 
-TEST_CASE("episode 时长：第一局按局错开，否则「最近 N 局」是同一批的一片", "[batchenv]") {
-    // **不错开时全批同时开跑、同时超时、同时重置** ⇒ 终局是同步的，
-    // 而那让「最近 N 局」这个统计口径失去意义：它永远是同一批里的一片，
-    // 不是策略的 N 次独立采样。实测症状是课程升档那个门的读数在 0% 与
-    // 99% 之间来回跳 —— 门读的是「刚结束的那一批碰巧怎么样」。
-    //
-    // 判据取**终局不同时发生**，不取具体在第几步：后者取决于 max_ticks
-    // 与 ticks_per_step 的具体取值，那是旋钮。
-    const auto first_done_steps = [](bool stagger) {
-        rts::BatchedEnvInit bi;
-        for (int k = 0; k < 8; ++k) bi.worlds.push_back(one(k, 1));
-        bi.side = rts::Side::Attacker;
-        bi.threads = 1;
-        bi.ticks_per_step = 6;
-        bi.max_ticks_per_episode = 240;   // 40 步一局，够短好测
-        bi.stagger_first_episode = stagger;
-        rts::BatchedEnv e(std::move(bi));
-        Bufs b(8);
-        // **batch × kMaxUnitsPerEnv**，不是一局的长度 —— 本文件别处的用例
-        // 都只有一局，照抄那个长度会被 `step` 的形状检查挡下（已踩）。
-        std::vector<rts::UnitAction> stay(
-            8 * static_cast<std::size_t>(rts::BatchedEnv::kMaxUnitsPerEnv),
-            rts::UnitAction::Stop);
-        // 每局第一次报 done 是在第几步。
-        std::vector<int> at(8, -1);
-        for (int step = 1; step <= 60; ++step) {
+TEST_CASE("episode 时长：构造和全批重置都保留完整任务时限", "[batchenv]") {
+    rts::BatchedEnvInit bi;
+    for (int i = 0; i < 8; ++i) bi.worlds.push_back(one(i, 1));
+    bi.threads = 1;
+    bi.max_ticks_per_episode = 240;
+    bi.ticks_per_step = 6;
+    rts::BatchedEnv e(std::move(bi));
+    Bufs b(8);
+    std::vector<rts::UnitAction> stay(8 * rts::BatchedEnv::kMaxUnitsPerEnv,
+                                       rts::UnitAction::Stop);
+    for (int round = 0; round < 2; ++round) {
+        for (int step = 1; step <= 40; ++step) {
             e.step(stay, b.done);
-            for (int i = 0; i < 8; ++i) {
-                if (at[static_cast<std::size_t>(i)] < 0 &&
-                    b.done[static_cast<std::size_t>(i)] != 0) {
-                    at[static_cast<std::size_t>(i)] = step;
-                }
-            }
+            for (const auto d : b.done) CHECK(d == (step == 40 ? 1u : 0u));
         }
-        return at;
-    };
-
-    // ——关掉：全部在同一步终局（那正是要修的形态）——
-    const std::vector<int> sync = first_done_steps(false);
-    for (const int v : sync) REQUIRE(v > 0);   // 都终局了，否则下面没意义
-    for (const int v : sync) CHECK(v == sync.front());
-
-    // ——开着：**不同时**。这一条是本用例的目的——
-    const std::vector<int> stag = first_done_steps(true);
-    for (const int v : stag) REQUIRE(v > 0);
-    int distinct = 0;
-    for (std::size_t k = 0; k < stag.size(); ++k) {
-        bool seen = false;
-        for (std::size_t j = 0; j < k; ++j) {
-            if (stag[j] == stag[k]) seen = true;
-        }
-        if (!seen) ++distinct;
+        for (int i = 0; i < 8; ++i) e.reset_one(i, one(i + 8, 1));
     }
-    CAPTURE(distinct, stag.front(), stag.back());
-    CHECK(distinct > 1);   // 至少不是全挤在一步
+}
 
-    // 错开只动**第一局**：`reset_one` 照旧从 0 计时（那一条由
-    // 「战果计数：progress 在换局时清零」那条用例连带覆盖 —— 它调
-    // `reset_one` 之后立刻读，读得到就说明计时器确实重置过）。
+TEST_CASE("训练势：同一批的移动、死亡和重置都按当前状态读", "[batchenv]") {
+    auto init = one(0, 1);
+    // BatchedEnv 不运行守方单兵脚本，用自动开火的塔验证真实死亡。
+    init.units[0].pos = rts::Vec2{9.5f, 11.5f};
+    init.buildings.push_back(rts::BldInit{rts::BldType::Tower, {8, 11}, 100, 100});
+    auto& tower = init.stats.bld[static_cast<std::size_t>(rts::BldType::Tower)];
+    tower.max_hp = 100;
+    tower.damage = 1000;
+    tower.range = 3.0f;
+    tower.vision = 4.0f;
+    rts::BatchedEnvInit bi;
+    bi.worlds.push_back(init);
+    bi.threads = 1;
+    rts::BatchedEnv e(std::move(bi));
+    Bufs b(1);
+    CHECK(e.potentials()[0] == -9.0);
+    CHECK(e.potentials()[0] == -9.0);  // 只读，不像 take_tally 那样清零
+    std::vector<rts::UnitAction> stay(rts::BatchedEnv::kMaxUnitsPerEnv,
+                                       rts::UnitAction::Stop);
+    for (int step = 0; step < 100 && e.unit_counts()[0] != 0; ++step) e.step(stay, b.done);
+    REQUIRE(e.unit_counts()[0] == 0);
+    CHECK(e.potentials()[0] == 0.0);
+    e.reset_one(0, one(1, 1));
+    CHECK(e.potentials()[0] == -10.0);
+    stay[0] = rts::UnitAction::MoveSE;
+    e.step(stay, b.done);
+    CHECK(e.potentials()[0] < -10.0);
 }

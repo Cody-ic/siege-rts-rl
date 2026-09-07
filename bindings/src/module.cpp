@@ -229,21 +229,19 @@ PYBIND11_MODULE(rts_native, m) {
     py::class_<rts::BatchedEnv>(m, "BatchedEnv")
         .def(py::init([](std::vector<rts::WorldInit> worlds, rts::Side side,
                          int ticks_per_step, int threads, int max_ticks_per_episode,
-                         bool stagger_first_episode, rts::ObsNorms norms) {
+                         rts::ObsNorms norms) {
                  rts::BatchedEnvInit bi;
                  bi.worlds = std::move(worlds);
                  bi.side = side;
                  bi.ticks_per_step = ticks_per_step;
                  bi.threads = threads;
                  bi.max_ticks_per_episode = max_ticks_per_episode;
-                 bi.stagger_first_episode = stagger_first_episode;
                  bi.norms = norms;
                  return std::make_unique<rts::BatchedEnv>(std::move(bi));
              }),
              py::arg("worlds"), py::arg("side") = rts::Side::Attacker,
              py::arg("ticks_per_step") = 6, py::arg("threads") = 0,
              py::arg("max_ticks_per_episode") = 2400,
-             py::arg("stagger_first_episode") = true,
              py::arg("norms") = rts::ObsNorms{})
         .def_property_readonly("batch_size", &rts::BatchedEnv::batch_size)
         .def_property_readonly("max_ticks_per_episode",
@@ -325,10 +323,9 @@ PYBIND11_MODULE(rts_native, m) {
             "读走这一步的战果（batch × TALLY_FIELDS，float32），**读走即清**。"
             "列的顺序 = obs.TALLY_NAMES。权重不在 C++ 侧——那是训练超参，"
             "这一层只给「发生了什么」。")
+        .def_property_readonly("potentials", &rts::BatchedEnv::potentials)
         .def("reset_one", &rts::BatchedEnv::reset_one, py::arg("i"), py::arg("init"),
-             py::arg("elapsed0") = 0,
-             "把第 i 局换成一个新局面。`elapsed0` 只在**批量**重置时给"
-             "（逐局递增）：否则全批重置会把错开的相位又对齐回去。")
+             "把第 i 局换成具有完整时限的新局面")
         .def(
             "state_hash",
             [](const rts::BatchedEnv& e, int i) {

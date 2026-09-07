@@ -77,19 +77,7 @@ struct BatchedEnvInit {
     // 那个是波次节奏的旋钮（配平要调它），这个是 episode 的定义（RL 的
     // credit assignment 依赖它），改动的理由不同。
     int max_ticks_per_episode = 2400;
-    // **把第一个 episode 的长度按局错开**（默认开）。
-    //
-    // 不错开时全批同时开跑、同时超时、同时重置 ⇒ **终局是同步的**，
-    // 而那让「最近 N 局」这个统计口径失去意义：它永远是**同一批**里的
-    // 一片，不是策略的 N 次独立采样。实测症状是课程升档那个门的读数在
-    // 0% 与 99% 之间来回跳（2026-09-06 的 `ppo-long3.log`）——门读的是
-    // 「刚结束的那一批碰巧怎么样」，不是「这个策略稳不稳」。
-    //
-    // 做法是给第 i 局一个初始 `elapsed` 偏移，**只影响它的第一局**：
-    // 此后各局自然错峰，再不同步。偏移是 `i × max_ticks / n` 的确定量，
-    // 不掷骰子——**它进不了 `state_hash`，但它决定每局跑多久**，用随机
-    // 会让「同一个种子跑两次结果不同」。
-    bool stagger_first_episode = true;
+    // 每个新局都享有完整时限；终局统计不得靠缩短任务来错峰。
     // 线程数。0 = 由实现挑（硬件并发数，上限批大小）。
     // **它不影响结果**，只影响墙钟时间——见文件头。
     int threads = 0;
@@ -109,9 +97,6 @@ public:
 
     int batch_size() const noexcept;
     // episode 的 tick 上界（`BatchedEnvInit::max_ticks_per_episode`）。
-    // **给 `train/` 读的**：批量重置要按它算错峰偏移，而把 2400 抄一份到
-    // Python 就是「同一件事写在两处」——那个数与 `WaveTiming` 有渊源，
-    // 会改。
     int max_ticks_per_episode() const noexcept;
     Side side() const noexcept;
 
@@ -172,23 +157,11 @@ public:
     // 那是「编队 = 一个 agent」这个抽象自带的代价，与观测取队长同源。
     void action_masks(std::span<std::uint16_t> out) const;
 
-    // 第 8 列 `progress` **不是 `World::Tally` 的字段**，是这一层加的：
-    // 它是「这一步所有 agent 到堡垒的切比雪夫距离总共缩短了几格」。
-    //
-    // **为什么必须有它**（2026-09-06 实测出来的）：只有前 7 列时，一个
-    // 「站着不动」的策略是**局部最优**——攻方在集结点离堡垒 40 格，随机
-    // 游走 400 个决策的期望位移只有 9.6 格 ⇒ 前 6 列恒 0 够不着，而第 7 列
-    // （`losses`，负权重）**够得着**：不动就不死。实测长跑到 50 万步之后
-    // 「建筑伤」与「自损」**同时**归零并再不回升，那就是这个坍缩。
-    //
-    // 形式取**基于势的 shaping**（Ng et al. 1999）：奖励 = 势函数之差，
-    // 而势取「到堡垒的距离」这个**平稳**函数（不随墙血变）。这一族 shaping
-    // 有一条定理——它**不改变最优策略**，只改变学习速度。这正是
-    // `CLAUDE.md`「shaping 项权重必须小，否则会训出『在城外反复换血但永不
-    // 推进』的退化策略」要的性质：那条担心的是**非**基于势的 shaping。
-    //
-    // ⚠️ **只算两端都活着的单位**。死掉的单位若按「距离清零」计，
-    // 「原地送死」会变成一笔正收益（距离从 40 变 0）——那比站着不动更糟。
+    // progress 只作位移诊断：仅累计两端都活着的单位，不作为奖励。
+    // 真正的势函数是所有当前存活单位到堡垒的负距离和。
+    // train/ 用同一个 gamma 算 gamma*Phi(next)-Phi(now)，终局势置零。
+    std::vector<double> potentials() const;
+
     static constexpr int kTallyFields = 8;
     static constexpr std::array<std::string_view, kTallyFields> kTallyNames{
         {"dmg_to_units", "dmg_to_blds", "units_killed", "blds_destroyed",
@@ -196,14 +169,8 @@ public:
 
     // 把第 `i` 局换成一个新局面。终局之后由 `train/` 调。
     //
-    // `elapsed0` = 新 episode 的计时起点（默认 0 = 真正的新局）。
-    //
-    // **它存在只为一个场景：批量重置。** 逐局自然终局时该传 0
-    // （那局本来就与其它局错峰着）；而 `train/` 升课程档时会把**全批**
-    // 重置一遍，那一下会把 `stagger_first_episode` 好不容易错开的相位
-    // **又对齐回去** —— 实测到过：错开只活到第一次升档，此后局数
-    // 又回到整 256 一跳。批量重置时传一个逐局递增的偏移就行。
-    void reset_one(int i, WorldInit init, int elapsed0 = 0);
+    // 包括升档后的全批重置，计时始终从零开始。
+    void reset_one(int i, WorldInit init);
 
     // 每一局最多打包多少个 **agent**。
     //
