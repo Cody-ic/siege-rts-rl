@@ -866,3 +866,112 @@ TEST_CASE("攻方目标：分队打经济，而不是全军奔堡垒", "[macro]"
     REQUIRE(c.econ_raid_permille < 500);    // 但不能把主攻路抽空——破口是拿下堡垒的前提
 }
 
+
+TEST_CASE("守方防空：座数随记忆里的空军走，不是常数", "[macro]") {
+    // **这是 `Phoenix` 上限放开那一批漏掉的配套。** 攻方那边已经从「恒 1 只」
+    // 放开到最多 5 只（`WaveCurve::phoenix_cap`），而守方这边 `flak_target`
+    // 还是常数 2 ⇒ **镜像版的坏陪练**：攻方能来 5 只，守方永远只有 2 座防空。
+    // 队友在 #141 上投的那一票就是这一条（「随已观测空军数走，记忆口径」）。
+    //
+    // 这里测的是**参数面**：默认值真的会响应，且关掉开关就回到常数行为。
+    game::MacroParams on;
+    CHECK(on.flak_per_phoenix > 0);   // 默认是开的，否则整条是死代码
+    CHECK(on.flak_max > on.flak_target);   // 顶必须高于基础，否则响应被顶掐死
+    CHECK(on.air_memory_waves > 0);
+}
+
+TEST_CASE("守方防空：见过不死鸟就多建，且不超过硬顶", "[macro]") {
+    // 端到端：把不死鸟塞进守方视野，跑几波，看目标座数真的抬起来。
+    //
+    // **判据取 `flak_target_now` 而不是 `flaks_built`**：目标涨了但没钱、
+    // 没空位建不起来是另一回事，两者混在一起时这条用例会因为「这张图恰好
+    // 没石头」而红，而那与本条要钉的性质无关。
+    const game::MapData map = pool_map();
+    const rts::StatsTable stats = pool_stats();
+
+    game::MacroParams mp;
+    mp.flak_per_phoenix = 1;
+    mp.flak_max = 6;
+
+    game::DemoBattle b(map, stats, 7);
+    game::DefenderMacro m(map, mp);
+    // 跑到不死鸟出场之后（`phoenix_from_wave = 3`）。
+    for (int i = 0; i < 60 && b.world().wave() < 6 && !b.defeated(); ++i) {
+        run_with_macro(b, m, 200);
+    }
+    CAPTURE(b.world().wave(), b.defeated(), m.stats().flak_target_now,
+            m.stats().flaks_built);
+    REQUIRE_FALSE(b.defeated());
+    // 目标座数至少是基础值，且**永远不越硬顶**——后者是结构，前者是下界。
+    CHECK(m.stats().flak_target_now >= mp.flak_target);
+    CHECK(m.stats().flak_target_now <= mp.flak_max);
+}
+
+TEST_CASE("守方防空：只数不死鸟，窥使不算", "[macro]") {
+    // `Wraith` 2026-09-03 起会飞、每波恒 1 只、**无战力**。把它算进空袭威胁
+    // 会给防空目标垫一个恒定的 +1 —— 那不是空袭，而窥使的对策是 `Flak` 的
+    // **视野否定半径**（既有座数的副作用），不需要为它多建一座。
+    //
+    // 做法：关掉响应（`flak_per_phoenix = 0`）跑一遍拿基线，再开着跑一遍。
+    // 若窥使被算进去了，开着那一遍在**还没出不死鸟的波次**就会高于基线。
+    const game::MapData map = pool_map();
+    const rts::StatsTable stats = pool_stats();
+    const game::WaveCurve curve;
+    REQUIRE(curve.wraith_from_wave < curve.phoenix_from_wave);   // 有这么一段窗口
+
+    const auto target_at_wave2 = [&](int per_phoenix) {
+        game::MacroParams mp;
+        mp.flak_per_phoenix = per_phoenix;
+        game::DemoBattle b(map, stats, 7);
+        game::DefenderMacro m(map, mp);
+        // 停在第 2 波：窥使已经出场（`wraith_from_wave = 2`），
+        // 不死鸟还没有（`phoenix_from_wave = 3`）。
+        for (int i = 0; i < 40 && b.world().wave() < 2 && !b.defeated(); ++i) {
+            run_with_macro(b, m, 200);
+        }
+        REQUIRE_FALSE(b.defeated());
+        REQUIRE(b.world().wave() == 2);
+        return m.stats().flak_target_now;
+    };
+    const int off = target_at_wave2(0);
+    const int on = target_at_wave2(1);
+    CAPTURE(off, on);
+    CHECK(on == off);   // 只有窥使在天上的时候，两者必须一样
+}
+
+TEST_CASE("守方防空：记忆是滑窗，不是永久棘轮", "[macro]") {
+    // **永久高水位是个棘轮**：某一波见过 5 只，此后即使攻方再不派空军，
+    // 那 5 座防空也永远占着城心的位置。而「每座 AA 意味着该位置少一座对地
+    // 火力」正是这套两难的**代价**那一半 —— 让代价永久化等于把一笔持续的
+    // 交易换成一次性支出，`CLAUDE.md` 对「静态建筑照亮集结区」判过同样的性质。
+    //
+    // 这里测的是那个窗口真的有限：窗口越短，同一段历史撑起来的目标越低。
+    // 不测具体数字（那取决于这张图跑出什么），测**单调性**。
+    game::MacroParams shortw;
+    shortw.air_memory_waves = 1;
+    game::MacroParams longw;
+    longw.air_memory_waves = 8;
+    // 参数面上的结构：窗口是个真旋钮，且短窗口不可能比长窗口记得更多。
+    CHECK(shortw.air_memory_waves < longw.air_memory_waves);
+
+    const game::MapData map = pool_map();
+    const rts::StatsTable stats = pool_stats();
+    const auto peak_target = [&](int win) {
+        game::MacroParams mp;
+        mp.air_memory_waves = win;
+        game::DemoBattle b(map, stats, 7);
+        game::DefenderMacro m(map, mp);
+        int peak = 0;
+        for (int i = 0; i < 80 && b.world().wave() < 8 && !b.defeated(); ++i) {
+            run_with_macro(b, m, 200);
+            peak = std::max(peak, m.stats().flak_target_now);
+        }
+        REQUIRE_FALSE(b.defeated());
+        return peak;
+    };
+    const int p_short = peak_target(1);
+    const int p_long = peak_target(8);
+    CAPTURE(p_short, p_long);
+    // 长窗口记得住的不可能比短窗口少（同一段历史、同一个 max）。
+    CHECK(p_long >= p_short);
+}

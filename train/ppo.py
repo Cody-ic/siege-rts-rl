@@ -68,6 +68,15 @@ REWARD_W = {
     "bld_value": 1.0,        # **有原则的推导**：= 重建成本，见上
     "scouts_killed": 3.0,    # 适中常量，见上
     "losses": -0.001,        # 负但小，见上
+    # **基于势的 shaping**（Ng et al. 1999）：势 = 到堡垒的距离，
+    # 奖励 = 势之差。这一族 shaping 有定理保证**不改变最优策略**，
+    # 只改变学得多快 —— 所以 \`CLAUDE.md\` 那句「shaping 项权重必须小」
+    # 在它身上的约束比其余项弱：那句担心的退化策略（「在城外反复
+    # 换血但永不推进」）正是**非**基于势的 shaping 的产物。
+    #
+    # 取 0.02：一步走得最多约 0.5 格 × 27 个 agent ⇒ 每步上限 ≈ 0.27，
+    # 而拆一座塔的 \`bld_value\` 是几十。方向指得动、大小压不过真正的战果。
+    "progress": 0.02,
 }
 
 
@@ -104,9 +113,17 @@ class Cfg:
     # 0.15 ⇒ 7.5 格（随机游走够得到）、之后每档靠上一档学到的
     # 「朝目标走」迁移过去。
     curriculum: tuple = (0.15, 0.3, 0.5, 0.75, 1.0)
-    # 升档判据：近 `promote_window` 局里有 `promote_at` 比例拿到过正奖励。
-    # **用成功率而不是固定步数**——固定步数会在学不会时硬推到下一档，
-    # 而那正好回到「拿不到第一次奖励」那个死结。
+    # 升档判据：近 `promote_window` 局里有 `promote_at` 比例**真的打到了
+    # 建筑**（`dmg_to_blds > 0`）。
+    #
+    # ⚠️ **判据不能是「拿到过正奖励」，那个版本已经坦过一次。**
+    # 加了 `progress` 那一列之后，「往前走了几格」本身就是正奖励
+    # ⇒ 这个判据退化成「动了吗」，而那是轻而易举的。实测后果：
+    # 1300 局之内一路升到第 5 档（满距离）、「有战果 100%」，
+    # 而**建筑伤在大多数 rollout 里是 0** —— 课程被跳过了。
+    #
+    # 交接 §3 R 写的就是「判据看**有没有战果**，不是 loss」，而那一条对
+    # shaping 奖励同样成立：**shaping 不是战果**。
     promote_at: float = 0.6
     promote_window: int = 100
     map_path: str = "game/data/maps/pool/gen_01001000.json"
@@ -235,6 +252,12 @@ def main() -> None:
     # 奖励权重按 C++ 给的列序排成一个向量。**照名字对齐，不按位置猜**——
     # 位置错了不会报错，只会让「击杀数」被当成「自身损失」。
     w = np.array([REWARD_W[n] for n in R.obs.TALLY_NAMES], dtype=np.float32)
+    # 日志要印的那几列的下标。**照名字取**，同上一行的纪律。
+    i_dmg_b = R.obs.TALLY_NAMES.index("dmg_to_blds")
+    i_bldv = R.obs.TALLY_NAMES.index("bld_value")
+    i_kill = R.obs.TALLY_NAMES.index("units_killed")
+    i_loss = R.obs.TALLY_NAMES.index("losses")
+    i_prog = R.obs.TALLY_NAMES.index("progress")
 
     # ——课程：从最近那一档起步——
     stage = 0
@@ -258,19 +281,42 @@ def main() -> None:
     N = cfg.envs * MU     # 一步里有多少个 agent 决策
     dev = cfg.device
 
+    ar_mu = np.arange(MU, dtype=np.int32).reshape(1, MU)
+    bits_np = (np.uint16(1) << np.arange(NA, dtype=np.uint16)).reshape(1, NA)
+
     def observe() -> tuple:
+        """一次观测。返回 (给前向用的 GPU 张量, 给 rollout 缓冲用的 numpy)。
+
+        ⚠️ **两份刻意分开，不要把 GPU 那份搬回来存。** 第一版是
+        `buf_c[t] = c.to("cpu")` —— 观测已经在 CPU 的 numpy 缓冲里，
+        那行把它送上 GPU 又原路搬回来，**每个决策拍多走 103 MB 的
+        device→host**（256 局 × 32 行 × 15 × 15 × 14 × 4 B），一个 rollout
+        6.6 GB。实测「采样 21.8s / 更新 5.5s」—— 瓶颈在搬运，不在学习，
+        而我原以为在学习。
+        """
         env.observe(cells, self_v, glob)
         env.action_masks(masks)
-        # (N, C, K, K)：torch 的卷积要 channel-first，而 C++ 写的是
-        # channel-last（那一侧 `kObsCellFloats` 的布局是 K*K*C）。
-        c = torch.from_numpy(cells).to(dev).view(N, K, K, C).permute(0, 3, 1, 2)
-        s = torch.from_numpy(self_v).to(dev).view(N, SELF_N)
+        # **哪些行是真的 agent。** `unit_counts` 是「这一局当前有几个属于
+        # `side` 的活 agent」，而张量里**前几段有效**（`observe` 的契约）
+        # ⇒ 判据是「行号 < 该局的 agent 数」，不是去猜掩码。
+        #
+        # 不拿「掩码只剩 Stop」当判据：那与「一个真的 agent 恰好无路可走」
+        # 不可区分，而后者在被围住时真的会发生。
+        live_np = (ar_mu < np.asarray(env.unit_counts, dtype=np.int32).reshape(-1, 1)
+                   ).reshape(N)
+        c_np = cells.reshape(N, K, K, C)
+        s_np = self_v.reshape(N, SELF_N)
         # 全局标量对同一局的所有 agent 相同 ⇒ 广播到每一行。
-        g = torch.from_numpy(glob).to(dev).unsqueeze(1).expand(-1, MU, -1).reshape(N, GLOB_N)
+        g_np = np.repeat(glob, MU, axis=0)
         # 掩码：uint16 位图 → (N, NA) 的 bool
-        mk = torch.from_numpy(masks.astype(np.int32)).to(dev).view(N, 1)
-        bits = torch.arange(NA, device=dev).view(1, NA)
-        return c, s, g, ((mk >> bits) & 1).bool()
+        m_np = (masks.reshape(N, 1) & bits_np) != 0
+        # 上 GPU 只为了这一次前向。channel-first 是 torch 卷积要的，
+        # 而 C++ 写的是 channel-last（`kObsCellFloats` 的布局是 K*K*C）。
+        gpu = (torch.from_numpy(c_np).to(dev).permute(0, 3, 1, 2),
+               torch.from_numpy(s_np).to(dev),
+               torch.from_numpy(g_np).to(dev),
+               torch.from_numpy(m_np).to(dev))
+        return gpu, (c_np, s_np, g_np, m_np, live_np)
 
     # ——rollout 缓冲——
     #
@@ -285,17 +331,26 @@ def main() -> None:
     # 小的那几块（动作/回报/价值）留在 GPU——它们参与 GAE 的逐步递推。
     T = cfg.rollout
     pin = dev != "cpu"
-    buf_c = torch.zeros((T, N, C, K, K), pin_memory=pin)
+    # **channel-last 存**：这样 `buf_c[t] = 那块 numpy` 是一次连续拷贝，
+    # 不需要先 permute（permute 出来的视图不连续，赋值会多一次整块搬运）。
+    # channel-first 只在更新时按 minibatch 转，那一小片的开销可忽略。
+    buf_c = torch.zeros((T, N, K, K, C), pin_memory=pin)
     buf_s = torch.zeros((T, N, SELF_N), pin_memory=pin)
     buf_g = torch.zeros((T, N, GLOB_N), pin_memory=pin)
     buf_m = torch.zeros((T, N, NA), dtype=torch.bool, pin_memory=pin)
+    # **哪些行是真 agent。** padding 行占多数（编成 9 支 vs `MAX_UNITS_PER_ENV`
+    # 32 ⇒ 28% 有效），把它们喂进更新是**纯浪费 + 稀释**：
+    #   * 策略项梯度恒 0（掩码只剩 Stop ⇒ log_prob ≡ 0，与参数无关）
+    #   * 价值项却不是 0 —— 它拿全零观测去拟合局级回报，占掉七成价值梯度
+    # 所以更新时只取 live 行。见更新那一段。
+    buf_live = torch.zeros((T, N), dtype=torch.bool, pin_memory=pin)
     buf_a = torch.zeros((T, N), dtype=torch.long, device=dev)
     buf_lp = torch.zeros((T, N), device=dev)
     buf_v = torch.zeros((T, N), device=dev)
     buf_r = torch.zeros((T, cfg.envs), device=dev)
     buf_d = torch.zeros((T, cfg.envs), device=dev)
 
-    step_count, t_start = 0, time.perf_counter()
+    step_count, t_start, n_roll = 0, time.perf_counter(), 0
     ep_ret = np.zeros((cfg.envs,), dtype=np.float64)
     # **两个列表，别合成一个。** `stage_ret` 是**本档**的回报（升档时清空，
     # 因为换了任务、旧成功率不代表现在）；`all_ret` 是全程累计（只增，用于
@@ -306,10 +361,22 @@ def main() -> None:
     # 那一列此后恒 0%（每次刚清空就统计）。
     stage_ret: list[float] = []
     all_ret: list[float] = []
+    # 逐局「这一局有没有真的打到建筑」。**升档判据读它，不读回报**（见
+    # `promote_at` 那段：回报里含 shaping，而 shaping 不是战果）。
+    ep_hit = np.zeros((cfg.envs,), dtype=np.float64)
+    stage_hit: list[float] = []
 
     while step_count < cfg.total_steps:
+        t_roll = 0.0
+        t_upd = 0.0
+        # 本 rollout 的战果累计。**这是判据本身**（交接 §3 R：「判据看有没有
+        # 战果，不是 loss」），而按局统计的那两个数在每一档的头 6 个 rollout
+        # 里恒为空（一局要 ~400 个决策拍、一个 rollout 只有 64 个）——
+        # 于是长跑的前几分钟完全瞎。逐 rollout 的战果和立刻就有值。
+        roll_tally = np.zeros((TF,), dtype=np.float64)
+        _t0 = time.perf_counter()
         for t in range(T):
-            c, s, g, mk = observe()
+            (c, s, g, mk), (c_np, s_np, g_np, m_np, lv_np) = observe()
             with torch.no_grad():
                 logits, value = net(c, s, g)
                 # **掩掉非法动作**（CLAUDE.md 明令要做掩码）。
@@ -317,21 +384,24 @@ def main() -> None:
                 dist = torch.distributions.Categorical(logits=logits)
                 act = dist.sample()
                 buf_lp[t] = dist.log_prob(act)
-            # 搬回 CPU 存（见上面那段：观测缓冲不常驻显存）。
-            buf_c[t] = c.to("cpu", non_blocking=True)
-            buf_s[t] = s.to("cpu", non_blocking=True)
-            buf_g[t] = g.to("cpu", non_blocking=True)
-            buf_m[t] = mk.to("cpu", non_blocking=True)
+            # **从 numpy 直接存，不经 GPU**（见 `observe` 的 docstring）。
+            buf_c[t] = torch.from_numpy(c_np)
+            buf_s[t] = torch.from_numpy(s_np)
+            buf_g[t] = torch.from_numpy(g_np)
+            buf_m[t] = torch.from_numpy(m_np)
+            buf_live[t] = torch.from_numpy(lv_np)
             buf_a[t], buf_v[t] = act, value
 
             acts_np[:] = act.view(cfg.envs, MU).to("cpu").numpy().astype(np.uint8)
             env.step(acts_np, done_np)
             env.take_tally(tally)
 
+            roll_tally += tally.sum(axis=0, dtype=np.float64)
             rew = (tally * w).sum(axis=1)
             buf_r[t] = torch.from_numpy(rew).to(dev)
             buf_d[t] = torch.from_numpy(done_np.astype(np.float32)).to(dev)
             ep_ret += rew
+            ep_hit += tally[:, i_dmg_b]
             step_count += cfg.envs
 
             # 终局的局重置。**重置时机归 train/**（`BatchedEnv::reset_one` 的
@@ -339,7 +409,9 @@ def main() -> None:
             for i in np.nonzero(done_np)[0]:
                 stage_ret.append(float(ep_ret[i]))
                 all_ret.append(float(ep_ret[i]))
+                stage_hit.append(float(ep_hit[i]))
                 ep_ret[i] = 0.0
+                ep_hit[i] = 0.0
                 env.reset_one(int(i), make_worlds(cfg, 1, frac)[0])
 
         # ——GAE。奖励是**逐局**的，而 agent 是逐编队的 ⇒ 把局级奖励广播到
@@ -349,13 +421,14 @@ def main() -> None:
         #
         # **用成功率而不是固定步数**：固定步数会在学不会时硬推到下一档，
         # 而那正好回到「拿不到第一次奖励」那个死结。
-        if len(stage_ret) >= cfg.promote_window and stage + 1 < len(cfg.curriculum):
-            win = stage_ret[-cfg.promote_window:]
-            rate = sum(1 for r in win if r > 0.0) / len(win)
+        if len(stage_hit) >= cfg.promote_window and stage + 1 < len(cfg.curriculum):
+            win = stage_hit[-cfg.promote_window:]
+            rate = sum(1 for h in win if h > 0.0) / len(win)
             if rate >= cfg.promote_at:
                 stage += 1
                 frac = cfg.curriculum[stage]
                 stage_ret.clear()   # 换了任务，旧成功率不再代表现在
+                stage_hit.clear()
                 print(f"  ↑ 升档：第 {stage + 1}/{len(cfg.curriculum)} 档 "
                       f"frac={frac}（上一档成功率 {rate:.0%}）", flush=True)
                 # 全批重置到新距离。**不等旧 episode 自然结束**：那些局面
@@ -363,10 +436,13 @@ def main() -> None:
                 for i in range(cfg.envs):
                     env.reset_one(i, make_worlds(cfg, 1, frac)[0])
                 ep_ret[:] = 0.0
+                ep_hit[:] = 0.0
 
         with torch.no_grad():
-            c, s, g, _ = observe()
+            (c, s, g, _), _ = observe()
             _, next_v = net(c, s, g)
+        t_roll = time.perf_counter() - _t0
+        _t0 = time.perf_counter()
         adv = torch.zeros_like(buf_v)
         last = torch.zeros(N, device=dev)
         for t in reversed(range(T)):
@@ -380,7 +456,7 @@ def main() -> None:
 
         # ——更新——
         # 观测那几块留在 CPU，按 minibatch 搬（见缓冲区那段注释）。
-        b_c = buf_c.reshape(T * N, C, K, K)
+        b_c = buf_c.reshape(T * N, K, K, C)
         b_s = buf_s.reshape(T * N, SELF_N)
         b_g = buf_g.reshape(T * N, GLOB_N)
         b_m = buf_m.reshape(T * N, NA)
@@ -388,14 +464,32 @@ def main() -> None:
         b_lp = buf_lp.reshape(T * N)
         b_adv = adv.reshape(T * N)
         b_ret = ret.reshape(T * N)
-        idx = np.arange(T * N)
-        mb = (T * N) // cfg.minibatches
+        # **只更新真 agent 的那些行**（见 `buf_live` 那段注释）。编成 9 支、
+        # 上限 32 ⇒ 大约七成的行是 padding，滤掉它们既省算力也不再稀释
+        # 价值头的梯度。**这不是近似**：那些行的策略梯度本来恒为 0。
+        idx = np.nonzero(buf_live.reshape(T * N).numpy())[0]
+        n_live = len(idx)
+        if n_live == 0:
+            raise SystemExit("一个 live agent 都没有 —— 编成或 unit_counts 坏了")
+        # **向上取整**，于是恰好切成 `minibatches` 块、最后一块是余数。
+        mb = -(-n_live // cfg.minibatches)
         for _ in range(cfg.epochs):
             np.random.shuffle(idx)
-            for start in range(0, T * N, mb):
+            for start in range(0, n_live, mb):
+                # ⚠️ **只剩 1 个样本的尾块必须跳过。** `n_live` 不再是 2 的幂
+                # （它随编队死亡逐拍变化），而 `Tensor.std()` 默认是**无偏**的
+                # ⇒ 1 个样本时 dof = 0、返回 **NaN**，优势归一化把它传遍整张
+                # 网，此后每个 logit 都是 NaN，报错却发生在几十个 minibatch
+                # 之后的 `Categorical` 构造里 —— 与真因隔着一层。
+                #
+                # 滤 padding 行之前 `T*N` 恒是 2 的幂、整除，所以这个洞一直
+                # 存在但从未触发。torch 只给了一句 `UserWarning`。
+                if len(idx[start:start + mb]) < 2:
+                    continue
                 jc = torch.from_numpy(idx[start:start + mb])   # CPU 侧索引
                 j = jc.to(dev)
-                logits, v = net(b_c[jc].to(dev, non_blocking=True),
+                logits, v = net(b_c[jc].to(dev, non_blocking=True)
+                                .permute(0, 3, 1, 2),
                                 b_s[jc].to(dev, non_blocking=True),
                                 b_g[jc].to(dev, non_blocking=True))
                 logits = logits.masked_fill(
@@ -414,14 +508,27 @@ def main() -> None:
                 nn.utils.clip_grad_norm_(net.parameters(), cfg.max_grad_norm)
                 opt.step()
 
+        t_upd = time.perf_counter() - _t0
         dt = time.perf_counter() - t_start
+        # **周期性存盘。** 长跑（几小时）只在末尾存一次，一崩就全丢；
+        # 而这台机器是四人共用的，别人一占满显存我们就 OOM（已经发生过一次，
+        # 那次已经跑到课程第 4 档）。存的是权重本身，**跨平台通用**。
+        n_roll += 1
+        if n_roll % 50 == 0:
+            torch.save(net.state_dict(), "train/ppo_attacker.pt")
         mean_ret = float(np.mean(stage_ret[-50:])) if stage_ret else float("nan")
-        win = stage_ret[-cfg.promote_window:]
-        rate = (sum(1 for r in win if r > 0.0) / len(win)) if win else 0.0
+        win = stage_hit[-cfg.promote_window:]
+        rate = (sum(1 for h in win if h > 0.0) / len(win)) if win else 0.0
         print(f"step {step_count:>9,}  {step_count / dt:>8,.0f} env-step/s  "
               f"档{stage + 1}(f={frac:.2f})  回报 {mean_ret:>9.2f}  "
-              f"有战果 {rate:>4.0%}  本档 {len(stage_ret)} 局  "
-              f"累计 {len(all_ret)} 局", flush=True)
+              f"打到建筑 {rate:>4.0%}  本档 {len(stage_ret)} 局  "
+              f"累计 {len(all_ret)} 局  "
+              f"| 建筑伤 {roll_tally[i_dmg_b]:>9,.0f}  "
+              f"拆了 {roll_tally[i_bldv]:>7,.0f}值  "
+              f"杀 {roll_tally[i_kill]:>5,.0f}  损 {roll_tally[i_loss]:>8,.0f}  "
+              f"进 {roll_tally[i_prog]:>8,.0f}格  "
+              f"[采样 {t_roll:.1f}s / 更新 {t_upd:.1f}s  "
+              f"live {n_live / (T * N):.0%}]", flush=True)
 
     torch.save(net.state_dict(), "train/ppo_attacker.pt")
     print("权重已存 train/ppo_attacker.pt")

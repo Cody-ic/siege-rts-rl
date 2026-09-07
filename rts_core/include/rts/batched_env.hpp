@@ -154,10 +154,27 @@ public:
     // 那是「编队 = 一个 agent」这个抽象自带的代价，与观测取队长同源。
     void action_masks(std::span<std::uint16_t> out) const;
 
-    static constexpr int kTallyFields = 7;
+    // 第 8 列 `progress` **不是 `World::Tally` 的字段**，是这一层加的：
+    // 它是「这一步所有 agent 到堡垒的切比雪夫距离总共缩短了几格」。
+    //
+    // **为什么必须有它**（2026-09-06 实测出来的）：只有前 7 列时，一个
+    // 「站着不动」的策略是**局部最优**——攻方在集结点离堡垒 40 格，随机
+    // 游走 400 个决策的期望位移只有 9.6 格 ⇒ 前 6 列恒 0 够不着，而第 7 列
+    // （`losses`，负权重）**够得着**：不动就不死。实测长跑到 50 万步之后
+    // 「建筑伤」与「自损」**同时**归零并再不回升，那就是这个坍缩。
+    //
+    // 形式取**基于势的 shaping**（Ng et al. 1999）：奖励 = 势函数之差，
+    // 而势取「到堡垒的距离」这个**平稳**函数（不随墙血变）。这一族 shaping
+    // 有一条定理——它**不改变最优策略**，只改变学习速度。这正是
+    // `CLAUDE.md`「shaping 项权重必须小，否则会训出『在城外反复换血但永不
+    // 推进』的退化策略」要的性质：那条担心的是**非**基于势的 shaping。
+    //
+    // ⚠️ **只算两端都活着的单位**。死掉的单位若按「距离清零」计，
+    // 「原地送死」会变成一笔正收益（距离从 40 变 0）——那比站着不动更糟。
+    static constexpr int kTallyFields = 8;
     static constexpr std::array<std::string_view, kTallyFields> kTallyNames{
         {"dmg_to_units", "dmg_to_blds", "units_killed", "blds_destroyed",
-         "bld_value", "scouts_killed", "losses"}};
+         "bld_value", "scouts_killed", "losses", "progress"}};
 
     // 把第 `i` 局换成一个新局面。终局之后由 `train/` 调。
     void reset_one(int i, WorldInit init);

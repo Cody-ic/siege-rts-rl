@@ -51,6 +51,26 @@ struct BatchedEnv::Impl {
     std::vector<std::vector<std::optional<FlowField>>> flows;
     FlowTiering tiering{};
 
+    // ——`progress` 那一列（见 `kTallyNames`）——
+    //
+    // 逐局的距离快照：`step` 推进**之前**记下每个活单位到堡垒的距离，
+    // 推进之后再算一遍，只对**两端都在**的单位求差。
+    // 预分配、只 `assign` 不 `push_back`——热路径不分配。
+    std::vector<std::vector<std::pair<UnitId, int>>> dist_before;
+    // 逐局本步缩短了几格。`take_tally` 读走即清（与前 7 列同款语义）。
+    std::vector<double> progress;
+
+    // 到堡垒的切比雪夫距离。**取格坐标而不是浮点距离**：格是移动的单位，
+    // 而浮点差在两套工具链之间会飘（本项目明写回放不跨平台，但没必要
+    // 在一个纯训练信号上再引入一处平台差异）。
+    static int dist_to_keep(const World& w, UnitId id) {
+        const GridPos g = grid_of(w.unit_pos(id));
+        const GridPos k = w.keep_pos();
+        const int dx = g.i > k.i ? g.i - k.i : k.i - g.i;
+        const int dy = g.j > k.j ? g.j - k.j : k.j - g.j;
+        return dx > dy ? dx : dy;
+    }
+
     // 把 `[lo, hi)` 这段环境分给若干线程跑同一个函数体。
     //
     // **刻意不用任何「任务队列 / 工作窃取」**：那类调度让「哪个线程处理哪一局」
@@ -160,6 +180,8 @@ BatchedEnv::BatchedEnv(BatchedEnvInit init) : p_(std::make_unique<Impl>()) {
                  static_cast<std::size_t>(kFlowTierCount));
     }
     p_->max_ticks = init.max_ticks_per_episode;
+    p_->dist_before.resize(static_cast<std::size_t>(n));
+    p_->progress.assign(static_cast<std::size_t>(n), 0.0);
     p_->refresh_counts();
 }
 
@@ -274,6 +296,14 @@ void BatchedEnv::step(std::span<const UnitAction> actions,
         // 尾部编队没有动作可给」不会造出非法输入。攻方编队硬顶 27 <
         // `kMaxUnitsPerEnv` 32，所以那条分支在攻方一侧不该发生；守方是散兵、
         // 上限随堡垒等级涨（`8+2K`），将来会走到。
+        // **推进之前**记下每个活单位到堡垒的距离（`progress` 那一列）。
+        std::vector<std::pair<UnitId, int>>& before = p_->dist_before[ui];
+        before.clear();
+        before.reserve(units.size());
+        for (const UnitId id : units) {
+            before.emplace_back(id, Impl::dist_to_keep(w, id));
+        }
+
         slice.assign(units.size(), UnitAction::Stop);
         for (std::size_t k = 0; k < units.size(); ++k) {
             const std::uint16_t sq = w.unit_squad(units[k]);
@@ -294,6 +324,21 @@ void BatchedEnv::step(std::span<const UnitAction> actions,
         w.submit_actions(p_->side, slice.data(), slice.size());
         w.advance(p_->ticks_per_step);
         p_->elapsed[ui] += p_->ticks_per_step;
+
+        // 距离缩短了几格。**只算两端都活着的单位**（见 `kTallyNames` 那条
+        // 警告：按「死了就距离归零」计会把送死变成正收益）。
+        //
+        // `enumerate_units` 后于 `advance`，所以这里不能用它——重新枚举一遍
+        // 的那份里已经没有这一步死掉的单位了，而我要的正是「谁两端都在」。
+        // 改用句柄各自查：`unit_pos` 对失效句柄会抛，所以先问活没活。
+        {
+            double gained = 0.0;
+            for (const auto& [id, d0] : before) {
+                if (!w.alive(id)) continue;        // 这一步死了：不计
+                gained += static_cast<double>(d0 - Impl::dist_to_keep(w, id));
+            }
+            p_->progress[ui] += gained;
+        }
         // 终局：Keep 掉了**或**超时。超时那一半是 episode 的定义
         // （见 `max_ticks_per_episode`）——没有它，打不动的策略会把一局
         // 无限拖下去，而 PPO 收不到任何奖励信号。
@@ -352,6 +397,9 @@ void BatchedEnv::take_tally(std::span<float> out) {
         out[o + 4] = static_cast<float>(t.bld_value);
         out[o + 5] = static_cast<float>(t.scouts_killed);
         out[o + 6] = static_cast<float>(t.losses);
+        // 第 8 列由这一层给（不是 `World::Tally` 的字段），同样读走即清。
+        out[o + 7] = static_cast<float>(p_->progress[ui]);
+        p_->progress[ui] = 0.0;
     }
 }
 
@@ -363,6 +411,10 @@ void BatchedEnv::reset_one(int i, WorldInit init) {
     p_->worlds[ui]->enumerate_squads(p_->side, p_->leaders[ui]);
     p_->counts[ui] = static_cast<int>(p_->leaders[ui].size());
     p_->elapsed[ui] = 0;   // 新 episode 从 0 开始计时
+    // **`progress` 必须一起清**：不清的话上一局最后一步的位移会算进新局的
+    // 第一步，而新局的单位在集结点、距离是满的 ⇒ 那是一笔凭空的大额奖励。
+    p_->progress[ui] = 0.0;
+    p_->dist_before[ui].clear();
 }
 
 }  // namespace rts

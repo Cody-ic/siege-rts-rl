@@ -58,6 +58,13 @@ bool ground_unit_on(const rts::WorldView& v, rts::GridPos cell) {
 struct VisibleFoe {
     int knight = 0;
     int ram = 0;
+    // 空军。**`Phoenix` 与 `Wraith` 分开数**，因为它们对守方的意义不同：
+    // 前者是打击（要靠 `Flak` 打下来），后者是侦查（要靠 `Flak` 的**视野
+    // 否定半径**赶走）。合成一个数会让「每波恒 1 只的窥使」把防空目标顶起
+    // 一格，那不是空袭威胁。而玩家侧本来就分得清——`CLAUDE.md` 要求克制
+    // 关系在 UI 里完全透明，剪影也是刻意区分的。
+    int phoenix = 0;
+    int wraith = 0;
     int total = 0;
 };
 
@@ -76,6 +83,8 @@ VisibleFoe census_visible_foes(const rts::WorldView& v) {
         ++out.total;
         if (ut[k] == rts::UnitType::Knight) ++out.knight;
         if (ut[k] == rts::UnitType::Ram) ++out.ram;
+        if (ut[k] == rts::UnitType::Phoenix) ++out.phoenix;
+        if (ut[k] == rts::UnitType::Wraith) ++out.wraith;
     }
     return out;
 }
@@ -84,6 +93,8 @@ VisibleFoe census_visible_foes(const rts::WorldView& v) {
 
 DefenderMacro::DefenderMacro(const MapData& map, const MacroParams& params)
     : p_(params) {
+    // 空军见闻的滑窗。**至少 1 格**：0 长度会让下面那个取余除以零。
+    air_seen_.assign(static_cast<std::size_t>(std::max(1, p_.air_memory_waves)), 0);
     keep_ = map.keep();
     map_w_ = map.width();
     map_h_ = map.height();
@@ -193,8 +204,21 @@ void DefenderMacro::decide(const rts::World& w, std::vector<rts::Command>& cmds,
     if (v.wave() != last_wave_) {
         last_wave_ = v.wave();
         gath_this_wave_ = 0;
+        // 空军见闻滑到下一格。**上一波见过几只，从此只在窗口里活
+        // `air_memory_waves` 波**，见 `air_seen_` 的声明处。
+        air_seen_[static_cast<std::size_t>(air_slot_)] = air_this_wave_;
+        air_slot_ = (air_slot_ + 1) % static_cast<int>(air_seen_.size());
+        air_this_wave_ = 0;
     }
     std::int64_t tower_left = std::max<std::int64_t>(0, stone - keep_need);
+
+    // **过迷雾数一次敌情，两处消费**（编成偏置在 6a、防空座数在 6a2）。
+    // 提到这里是因为它必须先于防空那一段，而它本来在编成那一段里面。
+    // 数两次不会错，但那是同一件事写在两处——本仓库通篇在防的东西。
+    const VisibleFoe foe = census_visible_foes(v);
+    // **本波见过的最多空军**（取 max 而不是累加：同一只不死鸟每个决策拍
+    // 都会被数一次，累加出来是「决策拍数」而不是「几只」）。
+    air_this_wave_ = std::max(air_this_wave_, foe.phoenix);
 
     // 受威胁的方向 = 兵力最多的那个集结点（免费情报，会被佯攻欺骗——设计如此）。
     rts::GridPos threat = keep_;
@@ -425,7 +449,6 @@ void DefenderMacro::decide(const rts::World& w, std::vector<rts::Command>& cmds,
         // 而弓手是**墙上唯一吃高度优势的输出**，把它压没等于放弃三阶段攻防的
         // 第一段。归一化之后同样的局面给 A406/S312/R281——反应仍然明显，
         // 但它抢的是份额、不是把基础编成清零。
-        const VisibleFoe foe = census_visible_foes(v);
         int want_archer = std::max(
             0, 1000 - p_.mix_spear_permille - p_.mix_ranger_permille);
         int want_spear = p_.mix_spear_permille;
@@ -552,7 +575,40 @@ void DefenderMacro::decide(const rts::World& w, std::vector<rts::Command>& cmds,
     // 若排在后面，钱永远先被环塔花完，取舍就退化成「有余钱才防空」。
     // 摆位与近卫塔同一组候选（离堡垒 4–6）——`Flak` 射程 5、视野 9，
     // 摆在城心一带能罩住堡垒与内城，而空军的目标正是塔与工人。
-    if (p_.flak_target > 0 && !keep_guard_spots_.empty()) {
+    //
+    // **座数随「记忆里的空军」走，不是常数**（2026-09-06，队友在 #141 投的
+    // 那一票：「随已观测空军数走，记忆口径」）。此前是常数 2，而同一批把攻方
+    // 的 `Phoenix` 上限从恒 1 放开到 5 —— 只放开一头就是镜像版的坏陪练：
+    // 攻方最多来 5 只，守方永远只有 2 座防空。
+    //
+    // 三条口径上的定法：
+    //
+    //   1. **只数 `Phoenix`，不数 `Wraith`**。窥使每波恒 1 只、无战力，
+    //      把它算进来等于给防空目标垫了个恒定的 +1，那不是空袭威胁。
+    //      （窥使的对策是 `Flak` 的**视野否定半径**，那是既有座数的副作用，
+    //      不需要为它多建一座。）
+    //   2. **滑窗而不是永久高水位**。永久高水位是个棘轮：某一波见过 5 只，
+    //      此后即使攻方再不派空军，那 5 座防空也永远占着城心的位置——而
+    //      「每座 AA 意味着该位置少一座对地火力」正是这套两难的**代价**那
+    //      一半，让代价永久化等于把两难变成一次性支出。窗口取几波是旋钮。
+    //   3. **不看真实数量、只看看得见过的**（`census_visible_foes` 过迷雾）。
+    //      读真实数量 = 守方凭空知道该建几座，玩家做不到 ⇒ 攻方 RL 会学到
+    //      一个「先知守方」，与「情报要花资源买」整条设计轴相反。
+    //
+    // 反馈回路是设计要的：攻方那边 `flak_per_phoenix_cut` 让记忆里每 2 座
+    // 防空少来一只不死鸟，两条合起来是**负反馈**、有不动点——那正是
+    // `CLAUDE.md` 说的「这组双向预判是本作智斗最可读的载体」。
+    int flak_want = p_.flak_target;
+    if (p_.flak_per_phoenix > 0) {
+        int seen = air_this_wave_;
+        for (const int n : air_seen_) seen = std::max(seen, n);
+        // 向上取整：见过 1 只就该有 1 座，而不是 0 座。
+        flak_want += (seen + p_.flak_per_phoenix - 1) / p_.flak_per_phoenix;
+    }
+    if (p_.flak_max > 0) flak_want = std::min(flak_want, p_.flak_max);
+    stats_.flak_target_now = flak_want;
+
+    if (flak_want > 0 && !keep_guard_spots_.empty()) {
         const rts::BldStats& fs = v.stats().of(rts::BldType::Flak);
         int have = 0;
         {
@@ -563,7 +619,7 @@ void DefenderMacro::decide(const rts::World& w, std::vector<rts::Command>& cmds,
             }
         }
         for (const rts::GridPos c : keep_guard_spots_) {
-            if (!room() || have >= p_.flak_target) break;
+            if (!room() || have >= flak_want) break;
             if (bld_slot_at(v, c) >= 0) continue;
             if (!can_place_hint(v, rts::BldType::Flak, c)) continue;
             if (ground_unit_on(v, c)) continue;
