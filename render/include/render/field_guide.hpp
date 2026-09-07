@@ -41,7 +41,22 @@ inline void draw_developer(const FontSet& font,const std::string& wave) {
     DrawCircleLines(static_cast<int>(panel.x+139),static_cast<int>(panel.y+202),69,Color{135,107,62,150});
     DrawPoly({panel.x+139,panel.y+202},6,52,30,Color{97,51,41,255});
     DrawPolyLinesEx({panel.x+139,panel.y+202},6,46,30,2,Color{190,147,92,255});
-    font.draw("圣",{panel.x+117,panel.y+179},44,Color{228,202,155,255});
+    // The covenant seal: a radiant sun around a suspended crystal.
+    const Vector2 seal{panel.x+139,panel.y+202};
+    const Color sigil{232,207,159,255};
+    DrawCircleLines(static_cast<int>(seal.x),static_cast<int>(seal.y),24,sigil);
+    DrawCircleLines(static_cast<int>(seal.x),static_cast<int>(seal.y),28,Color{186,143,89,255});
+    DrawLineEx({seal.x,seal.y-38},{seal.x,seal.y-29},2,sigil);
+    DrawLineEx({seal.x,seal.y+29},{seal.x,seal.y+38},2,sigil);
+    DrawLineEx({seal.x-38,seal.y},{seal.x-29,seal.y},2,sigil);
+    DrawLineEx({seal.x+29,seal.y},{seal.x+38,seal.y},2,sigil);
+    for(float dx:{-1.0f,1.0f}) for(float dy:{-1.0f,1.0f})
+        DrawLineEx({seal.x+dx*22,seal.y+dy*22},{seal.x+dx*27,seal.y+dy*27},1,sigil);
+    DrawLineEx({seal.x,seal.y-19},{seal.x-10,seal.y},2,sigil);
+    DrawLineEx({seal.x-10,seal.y},{seal.x,seal.y+19},2,sigil);
+    DrawLineEx({seal.x,seal.y+19},{seal.x+10,seal.y},2,sigil);
+    DrawLineEx({seal.x+10,seal.y},{seal.x,seal.y-19},2,sigil);
+    DrawLineEx({seal.x,seal.y-10},{seal.x,seal.y+10},1,sigil);
     font.draw("指挥官权限",{panel.x+67,panel.y+303},25,ink);
     font.draw("界限之外",{panel.x+91,panel.y+347},18,Color{110,85,51,255});
     const float x=panel.x+300;
