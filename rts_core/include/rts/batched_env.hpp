@@ -48,6 +48,13 @@
 
 namespace rts {
 
+// Native macro intent for one observation batch. Groups are parallel to the
+// supplied squad leaders: 0 = keep, 1 = economy. Empty groups mean all keep.
+struct BatchedGoals {
+    std::vector<std::uint8_t> groups;
+    std::vector<GridPos> economy;
+};
+
 // 一批环境的构型。
 struct BatchedEnvInit {
     // 每一局的初始局面。**长度即批大小**，且各局可以不同——按波次分层采样
@@ -109,6 +116,11 @@ struct BatchedEnvInit {
     // an episode starts, without making core depend on game scripts. Called on
     // initial construction and every reset; must return a non-null world.
     std::function<std::unique_ptr<World>(WorldInit, int)> world_factory;
+    // Optional read-only, native-only target provider. Called once per world
+    // during observe, on worker threads; no Python callbacks or shared mutation.
+    // The fog-filtered view prevents granting this hook extra world access.
+    // This changes flow inputs only; episode and reward semantics are unchanged.
+    std::function<BatchedGoals(const WorldView&, std::span<const UnitId>, int)> goal_hook;
     // 线程数。0 = 由实现挑（硬件并发数，上限批大小）。
     // **它不影响结果**，只影响墙钟时间——见文件头。
     int threads = 0;

@@ -41,6 +41,7 @@ struct BatchedEnv::Impl {
     // 所以实现只许碰第 i 局自己的状态——那条纪律写在声明处。
     std::function<void(World&, int)> opponent;
     std::function<std::unique_ptr<World>(WorldInit, int)> world_factory;
+    std::function<BatchedGoals(const WorldView&, std::span<const UnitId>, int)> goal_hook;
 
     std::unique_ptr<World> make_world(WorldInit init, int index) {
         auto result = world_factory ? world_factory(std::move(init), index)
@@ -48,7 +49,7 @@ struct BatchedEnv::Impl {
         if (!result) throw ContractError("BatchedEnv: world factory returned null");
         return result;
     }
-    // 逐局的 flow field 缓存：`(兵种 × 等级档)`，每次 `observe` 重算。
+    // 逐局的 flow field 缓存：`(兵种 × 等级档 × 目标组)`，每次 observe 重算。
     //
     // **`observe` 里必须喂方向场，否则策略没有任何东西指向目标。**
     // 此前这里传 `nullptr`（`obs_pack.hpp` 说「训练早期没有宏观目标时是正常
@@ -179,6 +180,7 @@ BatchedEnv::BatchedEnv(BatchedEnvInit init) : p_(std::make_unique<Impl>()) {
                                    1, n);
     p_->worlds.reserve(static_cast<std::size_t>(n));
     p_->world_factory = std::move(init.world_factory);
+    p_->goal_hook = std::move(init.goal_hook);
     for (WorldInit& wi : init.worlds) {
         p_->worlds.push_back(p_->make_world(std::move(wi), static_cast<int>(p_->worlds.size())));
     }
@@ -191,7 +193,7 @@ BatchedEnv::BatchedEnv(BatchedEnvInit init) : p_(std::make_unique<Impl>()) {
     p_->flows.resize(static_cast<std::size_t>(n));
     for (auto& f : p_->flows) {
         f.resize(static_cast<std::size_t>(kUnitTypeCount) *
-                 static_cast<std::size_t>(kFlowTierCount));
+                 static_cast<std::size_t>(kFlowTierCount) * 2);
     }
     p_->max_ticks = init.max_ticks_per_episode;
     p_->opponent = std::move(init.opponent_hook);
@@ -254,6 +256,14 @@ void BatchedEnv::observe(std::span<float> cells, std::span<float> self_vec,
         // 「group action 是共享子目标」那条形状要求的（见 `kMaxUnitsPerEnv`）。
         const std::vector<UnitId>& ids = p_->leaders[ui];
         const int m = std::min(static_cast<int>(ids.size()), kMaxUnitsPerEnv);
+        const auto intent = p_->goal_hook ? p_->goal_hook(v, ids, i) : BatchedGoals{};
+        if (!intent.groups.empty() && intent.groups.size() != ids.size())
+            throw ContractError("BatchedEnv: goal groups must match squad leaders");
+        for (auto group : intent.groups)
+            if (group > 1) throw ContractError("BatchedEnv: invalid goal group");
+        for (auto cell : intent.economy)
+            if (cell.i < 0 || cell.j < 0 || cell.i >= w.width() || cell.j >= w.height())
+                throw ContractError("BatchedEnv: economy goal outside map");
         // 本局的 field 全部作废重算（墙血变了破坏代价就变）。
         for (auto& f : p_->flows[ui]) f.reset();
         const GridPos goal[1] = {w.keep_pos()};
@@ -273,12 +283,16 @@ void BatchedEnv::observe(std::span<float> cells, std::span<float> self_vec,
             const UnitId self = ids[static_cast<std::size_t>(u)];
             const UnitType mover = w.unit_type(self);
             const int tier = flow_tier_of(w.unit_level(self), p_->tiering);
-            const std::size_t fi = static_cast<std::size_t>(mover) *
+            const std::size_t group = intent.groups.empty() || intent.economy.empty()
+                ? std::size_t{0} : static_cast<std::size_t>(intent.groups[static_cast<std::size_t>(u)]);
+            const std::span<const GridPos> targets = group == 1
+                ? std::span<const GridPos>(intent.economy) : std::span<const GridPos>(goal);
+            const std::size_t fi = (static_cast<std::size_t>(mover) *
                                        static_cast<std::size_t>(kFlowTierCount) +
-                                   static_cast<std::size_t>(tier);
+                                   static_cast<std::size_t>(tier)) * 2 + group;
             std::optional<FlowField>& fld = p_->flows[ui][fi];
             if (!fld) {
-                fld.emplace(FlowField::compute(v, mover, tier, goal, p_->tiering));
+                fld.emplace(FlowField::compute(v, mover, tier, targets, p_->tiering));
             }
             pack_unit_obs(v, self, &*fld, p_->norms,
                           cells.subspan(co, static_cast<std::size_t>(kObsCellFloats)),

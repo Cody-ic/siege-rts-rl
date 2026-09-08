@@ -595,6 +595,48 @@ TEST_CASE("episode 时间上界：置 0 = 不设（旧行为）", "[batchenv]") 
     }
 }
 
+TEST_CASE("Native macro goals are isolated, deterministic and reset safely", "[batchenv][batchgoals]") {
+    const auto build = [](int threads, int mode) {
+        auto init=make_init(2,threads);
+        if(mode) init.goal_hook=[mode](const rts::WorldView&, std::span<const rts::UnitId> ids, int) {
+            rts::BatchedGoals g;
+            g.groups.resize(ids.size());
+            for(std::size_t i=0;i<ids.size();++i) g.groups[i]=static_cast<std::uint8_t>(i%2);
+            if(mode!=2) g.economy.push_back({22,12});
+            if(mode==3) g.groups.push_back(0);
+            if(mode==4) g.economy[0]={24,12};
+            return g;
+        };
+        return std::make_unique<rts::BatchedEnv>(std::move(init));
+    };
+    auto legacy=build(1,0), serial=build(1,1), parallel=build(2,1), fallback=build(2,2);
+    Bufs a(2),b(2),c(2),d(2);
+    legacy->observe(a.cells,a.self,a.glob);
+    serial->observe(b.cells,b.self,b.glob);
+    parallel->observe(c.cells,c.self,c.glob);
+    fallback->observe(d.cells,d.self,d.glob);
+    REQUIRE(b.cells==c.cells);REQUIRE(b.self==c.self);REQUIRE(b.glob==c.glob);
+    REQUIRE(a.cells==d.cells);REQUIRE(a.self==d.self);REQUIRE(a.glob==d.glob);
+    REQUIRE(a.self==b.self);REQUIRE(a.glob==b.glob);
+    const auto center=static_cast<std::size_t>((rts::kObsK/2*rts::kObsK+rts::kObsK/2)*rts::kObsChannelCount);
+    const auto di=static_cast<std::size_t>(rts::ObsChannel::FlowDi);
+    REQUIRE(a.cells[center+di]==b.cells[center+di]);
+    REQUIRE(a.cells[rts::kObsCellFloats+center+di]<0);
+    REQUIRE(b.cells[rts::kObsCellFloats+center+di]>0);
+    // Goal conditioning may change only the two registered flow channels.
+    bool unchanged=true;
+    for(std::size_t i=0;i<a.cells.size();++i)
+        if(i%rts::kObsChannelCount<di && a.cells[i]!=b.cells[i]) unchanged=false;
+    REQUIRE(unchanged);
+    serial->reset_one(0,one(0,2));
+    serial->observe(d.cells,d.self,d.glob);
+    REQUIRE(d.cells==b.cells);
+    for(int mode:{3,4}) {
+        auto invalid=build(2,mode);
+        REQUIRE_THROWS_AS(invalid->observe(d.cells,d.self,d.glob),rts::ContractError);
+    }
+}
+
 TEST_CASE("观测必须喂方向场——否则策略不知道该往哪走", "[batchenv]") {
     // `observe` 此前给 `pack_unit_obs` 传 `nullptr`（`obs_pack.hpp` 说
     // 「训练早期没有宏观目标时是正常形态，不是缺陷」）。**在有宏观目标的
