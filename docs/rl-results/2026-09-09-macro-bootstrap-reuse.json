@@ -1,0 +1,54 @@
+{
+  "before_source": "4a9040fd0a05884c7b78a3e003eb055774ad1267dea6e38a7bb1a7b48d792e80",
+  "after_source": "ae18faa3ac37fac9fefc171935dd92424ad37d07f824514cd1f25bd9e203d469",
+  "config": {
+    "maps": [
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01001000.json",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01004000.json"
+    ],
+    "stats": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\stats_placeholder.json",
+    "seed": 1,
+    "rollout": 16,
+    "period": 500,
+    "epochs": 1,
+    "hidden": 64,
+    "learning_rate": 0.0003,
+    "gamma": 0.995,
+    "gae_lambda": 0.95,
+    "clip": 0.2,
+    "max_wave": 70,
+    "anchor_weight": 1.0,
+    "detach_critic_features": false,
+    "attacker_model": "",
+    "init_from_simulation": ""
+  },
+  "updates": 2,
+  "env_steps": 32,
+  "finished_campaigns": [
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01001000.json",
+      "seed": 1,
+      "ticks": 6077,
+      "waves_survived": 1,
+      "defeated": true
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01004000.json",
+      "seed": 2,
+      "ticks": 2517,
+      "waves_survived": 0,
+      "defeated": true
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01001000.json",
+      "seed": 3,
+      "ticks": 5886,
+      "waves_survived": 1,
+      "defeated": true
+    }
+  ],
+  "model_optimizer_reference_rng_campaign_exact": true,
+  "before_seconds": 13.675097399995138,
+  "after_seconds": 13.400272099999711,
+  "timing_scope": "single local CPU run per version, concurrent evaluation; not a stable speed benchmark"
+}

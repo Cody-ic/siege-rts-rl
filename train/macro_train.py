@@ -187,6 +187,11 @@ def train(cfg, folder, updates,init_checkpoint=None):
                     decision=policy.decide(*obs,world.candidates(),world.map_shape,detail=detail)
                     reference_logp=(float(reference.rescore(*obs,decision.command,decision.domains,
                         world.map_shape,detail=detail).log_prob) if reference is not None else 0.)
+                # The policy is fixed throughout a rollout. This is exactly the
+                # preceding nonterminal row's bootstrap, without encoding the
+                # same full-resolution city a second time. Never cross a wave.
+                if rows and not rows[-1]['terminal']:
+                    rows[-1]['next_value']=float(decision.value)
                 transition=world.advance(cfg.period,[decision.command])
                 commands.append(decision.command)
                 terminal=transition['wave_advanced'] or transition['defeated']
@@ -195,7 +200,7 @@ def train(cfg, folder, updates,init_checkpoint=None):
                 rows.append(dict(obs=obs,detail=detail,command=decision.command,domains=decision.domains,
                     shape=world.map_shape,log_prob=float(decision.log_prob),reference_logp=reference_logp,value=float(decision.value),
                     reward=reward,terminal=terminal,ticks=transition['ticks'],
-                    next_value=0. if terminal else bootstrap(policy,world.defender_observation(),world.defender_detail().astype(np.float16))))
+                    next_value=0.))
                 progress['waves_survived']+=int(transition['wave_advanced'])
                 progress['defeats']+=int(transition['defeated'])
                 progress['simulation_ticks']+=transition['ticks']
@@ -205,6 +210,9 @@ def train(cfg, folder, updates,init_checkpoint=None):
                         ticks=world.tick,waves_survived=world.wave-1,defeated=transition['defeated']))
                     progress['episode']+=1
                     world=campaign(cfg,progress['episode'],opponent);commands=[]
+            if rows and not rows[-1]['terminal']:
+                rows[-1]['next_value']=bootstrap(policy,world.defender_observation(),
+                                                world.defender_detail().astype(np.float16))
             advantages,targets=returns(rows,cfg)
             losses=[]
             penalties=[]

@@ -2,6 +2,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import torch
 
@@ -14,6 +15,16 @@ from checkpointing import load_auto
 
 
 class MacroTrainTests(unittest.TestCase):
+    def test_nonterminal_rollout_only_bootstraps_at_end(self):
+        import macro_train
+        cfg=self.config();cfg.rollout=4;cfg.period=1
+        with tempfile.TemporaryDirectory() as folder:
+            with patch.object(macro_train,'bootstrap',wraps=macro_train.bootstrap) as extra_value:
+                train(cfg,folder,2)
+            self.assertEqual(extra_value.call_count,2)
+            saved,_=load_auto(folder)
+            self.assertEqual(saved['campaign']['tick'],8)
+
     def test_explicit_cross_simulation_transfer_is_weights_only(self):
         from macro_evaluate import load_policy
         cfg=self.config()
