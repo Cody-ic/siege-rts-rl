@@ -853,3 +853,85 @@ TEST_CASE("对侧钩子：结果与线程数无关", "[batchenv]") {
         CHECK(one_thread[k] == many[k]);
     }
 }
+
+TEST_CASE("训练全灭立即终局并冻结，重置后可继续", "[batchenv]") {
+    auto init = one(0, 0);
+    rts::BatchedEnvInit bi;
+    bi.worlds = {init};
+    bi.ticks_per_step = 1;
+    bi.max_ticks_per_episode = 100;
+    rts::BatchedEnv env(std::move(bi));
+    Bufs buffers(1);
+    std::vector<rts::UnitAction> actions(rts::BatchedEnv::kMaxUnitsPerEnv, rts::UnitAction::Stop);
+    env.step(actions, buffers.done);
+    CHECK(buffers.done[0] == 1);
+    CHECK(env.episode_ends()[0] == rts::BatchedEnv::EpisodeEnd::AttackersEliminated);
+    const auto frozen = env.world_at(0).state_hash();
+    env.step(actions, buffers.done);
+    CHECK(env.world_at(0).state_hash() == frozen);
+    env.reset_one(0, one(1, 1));
+    CHECK(env.episode_ends()[0] == rts::BatchedEnv::EpisodeEnd::Running);
+    env.step(actions, buffers.done);
+    CHECK(buffers.done[0] == 0);
+}
+
+TEST_CASE("编队身份在队长替换与观测压缩后仍可匹配", "[batchenv]") {
+    auto init = one(0, 3);
+    init.units[0].squad = 2;
+    init.units[1].squad = 2;
+    init.units[2].squad = 7;
+    rts::BatchedEnvInit bi;
+    bi.worlds = {init};
+    rts::BatchedEnv env(std::move(bi));
+    std::vector<std::int64_t> keys(rts::BatchedEnv::kMaxUnitsPerEnv);
+    env.agent_keys(keys);
+    CHECK(keys[0] == 3);
+    CHECK(keys[1] == 8);
+    CHECK(keys[2] == 0);
+    // Remove the original squad leader; the remaining member represents same agent.
+    init.units.erase(init.units.begin());
+    env.reset_one(0, init);
+    env.agent_keys(keys);
+    CHECK(keys[0] == 3);
+    CHECK(keys[1] == 8);
+    // Remove the whole first squad; second squad compacts into row zero.
+    init.units.erase(init.units.begin());
+    env.reset_one(0, init);
+    env.agent_keys(keys);
+    CHECK(keys[0] == 8);
+    CHECK(keys[1] == 0);
+    CHECK_THROWS_AS(env.agent_keys(std::span<std::int64_t>{}), rts::ContractError);
+}
+
+TEST_CASE("攻方全灭仍等待已发射的致胜弹丸", "[batchenv]") {
+    auto init = one(0, 0);
+    init.buildings[0].hp = 1;
+    init.units = {
+        rts::UnitInit{rts::UnitType::Shade, {4.5f, 2.5f}, 1, 1, 1},
+        rts::UnitInit{rts::UnitType::Spear, {4.6f, 2.5f}, 1, 20, 20}};
+    auto& shade = init.stats.unit[static_cast<std::size_t>(rts::UnitType::Shade)];
+    shade.damage = 500;
+    shade.range = 6.0f;
+    shade.windup_ticks = 0;
+    shade.proj_speed = 0.1f;
+    auto& spear = init.stats.unit[static_cast<std::size_t>(rts::UnitType::Spear)];
+    spear.damage = 100;
+    spear.windup_ticks = 3;
+    rts::BatchedEnvInit bi;
+    bi.worlds = {init};
+    bi.ticks_per_step = 1;
+    bi.opponent_hook = [](rts::World& w, int) {
+        const rts::UnitAction a = rts::UnitAction::AtkNear;
+        w.submit_actions(rts::Side::Defender, &a, 1);
+    };
+    rts::BatchedEnv env(std::move(bi));
+    Bufs buffers(1);
+    std::vector<rts::UnitAction> actions(rts::BatchedEnv::kMaxUnitsPerEnv, rts::UnitAction::AtkBld);
+    bool saw_pending_after_death = false;
+    for (int i = 0; i < 80 && !buffers.done[0]; ++i) {
+        env.step(actions, buffers.done);
+        if (env.unit_counts()[0] == 0 && !buffers.done[0]) saw_pending_after_death = true;
+    }
+    CHECK(saw_pending_after_death);
+    CHECK(env.episode_ends()[0] == rts::BatchedEnv::EpisodeEnd::KeepDestroyed);
+}

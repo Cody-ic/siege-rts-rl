@@ -100,7 +100,8 @@ class ResetSamplingTests(unittest.TestCase):
             obs=SimpleNamespace(UNIT_TYPE_NAMES=['Ghoul']),
             map_sites=lambda _: {'spawns':[(0,0),(100,0),(100,100),(0,100)], 'keep':(50,50)},
             make_world_init=lambda *a, **kw: kw)
-        namespace = {'R':native, 'Cfg':object}
+        namespace = {'R':native, 'Cfg':object,
+                     'world_factory':lambda *_: (SimpleNamespace(make=native.make_world_init),native.map_sites(''))}
         exec(compile(ast.Module(body=[fn], type_ignores=[]), str(source), 'exec'), namespace)
         cfg = SimpleNamespace(seed=1,map_path='',stats_path='')
         make = namespace['make_worlds']

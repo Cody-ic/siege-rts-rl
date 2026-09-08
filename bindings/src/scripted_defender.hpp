@@ -56,7 +56,8 @@ public:
                      const game::MacroParams& mp = {},
                      const game::ScriptParams& sp = {},
                      int macro_period_steps = 1)
-        : macro_period_(macro_period_steps < 1 ? 1 : macro_period_steps) {
+        : map_(map), mp_(mp), sp_(sp), seed_(seed),
+          macro_period_(macro_period_steps < 1 ? 1 : macro_period_steps) {
         per_.reserve(static_cast<std::size_t>(n));
         for (int i = 0; i < n; ++i) {
             per_.push_back(std::make_unique<Per>(
@@ -74,6 +75,10 @@ public:
 
     // 钩子本体。**只碰 `per_[i]`**，见文件头那条纪律。
     void operator()(rts::World& w, int i) {
+        // reset_one replaces World but does not recreate this captured callback.
+        // Reset at tick zero, including the first episode, using world seed rather
+        // than batch index so frozen evaluation is independent of batching.
+        if (w.now() == 0) reset(i, map_, seed_ ^ w.seed(), mp_, sp_);
         Per& s = *per_[static_cast<std::size_t>(i)];
 
         // ——宏观：建 / 修 / 招 / 升 / 清野——
@@ -137,6 +142,10 @@ private:
     // 搬动本身是安全的，但钩子在多线程里按下标取引用 ⇒ **绝不能让
     // 那些引用因为一次扩容而失效**。指针稳定这条比省一层间接重要。
     std::vector<std::unique_ptr<Per>> per_;
+    game::MapData map_;
+    game::MacroParams mp_;
+    game::ScriptParams sp_;
+    std::uint64_t seed_;
     int macro_period_ = 1;
 };
 

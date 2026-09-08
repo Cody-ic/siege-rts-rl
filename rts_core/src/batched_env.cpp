@@ -369,11 +369,42 @@ void BatchedEnv::step(std::span<const UnitAction> actions,
         // 无限拖下去，而 PPO 收不到任何奖励信号。
         const bool timed_out =
             p_->max_ticks > 0 && p_->elapsed[ui] >= p_->max_ticks;
+        w.enumerate_units(Side::Attacker, p_->ids[ui]);
+        bool pending_attack = false;
+        if (p_->ids[ui].empty()) {
+            // An arrow already in flight may still destroy the keep after its
+            // shooter dies. Let those attacks settle before declaring elimination.
+            const auto view = w.view(Side::Attacker);
+            const auto sides = view.proj_side();
+            for (const auto side : sides) if (side == Side::Attacker) pending_attack = true;
+        }
         p_->ends[ui] = !Impl::keep_alive(w) ? EpisodeEnd::KeepDestroyed
+            : p_->ids[ui].empty() && !pending_attack ? EpisodeEnd::AttackersEliminated
             : timed_out ? EpisodeEnd::Timeout : EpisodeEnd::Running;
         done[ui] = p_->ends[ui] == EpisodeEnd::Running ? 0u : 1u;
     });
     p_->refresh_counts();
+}
+
+void BatchedEnv::agent_keys(std::span<std::int64_t> out) const {
+    if (out.size() != static_cast<std::size_t>(batch_size()) * kMaxUnitsPerEnv) {
+        throw ContractError("BatchedEnv::agent_keys: out must be batch * max_agents");
+    }
+    std::fill(out.begin(), out.end(), 0);
+    for (int i = 0; i < batch_size(); ++i) {
+        const std::size_t ui = static_cast<std::size_t>(i);
+        const World& w = *p_->worlds[ui];
+        const auto& leaders = p_->leaders[ui];
+        if (leaders.size() > static_cast<std::size_t>(kMaxUnitsPerEnv)) {
+            throw ContractError("BatchedEnv::agent_keys: too many agents, refusing truncation");
+        }
+        for (std::size_t q = 0; q < leaders.size(); ++q) {
+            const auto sq = w.unit_squad(leaders[q]);
+            out[ui * kMaxUnitsPerEnv + q] = sq != kNoSquad
+                ? static_cast<std::int64_t>(sq) + 1
+                : (std::int64_t{1} << 32) + leaders[q].raw();
+        }
+    }
 }
 
 void BatchedEnv::action_masks(std::span<std::uint16_t> out) const {

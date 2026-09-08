@@ -13,7 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前状态
 
-**骨架、接口契约与仿真本体（1c 六批）都已落地，「不考虑 RL 的基本可玩」已成立；PPO 训练循环尚未开工（`train/` 至今只有冒烟脚本）。**
+**骨架、接口契约与仿真本体（1c 六批）都已落地，「不考虑 RL 的基本可玩」已成立；`train/` 已有 PPO 训练、真实守方接入、冻结评估及断点恢复，当前流程见 `train/README.md`。**
 （本行原写「仿真本体尚未开始」——那是骨架刚入库时的时点，后来全文与下表
 `rts_core/` 一行都更新了、唯独这句开场白没有，于是它与自己十行之下的内容直接
 矛盾，2026-09-01 订正。细状态以 `rts/world.hpp` 文件头与 `README.md` 状态表

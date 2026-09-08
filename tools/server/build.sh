@@ -70,6 +70,9 @@ if [ "${RTS_BINDINGS:-0}" = "1" ]; then
         exit 2
     fi
     EXTRA+=("-DRTS_BUILD_BINDINGS=ON" "-DPython3_EXECUTABLE=$PYEXE")
+    if [ "${RTS_TRAINING_TESTS:-0}" = "1" ]; then
+        EXTRA+=("-DRTS_TEST_TRAINING=ON" "-DRTS_TRAIN_PYTHON=$PYEXE")
+    fi
     DEP_NOTES+=("bindings 开，Python = $PYEXE")
 fi
 for entry in "${DEPS[@]}"; do

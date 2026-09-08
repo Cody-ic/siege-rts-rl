@@ -127,12 +127,9 @@ public:
     int max_ticks_per_episode() const noexcept;
     Side side() const noexcept;
 
-    // 本批**当前**每一局各有多少个活着的、属于 `side()` 的单位。
-    //
-    // 它是变长的，而张量必须定长——所以观测缓冲区按 `max_units_per_env`
-    // 分段，多出来的位置留 0，并由 `unit_counts()` 告诉 Python 哪几段有效。
-    // **不做「把活单位压实成连续一段」**：那会让同一个单位在相邻两步落在
-    // 不同下标上，而策略网络是逐单位独立前向的，压实只会让日志与调试对不上号。
+    // 每局当前存活的编队数（agent = 编队）。观测前 count 行有效。
+    // 整队死亡会压缩行号；同队更换队长也可能换槽位。跨步匹配请用
+    // agent_keys，不能把行下标当成持久身份。
     std::span<const int> unit_counts() const noexcept;
 
     // 打包当前观测。三块缓冲区的长度必须**恰好**是：
@@ -143,20 +140,13 @@ public:
     //
     // 长度不符即抛（同 `pack_unit_obs` 的理由：Python 侧 `reshape` 会照样成功）。
     //
-    // **本版一律不喂方向场，于是 `FlowDi` / `FlowDj` 两条通道恒为 0。**
-    // 如实记在这里，因为它与 `AerialAliveFrac` 那条恒 0 **不是同一种**：那条是
-    // 世界里还没有空军（接线是对的，放一只进去就有值），这条是**接线还不存在**。
-    //
-    // 不顺手接上是因为它不是一行的事：field 按 `(mover, tier)` 缓存与失效
-    // （`rts/flow.hpp` 把这条明确划给调用方），而一批里每局的墙血各自在变，
-    // 所以要么每局一套缓存、要么每步重算 N × 兵种 × 档 张——前者是这个类要
-    // 增加的一整块状态，后者恰好是 `flow.hpp` 让调用方缓存的那件事。
-    // 该由谁决定重算节律，得等 `train/` 那侧的形状定了才知道。
+    // 按兵种/等级档为当前世界计算到堡垒的方向场，供局部观测使用。
+    // 各局持有独立缓存，训练侧不另造全图或无迷雾观测。
     void observe(std::span<float> cells, std::span<float> self_vec,
                  std::span<float> globals);
 
-    // 推进一批。`actions` 的形状是 batch × max_units，**按 `enumerate_units()`
-    // 的规范顺序**逐单位给动作；超出该局单位数的位置被忽略（不是报错——
+    // 推进一批。`actions` 的形状是 batch × max_units，**按 `enumerate_squads()`
+    // 的规范顺序**逐编队给动作；超出该局单位数的位置被忽略（不是报错——
     // 定长张量里那些位置本来就没有对应单位）。
     //
     // 返回值是每一局这一步的「是否终局」。终局的局**不自动重置**：
@@ -184,13 +174,18 @@ public:
     // 那是「编队 = 一个 agent」这个抽象自带的代价，与观测取队长同源。
     void action_masks(std::span<std::uint16_t> out) const;
 
+    // Stable agent identity per observation row, 0 for padding. Squads keep their
+    // key when a leader dies; independent units include the handle generation.
+    // Rows themselves compact after a squad dies: GAE must match by key, not row.
+    void agent_keys(std::span<std::int64_t> out) const;
+
     // progress 只作位移诊断：仅累计两端都活着的单位，不作为奖励。
     // 真正的势函数是所有当前存活单位到堡垒的负距离和。
     // train/ 用同一个 gamma 算 gamma*Phi(next)-Phi(now)，终局势置零。
     std::vector<double> potentials() const;
 
     // Latched until reset. Keep destruction wins ties with the time limit.
-    enum class EpisodeEnd : std::uint8_t { Running, KeepDestroyed, Timeout };
+    enum class EpisodeEnd : std::uint8_t { Running, KeepDestroyed, Timeout, AttackersEliminated };
     std::span<const EpisodeEnd> episode_ends() const noexcept;
 
     static constexpr int kTallyFields = 8;

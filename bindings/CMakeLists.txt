@@ -35,6 +35,24 @@ FetchContent_MakeAvailable(pybind11)
 
 pybind11_add_module(rts_native src/module.cpp)
 
+# Stable across rebuilding the same sources, unlike PE/ELF file hashes. Changes
+# trigger reconfiguration so an old extension cannot claim the current checkout.
+file(GLOB_RECURSE _simulation_sources CONFIGURE_DEPENDS
+    "${CMAKE_SOURCE_DIR}/rts_core/*.cpp" "${CMAKE_SOURCE_DIR}/rts_core/*.hpp"
+    "${CMAKE_SOURCE_DIR}/game/src/*.cpp" "${CMAKE_SOURCE_DIR}/game/include/*.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/src/*.hpp")
+list(SORT _simulation_sources)
+set(_simulation_fingerprint "${CMAKE_CXX_COMPILER_ID}/${CMAKE_CXX_COMPILER_VERSION}")
+foreach(_source IN LISTS _simulation_sources)
+    file(SHA256 "${_source}" _source_sha)
+    file(RELATIVE_PATH _relative "${CMAKE_SOURCE_DIR}" "${_source}")
+    string(APPEND _simulation_fingerprint "\n${_relative}:${_source_sha}")
+endforeach()
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${_simulation_sources})
+string(SHA256 _simulation_sha "${_simulation_fingerprint}")
+target_compile_definitions(rts_native PRIVATE
+    RTS_SIMULATION_FINGERPRINT="${_simulation_sha}" RTS_NATIVE_BUILD_MODE="$<CONFIG>")
+
 # 链接 `game` 是为了复用 `MapLoader` / `StatsLoader` / `make_world_init`
 # ——绑定层因此不必暴露 `WorldInit` 的几十个字段（见 module.cpp 文件头）。
 # `game` 在默认构建里，所以这条依赖不把任何新东西拖进 GCC 编译面。
@@ -53,3 +71,26 @@ set_target_properties(rts_native PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bindings")
 
 message(STATUS "bindings: Python3 = ${Python3_EXECUTABLE} (${Python3_VERSION})")
+
+# Explicit opt-in: normal game builds don't require PyTorch. When enabled, a
+# missing torch must fail configuration rather than silently skip learner tests.
+option(RTS_TEST_TRAINING "Run real CPU PyTorch training and restart tests" OFF)
+set(RTS_TRAIN_PYTHON "${Python3_EXECUTABLE}" CACHE FILEPATH "Python with torch, numpy and the binding's ABI")
+if(RTS_TEST_TRAINING)
+    if(NOT RTS_BUILD_TESTS)
+        message(FATAL_ERROR "RTS_TEST_TRAINING requires RTS_BUILD_TESTS")
+    endif()
+    execute_process(COMMAND "${RTS_TRAIN_PYTHON}" -c "import torch, numpy"
+                    RESULT_VARIABLE _training_python_ok)
+    if(NOT _training_python_ok EQUAL 0)
+        message(FATAL_ERROR "RTS_TRAIN_PYTHON must provide torch and numpy")
+    endif()
+    foreach(_training_test ppo_smoke rl_runtime rl_suite)
+        add_test(NAME "${_training_test}"
+                 COMMAND "${RTS_TRAIN_PYTHON}" "${CMAKE_SOURCE_DIR}/tests/${_training_test}_test.py")
+        set_tests_properties("${_training_test}" PROPERTIES
+            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+            ENVIRONMENT "PYTHONPATH=$<TARGET_FILE_DIR:rts_native>;PYTHONIOENCODING=utf-8"
+            TIMEOUT 180 RUN_SERIAL TRUE)
+    endforeach()
+endif()

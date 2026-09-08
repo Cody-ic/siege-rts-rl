@@ -27,8 +27,8 @@ from learning import potential_reward
 class NativeTrainingTests(unittest.TestCase):
     def config(self):
         cfg = ppo.Cfg(envs=2, ticks_per_step=600, rollout=3, total_steps=18,
-                      epochs=1, minibatches=2, device='cpu',
-                      promote_window=2, promote_at=0.0)
+                      epochs=1, minibatches=2, device='cpu', defender=False, threads=1,
+                      promote_window=2, promote_at=0.0, promote_outcome_at=0.0)
         cfg.map_path = str(ROOT / cfg.map_path)
         cfg.stats_path = str(ROOT / cfg.stats_path)
         return cfg
@@ -93,32 +93,32 @@ class NativeTrainingTests(unittest.TestCase):
                 Path('train').mkdir()
                 output = io.StringIO()
                 with patch.object(ppo,'Cfg',lambda:cfg), patch.object(R,'BatchedEnv',TracedEnv), \
-                     patch.object(ppo,'Policy',TracedPolicy), patch.object(sys,'argv',['ppo']), \
+                     patch.object(ppo,'Policy',TracedPolicy), patch.object(sys,'argv',['ppo','--run-dir','train']), \
                      contextlib.redirect_stdout(output):
                     ppo.main()
-                weights = torch.load('train/ppo_attacker.pt',weights_only=True)
+                weights = torch.load('train/policy.pt',weights_only=True)
                 self.assertTrue(all(torch.isfinite(v).all() for v in weights.values()))
                 self.assertTrue(any(not torch.equal(weights[k],v) for k,v in initial.items()))
                 self.assertIn('完整批次 2 局',output.getvalue())
-                self.assertIn('胜利 0 / 超时 2 / 升档中断 2',output.getvalue())
+                self.assertIn('胜利 0 / 超时 2 / 全灭 0 / 升档中断 2',output.getvalue())
                 self.assertIn('完成局均长 4.0步',output.getvalue())
-                metadata = json.loads(Path('train/ppo_attacker.json').read_text(encoding='utf-8'))
+                metadata = json.loads(Path('train/state.json').read_text(encoding='utf-8'))
                 self.assertEqual(metadata['config']['reward_mode'], cfg.reward_mode)
-                self.assertEqual(metadata['wins'] + metadata['timeouts'], 2)
-                self.assertEqual(metadata['completed_steps'], 8)
+                self.assertEqual(metadata['progress']['wins'] + metadata['progress']['timeouts'], 2)
+                self.assertEqual(metadata['progress']['completed_steps'], 8)
                 # Done at step 4, promotion at rollout boundary 6. GAE must see
                 # the old curriculum's successor before the forced reset.
                 self.assertEqual(events.count(('reset',6)),2)
                 self.assertLess(events.index(('observe',6)),events.index(('reset',6)))
-                report = evaluate('train/ppo_attacker.pt', cfg, episodes=3, frac=.15)
+                report = evaluate('train/policy.pt', cfg, episodes=3, frac=.15)
                 self.assertEqual(report['wins'] + report['timeouts'], 3)
                 self.assertEqual([r['episode'] for r in report['rows']], [0, 1, 2])
                 self.assertTrue(all(0 < r['steps'] <= 4 for r in report['rows']))
                 # Evaluation must not change the saved checkpoint.
-                again = torch.load('train/ppo_attacker.pt', weights_only=True)
+                again = torch.load('train/policy.pt', weights_only=True)
                 self.assertTrue(all(torch.equal(weights[k], v) for k,v in again.items()))
                 cfg.envs = 1
-                serial = evaluate('train/ppo_attacker.pt', cfg, episodes=3, frac=.15)
+                serial = evaluate('train/policy.pt', cfg, episodes=3, frac=.15)
                 self.assertEqual(report['rows'], serial['rows'])
             finally:
                 os.chdir(previous)
