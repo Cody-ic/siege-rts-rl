@@ -1,0 +1,42 @@
+{
+  "purpose": "Independent seed follow-up of shared critic candidate selected from development comparison",
+  "arms": [
+    "baseline",
+    "candidate"
+  ],
+  "models": {
+    "baseline": "runs/prepared-final-20260909/candidate.pt",
+    "candidate": "runs/tactical-critic-shared-20260909/frozen-update32.pt"
+  },
+  "seed": 907,
+  "levels": [
+    1,
+    4
+  ],
+  "envs": 8,
+  "maps": [
+    "01010001",
+    "01011000",
+    "01012000",
+    "01008000"
+  ],
+  "prepare_ticks": 900,
+  "max_ticks": 2400,
+  "selection": "frozen_argmax",
+  "primary": "paired wins at each level and across both levels; all arms reported",
+  "limits": "Maps appeared in earlier evaluations, but seed 907 and these paired cases did not enter this candidate training or selection; no significance or 70-wave claim",
+  "files": {
+    "runs/prepared-final-20260909/candidate.pt": "b556e8e3ff216d5fc3dc8e960fed12c2ccce79f318472cc6be8cff6c90550276",
+    "runs/tactical-critic-shared-20260909/frozen-update32.pt": "0d1b286e16d5583a3a93c6fb7f00501e2f6721f29395ca7f270ecf5b47026af3",
+    "train/goal_coverage.py": "bc651936f4d71b78914bc9036dfee0bb39d51db22ff3e094882195e4aedd5685",
+    "train/compare_goal_evaluations.py": "c1792b6d4171af778b1348f9d17493eb9b663f50dd5c576afdd7f96f95641817",
+    "train/ppo.py": "8d2ce0c5f16d11099e4f2059094bb30f24cbb9afaee959ef0efa0c9b9b781a61",
+    "train/stable_kl.py": "ca7cd18ffb5a9c199278ea42d735168a79b9b375c65d91ecf7ee3d9ed3b44b8c",
+    "game/data/stats_placeholder.json": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+    "build-goal-training/bindings/Release/rts_native.cp313-win_amd64.pyd": "86d7b676d980abb9b0cdc1a15e48a43e45408b445a770e55882ce6700403de29",
+    "game/data/maps/pool/gen_01010001.json": "75330c033aef2663eb6ad46d746d99bd9a853ea8b559c63c8e5df9f56bf7ee0e",
+    "game/data/maps/pool/gen_01011000.json": "11e930e51e0e75e961c0a3188aab81a07b892e03be35095fa62374b9b796d523",
+    "game/data/maps/pool/gen_01012000.json": "ca8443d13a77fcdb39eb67767c9c31f69ede95f14825f1c8f154a58849bb3e62",
+    "game/data/maps/pool/gen_01008000.json": "7cd3ef88926ad5089df91b020743c8472fbf03dff311d1db00e06c596e231aeb"
+  }
+}
