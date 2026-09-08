@@ -45,6 +45,14 @@ class ComparisonTests(unittest.TestCase):
         Path(self.plan['models']['shared']).write_text('replaced')
         with self.assertRaisesRegex(ValueError,'Changed input'):self.run_comparison()
 
+    def test_goal_mode_must_match_explicit_plan_for_every_arm(self):
+        self.plan['tactical_goals']='split-economy'
+        with self.assertRaisesRegex(ValueError,'Wrong goal mode'):self.run_comparison()
+        for report in self.reports.values():report['config']['tactical_goals']='split-economy'
+        self.assertEqual(self.run_comparison()['levels']['1']['summary']['baseline']['wins'],0)
+        self.reports['shared']['config']['tactical_goals']='known-economy'
+        with self.assertRaisesRegex(ValueError,'Mismatched'):self.run_comparison()
+
     def test_rejects_wrong_checkpoint_report(self):
         self.reports['shared']['checkpoint_sha256']='wrong'
         with self.assertRaisesRegex(ValueError,'Wrong checkpoint'):self.run_comparison()

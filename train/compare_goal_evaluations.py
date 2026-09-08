@@ -15,6 +15,8 @@ def compare(plan_path, directory):
     for path,digest in plan['files'].items():
         require(hashlib.sha256(Path(path).read_bytes()).hexdigest()==digest,f'Changed input: {path}')
     levels={}
+    goal_mode=plan.get('tactical_goals','known-economy')
+    require(goal_mode in ('keep','known-economy','split-economy'),'Invalid planned goal mode')
     names=plan.get('arms',['baseline','candidate'])
     require(len(names)>=2 and len(names)==len(set(names)) and 'baseline' in names,'Invalid comparison arms')
     for level in plan['levels']:
@@ -31,7 +33,7 @@ def compare(plan_path, directory):
             require(cfg['map_pool']==[f'game/data/maps/pool/gen_{x}.json' for x in plan['maps']],'Wrong maps')
             require(cfg['defender_prepare_ticks']==plan['prepare_ticks'] and cfg['max_ticks']==plan['max_ticks'],
                     'Wrong preparation or battle time')
-            require(cfg['tactical_goals']=='known-economy','Wrong goal mode')
+            require(cfg['tactical_goals']==goal_mode,'Wrong goal mode')
             default_models={'baseline':'runs/prepared-final-20260909/candidate.pt',
                             'candidate':'runs/economy-goal-pilot-20260909/frozen-update16.pt'}
             model=plan.get('models',default_models)[name]
