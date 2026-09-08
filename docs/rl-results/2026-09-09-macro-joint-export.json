@@ -1,0 +1,245 @@
+{
+  "format": "defender-macro-onnx-v1",
+  "checkpoint_sha256": "d51f11fd52fe17c20898870eb4711c212f6d344333bed83060b8799697411c86",
+  "exporter_sha256": "b23dfcf5e87443462e6eee876290a1423418d5934e829b884e83e56eb4e3e408",
+  "graphs": {
+    "encoder.onnx": "ffa89fe3ed4f8ceed6c8b7a1ac645868c5fd9331de7f3be0308ef87a28d46da2",
+    "decoder.onnx": "a8f6c463f89f10ff02bf776447460822500e6cdbc3cf329aef7affb2653d81e4"
+  },
+  "obs_version": 2,
+  "cells": [
+    "unit_Archer_count",
+    "unit_Archer_hp_fraction_sum",
+    "unit_Archer_level_sum",
+    "unit_Spear_count",
+    "unit_Spear_hp_fraction_sum",
+    "unit_Spear_level_sum",
+    "unit_Ranger_count",
+    "unit_Ranger_hp_fraction_sum",
+    "unit_Ranger_level_sum",
+    "unit_Scout_count",
+    "unit_Scout_hp_fraction_sum",
+    "unit_Scout_level_sum",
+    "unit_Mason_count",
+    "unit_Mason_hp_fraction_sum",
+    "unit_Mason_level_sum",
+    "unit_Ghoul_count",
+    "unit_Ghoul_hp_fraction_sum",
+    "unit_Ghoul_level_sum",
+    "unit_Shade_count",
+    "unit_Shade_hp_fraction_sum",
+    "unit_Shade_level_sum",
+    "unit_Knight_count",
+    "unit_Knight_hp_fraction_sum",
+    "unit_Knight_level_sum",
+    "unit_Phoenix_count",
+    "unit_Phoenix_hp_fraction_sum",
+    "unit_Phoenix_level_sum",
+    "unit_Wraith_count",
+    "unit_Wraith_hp_fraction_sum",
+    "unit_Wraith_level_sum",
+    "unit_Ram_count",
+    "unit_Ram_hp_fraction_sum",
+    "unit_Ram_level_sum",
+    "building_Keep_count",
+    "building_Keep_hp_fraction_sum",
+    "building_Keep_level_sum",
+    "building_Wall_count",
+    "building_Wall_hp_fraction_sum",
+    "building_Wall_level_sum",
+    "building_Gate_count",
+    "building_Gate_hp_fraction_sum",
+    "building_Gate_level_sum",
+    "building_Tower_count",
+    "building_Tower_hp_fraction_sum",
+    "building_Tower_level_sum",
+    "building_Flak_count",
+    "building_Flak_hp_fraction_sum",
+    "building_Flak_level_sum",
+    "building_Watch_count",
+    "building_Watch_hp_fraction_sum",
+    "building_Watch_level_sum",
+    "building_Barrack_count",
+    "building_Barrack_hp_fraction_sum",
+    "building_Barrack_level_sum",
+    "building_Fence_count",
+    "building_Fence_hp_fraction_sum",
+    "building_Fence_level_sum",
+    "building_Quarry_count",
+    "building_Quarry_hp_fraction_sum",
+    "building_Quarry_level_sum",
+    "building_Lumber_count",
+    "building_Lumber_hp_fraction_sum",
+    "building_Lumber_level_sum",
+    "building_Mine_count",
+    "building_Mine_hp_fraction_sum",
+    "building_Mine_level_sum",
+    "visible_fraction",
+    "explored_fraction",
+    "stone_sites",
+    "wood_sites",
+    "gold_sites"
+  ],
+  "global_names": [
+    "stone",
+    "wood",
+    "gold",
+    "wave",
+    "assault",
+    "keep_hp_fraction",
+    "keep_level",
+    "unit_level_cap",
+    "population",
+    "population_cap"
+  ],
+  "detail": [
+    "buildable",
+    "obstacle",
+    "stone_site",
+    "wood_site",
+    "gold_site",
+    "building_Keep",
+    "building_Wall",
+    "building_Gate",
+    "building_Tower",
+    "building_Flak",
+    "building_Watch",
+    "building_Barrack",
+    "building_Fence",
+    "building_Quarry",
+    "building_Lumber",
+    "building_Mine",
+    "hp_fraction",
+    "level",
+    "built",
+    "upgrade_active",
+    "work_active",
+    "train_active",
+    "visible",
+    "explored"
+  ],
+  "commands": [
+    "None",
+    "Build",
+    "Repair",
+    "Cancel",
+    "Train",
+    "Summon",
+    "Composition",
+    "PickSpawn",
+    "Clear",
+    "Upgrade",
+    "Demolish"
+  ],
+  "stats_sha256": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+  "simulation": "3fba3e619cadd7e3f661007be46b46dd51cd5d210169693e6f37b38f87f36e55",
+  "period": 20,
+  "hidden": 64,
+  "detail_precision": "float16-before-float32-inference",
+  "selection": "conditional-greedy",
+  "no_slot": 65535,
+  "checks": [
+    {
+      "map": "game/data/maps/pool/gen_01001000.json",
+      "tick": 0,
+      "command": [
+        1,
+        16230,
+        1,
+        1
+      ]
+    },
+    {
+      "map": "game/data/maps/pool/gen_01001000.json",
+      "tick": 20,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "game/data/maps/pool/gen_01001000.json",
+      "tick": 40,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "game/data/maps/pool/gen_01001000.json",
+      "tick": 60,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "game/data/maps/pool/gen_01006001.json",
+      "tick": 0,
+      "command": [
+        1,
+        14544,
+        1,
+        1
+      ]
+    },
+    {
+      "map": "game/data/maps/pool/gen_01006001.json",
+      "tick": 20,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "game/data/maps/pool/gen_01006001.json",
+      "tick": 40,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "game/data/maps/pool/gen_01006001.json",
+      "tick": 60,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    }
+  ],
+  "dynamic_resolution_check": [
+    41,
+    53
+  ],
+  "decoder_prefix_checks": [
+    [
+      4,
+      3,
+      8
+    ],
+    [
+      9,
+      0,
+      1
+    ],
+    [
+      0,
+      255,
+      255
+    ]
+  ],
+  "game_runtime_integrated": false
+}
