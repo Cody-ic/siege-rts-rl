@@ -50,6 +50,12 @@ HUD 显示 `Defender AI`，有攻方模型时同时显示受控编队数量。�
 打包工具 `tools/package_rl_preview.py` 检查模型与数值表、逐文件验证 ZIP，输出不可覆盖。
 该验证仍使用当前 Windows 主机，不等于全新系统运行库兼容性验收。
 
+原生完整对局验证：`macro_game_evaluate` 直接运行正式 `DemoBattle`，
+`native_macro_evaluate.py` 按冻结协议运行，`native_macro_compare.py` 检查完整成对结果。
+四图各两新种子上，原模型平均 3.625 波、新模型 4.0 波，六波完成数由 0/8 到 2/8；
+三组改善、两组退步、三组持平。记录见 `docs/rl-results/2026-09-09-macro-native-evaluation.json`。
+这与 Python 采样评估分开记录；暂不能宣称普遍提升或掌握 70 波。
+
 宏观 PPO 采样复用下一次决策已经算出的价值，只在非终止批次末尾额外推理一次。
 跨波和败局仍截断回报。原实现与优化版在两次更新、32 决策和三次完整败局中，
 模型、优化器、固定参考、随机状态及对局完全一致；8 项训练回归测试通过。
