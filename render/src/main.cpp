@@ -1009,6 +1009,8 @@ int run_game(const Options& opt) {
     if(persistent) {
         try {
             save_dir=opt.save_dir.empty()?game::default_save_directory():rts::path_from_utf8(opt.save_dir);
+            if(opt.save_dir.empty() && !opt.rl_policy_path.empty())
+                save_dir=save_dir/"rl"/game::TacticalPolicy::file_identity(opt.rl_policy_path);
             std::filesystem::create_directories(save_dir);
             storage_ready=true;
             stored_wave=game::read_journal_progress(save_dir/"journal.json");

@@ -26,6 +26,9 @@ public:
     TacticalPolicy& operator=(const TacticalPolicy&) = delete;
 
     static bool runtime_available() noexcept;
+    // Available without ONNX: used to choose a model-specific save directory
+    // before loading the saved map/stats. Same content identity as identity().
+    static std::string file_identity(const std::string& utf8_model_path);
     const std::string& identity() const noexcept;
     bool supports(rts::UnitType type, int level) const noexcept;
     int ticks_per_step() const noexcept;

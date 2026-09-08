@@ -23,6 +23,11 @@ TEST_CASE("Policy argmax obeys legal masks and rejects nonfinite outputs", "[rlp
 }
 
 TEST_CASE("Policy loading checks metadata and batch sizes", "[rlpolicy]") {
+    const auto fixture=std::string(GAME_TESTDATA_DIR)+"/rl_constant.onnx";
+    const auto file_identity=game::TacticalPolicy::file_identity(fixture);
+    REQUIRE_FALSE(file_identity.empty());
+    REQUIRE(file_identity.find_first_not_of("0123456789")==std::string::npos);
+    REQUIRE_THROWS(game::TacticalPolicy::file_identity("missing.onnx"));
     if(!game::TacticalPolicy::runtime_available()) {
         REQUIRE_THROWS(game::TacticalPolicy("missing.onnx",0));return;
     }
@@ -30,6 +35,7 @@ TEST_CASE("Policy loading checks metadata and batch sizes", "[rlpolicy]") {
     const auto path=std::string(GAME_TESTDATA_DIR)+"/rl_constant.onnx";
     REQUIRE_THROWS(game::TacticalPolicy(path,stats.fingerprint()+1));
     game::TacticalPolicy policy(path,stats.fingerprint());
+    REQUIRE(policy.identity()==file_identity);
     REQUIRE(policy.ticks_per_step()==6);
     REQUIRE(policy.supports(rts::UnitType::Ghoul,1));
     REQUIRE_FALSE(policy.supports(rts::UnitType::Mason,1));

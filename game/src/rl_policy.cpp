@@ -46,9 +46,8 @@ bool TacticalPolicy::runtime_available() noexcept {
 #endif
 }
 
-TacticalPolicy::TacticalPolicy(const std::string& path, std::uint64_t stats_fingerprint)
-    : p_(std::make_unique<Impl>()) {
-#if RTS_WITH_ONNX
+namespace {
+std::vector<char> read_policy_bytes(const std::string& path) {
     std::ifstream file(rts::path_from_utf8(path), std::ios::binary | std::ios::ate);
     if (!file) throw std::runtime_error("Cannot open tactical policy: " + path);
     const auto length = file.tellg();
@@ -58,9 +57,24 @@ TacticalPolicy::TacticalPolicy(const std::string& path, std::uint64_t stats_fing
     file.seekg(0);
     if (!file.read(bytes.data(), static_cast<std::streamsize>(bytes.size())))
         throw std::runtime_error("Incomplete tactical policy file");
+    return bytes;
+}
+std::string content_identity(std::span<const char> bytes) {
     rts::StateHash hash;
     hash.feed(bytes.data(), bytes.size());
-    p_->identity = std::to_string(hash.value());
+    return std::to_string(hash.value());
+}
+} // namespace
+
+std::string TacticalPolicy::file_identity(const std::string& path) {
+    return content_identity(read_policy_bytes(path));
+}
+
+TacticalPolicy::TacticalPolicy(const std::string& path, std::uint64_t stats_fingerprint)
+    : p_(std::make_unique<Impl>()) {
+#if RTS_WITH_ONNX
+    const auto bytes=read_policy_bytes(path);
+    p_->identity=content_identity(bytes);
 
     Ort::SessionOptions options;
     options.SetIntraOpNumThreads(1);
