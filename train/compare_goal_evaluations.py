@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path
 
 
@@ -14,12 +15,14 @@ def compare(plan_path, directory):
     for path,digest in plan['files'].items():
         require(hashlib.sha256(Path(path).read_bytes()).hexdigest()==digest,f'Changed input: {path}')
     levels={}
+    names=plan.get('arms',['baseline','candidate'])
+    require(len(names)>=2 and len(names)==len(set(names)) and 'baseline' in names,'Invalid comparison arms')
     for level in plan['levels']:
         reports={name:json.loads((directory/f'lowlevel{level}-{name}.json').read_text(encoding='utf-8'))
-                 for name in ('baseline','candidate')}
-        a,b=reports.values()
-        require(a['config']==b['config'] and a['contract']==b['contract'],'Mismatched evaluation environments')
-        paired=[]
+                 for name in names}
+        a=reports['baseline']
+        require(all(a['config']==r['config'] and a['contract']==r['contract'] for r in reports.values()),
+                'Mismatched evaluation environments')
         for name,report in reports.items():
             cfg=report['config']
             require(report['complete'] and report['policy']==plan['selection'],'Incomplete or wrong policy mode')
@@ -40,17 +43,26 @@ def compare(plan_path, directory):
                 require(row['end'] in ('EpisodeEnd.KeepDestroyed','EpisodeEnd.Timeout','EpisodeEnd.AttackersEliminated'),
                         'Unknown terminal state')
                 require(0<row['ticks']<=plan['max_ticks'],'Invalid duration')
-        for x,y in zip(a['rows'],b['rows']):
-            require(all(x[k]==y[k] for k in ('map','world_seed','level','spawn_index')),'Unpaired cases')
-            win=lambda r:int(r['end']=='EpisodeEnd.KeepDestroyed')
-            paired.append(dict(map=x['map'],seed=x['world_seed'],win_delta=win(y)-win(x),
-                               building_value_delta=y['tally']['bld_value']-x['tally']['bld_value'],
-                               losses_delta=y['tally']['losses']-x['tally']['losses']))
+                for metric in ('bld_value','losses'):
+                    value=row['tally'][metric]
+                    require(isinstance(value,(int,float)) and math.isfinite(value) and value>=0,'Invalid battle tally')
+        comparisons={}
+        for name,b in reports.items():
+            if name=='baseline':continue
+            paired=[]
+            for x,y in zip(a['rows'],b['rows']):
+                require(all(x[k]==y[k] for k in ('map','world_seed','level','spawn_index')),'Unpaired cases')
+                win=lambda r:int(r['end']=='EpisodeEnd.KeepDestroyed')
+                paired.append(dict(map=x['map'],seed=x['world_seed'],win_delta=win(y)-win(x),
+                                   building_value_delta=y['tally']['bld_value']-x['tally']['bld_value'],
+                                   losses_delta=y['tally']['losses']-x['tally']['losses']))
+            comparisons[name]=paired
         summary={name:dict(wins=sum(r['end']=='EpisodeEnd.KeepDestroyed' for r in report['rows']),
                            building_value=sum(r['tally']['bld_value'] for r in report['rows']),
                            losses=sum(r['tally']['losses'] for r in report['rows']))
                  for name,report in reports.items()}
-        levels[str(level)]=dict(summary=summary,pairs=paired,reports=reports)
+        levels[str(level)]=dict(summary=summary,pairs=comparisons.get('candidate') if names==['baseline','candidate']
+                               else comparisons,reports=reports)
     return dict(plan_sha256=hashlib.sha256(plan_path.read_bytes()).hexdigest(),plan_files_verified=True,levels=levels)
 
 
