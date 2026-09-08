@@ -27,11 +27,30 @@ class Actor(torch.nn.Module):
         return self.policy(cells.permute(0,3,1,2),own,glob)[0]
 
 
+def checkpoint_config(source,demonstrations=None):
+    source_config=source.get('config',{}) if isinstance(source,dict) else {}
+    # Imitation checkpoints predate embedded config. Recover goal semantics from
+    # their exact dataset, never silently export split-goal weights as legacy keep.
+    if isinstance(source,dict) and source.get('format')=='rts-demonstrations-1':
+        if not demonstrations:
+            raise ValueError('Imitation export requires --demonstrations to verify its goal configuration')
+        if sha256(demonstrations)!=source['plan']['dataset_sha256']:
+            raise ValueError('Demonstrations do not match the fitting checkpoint')
+        with np.load(demonstrations,allow_pickle=False) as packed:
+            metadata=json.loads(str(packed['metadata']))
+        if metadata['signature']!=source['plan']['signature']:
+            raise ValueError('Demonstration signature differs from fitting checkpoint')
+        source_config=metadata['config']
+    elif demonstrations:
+        raise ValueError('--demonstrations is only for an imitation fitting checkpoint')
+    return source_config
+
+
 def export(args):
     torch.set_num_threads(1)
     source=torch.load(args.checkpoint,map_location='cpu',weights_only=True)
     source_contract={}
-    source_config=source.get('config',{}) if isinstance(source,dict) else {}
+    source_config=checkpoint_config(source,args.demonstrations)
     goal_mode=source_config.get('tactical_goals','keep')
     if goal_mode not in ('keep','known-economy','split-economy'):
         raise ValueError('Unknown checkpoint tactical goal semantics')
@@ -151,6 +170,7 @@ def export(args):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--checkpoint',required=True)
+    parser.add_argument('--demonstrations',help='Exact source dataset required when exporting an imitation checkpoint')
     parser.add_argument('--output',required=True)
     parser.add_argument('--probe',required=True,help='Compiled C++ policy_probe executable')
     parser.add_argument('--unit-types',required=True,help='Comma-separated trained attacker names')
