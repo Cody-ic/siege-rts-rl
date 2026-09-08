@@ -343,7 +343,7 @@ def policy_forward(net, observation, device):
     return torch.distributions.Categorical(logits=logits), value
 
 
-def train(cfg, args, saved):
+def train(cfg, args, saved, *, gradient_observer=None):
     import random
     import signal
     from checkpointing import FORMAT, atomic_json, contract, load_weights, repair_metrics, restore_rng, rng_state, save_run, sha256
@@ -624,6 +624,10 @@ def train(cfg, args, saved):
                         loss = loss + cfg.reference_coef * ref_kl
                     if not torch.isfinite(loss):
                         raise FloatingPointError('Non-finite PPO loss; last good checkpoint retained')
+                    if gradient_observer is not None:
+                        # Offline diagnostics may inspect the existing graph;
+                        # ordinary training has no observer or extra backward pass.
+                        gradient_observer(net,loss-cfg.vf_coef*vf,cfg.vf_coef*vf)
                     opt.zero_grad(set_to_none=True)
                     loss.backward()
                     nn.utils.clip_grad_norm_(net.parameters(), cfg.max_grad_norm, error_if_nonfinite=True)
