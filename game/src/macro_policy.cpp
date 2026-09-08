@@ -8,6 +8,7 @@
 #include <cmath>
 #include <fstream>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <vector>
 #if RTS_WITH_ONNX
@@ -28,6 +29,24 @@ struct MacroPolicy::Impl {
 MacroPolicy::~MacroPolicy()=default;
 int MacroPolicy::period() const noexcept { return p_->period; }
 const std::string& MacroPolicy::identity() const noexcept { return p_->identity; }
+
+std::size_t MacroPolicy::sample_index(std::span<const float> logits,double uniform) {
+    if(logits.empty() || !std::isfinite(uniform) || uniform<0 || uniform>=1 ||
+       !std::all_of(logits.begin(),logits.end(),[](float v){return std::isfinite(v);}))
+        throw std::runtime_error("Invalid categorical sampling input");
+    const double peak=*std::max_element(logits.begin(),logits.end());
+    double total=0;
+    for(float value:logits) total+=std::exp(static_cast<double>(value)-peak);
+    const double target=uniform*total;
+    double cumulative=0;std::size_t last_positive=0;
+    for(std::size_t i=0;i<logits.size();++i) {
+        const double weight=std::exp(static_cast<double>(logits[i])-peak);
+        if(weight>0) last_positive=i;
+        cumulative+=weight;
+        if(target<cumulative) return i;
+    }
+    return last_positive;
+}
 
 #if RTS_WITH_ONNX
 namespace {
@@ -101,8 +120,15 @@ MacroPolicy::MacroPolicy(const std::string& directory,const std::string& stats_p
 #endif
 }
 
-rts::Command MacroPolicy::decide(const rts::WorldView& defender,bool summon_allowed) {
+rts::Command MacroPolicy::decide(const rts::WorldView& defender,bool summon_allowed,rts::Rng* rng) {
 #if RTS_WITH_ONNX
+    std::optional<rts::Rng> pending;
+    if(rng) {
+        const auto state=rng->state();
+        if(std::all_of(state.begin(),state.end(),[](auto v){return v==0;}))
+            throw std::runtime_error("Invalid all-zero policy RNG state");
+        pending=*rng;
+    }
     if(defender.side()!=rts::Side::Defender || defender.stats().fingerprint()!=p_->stats)
         throw std::runtime_error("Macro policy requires matching defender view");
     const int height=defender.height(),width=defender.width(),hidden=p_->hidden;
@@ -161,14 +187,21 @@ rts::Command MacroPolicy::decide(const rts::WorldView& defender,bool summon_allo
             const float v=logits[stage==3?i:static_cast<std::size_t>(choices[i])];
             if(v>score) {score=v;best=i;}
         }
+        if(pending) {
+            std::vector<float> legal_logits;
+            for(std::size_t i=0;i<choices.size();++i)
+                legal_logits.push_back(logits[stage==3?i:static_cast<std::size_t>(choices[i])]);
+            best=sample_index(legal_logits,pending->unit_float());
+        }
         const int chosen=choices[best];
         std::erase_if(remaining,[&](const rts::Command& c){return field(c,column)!=chosen;});
         if(stage<3) prefix[static_cast<std::size_t>(stage)]=chosen;
     }
     if(remaining.size()!=1) throw std::runtime_error("Macro command decoding is ambiguous");
+    if(pending) rng->set_state(pending->state());
     return remaining.front();
 #else
-    (void)defender;(void)summon_allowed;throw std::runtime_error("Macro ONNX runtime unavailable");
+    (void)defender;(void)summon_allowed;(void)rng;throw std::runtime_error("Macro ONNX runtime unavailable");
 #endif
 }
 }

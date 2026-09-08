@@ -160,14 +160,21 @@ PYBIND11_MODULE(rts_native, m) {
         out["defender_tally"]=tally(value.defender);
         return out;
     };
+    py::class_<rts::Rng>(m,"PolicyRng")
+        .def(py::init<std::uint64_t>(),py::arg("seed"))
+        .def_property("state",&rts::Rng::state,[](rts::Rng& rng,rts::Rng::State state) {
+            if(std::all_of(state.begin(),state.end(),[](auto v){return v==0;}))
+                throw std::invalid_argument("Policy RNG state must not be all zero");
+            rng.set_state(state);
+        });
     py::class_<game::MacroPolicy>(m,"DefenderPolicy")
         .def(py::init<const std::string&,const std::string&>(),py::arg("directory"),py::arg("stats_path"))
         .def_property_readonly("period",&game::MacroPolicy::period)
         .def_property_readonly("identity",&game::MacroPolicy::identity)
-        .def("decide",[](game::MacroPolicy& policy,const game::TrainingCampaign& campaign) {
-            const auto c=policy.decide(campaign.world().view(rts::Side::Defender),campaign.summon_allowed());
+        .def("decide",[](game::MacroPolicy& policy,const game::TrainingCampaign& campaign,rts::Rng* rng) {
+            const auto c=policy.decide(campaign.world().view(rts::Side::Defender),campaign.summon_allowed(),rng);
             return py::make_tuple(static_cast<int>(c.kind),c.slot,c.what,c.level);
-        });
+        },py::arg("campaign"),py::arg("rng")=nullptr);
     py::class_<game::TacticalPolicy,std::shared_ptr<game::TacticalPolicy>>(m,"FrozenAttacker")
         .def(py::init([](const std::string& model,const std::string& stats) {
             return std::make_shared<game::TacticalPolicy>(model,

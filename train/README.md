@@ -14,8 +14,15 @@ Python `native.DefenderPolicy(directory, stats_path).decide(campaign)` 调用同
 并验证观测版本、周期、维度、选择模式和损坏图文件拒绝。
 记录见 `docs/rl-results/2026-09-09-macro-native-runtime.json`。
 这些局面主要选择等待及建造，不能代替所有动作、完整对局与多分辨率的覆盖。
-**原生实现当前仅支持 conditional-greedy；之前的胜率结果使用 sample，不能套用。**
-游戏界面入口、采样状态与存档接入仍待完成。
+原生默认 conditional-greedy；传入 `native.PolicyRng(seed)` 到
+`policy.decide(campaign, rng)` 则按合法动作概率采样。随机流由每场对局持有，
+可通过 `rng.state` 保存/恢复四个 uint32；拒绝全零状态，成功决策后才提交四次随机抽取。
+每个条件分布使用稳定 softmax 和逆累积分布采样。此随机算法与 PyTorch 不同，
+不能将相同整数种子下的两套命令序列或前面的胜率直接等同。
+采样分布与异常输入 13 项断言通过；两个独立进程完成前 64 条重放、后 64 条新命令及
+随机状态/对局状态完全一致，覆盖六种命令。
+记录见 `docs/rl-results/2026-09-09-macro-native-sampling.json`。
+这使用显式随机状态及命令日志，游戏界面入口与正式存档格式接入仍待完成。
 
 宏观 PPO 采样复用下一次决策已经算出的价值，只在非终止批次末尾额外推理一次。
 跨波和败局仍截断回报。原实现与优化版在两次更新、32 决策和三次完整败局中，

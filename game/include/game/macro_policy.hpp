@@ -2,6 +2,8 @@
 #define GAME_MACRO_POLICY_HPP
 #include <memory>
 #include <string>
+#include <span>
+#include "rts/rng.hpp"
 #include "rts/world_view.hpp"
 
 namespace game {
@@ -13,7 +15,10 @@ public:
     ~MacroPolicy();
     MacroPolicy(const MacroPolicy&)=delete;
     MacroPolicy& operator=(const MacroPolicy&)=delete;
-    rts::Command decide(const rts::WorldView& defender,bool summon_allowed);
+    // Caller owns one stream per battle and persists it alongside that battle.
+    // Null selects greedy. Sampling commits four draws only after success.
+    rts::Command decide(const rts::WorldView& defender,bool summon_allowed,rts::Rng* rng=nullptr);
+    static std::size_t sample_index(std::span<const float> logits,double uniform);
     int period() const noexcept;
     const std::string& identity() const noexcept;
 private:
