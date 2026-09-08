@@ -504,7 +504,7 @@ python train/ppo.py --run-dir runs/my-independent-trial --resume auto
 `demonstrations.py collect` 可同时接受 `--tactical-goals split-economy` 与
 `--behavior-checkpoint PATH`：冻结模型负责行动，教师只提供当前公开观测下的合法标签。
 省略行为权重仍使用原教师采集。模型内容身份进入采集计划，更换行为模型需新目录。
-`fit --init-weights PATH` 可从已有模型拟合，之后普通 `--resume` 恢复两阶段的拟合状态，
+`fit --init-weights PATH` 可从已有模型拟合，之后普通 `--resume` 恢复拟合状态，
 无需重复提供初始化路径。该过程是模仿纠正，不能计作 PPO 收益。
 
 导出拟合检查点时，必须给 `export_policy.py` 额外传入
