@@ -101,6 +101,28 @@ $PY train/evaluate.py --policy flow --episodes 32 --frac 0.15 --output runs/flow
 
 它只是诊断，不会接管策略动作。2026-09-08 本地 8 局小样本中，近距离 4/8 胜，真实距离 0/8 胜，但两者均 100% 接触建筑。该结果说明有必要分别看课程能力与部署距离；**不能据此断言真实距离不可获胜**。
 
+### 按入口与动作定位推进问题
+
+评估现在始终输出 `by_spawn`：每个入口的局数、胜局、接触建筑局数、建筑伤害与累计推进量。`rows` 保留每局的入口下标和世界种子；入口坐标见 `spawns`。同一地图的入口轮换不能当作多地图泛化。
+
+```bash
+export CUDA_VISIBLE_DEVICES=  # 在 CPU 上诊断，避免辅助路径初始化 CUDA
+$PY train/evaluate.py --checkpoint runs/example/latest.pt --device cpu \
+    --episodes 32 --seed 100001 --frac 1 --policy frozen_argmax \
+    --diagnostics --output runs/diagnostic-argmax.json
+$PY train/evaluate.py --checkpoint runs/example/latest.pt --device cpu \
+    --episodes 32 --seed 100001 --frac 1 --policy frozen_sample \
+    --diagnostics --output runs/diagnostic-sample.json
+```
+
+两种方式都冻结权重。默认 `frozen_argmax` 不变；`frozen_sample` 按合法动作的概率抽样，每局使用独立随机流，在环境槽位重用时按新局编号重置，避免并行批大小和其他局的结束顺序改变其随机数。不同设备、PyTorch 版本和浮点运算形状仍可能造成概率末位差异，不能承诺跨平台逐位相同。一次采样评估也不足以估计随机策略的完整分布。
+
+开启 `--diagnostics` 后，每局增加动作次数、没有合法移动/没有导航方向的次数、顺着/背离导航方向移动的次数、射程内存在合法攻击目标却未选攻击的次数、首次建筑接触决策步与平均最大动作概率。计数单位是**编队决策次数**，不是游戏 tick 或逐个士兵的次数。`trace` 默认每 25 次决策记录一次累计建筑伤害、累计推进量、存活编队数与距离势；`--trace-every` 可调整间隔。首次接触时间可用决策步乘 `ticks_per_step` 换算为报告所在决策拍末的 tick。
+
+这是状态与动作诊断，**不是单位坐标回放**。推进量来自原生 `progress`（存活匹配单位到堡垒距离变化之和），距离势是当前存活攻方到堡垒的负距离和，死亡也会改变它；不要把距离势的变化直接解释成行军距离。顺着流场也不必然是战术上的最佳选择，存在攻击机会时选择移动也可能是合理战术，需要连同战果判断。
+
+诊断不改奖励、课程、网络、原生观察布局与检查点格式。报告记录评估器及诊断模块的哈希；实验计划也校验这两个文件。升级评估代码后，旧 `experiments.py` 运行目录会拒绝混用新协议，应保留原版本续跑，或单独调用评估器写入新报告路径。完整检查点仍按原有合约验证；旧权重若跨规则或跨平台复测，必须明确注明条件，不能伪装成同环境成绩。
+
 逐次训练指标记录采样/更新耗时、有效 agent-step、胜利/全灭/超时、战果、熵、近似 KL 与裁剪比例。默认近似 KL 超过 0.03 时停止本次后续更新；非有限 loss 或梯度立即失败并保留上一次检查点。全灭立即结束 episode，不再空转到超时；GAE 通过稳定编队标识匹配后继，不把死亡编队的价值接到下一行编队上。
 
 ## 性能与验证

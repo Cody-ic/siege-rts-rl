@@ -4,6 +4,7 @@ The flow diagnostic reads the same local observation and action masks as the pol
 """
 import argparse
 import math
+from pathlib import Path
 import time
 
 import numpy as np
@@ -11,6 +12,8 @@ import torch
 import rts_native as R
 from checkpointing import atomic_json, contract, load_training, load_weights, sha256
 from ppo import Cfg, Observer, Policy, make_env, make_worlds, policy_forward
+from diagnostics import (MOVE_DELTAS, EpisodeDiagnostics, episode_rng,
+                         sample_actions, summarize_spawns)
 
 
 def wilson(wins, n):
@@ -25,8 +28,8 @@ def wilson(wins, n):
 def flow_actions(observation):
     rows, cells, _, _, legal = observation
     names = R.obs.ACTION_NAMES
-    directions = np.array([(-1,-1),(0,-1),(1,-1),(1,0),(1,1),(0,1),(-1,1),(-1,0)])
-    move_names = ('MoveN','MoveNE','MoveE','MoveSE','MoveS','MoveSW','MoveW','MoveNW')
+    move_names = tuple(MOVE_DELTAS)
+    directions = np.array(list(MOVE_DELTAS.values()))
     channels = [c[0] for c in R.obs.CHANNELS]
     centre = R.obs.K//2
     vectors = cells[:, centre, centre][:, [channels.index('flow_di'),channels.index('flow_dj')]]
@@ -48,17 +51,19 @@ def flow_actions(observation):
     return result
 
 
-def evaluate(checkpoint, cfg, episodes, frac, policy='frozen_argmax'):
+def evaluate(checkpoint, cfg, episodes, frac, policy='frozen_argmax', *, diagnostics=False, trace_every=25):
     if episodes < 1 or cfg.envs < 1 or not 0 < frac <= 1 or cfg.max_ticks < 1:
         raise ValueError('positive episodes/envs/max_ticks and 0 < frac <= 1 required')
-    if policy not in ('frozen_argmax', 'flow'):
+    if policy not in ('frozen_argmax', 'frozen_sample', 'flow'):
         raise ValueError('unknown evaluation policy')
+    if trace_every < 1:
+        raise ValueError('trace_every must be positive')
     torch.set_num_threads(cfg.torch_threads)
     n = min(episodes, cfg.envs)
     env = make_env(cfg, n, frac)
     obs = Observer(env)
     net = None
-    if policy == 'frozen_argmax':
+    if policy != 'flow':
         if not checkpoint:
             raise ValueError('--checkpoint required for frozen policy')
         net = Policy(R.obs.K, R.obs.CHANNEL_COUNT, R.obs.SELF_COUNT,
@@ -71,6 +76,9 @@ def evaluate(checkpoint, cfg, episodes, frac, policy='frozen_argmax'):
     totals = np.zeros_like(tally, dtype=np.float64)
     steps = np.zeros(n, np.int64)
     indices, next_index, rows = list(range(n)), n, []
+    generators = [episode_rng(cfg.seed, i) for i in indices]
+    spawns = list(R.map_sites(cfg.map_path)['spawns'])
+    probes = ([EpisodeDiagnostics(p, trace_every) for p in env.potentials] if diagnostics else None)
     names = {R.EpisodeEnd.KeepDestroyed:'keep_destroyed', R.EpisodeEnd.Timeout:'timeout',
              R.EpisodeEnd.AttackersEliminated:'attackers_eliminated'}
     started = time.perf_counter()
@@ -78,31 +86,58 @@ def evaluate(checkpoint, cfg, episodes, frac, policy='frozen_argmax'):
         while len(rows) < episodes:
             observation = obs.read()
             actions.fill(0)
+            probabilities = None
             if net is not None:
                 dist, _ = policy_forward(net, observation, cfg.device)
-                selected = dist.logits.argmax(-1).cpu().numpy().astype(np.uint8) if dist is not None else []
+                selected = np.empty(0, np.uint8)
+                if dist is not None:
+                    if diagnostics or policy == 'frozen_sample':
+                        probabilities = dist.probs.cpu().numpy()
+                    if policy == 'frozen_sample':
+                        selected = sample_actions(probabilities, observation[0], obs.mu, generators)
+                    else:
+                        selected = dist.logits.argmax(-1).cpu().numpy().astype(np.uint8)
             else:
                 selected = flow_actions(observation)
             actions.reshape(-1)[observation[0]] = selected
+            if probes is not None:
+                for i, probe in enumerate(probes):
+                    if indices[i] is not None:
+                        where = observation[0] // obs.mu == i
+                        probe.before_step(observation[1][where], observation[4][where], selected[where],
+                                          probabilities[where] if probabilities is not None else None)
             env.step(actions, done)
             env.take_tally(tally)
             totals += tally
             ends = env.episode_ends
+            potentials = env.potentials if probes is not None else None
+            live_squads = env.unit_counts if probes is not None else None
             for i in range(n):
                 if indices[i] is None:
                     continue
                 steps[i] += 1
+                if probes is not None:
+                    probes[i].after_step(int(steps[i]), totals[i], potentials[i], live_squads[i], done[i])
                 if not done[i]:
                     continue
-                rows.append({'episode':indices[i], 'steps':int(steps[i]), 'end':names[ends[i]],
-                             'tally':dict(zip(R.obs.TALLY_NAMES, totals[i].tolist()))})
+                row = {'episode':indices[i], 'world_seed':cfg.seed*1000+indices[i],
+                       'spawn_index':(cfg.seed+indices[i]) % len(spawns),
+                       'steps':int(steps[i]), 'end':names[ends[i]],
+                       'tally':dict(zip(R.obs.TALLY_NAMES, totals[i].tolist()))}
+                if probes is not None:
+                    row['diagnostics'] = probes[i].report()
+                rows.append(row)
                 if next_index < episodes:
                     env.reset_one(i, make_worlds(cfg, 1, frac, next_index)[0])
+                    generators[i] = episode_rng(cfg.seed, next_index)
+                    if probes is not None:
+                        probes[i] = EpisodeDiagnostics(env.potentials[i], trace_every)
                     indices[i], next_index = next_index, next_index+1
                     steps[i] = 0
                     totals[i].fill(0)
                 else:
                     indices[i] = None
+                    generators[i] = None
     wins = sum(row['end']=='keep_destroyed' for row in rows)
     return {'episodes':episodes, 'wins':wins,
             'timeouts':sum(row['end']=='timeout' for row in rows),
@@ -115,6 +150,10 @@ def evaluate(checkpoint, cfg, episodes, frac, policy='frozen_argmax'):
             'max_ticks':cfg.max_ticks, 'policy':policy, 'device':cfg.device,
             'defender':'scripted' if cfg.defender else 'none',
             'defender_macro_period':cfg.defender_macro_period,
+            'spawns':[list(s) for s in spawns], 'by_spawn':summarize_spawns(rows),
+            'diagnostics':diagnostics, 'trace_every':trace_every if diagnostics else None,
+            'evaluator_sha256':{name:sha256(Path(__file__).parent/name)
+                                for name in ('evaluate.py','diagnostics.py')},
             'contract':contract(R,cfg), 'seconds':time.perf_counter()-started,
             'sha256':{'checkpoint':sha256(checkpoint) if checkpoint else None,
                       'map':sha256(cfg.map_path), 'stats':sha256(cfg.stats_path)},
@@ -124,7 +163,9 @@ def evaluate(checkpoint, cfg, episodes, frac, policy='frozen_argmax'):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--checkpoint')
-    ap.add_argument('--policy', choices=('frozen_argmax','flow'), default='frozen_argmax')
+    ap.add_argument('--policy', choices=('frozen_argmax','frozen_sample','flow'), default='frozen_argmax')
+    ap.add_argument('--diagnostics', action='store_true')
+    ap.add_argument('--trace-every', type=int, default=25)
     ap.add_argument('--episodes', type=int, default=32)
     ap.add_argument('--envs', type=int, default=8)
     ap.add_argument('--frac', type=float, default=1)
@@ -159,10 +200,15 @@ def main():
         cfg.defender = False
     if saved and contract(R,cfg) != saved['contract']:
         raise ValueError('Evaluation contract differs from checkpoint; rebuild/use matching data and learner')
-    result = evaluate(args.checkpoint,cfg,args.episodes,args.frac,args.policy)
+    result = evaluate(args.checkpoint,cfg,args.episodes,args.frac,args.policy,
+                      diagnostics=args.diagnostics,trace_every=args.trace_every)
     atomic_json(args.output,result)
     print(f'Frozen evaluation: wins {result["wins"]}/{result["episodes"]}, '
           f'hit buildings {result["hit_rate"]:.0%}, mean damage {result["mean_building_damage"]:.1f}')
+    for spawn in result['by_spawn']:
+        print(f'  spawn {spawn["spawn_index"]}: wins {spawn["wins"]}/{spawn["episodes"]}, '
+              f'hit buildings {spawn["hit_buildings"]}/{spawn["episodes"]}, '
+              f'mean damage {spawn["mean_building_damage"]:.1f}')
     print(args.output)
 
 

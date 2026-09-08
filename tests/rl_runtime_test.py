@@ -21,6 +21,7 @@ import ppo
 from checkpointing import (atomic_write, load_auto, load_training, restore_rng,
                            repair_metrics, rng_state, run_lock, save_run, sha256)
 from evaluate import evaluate, flow_actions
+from diagnostics import EpisodeDiagnostics, episode_rng, sample_actions
 from rollout import advantages, RolloutStorage
 
 
@@ -226,6 +227,65 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(two['rows'],one['rows'])
             self.assertEqual(two['wins']+two['timeouts']+two['eliminated'],3)
             self.assertEqual(checksum,sha256(checkpoint))
+
+    def test_sampled_evaluation_has_episode_rng_and_read_only_diagnostics(self):
+        cfg = self.cfg(max_ticks=120)
+        with tempfile.TemporaryDirectory() as folder:
+            self.run_train(folder,['--stop-after-updates','1'])
+            checkpoint = Path(folder)/'policy.pt'
+            checksum = sha256(checkpoint)
+            two = evaluate(checkpoint,cfg,3,.15,'frozen_sample',diagnostics=True,trace_every=7)
+            cfg.envs = 1
+            one = evaluate(checkpoint,cfg,3,.15,'frozen_sample',diagnostics=True,trace_every=7)
+            plain = evaluate(checkpoint,cfg,3,.15,'frozen_sample')
+            for batched, row, without_probe in zip(two['rows'],one['rows'],plain['rows']):
+                # CPU GEMM batch shapes can change the last few probability bits;
+                # actions, battle tallies and trace state must still match exactly.
+                batched_probe = dict(batched['diagnostics'])
+                single_probe = dict(row['diagnostics'])
+                self.assertAlmostEqual(batched_probe.pop('mean_top_probability'),
+                                       single_probe.pop('mean_top_probability'),places=6)
+                self.assertEqual(batched_probe,single_probe)
+                self.assertEqual({k:v for k,v in batched.items() if k!='diagnostics'},without_probe)
+                probe = row['diagnostics']
+                self.assertEqual({k:v for k,v in row.items() if k!='diagnostics'},without_probe)
+                self.assertEqual(sum(probe['action_counts'].values()),probe['agent_decisions'])
+                self.assertEqual(probe['trace'][-1]['step'],row['steps'])
+                self.assertLessEqual(probe['attack_ignored'],probe['attack_available'])
+                self.assertLessEqual(probe['moves_toward_flow']+probe['moves_against_flow'],probe['moves_with_flow'])
+            self.assertEqual(sum(r['episodes'] for r in one['by_spawn']),3)
+            self.assertEqual(sum(r['hit_buildings'] for r in one['by_spawn']),
+                             sum(r['tally']['dmg_to_blds']>0 for r in one['rows']))
+            self.assertEqual(checksum,sha256(checkpoint))
+
+    def test_episode_sampling_never_selects_masked_actions(self):
+        # Zeros include the first and last action, guarding CDF edge handling.
+        probs = np.tile([0.,.25,0.,.75,0.],(6,1))
+        rows = np.array([0,1,2,32,33,34])
+        combined = sample_actions(probs,rows,32,[episode_rng(7,4),episode_rng(7,9)])
+        separate = np.concatenate([sample_actions(probs[:3],rows[:3],32,[episode_rng(7,i)])
+                                   for i in (4,9)])
+        np.testing.assert_array_equal(combined,separate)
+        self.assertTrue(np.all(np.isin(combined,[1,3])))
+
+    def test_diagnostics_identifies_direction_and_ignored_attack(self):
+        cells = np.zeros((3,R.obs.K,R.obs.K,R.obs.CHANNEL_COUNT),np.float32)
+        channels = [c[0] for c in R.obs.CHANNELS]
+        names = R.obs.ACTION_NAMES
+        cells[:,R.obs.K//2,R.obs.K//2,channels.index('flow_di')] = 1
+        legal = np.ones((3,R.obs.ACTION_COUNT),bool)
+        actions = np.array([names.index('MoveSE'),names.index('MoveNW'),names.index('AtkBld')],np.uint8)
+        probe = EpisodeDiagnostics(-100,5)
+        probe.before_step(cells,legal,actions)
+        totals = np.zeros(R.obs.TALLY_FIELDS)
+        probe.after_step(1,totals,-90,3,False)
+        totals[R.obs.TALLY_NAMES.index('dmg_to_blds')] = 12
+        probe.after_step(2,totals,-85,3,True)
+        result = probe.report()
+        self.assertEqual(result['moves_toward_flow'],1)
+        self.assertEqual(result['moves_against_flow'],1)
+        self.assertEqual(result['attack_ignored'],2)
+        self.assertEqual(result['first_building_contact_step'],2)
 
     def test_process_restart_after_forced_kill(self):
         # Actual process termination: latest is a previous completed update, never
