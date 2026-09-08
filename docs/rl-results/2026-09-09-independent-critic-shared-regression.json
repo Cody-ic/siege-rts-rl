@@ -1,0 +1,13 @@
+{
+  "shared_numerics_unchanged": {
+    "model": true,
+    "optimizer": true,
+    "reference_model": true,
+    "rng": true,
+    "progress": true,
+    "config": true
+  },
+  "scope": "One real native shared-mode update before/after optional independent-critic implementation",
+  "previous_source": "c2f7505d0ca86047a3498120a4910db68f6396cc01f702c32876190b39646ef7",
+  "current_source": "0b1ccf6dba8c36951b9cec3842ec5daa238885d1da4bc9d444524f0ca8d9e995"
+}

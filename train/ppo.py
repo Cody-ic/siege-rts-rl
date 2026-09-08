@@ -102,7 +102,7 @@ class Cfg:
     minibatches: int = 4
     ent_coef: float = 0.01
     vf_coef: float = 0.5
-    value_features: str = "shared"  # detached isolates critic gradients from policy features
+    value_features: str = "shared"  # independent also separates value features, Adam and clipping
     reference_coef: float = 0.0     # optional KL(reference || policy), explicit warm starts only
     max_grad_norm: float = 0.5
     seed: int = 1
@@ -200,6 +200,20 @@ class Policy(nn.Module):
         return self.actor(h), self.critic(h.detach() if detach_value else h).squeeze(-1)
 
 
+class IndependentValue(nn.Module):
+    """Copy initial value features without consuming RNG or sharing parameters."""
+    def __init__(self, policy):
+        super().__init__()
+        import copy
+        self.conv=copy.deepcopy(policy.conv)
+        self.trunk=copy.deepcopy(policy.trunk)
+        self.critic=copy.deepcopy(policy.critic)
+
+    def forward(self,cells,own,glob):
+        h=self.trunk(torch.cat([self.conv(cells),own,glob],dim=1))
+        return self.critic(h).squeeze(-1)
+
+
 @lru_cache(maxsize=8)
 def world_factory(map_path, stats_path):
     return R.WorldFactory(map_path, stats_path), R.map_sites(map_path)
@@ -281,8 +295,8 @@ def validate(cfg):
         raise ValueError('levels must be integers in [1,1000]')
     if len(set(cfg.levels))!=len(cfg.levels) or len(set(cfg.map_pool))!=len(cfg.map_pool):
         raise ValueError('Duplicate map/level entries bias the sampling distribution')
-    if cfg.value_features not in ('shared','detached'):
-        raise ValueError('value_features must be shared or detached')
+    if cfg.value_features not in ('shared','detached','independent'):
+        raise ValueError('value_features must be shared, detached or independent')
     if not np.isfinite(cfg.reference_coef) or cfg.reference_coef < 0:
         raise ValueError('reference_coef must be finite and nonnegative')
     for name in ('envs', 'ticks_per_step', 'rollout', 'total_steps', 'epochs',
@@ -341,12 +355,13 @@ class Observer:
                 (self.masks.reshape(-1)[rows, None] & self.bits) != 0)
 
 
-def policy_forward(net, observation, device):
+def policy_forward(net, observation, device, value_net=None):
     rows, c, s, g, legal = observation
     if len(rows) == 0:
         return None, torch.empty(0, device=device)
-    logits, value = net(torch.from_numpy(c).to(device).permute(0, 3, 1, 2),
-                        torch.from_numpy(s).to(device), torch.from_numpy(g).to(device))
+    inputs=(torch.from_numpy(c).to(device).permute(0,3,1,2),torch.from_numpy(s).to(device),torch.from_numpy(g).to(device))
+    logits, value = net(*inputs)
+    if value_net is not None:value=value_net(*inputs)
     logits = logits.masked_fill(~torch.from_numpy(legal).to(device), float('-inf'))
     return torch.distributions.Categorical(logits=logits), value
 
@@ -421,6 +436,17 @@ def train(cfg, args, saved, *, gradient_observer=None):
         net.load_state_dict(load_weights(args.init_weights))
         print('Warm start: policy weights retained; new optimizer, counters and curriculum. '
               'Old rewards and win rates are not carried into this run.', flush=True)
+
+    value_net=value_opt=None
+    if cfg.value_features=='independent':
+        value_net=IndependentValue(net).to(dev)
+        value_opt=torch.optim.Adam(value_net.parameters(),lr=cfg.lr,eps=1e-5)
+        net.critic.requires_grad_(False)
+        if saved:
+            if not isinstance(saved.get('value_model'),dict) or not isinstance(saved.get('value_optimizer'),dict):
+                raise ValueError('Missing independent value checkpoint state')
+            value_net.load_state_dict(saved['value_model'])
+            value_opt.load_state_dict(saved['value_optimizer'])
 
     reference = None
     if cfg.reference_coef:
@@ -506,6 +532,8 @@ def train(cfg, args, saved, *, gradient_observer=None):
         save_run(folder, dict(format=FORMAT, config=asdict(cfg), contract=signature,
                               initialization=initialization,
                               model=net.state_dict(), optimizer=opt.state_dict(),
+                              value_model=value_net.state_dict() if value_net is not None else None,
+                              value_optimizer=value_opt.state_dict() if value_opt is not None else None,
                               reference_model=reference.state_dict() if reference is not None else None,
                               progress=progress(), rng=rng_state(), status=status))
 
@@ -532,7 +560,7 @@ def train(cfg, args, saved, *, gradient_observer=None):
                 keys[t] = obs.keys
                 storage.store(t, *observation)
                 with torch.no_grad():
-                    dist, value = policy_forward(net, observation, dev)
+                    dist, value = policy_forward(net, observation, dev,value_net)
                     actions.fill(0)
                     if dist is not None:
                         act = dist.sample()
@@ -588,7 +616,7 @@ def train(cfg, args, saved, *, gradient_observer=None):
             with torch.no_grad():
                 end_obs = obs.read()
                 keys[horizon] = obs.keys
-                _, value = policy_forward(net, end_obs, dev)
+                _, value = policy_forward(net, end_obs, dev,value_net)
                 next_v = torch.zeros(n, device=dev)
                 next_v[end_obs[0]] = value
             if torch.device(dev).type == 'cuda':
@@ -622,6 +650,7 @@ def train(cfg, args, saved, *, gradient_observer=None):
                     glob = storage.g.flatten(0, 1)[jc].to(dev)
                     legal = storage.m.flatten(0, 1)[jc].to(dev)
                     logits, value = net(cells,own,glob,detach_value=cfg.value_features=='detached')
+                    if value_net is not None:value=value_net(cells,own,glob)
                     logits = logits.masked_fill(~legal, float('-inf'))
                     dist = torch.distributions.Categorical(logits=logits)
                     logratio = dist.log_prob(a[j]) - lp[j]
@@ -651,9 +680,13 @@ def train(cfg, args, saved, *, gradient_observer=None):
                         # ordinary training has no observer or extra backward pass.
                         gradient_observer(net,loss-cfg.vf_coef*vf,cfg.vf_coef*vf)
                     opt.zero_grad(set_to_none=True)
+                    if value_opt is not None:value_opt.zero_grad(set_to_none=True)
                     loss.backward()
                     nn.utils.clip_grad_norm_(net.parameters(), cfg.max_grad_norm, error_if_nonfinite=True)
+                    if value_net is not None:
+                        nn.utils.clip_grad_norm_(value_net.parameters(),cfg.max_grad_norm,error_if_nonfinite=True)
                     opt.step()
+                    if value_opt is not None:value_opt.step()
                     losses.append(float(loss.detach()))
                     kls.append(float(kl.detach()))
                     clips.append(float(((ratio-1).abs() > cfg.clip).float().mean().detach()))

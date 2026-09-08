@@ -110,6 +110,22 @@ class RuntimeTests(unittest.TestCase):
             env.step(np.zeros((2,R.obs.MAX_UNITS_PER_ENV),np.uint8),np.zeros(2,np.uint8))
             for one in singles:one.step(np.zeros((1,R.obs.MAX_UNITS_PER_ENV),np.uint8),np.zeros(1,np.uint8))
 
+    def test_independent_value_updates_cannot_change_actor_or_its_rng(self):
+        net=ppo.Policy(R.obs.K,R.obs.CHANNEL_COUNT,R.obs.SELF_COUNT,R.obs.GLOBAL_COUNT,R.obs.ACTION_COUNT)
+        rng=torch.get_rng_state().clone()
+        value_net=ppo.IndependentValue(net)
+        self.assertTrue(torch.equal(rng,torch.get_rng_state()))
+        c=torch.randn(3,R.obs.CHANNEL_COUNT,R.obs.K,R.obs.K)
+        s=torch.randn(3,R.obs.SELF_COUNT);g=torch.randn(3,R.obs.GLOBAL_COUNT)
+        actor_before,value_before=net(c,s,g)
+        torch.testing.assert_close(value_net(c,s,g),value_before,rtol=0,atol=0)
+        opt=torch.optim.Adam(value_net.parameters(),lr=0.001)
+        opt.zero_grad();(value_net(c,s,g)-1000).square().mean().backward()
+        torch.nn.utils.clip_grad_norm_(value_net.parameters(),.5);opt.step()
+        torch.testing.assert_close(net(c,s,g)[0],actor_before,rtol=0,atol=0)
+        self.assertTrue(all(p.grad is None for p in net.parameters()))
+        self.assertFalse(torch.equal(value_net(c,s,g),value_before))
+
     def test_mixed_roster_full_health_and_map_spawn_level_cartesian_coverage(self):
         paths=tuple(str(ROOT/'game/data/maps/pool'/name) for name in ('gen_01001000.json','gen_01002000.json'))
         cfg=self.cfg(map_pool=paths,roster='mixed',levels=(1,4),seed=1)
@@ -413,11 +429,11 @@ class RuntimeTests(unittest.TestCase):
                 self.assertEqual(type(a),type(b));self.assertEqual(len(a),len(b))
                 for x,y in zip(a,b):equal(x,y)
             else:self.assertEqual(a,b)
-        for mode in ('keep','known-economy','split-economy'):
-            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as folder:
+        for mode,features in (('keep','shared'),('known-economy','shared'),('split-economy','shared'),('split-economy','independent')):
+            with self.subTest(mode=mode,features=features), tempfile.TemporaryDirectory() as folder:
                 root=Path(folder)
                 config=['--total-steps','24','--max-ticks','18','--curriculum','1.0',
-                        '--tactical-goals',mode,'--roster','mixed','--levels','1,4',
+                        '--tactical-goals',mode,'--value-features',features,'--roster','mixed','--levels','1,4',
                         '--map-pool','game/data/maps/pool/gen_01001000.json,game/data/maps/pool/gen_01004000.json']
                 self.run_train(root/'control',config)
                 self.run_train(root/'resume',[*config,'--stop-after-updates','2'])
@@ -426,7 +442,7 @@ class RuntimeTests(unittest.TestCase):
                 self.assertTrue(all(i is not None for i in before['progress']['fresh_episode_indices']))
                 self.run_train(root/'resume',['--resume','auto','--total-steps','24'])
                 a=load_training(root/'control/latest.pt');b=load_training(root/'resume/latest.pt')
-                for key in ('model','optimizer','rng','config','contract'):equal(a[key],b[key])
+                for key in ('model','optimizer','value_model','value_optimizer','rng','config','contract'):equal(a[key],b[key])
                 for value in (a,b):value['progress'].pop('elapsed_seconds')
                 equal(a['progress'],b['progress'])
                 coverage=list(a['progress']['completed_coverage'].values())
@@ -453,6 +469,16 @@ class RuntimeTests(unittest.TestCase):
                 self.assertEqual(sum(x[name] for x in rows),p[name])
             metrics=[json.loads(line) for line in (Path(folder)/'metrics.jsonl').read_text().splitlines()]
             self.assertEqual(metrics[-1]['completed_coverage'],p['completed_coverage'])
+
+    def test_missing_independent_critic_recovers_previous_generation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.run_train(folder,['--value-features','independent','--stop-after-updates','1'])
+            latest=Path(folder)/'latest.pt'
+            state=load_training(latest);state.pop('value_model');torch.save(state,latest)
+            with self.assertWarns(UserWarning):saved,path=load_auto(folder)
+            self.assertEqual(path.name,'previous.pt')
+            self.assertIsInstance(saved['value_model'],dict)
+            self.assertEqual(saved['progress']['env_steps'],0)
 
     def test_atomic_save_and_corrupt_latest_fallback(self):
         with tempfile.TemporaryDirectory() as folder:

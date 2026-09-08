@@ -118,6 +118,12 @@ def load_training(path):
     required = {'format', 'model', 'optimizer', 'config', 'contract', 'progress', 'rng', 'status', 'initialization'}
     if not isinstance(data, dict) or not required.issubset(data) or data['format'] != FORMAT:
         raise ValueError('Not a resumable checkpoint. For old policy-only files use --init-weights PATH.')
+    if data['config'].get('value_features')=='independent':
+        if not isinstance(data.get('value_model'),dict) or not isinstance(data.get('value_optimizer'),dict):
+            raise ValueError('Missing independent value checkpoint state')
+        if not data['value_model'] or any(not isinstance(v,torch.Tensor) or not torch.isfinite(v).all()
+                                          for v in data['value_model'].values()):
+            raise ValueError('Invalid independent value weights')
     return data
 
 

@@ -1,0 +1,97 @@
+{
+  "purpose": "Matched full-feature independent critic trial, preserving original actor baseline",
+  "base_config": {
+    "threads": 4,
+    "torch_threads": 1,
+    "max_ticks": 2400,
+    "save_every": 1,
+    "target_kl": 0.03,
+    "envs": 8,
+    "ticks_per_step": 6,
+    "rollout": 64,
+    "total_steps": 32768,
+    "lr": 1e-05,
+    "gamma": 0.995,
+    "gae_lambda": 0.95,
+    "clip": 0.2,
+    "epochs": 2,
+    "minibatches": 4,
+    "ent_coef": 0.005,
+    "vf_coef": 0.5,
+    "value_features": "shared",
+    "reference_coef": 1.0,
+    "max_grad_norm": 0.5,
+    "seed": 1,
+    "reward_mode": "economic",
+    "win_reward": 2000.0,
+    "curriculum": [
+      1.0
+    ],
+    "promote_at": 0.6,
+    "promote_outcome_at": 0.25,
+    "promote_window": 100,
+    "map_path": "game/data/maps/pool/gen_01001000.json",
+    "map_pool": [
+      "game/data/maps/pool/gen_01001000.json",
+      "game/data/maps/pool/gen_01004000.json",
+      "game/data/maps/pool/gen_01005000.json",
+      "game/data/maps/pool/gen_01006001.json"
+    ],
+    "roster": "mixed",
+    "tactical_goals": "split-economy",
+    "levels": [
+      1,
+      4,
+      8,
+      16
+    ],
+    "defender": true,
+    "defender_macro_period": 4,
+    "defender_prepare_ticks": 900,
+    "stats_path": "game/data/stats_placeholder.json",
+    "device": "cpu"
+  },
+  "arms": [
+    "shared",
+    "independent"
+  ],
+  "initialization": "runs/prepared-final-20260909/candidate.pt",
+  "initialization_semantics": "Same policy weights and RNG; independent value copies features without RNG draws, separate Adam and gradient clipping",
+  "files": {
+    "train/ppo.py": "0b1ccf6dba8c36951b9cec3842ec5daa238885d1da4bc9d444524f0ca8d9e995",
+    "train/learning.py": "04c647de5551ba2642fcb61f738b729d4b10c020e85f1908d35f3b7e2fef46a4",
+    "train/rollout.py": "77b792a2ef89de002807681b5c89fd9f774b1dcfe029968d130c60e107e4398a",
+    "train/checkpointing.py": "91adb6096c250baf2fe973d3607814b6fef37e7010adc8c3fb8e68eb82fc1cf6",
+    "train/stable_kl.py": "ca7cd18ffb5a9c199278ea42d735168a79b9b375c65d91ecf7ee3d9ed3b44b8c",
+    "build-split-training/bindings/Release/rts_native.cp313-win_amd64.pyd": "fa1655c3122710a35788efc12d77ca050b2552f4a0c5cdb27b49c554d003146d",
+    "runs/prepared-final-20260909/candidate.pt": "b556e8e3ff216d5fc3dc8e960fed12c2ccce79f318472cc6be8cff6c90550276",
+    "game/data/stats_placeholder.json": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+    "game/data/maps/pool/gen_01001000.json": "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+    "game/data/maps/pool/gen_01004000.json": "d11740be256d2666dc66318255efa4a7912744f47917f745ab920c572f56df45",
+    "game/data/maps/pool/gen_01005000.json": "7c43e2030fde2389cfc0784fd25410f21969e4b3f27911de798857e109f9a18d",
+    "game/data/maps/pool/gen_01006001.json": "7f32afd88e5dfdaea06cae08a9df2bf53d0169f7d9f3fbf89c909214b6fdd160"
+  },
+  "evaluation": {
+    "mode": "split-economy for both frozen baseline and final candidate",
+    "development_maps": [
+      "01002000",
+      "01003000",
+      "01007000",
+      "01009000"
+    ],
+    "seed": 709,
+    "levels": [
+      1,
+      4,
+      8,
+      16
+    ],
+    "environments_per_level": 8,
+    "max_ticks": 2400,
+    "prepare_ticks": 900,
+    "selection": "Final update128 only; do not select checkpoint by holdout scores",
+    "interpretation": "Reused development cases; fresh independent validation is required before promotion"
+  },
+  "selection": "Final update64 only, compare original baseline and both arms under identical split-economy conditions",
+  "scope": "Tests a training design hypothesis, not a proven solution to degradation"
+}
