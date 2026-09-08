@@ -43,6 +43,7 @@
 #include "game/world_builder.hpp"
 #include "game/attacker_macro.hpp"
 #include "game/training_campaign.hpp"
+#include "game/training_goals.hpp"
 #include "game/rl_policy.hpp"
 #include "game/macro_policy.hpp"
 #include "game/macro_observation.hpp"
@@ -415,7 +416,11 @@ PYBIND11_MODULE(rts_native, m) {
                          const std::string& defender_map, int defender_seed,
                          int defender_macro_period, rts::ObsNorms norms,
                          const std::vector<std::string>& defender_maps,
-                         int defender_prepare_ticks) {
+                         int defender_prepare_ticks, const std::string& tactical_goals) {
+                 if(tactical_goals!="keep" && tactical_goals!="known-economy")
+                     throw rts::ContractError("Unknown tactical goal mode");
+                 if(tactical_goals!="keep" && side!=rts::Side::Attacker)
+                     throw rts::ContractError("Economy goals require attacker side");
                  if (defender_prepare_ticks < 0 || defender_prepare_ticks > 2400)
                      throw rts::ContractError("defender_prepare_ticks must be in [0,2400]");
                  if (defender_prepare_ticks && (ticks_per_step <= 0 ||
@@ -428,6 +433,10 @@ PYBIND11_MODULE(rts_native, m) {
                  bi.threads = threads;
                  bi.max_ticks_per_episode = max_ticks_per_episode;
                  bi.norms = norms;
+                 if(tactical_goals=="known-economy")
+                     bi.goal_hook=[](const rts::WorldView& view, std::span<const rts::UnitId> leaders, int) {
+                         return game::known_economy_training_goals(view,leaders);
+                     };
                  // **接上真正的守方**（`scripted_defender.hpp`）。
                  //
                  // 给了地图路径就接、不给就不接（默认不接 = 此前的行为，
@@ -470,6 +479,7 @@ PYBIND11_MODULE(rts_native, m) {
              py::arg("norms") = rts::ObsNorms{},
              py::arg("defender_maps") = std::vector<std::string>{},
              py::arg("defender_prepare_ticks") = 0,
+             py::arg("tactical_goals") = "keep",
              "defender_map 给了就**接上真正的守方**（game::DefenderScript + "
              "DefenderMacro，逐局各一份）。**不给 = 对侧一动不动**——那是 "
              "2026-09-07 之前的行为，而它让 enemy_* 那几条观测通道十万局零"
