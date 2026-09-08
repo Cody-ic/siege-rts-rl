@@ -709,6 +709,19 @@ rts::UnitAction DemoBattle::flow_step(rts::UnitId id) {
                                       : a;
 }
 
+std::array<std::size_t,3> DemoBattle::tactical_goal_diagnostics() const {
+    std::array<std::size_t,3> result{econ_goals_.size(),0,0};
+    if(!policy_ || w_.phase()!=rts::WavePhase::Assault) return result;
+    std::vector<rts::UnitId> leaders;
+    w_.enumerate_squads(rts::Side::Attacker,leaders);
+    for(auto id:leaders) {
+        if(!policy_->supports(w_.unit_type(id),w_.unit_level(id))) continue;
+        ++result[2];
+        if(policy_->supports_macro_goals() && !econ_goals_.empty() && squad_goal_of(id)==1) ++result[1];
+    }
+    return result;
+}
+
 // 这一队该读哪张 field。**目前是脚本的固定分派**（生波时定，见 `spawn_wave`）；
 // RL 宏观层接管时它变成一个每波一次的离散动作，而下面这一层一行都不用改
 // ——那正是「编队动作 = 选目标集」这个形状的全部好处。

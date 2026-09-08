@@ -167,6 +167,9 @@ public:
     rts::Rng::State defender_policy_rng() const noexcept { return defender_rng_.state(); }
     std::string tactical_policy_identity() const { return policy_ ? policy_->identity() : std::string{}; }
     std::size_t learned_squads() const noexcept { return learned_squads_; }
+    // Read-only coverage: remembered economy targets, policy-supported economy
+    // squads, all policy-supported squads in the current assault.
+    std::array<std::size_t,3> tactical_goal_diagnostics() const;
 
     const rts::World& world() const noexcept { return w_; }
     bool developer() const noexcept {return w_.developer();}

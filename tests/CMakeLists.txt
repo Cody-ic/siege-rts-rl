@@ -1,5 +1,9 @@
 include(FetchContent)
 if(RTS_WITH_ONNX)
+    add_executable(tactical_game_check tactical_game_check.cpp)
+    target_link_libraries(tactical_game_check PRIVATE game nlohmann_json_hdr)
+    rts_set_warnings(tactical_game_check TESTS)
+    rts_copy_onnx_runtime(tactical_game_check)
     # Explicit real-model integration check; no silently skipped CTest case.
     add_executable(macro_game_check macro_game_check.cpp)
     target_link_libraries(macro_game_check PRIVATE game)
