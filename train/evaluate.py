@@ -18,7 +18,13 @@ def evaluate(checkpoint, cfg, episodes, frac):
     if episodes < 1 or cfg.envs < 1 or not 0 < frac <= 1:
         raise ValueError('positive episodes/envs and 0 < frac <= 1 required')
     n = min(episodes, cfg.envs)
-    env = R.BatchedEnv(make_worlds(cfg, n, frac), ticks_per_step=cfg.ticks_per_step)
+    # **评估必须与训练同一个对手**。对着空城量出来的胜率不能
+    # 拿来评价一个对着真守方训练的策略，反之亦然 ⇒ 它跟着 `cfg.defender`。
+    # 输出里会带上这一项，不然两份 `evaluation.json` 看不出区别。
+    env = R.BatchedEnv(make_worlds(cfg, n, frac), ticks_per_step=cfg.ticks_per_step,
+                       defender_map=cfg.map_path if cfg.defender else "",
+                       defender_seed=cfg.seed * 31 + 7,
+                       defender_macro_period=cfg.defender_macro_period)
     k, c, mu = R.obs.K, R.obs.CHANNEL_COUNT, R.obs.MAX_UNITS_PER_ENV
     net = Policy(k, c, R.obs.SELF_COUNT, R.obs.GLOBAL_COUNT, R.obs.ACTION_COUNT).to(cfg.device)
     net.load_state_dict(torch.load(checkpoint, map_location=cfg.device, weights_only=True))
@@ -63,6 +69,8 @@ def evaluate(checkpoint, cfg, episodes, frac):
             'win_rate': wins/episodes, 'seed': cfg.seed, 'frac': frac,
             'ticks_per_step': cfg.ticks_per_step, 'max_ticks': env.max_ticks_per_episode,
             'policy': 'frozen_argmax', 'device': cfg.device,
+            'defender': 'scripted' if cfg.defender else 'none',
+            'defender_macro_period': cfg.defender_macro_period,
             'sha256': {name: hashlib.sha256(Path(path).read_bytes()).hexdigest()
                        for name, path in [('checkpoint', checkpoint), ('map', cfg.map_path), ('stats', cfg.stats_path)]},
             'rows': sorted(rows, key=lambda row: row['episode'])}
@@ -77,9 +85,14 @@ def main():
     ap.add_argument('--seed', type=int, default=100001)
     ap.add_argument('--device', default='cpu')
     ap.add_argument('--output', default='train/evaluation.json')
+    # **对手必须与训练时一致**。默认接守方；要重现归档的 40M
+    # 那个读数（它跑在空城上）就给 `--no-defender`。
+    ap.add_argument('--no-defender', action='store_true')
     args = ap.parse_args()
-    result = evaluate(args.checkpoint, Cfg(envs=args.envs, seed=args.seed, device=args.device),
-                      args.episodes, args.frac)
+    cfg = Cfg(envs=args.envs, seed=args.seed, device=args.device)
+    if args.no_defender:
+        cfg.defender = False
+    result = evaluate(args.checkpoint, cfg, args.episodes, args.frac)
     Path(args.output).write_text(json.dumps(result, indent=2), encoding='utf-8')
     print(f"胜利 {result['wins']} / 超时 {result['timeouts']}，冻结策略胜率 {result['win_rate']:.1%}")
     print(args.output)

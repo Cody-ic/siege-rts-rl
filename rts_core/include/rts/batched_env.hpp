@@ -36,6 +36,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <string_view>
 #include <memory>
 #include <span>
@@ -78,6 +79,32 @@ struct BatchedEnvInit {
     // credit assignment 依赖它），改动的理由不同。
     int max_ticks_per_episode = 2400;
     // 每个新局都享有完整时限；终局统计不得靠缩短任务来错峰。
+
+    // ——**对侧由谁驱动**（2026-09-07）——
+    //
+    // 每一步在 `advance()` **之前**调一次，用来替 `side()` 的**对面**那一侧
+    // 提交命令与动作。默认空 ⇒ 对侧一动不动。
+    //
+    // **为什么必须有这个钩子**：攻方 RL 跑满 40M 步之后查出训练图里
+    // **一个守方单位都没有**（`make_world_init` 只摆地图 JSON 里的建筑，而
+    // 地图 JSON 没有 `units` 键）⇒ `enemy_*` 那几条观测通道十万局零梯度。
+    // 而**光把守方单位摆进 `World` 是不够的**：单位出生动作是 `Stop`，
+    // 而攻击阶段只处理攻击类动作 ⇒ 它们会站在原地被打死而一枪不放。
+    //
+    // **为什么是钩子而不是在这里实现守方**：真正的守方是
+    // `game::DefenderScript`（单兵）+ `game::DefenderMacro`（宏观），而
+    // **`rts_core` 不能依赖 `game/`**。钩子把「谁来驱动」这个决定留给上层
+    // ——`bindings/` 那一层已经依赖 `game/`（它用 `game::MapLoader`），
+    // 于是攻方面对的是**它最终真要面对的那个陪练**，而不是一个替身。
+    //
+    // ⚠️ **它在工作线程里被调用**（`for_each_env`），环境下标是第二个参数
+    // 正为此：**实现只许碰第 i 局自己的状态**，否则「结果与线程数无关」
+    // 那条不变量就坏了（那不会报错，只会让同一种子跑两遍得到两份数据）。
+    //
+    // ⚠️ **不许回调 Python**（不变量 1：热路径不回调上层）。它是
+    // `std::function` 而不是一个虚接口，正是为了让「在 C++ 里组装」成为
+    // 最省事的用法。
+    std::function<void(World&, int)> opponent_hook;
     // 线程数。0 = 由实现挑（硬件并发数，上限批大小）。
     // **它不影响结果**，只影响墙钟时间——见文件头。
     int threads = 0;

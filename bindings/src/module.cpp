@@ -40,6 +40,7 @@
 #include "game/map_loader.hpp"
 #include "game/stats_loader.hpp"
 #include "game/world_builder.hpp"
+#include "scripted_defender.hpp"
 #include "rts/action.hpp"
 #include "rts/batched_env.hpp"
 #include "rts/obs.hpp"
@@ -229,7 +230,8 @@ PYBIND11_MODULE(rts_native, m) {
     py::class_<rts::BatchedEnv>(m, "BatchedEnv")
         .def(py::init([](std::vector<rts::WorldInit> worlds, rts::Side side,
                          int ticks_per_step, int threads, int max_ticks_per_episode,
-                         rts::ObsNorms norms) {
+                         const std::string& defender_map, int defender_seed,
+                         int defender_macro_period, rts::ObsNorms norms) {
                  rts::BatchedEnvInit bi;
                  bi.worlds = std::move(worlds);
                  bi.side = side;
@@ -237,12 +239,42 @@ PYBIND11_MODULE(rts_native, m) {
                  bi.threads = threads;
                  bi.max_ticks_per_episode = max_ticks_per_episode;
                  bi.norms = norms;
+                 // **接上真正的守方**（`scripted_defender.hpp`）。
+                 //
+                 // 给了地图路径就接、不给就不接（默认不接 = 此前的行为，
+                 // 对侧一动不动）。**它必须是 `shared_ptr` 捕获进
+                 // `std::function`**：`BatchedEnv` 只存那个 function，
+                 // 而大脑得活到最后一次 `step()`。
+                 //
+                 // ⚠️ 这里**再读一次地图**（`MapLoader::from_file`）。
+                 // 不复用 `make_world_init` 那次是因为那一层只返回
+                 // `WorldInit`、不返回 `MapData`，而 `DefenderMacro` 要的
+                 // 是后者（它构造时要算环半径与候选塔位）。一次性开销。
+                 if (!defender_map.empty()) {
+                     const game::MapData dm = game::MapLoader::from_file(defender_map);
+                     auto brain = std::make_shared<bindings::ScriptedDefender>(
+                         dm, static_cast<int>(bi.worlds.size()),
+                         static_cast<std::uint64_t>(defender_seed),
+                         game::MacroParams{}, game::ScriptParams{},
+                         defender_macro_period);
+                     bi.opponent_hook = [brain](rts::World& w, int i) {
+                         (*brain)(w, i);
+                     };
+                 }
                  return std::make_unique<rts::BatchedEnv>(std::move(bi));
              }),
              py::arg("worlds"), py::arg("side") = rts::Side::Attacker,
              py::arg("ticks_per_step") = 6, py::arg("threads") = 0,
              py::arg("max_ticks_per_episode") = 2400,
-             py::arg("norms") = rts::ObsNorms{})
+             py::arg("defender_map") = std::string{},
+             py::arg("defender_seed") = 20260907,
+             py::arg("defender_macro_period") = 1,
+             py::arg("norms") = rts::ObsNorms{},
+             "defender_map 给了就**接上真正的守方**（game::DefenderScript + "
+             "DefenderMacro，逐局各一份）。**不给 = 对侧一动不动**——那是 "
+             "2026-09-07 之前的行为，而它让 enemy_* 那几条观测通道十万局零"
+             "梯度。注意：光把守方单位摆进 World 是不够的，单位出生动作是 "
+             "Stop、攻击阶段只处理攻击类动作 ⇒ 没人替它们下令就一枪不放。")
         .def_property_readonly("batch_size", &rts::BatchedEnv::batch_size)
         .def_property_readonly("max_ticks_per_episode",
                                &rts::BatchedEnv::max_ticks_per_episode)

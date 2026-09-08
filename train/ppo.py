@@ -131,6 +131,20 @@ class Cfg:
     promote_at: float = 0.6
     promote_window: int = 100
     map_path: str = "game/data/maps/pool/gen_01001000.json"
+    # ——**接不接真正的守方**（2026-09-07）——
+    #
+    # 默认 **接**。不接时对侧一动不动，而那是 40M 那轮的局面：
+    # 训练图里**一个守方单位都没有** ⇒ `enemy_*` 那几条观测通道
+    # 十万局零梯度（`配平工作交接.md` §2.14.3d）。
+    #
+    # **守方单位不靠摆进去，靠 `DefenderMacro` 自己招**（它会下 `Train`
+    # 命令）——那才是真实路径：玩家征兵，而不是地图文件给兵。
+    # 所以这里只给地图路径，不用代 `make_world_init` 摆人。
+    defender: bool = True
+    # 守方宏观层多少个决策拍跑一次。它每次要扫城区 (2R+1)² 格 +
+    # 资源点，而它的动作是波次级的（建造要几百 tick）⇒ 不必逐拍跑。
+    # **单兵那一半不受它节流**（登墙意愿必须每拍重发）。
+    defender_macro_period: int = 4
     stats_path: str = "game/data/stats_placeholder.json"
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -222,6 +236,9 @@ def main() -> None:
                  ("lr", float), ("seed", int), ("device", str)):
         ap.add_argument(f"--{f}", type=t, default=None)
     ap.add_argument("--reward-mode", choices=("economic", "victory"), default=None)
+    # **默认接守方；`--no-defender` 是 A/B 对照用的**——要证明接上守方
+    # 真的改变了什么，得能关掉它跑一遗（归档的 40M 就是关掉的那一轮）。
+    ap.add_argument("--no-defender", action="store_true")
     ap.add_argument("--win-reward", type=float, default=None)
     a = ap.parse_args()
     cfg = Cfg()
@@ -232,10 +249,14 @@ def main() -> None:
         cfg.total_steps = a.total_steps
     if a.reward_mode is not None:
         cfg.reward_mode = a.reward_mode
+    if a.no_defender:
+        cfg.defender = False
     if a.win_reward is not None:
         cfg.win_reward = a.win_reward
     task_reward(0.0, False, cfg.reward_mode, cfg.win_reward)  # fail before setup
     print(f"奖励模式 {cfg.reward_mode}  胜利奖励 {cfg.win_reward:g}")
+    print(f"守方 {'接上了（DefenderScript + DefenderMacro）' if cfg.defender else '☠️ 未接（空城）'}"
+          f"  宏观节流 {cfg.defender_macro_period} 拍")
 
     torch.manual_seed(cfg.seed)
     np.random.seed(cfg.seed)
@@ -276,6 +297,9 @@ def main() -> None:
     frac = cfg.curriculum[stage]
     print(f"课程 {cfg.curriculum}  起于第 1 档 frac={frac}")
     env = R.BatchedEnv(make_worlds(cfg, cfg.envs, frac), side=R.Side.Attacker,
+                       defender_map=cfg.map_path if cfg.defender else "",
+                       defender_seed=cfg.seed * 31 + 7,
+                       defender_macro_period=cfg.defender_macro_period,
                        ticks_per_step=cfg.ticks_per_step, threads=0)
 
     # ——缓冲区由 Python 持有、反复复用**（不是每步 new 一块）。

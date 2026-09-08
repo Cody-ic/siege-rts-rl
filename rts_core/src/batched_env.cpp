@@ -37,6 +37,9 @@ struct BatchedEnv::Impl {
     std::vector<int> elapsed;
     std::vector<EpisodeEnd> ends;
     int max_ticks = 0;
+    // 对侧驱动钩子（`BatchedEnvInit::opponent_hook`）。**在工作线程里调**，
+    // 所以实现只许碰第 i 局自己的状态——那条纪律写在声明处。
+    std::function<void(World&, int)> opponent;
     // 逐局的 flow field 缓存：`(兵种 × 等级档)`，每次 `observe` 重算。
     //
     // **`observe` 里必须喂方向场，否则策略没有任何东西指向目标。**
@@ -182,6 +185,7 @@ BatchedEnv::BatchedEnv(BatchedEnvInit init) : p_(std::make_unique<Impl>()) {
                  static_cast<std::size_t>(kFlowTierCount));
     }
     p_->max_ticks = init.max_ticks_per_episode;
+    p_->opponent = std::move(init.opponent_hook);
     p_->dist_before.resize(static_cast<std::size_t>(n));
     p_->progress.assign(static_cast<std::size_t>(n), 0.0);
     p_->refresh_counts();
@@ -334,6 +338,12 @@ void BatchedEnv::step(std::span<const UnitAction> actions,
             }
         }
         w.submit_actions(p_->side, slice.data(), slice.size());
+        // **替对侧下命令与动作**（`BatchedEnvInit::opponent_hook`）。
+        //
+        // 顺序必须夹在这里：在我方 `submit_actions` **之后**、`advance()`
+        // **之前**。两侧的提交都只是入队，`advance` 才真的推演；反过来写
+        // 不会报错，只会让对侧永远晚我方一拍。
+        if (p_->opponent) p_->opponent(w, i);
         const int ticks = p_->max_ticks > 0
             ? std::min(p_->ticks_per_step, p_->max_ticks - p_->elapsed[ui])
             : p_->ticks_per_step;
