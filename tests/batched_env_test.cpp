@@ -108,6 +108,36 @@ rts::BatchedEnvInit make_init(int n, int threads) {
 
 }  // namespace
 
+TEST_CASE("native reset factory preserves an independent episode clock", "[batchenv]") {
+    auto init = make_init(2, 2);
+    init.max_ticks_per_episode = 12;
+    std::vector<int> calls(2,0);
+    init.world_factory = [&calls](rts::WorldInit wi, int i) {
+        ++calls[static_cast<std::size_t>(i)];
+        auto w = std::make_unique<rts::World>(std::move(wi));
+        w->advance(90);
+        return w;
+    };
+    rts::BatchedEnv env(std::move(init));
+    REQUIRE(calls == std::vector<int>{1,1});
+    REQUIRE(env.world_at(0).now() == 90);
+    std::vector<rts::UnitAction> actions(2*rts::BatchedEnv::kMaxUnitsPerEnv);
+    std::vector<std::uint8_t> done(2);
+    env.step(actions,done);
+    REQUIRE(done == std::vector<std::uint8_t>{0,0});
+    env.step(actions,done);
+    REQUIRE(done == std::vector<std::uint8_t>{1,1});
+    env.reset_one(0,one(0,2));
+    REQUIRE(calls == std::vector<int>{2,1});
+    REQUIRE(env.world_at(0).now() == 90);
+    env.step(actions,done);
+    REQUIRE(done[0] == 0);
+
+    auto invalid = make_init(1,1);
+    invalid.world_factory = [](rts::WorldInit, int) { return std::unique_ptr<rts::World>{}; };
+    REQUIRE_THROWS_AS(rts::BatchedEnv(std::move(invalid)),rts::ContractError);
+}
+
 TEST_CASE("terminal cause is latched, timeout cannot turn into victory", "[batchenv]") {
     using End = rts::BatchedEnv::EpisodeEnd;
     for (int threads : {1, 2}) {

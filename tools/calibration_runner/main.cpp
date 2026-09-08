@@ -94,6 +94,7 @@ struct Options {
     int max_ticks = 0;   // 0 = 不限
     int limit = 0;       // 只跑字典序前 n 张图，0 = 全部（冒烟/快速本地跑用）
     std::string out_path;   // 空 = stdout
+    std::string rl_policy_path;
     bool compact = false;
     bool help = false;
     // **守方宏观决策层**（`game::DefenderMacro`）。默认关，于是
@@ -148,6 +149,7 @@ void print_help() {
         "用法: calibration_runner [选项]\n"
         "\n"
         "  --maps <目录>     地图目录，*.json 按字典序全部参与（默认 <data>/maps/pool）\n"
+        "  --rl-policy <ONNX>  Evaluate an exported tactical policy in real multi-wave games\n"
         "  --seeds <列表>    逗号分隔的种子（默认 1,2,3）\n"
         "  --max-waves <n>   每局最多波数，跑完或堡垒陷落即停（默认 20）\n"
         "  --max-ticks <n>   每局 tick 上限，0 = 不限（默认 0）\n"
@@ -199,7 +201,10 @@ bool parse_args(const std::vector<std::string>& args, Options& out) {
     };
     for (int i = 1; i < argc; ++i) {
         const std::string a = args[static_cast<std::size_t>(i)];
-        if (a == "--help" || a == "-h") {
+        if (a == "--rl-policy") {
+            out.rl_policy_path=need(i,"--rl-policy");
+            if(out.rl_policy_path.empty()) return false;
+        } else if (a == "--help" || a == "-h") {
             out.help = true;
         } else if (a == "--maps") {
             const std::string v = need(i, "--maps");
@@ -645,6 +650,7 @@ struct RunRecord {
     bool truncated = false;   // 被 --max-ticks 截断
     int final_wave = 0;
     int total_ticks = 0;
+    int peak_learned_squads = -1;  // -1 keeps legacy script-only JSON unchanged.
     std::vector<WaveRecord> waves;
 };
 
@@ -1371,6 +1377,7 @@ void write_run(Json& j, const RunRecord& r) {
     j.str(r.map_file);
     j.key("seed");
     j.val(r.seed);
+    if(r.peak_learned_squads>=0) {j.key("peak_learned_squads");j.val(r.peak_learned_squads);}
     j.key("defeated");
     j.val(r.defeated);
     j.key("truncated");
@@ -1428,6 +1435,11 @@ int main(int argc, char** argv) {
 
     const rts::StatsTable stats = game::StatsLoader::from_file(
         std::string(GAME_DATA_DIR) + "/stats_placeholder.json");
+    std::shared_ptr<game::TacticalPolicy> tactical_policy;
+    if(!opt.rl_policy_path.empty()) {
+        try {tactical_policy=std::make_shared<game::TacticalPolicy>(opt.rl_policy_path,stats.fingerprint());}
+        catch(const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
+    }
 
     // ——跑——
     std::vector<MapInfo> maps;
@@ -1470,6 +1482,7 @@ int main(int argc, char** argv) {
             setup.pop_cap_base = opt.pop_base;
             setup.pop_cap_per_keep_level = opt.pop_per_keep;
             game::DemoBattle battle(map, stats, seed, timing, curve, setup);
+            battle.set_tactical_policy(tactical_policy);
             BattleRecorder rec(map, battle);
             rec.observe();   // 开第 1 波（t=0 已在集结）
 
@@ -1477,6 +1490,7 @@ int main(int argc, char** argv) {
             run.map_file = file;
             run.seed = seed;
             run.truncated = false;
+            if(tactical_policy) run.peak_learned_squads=0;
             int ticks = 0;
             // 守方宏观决策层（可选）。**它经 `submit_defender` 入队**，与人类玩家
             // 同一条路，所以不绕开任何机制、也不做玩家做不到的事。
@@ -1523,6 +1537,7 @@ int main(int argc, char** argv) {
                     }
                 }
                 battle.update(1);
+                if(tactical_policy) run.peak_learned_squads=std::max(run.peak_learned_squads,static_cast<int>(battle.learned_squads()));
                 rec.observe();
                 ++ticks;
             }
@@ -1584,6 +1599,7 @@ int main(int argc, char** argv) {
     j.val(static_cast<std::int64_t>(stats.fingerprint()));
     j.key("max_waves");
     j.val(opt.max_waves);
+    if(tactical_policy) {j.key("tactical_policy_identity");j.str(tactical_policy->identity());}
     j.key("max_ticks");
     j.val(opt.max_ticks);
     // 回显本次跑用的攻方曲线、波次节奏与守方旋钮。

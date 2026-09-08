@@ -160,6 +160,7 @@ class Cfg:
     # 资源点，而它的动作是波次级的（建造要几百 tick）⇒ 不必逐拍跑。
     # **单兵那一半不受它节流**（登墙意愿必须每拍重发）。
     defender_macro_period: int = 4
+    defender_prepare_ticks: int = 0  # optional real construction before attackers spawn
     stats_path: str = "game/data/stats_placeholder.json"
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -260,6 +261,8 @@ def make_worlds(cfg: Cfg, n: int, frac: float = 1.0, start: int = 0) -> list:
 
 
 def validate(cfg):
+    if not 0 <= cfg.defender_prepare_ticks <= 2400 or (cfg.defender_prepare_ticks and not cfg.defender):
+        raise ValueError('defender_prepare_ticks requires a defender and must be in [0,2400]')
     if cfg.roster not in ('ghouls','mixed'):
         raise ValueError('roster must be ghouls or mixed')
     if not cfg.levels or any(not isinstance(lv,int) or lv<1 or lv>1000 for lv in cfg.levels):
@@ -293,6 +296,7 @@ def make_env(cfg, n, frac, start=0):
                         defender_map=cfg.map_path if cfg.defender and not cfg.map_pool else '',
                         defender_seed=cfg.seed * 31 + 7,
                         defender_macro_period=cfg.defender_macro_period,
+                        defender_prepare_ticks=cfg.defender_prepare_ticks,
                         ticks_per_step=cfg.ticks_per_step, threads=cfg.threads,
                         max_ticks_per_episode=cfg.max_ticks,**maps)
 

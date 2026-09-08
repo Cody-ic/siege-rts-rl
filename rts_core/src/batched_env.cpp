@@ -40,6 +40,14 @@ struct BatchedEnv::Impl {
     // 对侧驱动钩子（`BatchedEnvInit::opponent_hook`）。**在工作线程里调**，
     // 所以实现只许碰第 i 局自己的状态——那条纪律写在声明处。
     std::function<void(World&, int)> opponent;
+    std::function<std::unique_ptr<World>(WorldInit, int)> world_factory;
+
+    std::unique_ptr<World> make_world(WorldInit init, int index) {
+        auto result = world_factory ? world_factory(std::move(init), index)
+                                    : std::make_unique<World>(std::move(init));
+        if (!result) throw ContractError("BatchedEnv: world factory returned null");
+        return result;
+    }
     // 逐局的 flow field 缓存：`(兵种 × 等级档)`，每次 `observe` 重算。
     //
     // **`observe` 里必须喂方向场，否则策略没有任何东西指向目标。**
@@ -170,8 +178,9 @@ BatchedEnv::BatchedEnv(BatchedEnvInit init) : p_(std::make_unique<Impl>()) {
                       : std::clamp(static_cast<int>(std::thread::hardware_concurrency()),
                                    1, n);
     p_->worlds.reserve(static_cast<std::size_t>(n));
+    p_->world_factory = std::move(init.world_factory);
     for (WorldInit& wi : init.worlds) {
-        p_->worlds.push_back(std::make_unique<World>(std::move(wi)));
+        p_->worlds.push_back(p_->make_world(std::move(wi), static_cast<int>(p_->worlds.size())));
     }
     p_->counts.assign(static_cast<std::size_t>(n), 0);
     p_->ids.resize(static_cast<std::size_t>(n));
@@ -474,7 +483,7 @@ std::vector<double> BatchedEnv::potentials() const {
 void BatchedEnv::reset_one(int i, WorldInit init) {
     if (i < 0 || i >= batch_size()) throw ContractError("BatchedEnv: 环境下标越界");
     const std::size_t ui = static_cast<std::size_t>(i);
-    p_->worlds[ui] = std::make_unique<World>(std::move(init));
+    p_->worlds[ui] = p_->make_world(std::move(init), i);
     p_->worlds[ui]->enumerate_units(p_->side, p_->ids[ui]);
     p_->worlds[ui]->enumerate_squads(p_->side, p_->leaders[ui]);
     p_->counts[ui] = static_cast<int>(p_->leaders[ui].size());

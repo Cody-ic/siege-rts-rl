@@ -68,7 +68,8 @@ def collect(args):
         raise ValueError('Fractions must be increasing, unique and in (0,1]')
     cfg = Cfg(envs=args.envs,threads=args.threads,torch_threads=1,device='cpu',seed=args.seed,
               map_path=args.map_path,stats_path=args.stats_path,map_pool=tuple(args.map_pool.split(',')) if args.map_pool else (),
-              roster=args.roster,levels=tuple(int(x) for x in args.levels.split(',')))
+              roster=args.roster,levels=tuple(int(x) for x in args.levels.split(',')),
+              defender_prepare_ticks=args.defender_prepare_ticks)
     from ppo import validate
     validate(cfg)
     # JSON normalization makes tuple/list config fields identical after a restart.
@@ -267,6 +268,7 @@ def main(argv=None):
     collect_ap.add_argument('--map-pool',default='')
     collect_ap.add_argument('--roster',choices=('ghouls','mixed'),default='ghouls')
     collect_ap.add_argument('--levels',default='1')
+    collect_ap.add_argument('--defender-prepare-ticks',type=int,default=0)
     fit_ap = commands.add_parser('fit',help='Fit on CPU; restore optimizer and epoch checkpoints with --resume')
     fit_ap.add_argument('--data',required=True)
     fit_ap.add_argument('--run-dir',required=True)

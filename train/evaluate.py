@@ -172,6 +172,7 @@ def evaluate(checkpoint, cfg, episodes, frac, policy='frozen_argmax', *, diagnos
             'max_ticks':cfg.max_ticks, 'policy':policy, 'device':cfg.device,
             'defender':'scripted' if cfg.defender else 'none',
             'defender_macro_period':cfg.defender_macro_period,
+            'defender_prepare_ticks':cfg.defender_prepare_ticks,
             'spawns':[list(s) for s in spawns], 'by_spawn':summarize_spawns(rows),
             'diagnostics':diagnostics, 'trace_every':trace_every if diagnostics else None,
             'evaluator_sha256':{name:sha256(Path(__file__).parent/name)
@@ -197,6 +198,7 @@ def main():
     ap.add_argument('--torch-threads', type=int, default=1)
     ap.add_argument('--output', default='runs/evaluation.json')
     ap.add_argument('--no-defender', action='store_true', default=None)
+    ap.add_argument('--defender-prepare-ticks',type=int)
     ap.add_argument('--map-path')
     ap.add_argument('--stats-path')
     ap.add_argument('--max-ticks', type=int)
@@ -212,7 +214,7 @@ def main():
             cfg = Cfg(**saved['config'])
         else:
             print('Legacy policy-only file: opponent/map settings must be supplied explicitly.')
-    for name in ('envs','seed','device','threads','torch_threads','map_path','stats_path','max_ticks','ticks_per_step','roster','levels'):
+    for name in ('envs','seed','device','threads','torch_threads','map_path','stats_path','max_ticks','ticks_per_step','roster','levels','defender_prepare_ticks'):
         value = getattr(args,name)
         if value is not None:
             if saved and name in ('map_path','stats_path','max_ticks','ticks_per_step') and value != getattr(cfg,name):

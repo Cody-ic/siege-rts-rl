@@ -34,7 +34,7 @@ def contract(native, cfg):
         'map_pool_sha256': [sha256(path) for path in cfg.map_pool],
         'simulation_fingerprint': native.SIMULATION_FINGERPRINT,
         'native_build_mode': native.BUILD_MODE,
-        'learner_version': 5,  # multi-map, mixed-roster and level training
+        'learner_version': 6,  # optional prepared city; old defaults preserved
         'learner_sha256': {name: sha256(ROOT/'train'/name) for name in
                            ('ppo.py', 'learning.py', 'rollout.py', 'checkpointing.py')},
     }

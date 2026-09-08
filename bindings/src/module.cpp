@@ -274,7 +274,13 @@ PYBIND11_MODULE(rts_native, m) {
                          int ticks_per_step, int threads, int max_ticks_per_episode,
                          const std::string& defender_map, int defender_seed,
                          int defender_macro_period, rts::ObsNorms norms,
-                         const std::vector<std::string>& defender_maps) {
+                         const std::vector<std::string>& defender_maps,
+                         int defender_prepare_ticks) {
+                 if (defender_prepare_ticks < 0 || defender_prepare_ticks > 2400)
+                     throw rts::ContractError("defender_prepare_ticks must be in [0,2400]");
+                 if (defender_prepare_ticks && (ticks_per_step <= 0 ||
+                     (defender_map.empty() && defender_maps.empty())))
+                     throw rts::ContractError("Preparation requires a scripted defender and positive decision period");
                  rts::BatchedEnvInit bi;
                  bi.worlds = std::move(worlds);
                  bi.side = side;
@@ -307,6 +313,11 @@ PYBIND11_MODULE(rts_native, m) {
                      bi.opponent_hook = [brain](rts::World& w, int i) {
                          (*brain)(w, i);
                      };
+                     if (defender_prepare_ticks) {
+                         bi.world_factory = [brain, defender_prepare_ticks, ticks_per_step](rts::WorldInit init, int i) {
+                             return brain->prepare(std::move(init), i, defender_prepare_ticks, ticks_per_step);
+                         };
+                     }
                  }
                  return std::make_unique<rts::BatchedEnv>(std::move(bi));
              }),
@@ -318,6 +329,7 @@ PYBIND11_MODULE(rts_native, m) {
              py::arg("defender_macro_period") = 1,
              py::arg("norms") = rts::ObsNorms{},
              py::arg("defender_maps") = std::vector<std::string>{},
+             py::arg("defender_prepare_ticks") = 0,
              "defender_map 给了就**接上真正的守方**（game::DefenderScript + "
              "DefenderMacro，逐局各一份）。**不给 = 对侧一动不动**——那是 "
              "2026-09-07 之前的行为，而它让 enemy_* 那几条观测通道十万局零"

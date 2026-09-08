@@ -27,6 +27,26 @@ from rollout import advantages, RolloutStorage
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_prepared_city_reset_and_full_combat_horizon(self):
+        cfg=self.cfg(roster='mixed',defender_prepare_ticks=90,max_ticks=12)
+        env=ppo.make_env(cfg,1,1.)
+        initial=env.state_hash(0)
+        obs=ppo.Observer(env).read()
+        self.assertEqual(len(obs[2]),9)
+        np.testing.assert_array_equal(obs[2][:,-2],np.ones(9,np.float32))
+        actions=np.zeros((1,ppo.R.obs.MAX_UNITS_PER_ENV),np.uint8)
+        done=np.zeros(1,np.uint8)
+        env.step(actions,done)
+        self.assertEqual(done[0],0) # preparation must not consume the episode limit
+        env.step(actions,done)
+        self.assertEqual(done[0],1)
+        env.reset_one(0,ppo.make_worlds(cfg,1,1.)[0])
+        self.assertEqual(env.state_hash(0),initial)
+        cold=ppo.make_env(self.cfg(roster='mixed'),1,1.)
+        self.assertNotEqual(cold.state_hash(0),initial)
+        with self.assertRaises(ValueError):
+            ppo.validate(self.cfg(defender=False,defender_prepare_ticks=90))
+
     def setUp(self):
         torch.set_num_threads(1)
 

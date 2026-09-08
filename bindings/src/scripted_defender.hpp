@@ -34,6 +34,7 @@
 // 共用任何一块都是数据竞争，而它不会报错——只会让同一个种子跑两遍得到
 // 两份不同的数据（`batched_env.hpp` 文件头把这条列为最要防的失败形态）。
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -49,6 +50,32 @@ namespace bindings {
 // 逐局一份的守方大脑 + 缓冲。`operator()` 就是那个钩子。
 class ScriptedDefender {
 public:
+    std::unique_ptr<rts::World> prepare(rts::WorldInit init, int i, int ticks,
+                                      int decision_ticks) {
+        // Preserve the exact requested roster, but do not expose it to defenders
+        // or let it take tower damage during preparation.
+        std::vector<rts::UnitInit> attackers;
+        std::vector<rts::UnitInit> defenders;
+        for (const auto& unit : init.units) {
+            (rts::side_of(unit.type) == rts::Side::Attacker ? attackers : defenders).push_back(unit);
+        }
+        init.units = std::move(defenders);
+        auto world = std::make_unique<rts::World>(std::move(init));
+        for (int elapsed = 0; elapsed < ticks;) {
+            (*this)(*world, i);
+            const int step = std::min(decision_ticks, ticks - elapsed);
+            world->advance(step);
+            elapsed += step;
+        }
+        for (const auto& unit : attackers)
+            world->spawn_unit(unit.type, unit.pos, unit.level, unit.hp, unit.max_hp, unit.squad);
+        world->begin_assault();
+        (void)world->take_tally(rts::Side::Attacker);
+        (void)world->take_tally(rts::Side::Defender);
+        // The same per-slot brain continues into combat: do not discard its
+        // construction quotas, orders or RNG after preparing the city.
+        return world;
+    }
     // `n` = 批大小。`seed` 给每局的脚本 RNG 错开（`DefenderScript` 内部有
     // `Rng`，同一个种子会让所有局的随机决策完全同步——那不是错，但会让
     // 一批 256 局的多样性凭空少一维）。

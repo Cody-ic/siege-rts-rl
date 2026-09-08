@@ -7,7 +7,6 @@ import argparse
 import json
 import subprocess
 from pathlib import Path
-import time
 
 import numpy as np
 import torch
@@ -30,7 +29,15 @@ class Actor(torch.nn.Module):
 
 def export(args):
     torch.set_num_threads(1)
-    cfg=Cfg(device='cpu',envs=1,threads=1,torch_threads=1,map_path=args.map_path,stats_path=args.stats_path)
+    source=torch.load(args.checkpoint,map_location='cpu',weights_only=True)
+    source_contract={}
+    if isinstance(source,dict) and 'format' in source:
+        source_contract=source.get('contract',source.get('plan',{}).get('signature',{}).get('contract',{}))
+    if source_contract:
+        if source_contract['stats_sha256']!=sha256(args.stats_path):
+            raise ValueError('Export stats differ from the training checkpoint')
+        if source_contract['obs_fingerprint']!=R.obs.LAYOUT_FINGERPRINT:
+            raise ValueError('Export observation layout differs from training')
     net=Policy(R.obs.K,R.obs.CHANNEL_COUNT,R.obs.SELF_COUNT,R.obs.GLOBAL_COUNT,R.obs.ACTION_COUNT)
     net.load_state_dict(load_weights(args.checkpoint))
     actor=Actor(net.eval()).eval()
@@ -39,24 +46,29 @@ def export(args):
     assert contract['obs_version']==R.obs.VERSION
     assert int(contract['obs_fingerprint'])==R.obs.LAYOUT_FINGERPRINT
     types=args.unit_types.split(',')
-    if not types or any(t not in R.obs.UNIT_TYPE_NAMES[5:] for t in types):
+    if not types or any(t not in ('Ghoul','Shade','Knight','Ram','Phoenix') for t in types):
         raise ValueError('Declare the attacker types actually covered by training')
-    if not 1 <= args.min_level <= args.max_level or not 4 <= args.ticks_per_step <= 8:
+    if not 1 <= args.min_level <= args.max_level <= 1000 or not 4 <= args.ticks_per_step <= 8:
         raise ValueError('Invalid level/decision period contract')
-    env=make_env(cfg,1,1.)
-    obs=Observer(env)
     samples=[]
+    trajectory_steps=[]
     with torch.inference_mode():
-        for step in range(301):
-            rows,c,s,g,m=obs.read()
-            if len(rows)==0:break
-            if step%50==0: samples.append((c.copy(),s.copy(),g.copy(),m.copy()))
-            logits=actor(*(torch.from_numpy(x) for x in (c,s,g))).numpy()
-            actions=np.zeros((1,obs.mu),np.uint8)
-            actions.reshape(-1)[rows]=np.where(m,logits,-np.inf).argmax(-1)
-            done=np.zeros(1,np.uint8)
-            env.step(actions,done)
-            if done[0]:break
+        for level in sorted({args.min_level,args.max_level}):
+            cfg=Cfg(device='cpu',envs=1,threads=1,torch_threads=1,map_path=args.map_path,stats_path=args.stats_path,
+                    roster='ghouls' if set(types)=={'Ghoul'} else 'mixed',levels=(level,),ticks_per_step=args.ticks_per_step)
+            env=make_env(cfg,1,1.)
+            obs=Observer(env)
+            for step in range(301):
+                rows,c,s,g,m=obs.read()
+                if len(rows)==0:break
+                if step%50==0: samples.append((c.copy(),s.copy(),g.copy(),m.copy()))
+                logits=actor(*(torch.from_numpy(x) for x in (c,s,g))).numpy()
+                actions=np.zeros((1,obs.mu),np.uint8)
+                actions.reshape(-1)[rows]=np.where(m,logits,-np.inf).argmax(-1)
+                done=np.zeros(1,np.uint8)
+                env.step(actions,done)
+                if done[0]:break
+            trajectory_steps.append(dict(level=level,steps=step+1))
     c,s,g,m=(np.concatenate([sample[i] for sample in samples]) for i in range(4))
     example=tuple(torch.from_numpy(x[:1]) for x in (c,s,g))
     output=Path(args.output)
@@ -74,7 +86,8 @@ def export(args):
         'rts.agent_semantics':'squad-leader-broadcast-v1','rts.unit_types':','.join(str(R.obs.UNIT_TYPE_NAMES.index(t)) for t in types),
         'rts.min_level':str(args.min_level),'rts.max_level':str(args.max_level),
         'rts.ticks_per_step':str(args.ticks_per_step),'rts.source_sha256':sha256(args.checkpoint),
-        'rts.source_simulation_fingerprint':str(R.SIMULATION_FINGERPRINT)}
+        'rts.training_simulation_fingerprint':str(source_contract.get('simulation_fingerprint','unknown-policy-only')),
+        'rts.validation_simulation_fingerprint':str(R.SIMULATION_FINGERPRINT)}
     onnx.helper.set_model_props(model,metadata)
     onnx.checker.check_model(model)
     options=ort.SessionOptions();options.intra_op_num_threads=1;options.inter_op_num_threads=1
@@ -104,7 +117,8 @@ def export(args):
                 'cpp_actions_equal':True,'cpp_mean_inference_ms':cpp['mean_inference_ms'],
                 'cpp_model_identity':cpp['identity'],'torch':torch.__version__,'onnx':onnx.__version__,
                 'onnxruntime':ort.__version__,'validation_map':args.map_path,
-                'trajectory_observations':len(c),'trajectory_steps':step+1}
+                'trajectory_observations':len(c),'trajectories':trajectory_steps,
+                'observed_unit_types':sorted(set(s[:,:R.obs.SELF_COUNT-3].argmax(-1).tolist()))}
         atomic_json(output.with_suffix('.verification.json'),report)
     except BaseException:
         # A failed validation must never leave a deployable final model behind.

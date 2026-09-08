@@ -105,6 +105,10 @@ struct BatchedEnvInit {
     // `std::function` 而不是一个虚接口，正是为了让「在 C++ 里组装」成为
     // 最省事的用法。
     std::function<void(World&, int)> opponent_hook;
+    // Optional native reset factory. Higher layers may prepare a city before
+    // an episode starts, without making core depend on game scripts. Called on
+    // initial construction and every reset; must return a non-null world.
+    std::function<std::unique_ptr<World>(WorldInit, int)> world_factory;
     // 线程数。0 = 由实现挑（硬件并发数，上限批大小）。
     // **它不影响结果**，只影响墙钟时间——见文件头。
     int threads = 0;
