@@ -5,6 +5,9 @@
 #include <vector>
 #include <sstream>
 #include <map>
+#include <memory>
+#include "rts/world.hpp"
+#include "rts/combat_math.hpp"
 #include <cstdio>
 #include "game/display_names.hpp"
 #include "rts/stats.hpp"
@@ -103,7 +106,7 @@ inline constexpr std::array<std::string_view,3> resource_notes={
     "木材点需要建设伐木场才能持续产出。地图上的可清除树木是另一种一次性来源，不等同于长期采集点。",
     "金币点需要建设金矿场才能持续产出。资源点有城内与城外之分，向外扩张时要同时规划守军与撤退路线。"};
 inline std::vector<std::string_view> guide_strings() {
-    std::vector<std::string_view> result={"图鉴","圣城军备档案","指挥官权限","界限之外","资源与人口无限 · 正式进度隔离","不保存对局，不触发剧情","应用波数  ENTER","战术备忘","基础档案","返回","属性记录","名录","当前数值表 · 一级基础属性","血量 伤害 射程 格 视野 移速 格/秒 攻击间隔 秒 招募 金币 训练 建造 石材 木材 工时 基础周期产出 周期 滚轮阅读 方向键选择","石材点","木材点","金币点"};
+    std::vector<std::string_view> result={"图鉴","本级 下一级 点击等级输入 回车确认 预览范围 1–9999 等级预览 级 相对一级 增量 需要堡垒 当前 满足 未满足 无堡垒等级限制 下一次升级 石 木 工时 属性可滚动 资源点无等级 产出不随等级增长 到 建筑等级 不含战场加成 预览上限", "圣城军备档案","指挥官权限","界限之外","资源与人口无限 · 正式进度隔离","不保存对局，不触发剧情","应用波数  ENTER","战术备忘","基础档案","返回","属性记录","名录","当前数值表 · 一级基础属性","血量 伤害 射程 格 视野 移速 格/秒 攻击间隔 秒 招募 金币 训练 建造 石材 木材 工时 基础周期产出 周期 滚轮阅读 方向键选择","石材点","木材点","金币点"};
     for(auto t:guide_tabs) result.push_back(t);
     for(auto t:unit_notes) result.push_back(t);
     for(auto t:building_notes) result.push_back(t);
@@ -124,26 +127,50 @@ struct GuideViewport {
 };
 inline Rectangle guide_back_button(Vector2 vp) {return {vp.x-120,25,90,42};}
 class FieldGuide {
-    int tab_=0,selected_=0;
+    int tab_=0,selected_=0,level_=1;
+    bool bottom_preview_=false;
+    bool editing_=false;std::string level_text_;
+    float stat_scroll_=0,stat_max_=0;
+    std::unique_ptr<rts::World> rules_;
     std::map<unsigned int,Rectangle> bounds_;
     float scroll_=0,max_scroll_=0;
     int count() const {return tab_==0?5:tab_==1?11:tab_==2?6:3;}
 public:
+    void preview_bottom(bool value) {bottom_preview_=value;}
+    void preview_level(int level) {level_=std::clamp(level,1,9999);}
+    static Rectangle level_box(Vector2 vp) {return {vp.x-224,100,140,36};}
     void preview(int index) {tab_=index<5?0:index<16?1:index<22?2:3;selected_=index-(tab_==0?0:tab_==1?5:tab_==2?16:22);}
     bool input(Vector2 vp) {
         const GuideViewport viewport(vp);vp=viewport.size;
         const auto mouse=viewport.pointer(GetMousePosition());
+        if(tab_!=3) {
+            if(editing_) {
+                for(int ch=GetCharPressed();ch>0;ch=GetCharPressed()) if(ch>='0'&&ch<='9'&&level_text_.size()<4) level_text_+=static_cast<char>(ch);
+                if(IsKeyPressed(KEY_BACKSPACE)&&!level_text_.empty()) level_text_.pop_back();
+                if(IsKeyPressed(KEY_ENTER)) {if(!level_text_.empty()) level_=std::clamp(std::stoi(level_text_),1,9999);editing_=false;stat_scroll_=0;}
+                if(IsKeyPressed(KEY_ESCAPE)) {editing_=false;return false;}
+            }
+            if(IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                if(CheckCollisionPointRec(mouse,level_box(vp))) {editing_=true;level_text_.clear();}
+                else {editing_=false;
+                    if(CheckCollisionPointRec(mouse,{vp.x-270,100,36,36})) {level_=std::max(1,level_-1);stat_scroll_=0;}
+                    if(CheckCollisionPointRec(mouse,{vp.x-74,100,36,36})) {level_=std::min(9999,level_+1);stat_scroll_=0;}
+                }
+            }
+        }
         if(IsKeyPressed(KEY_ESCAPE) || (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)&&CheckCollisionPointRec(mouse,guide_back_button(vp)))) return true;
-        for(int t=0;t<4;++t) if(IsMouseButtonPressed(MOUSE_BUTTON_LEFT)&&CheckCollisionPointRec(mouse,{24+static_cast<float>(t)*160,100,150,36})) {tab_=t;selected_=0;scroll_=0;}
+        for(int t=0;t<4;++t) if(IsMouseButtonPressed(MOUSE_BUTTON_LEFT)&&CheckCollisionPointRec(mouse,{24+static_cast<float>(t)*160,100,150,36})) {tab_=t;selected_=0;scroll_=0;stat_scroll_=0;editing_=false;}
         int next=selected_;
         if(IsKeyPressed(KEY_DOWN)) next=(next+1)%count();
         if(IsKeyPressed(KEY_UP)) next=(next+count()-1)%count();
         for(int i=0;i<count();++i) if(IsMouseButtonPressed(MOUSE_BUTTON_LEFT)&&CheckCollisionPointRec(mouse,{24,153+static_cast<float>(i)*29,210,28})) next=i;
-        if(next!=selected_) {selected_=next;scroll_=0;}
-        scroll_=std::clamp(scroll_-GetMouseWheelMove()*38,0.0f,max_scroll_);
+        if(next!=selected_) {selected_=next;scroll_=0;stat_scroll_=0;}
+        if(mouse.x>=527 && mouse.y>=149 && mouse.y<=149+std::clamp(vp.y*0.40f,220.0f,330.0f)) stat_scroll_=std::clamp(stat_scroll_-GetMouseWheelMove()*38,0.0f,stat_max_);
+        else scroll_=std::clamp(scroll_-GetMouseWheelMove()*38,0.0f,max_scroll_);
         return false;
     }
-    void draw(const FontSet& font,SpriteAtlas& atlas,const rts::StatsTable& stats,Vector2 vp) {
+    void draw(const FontSet& font,SpriteAtlas& atlas,const rts::StatsTable& stats,Vector2 vp,const rts::World* current=nullptr) {
+        if(!rules_) {rts::WorldInit init;init.width=1;init.height=1;init.terrain={rts::Terrain::Plain};init.keep={0,0};init.stats=stats;init.buildings.push_back({rts::BldType::Keep,{0,0},stats.of(rts::BldType::Keep).max_hp,stats.of(rts::BldType::Keep).max_hp});rules_=std::make_unique<rts::World>(init);}
         archive_backdrop(vp);
         const GuideViewport viewport(vp);vp=viewport.size;
         BeginMode2D(viewport.camera());
@@ -151,7 +178,7 @@ public:
         const Color gold{228,201,149,255},white{210,219,207,255};
         font.draw("SANCTUM / FIELD ARCHIVE",{30,26},14,Color{153,153,126,255});
         font.draw("圣城军备档案",{28,49},34,gold);
-        font.draw("当前数值表 · 一级基础属性",{340,64},17,Color{151,167,158,255});
+        font.draw("等级预览 · 不含战场加成",{340,64},17,Color{151,167,158,255});
         const Rectangle back=guide_back_button(vp);
         DrawRectangleLinesEx(back,1,Color{143,124,81,255});font.draw("返回",{back.x+24,back.y+12},20,gold);
         DrawLineEx({28,91},{vp.x-28,91},1,Color{91,92,71,255});
@@ -161,20 +188,31 @@ public:
             if(t==tab_) DrawRectangleRec({r.x,r.y+33,r.width,3},gold);
             font.draw(std::string(guide_tabs[static_cast<std::size_t>(t)]),{r.x+18,r.y+8},20,t==tab_?gold:white);
         }
+        if(tab_!=3) {
+            for(auto r:{Rectangle{vp.x-270,100,36,36},level_box(vp),Rectangle{vp.x-74,100,36,36}}) {DrawRectangleRec(r,Color{22,31,31,255});DrawRectangleLinesEx(r,1,Color{144,122,77,255});}
+            font.draw("-",{vp.x-258,106},24,gold);font.draw("+",{vp.x-64,106},24,gold);
+            font.draw(editing_?level_text_+"_":std::to_string(level_)+" 级",{vp.x-208,108},20,gold);
+        } else font.draw("资源点无等级",{vp.x-260,109},18,white);
         DrawRectangleRec({24,146,210,vp.y-191},Color{18,27,28,190});
         std::string ident,name,notes;std::ostringstream values;values.precision(3);
         auto label=[&](int i)->std::string {if(tab_==0||tab_==2) return std::string(game::display_name(static_cast<rts::UnitType>(i+(tab_==2?5:0))));if(tab_==1) return std::string(game::display_name(static_cast<rts::BldType>(i)));return std::string(std::array<std::string_view,3>{"石材点","木材点","金币点"}[static_cast<std::size_t>(i)]);};
         for(int i=0;i<count();++i) {float y=153+static_cast<float>(i)*29;if(i==selected_) {DrawRectangleRec({24,y,210,28},Color{71,65,48,255});DrawRectangleRec({24,y,3,28},gold);}font.draw(label(i),{34,y+4},20,white);}
         name=label(selected_);
+        const auto scaled=[&](std::int64_t base,bool hp) {return base<=0?std::int64_t{0}:rts::apply_permille(base,{rts::level_permille(level_,hp?stats.global.hp_permille_per_level:stats.global.dmg_permille_per_level)});};
+        const auto with_delta=[&](std::int64_t base,bool hp) {const auto value=scaled(base,hp);return std::to_string(value)+(level_>1?" (+"+std::to_string(value-base)+")":"");};
+        const auto requirement=[&](int needed) {values<<"需要堡垒 "<<needed<<" 级";if(current) values<<"\n当前堡垒 "<<current->unit_level_cap()<<" "<<(current->unit_level_cap()>=needed?"满足":"未满足");values<<"\n";};
+
         if(tab_==0||tab_==2) {
             int index=selected_+(tab_==2?5:0);auto type=static_cast<rts::UnitType>(index);const auto& st=stats.of(type);ident=rts::ident_of(type);notes=unit_notes[static_cast<std::size_t>(index)];
-            values<<"血量 "<<st.max_hp<<"   伤害 "<<st.damage<<"   射程 "<<st.range<<" 格\n视野 "<<st.vision<<" 格   移速 "<<st.speed*20<<" 格/秒\n攻击间隔 "<<static_cast<float>(st.cooldown_ticks)/20<<" 秒";
-            if(tab_==0) values<<"\n招募 "<<st.cost_gold<<" 金币   训练 "<<static_cast<float>(st.train_ticks)/20<<" 秒";
+            values<<"血量 "<<with_delta(st.max_hp,true)<<"\n伤害 "<<with_delta(st.damage,false)<<"\n射程 "<<st.range<<" 格   视野 "<<st.vision<<" 格\n移速 "<<st.speed*20<<" 格/秒\n攻击间隔 "<<static_cast<float>(st.cooldown_ticks)/20<<" 秒";
+            if(tab_==0) {values<<"\n招募 "<<rules_->train_cost_gold(type,level_)<<" 金币\n训练 "<<static_cast<float>(rules_->train_ticks_at(type,level_))/20<<" 秒\n";requirement(level_);}
         } else if(tab_==1) {
             auto type=static_cast<rts::BldType>(selected_);const auto& st=stats.of(type);ident=rts::ident_of(type);notes=building_notes[static_cast<std::size_t>(selected_)];
-            values<<"血量 "<<st.max_hp<<"   伤害 "<<st.damage<<"   射程 "<<st.range<<" 格\n视野 "<<st.vision<<" 格\n建造 "<<st.cost_stone<<" 石材 / "<<st.cost_wood<<" 木材\n工时 "<<st.build_ticks<<"\n基础周期产出 "<<st.income_amount;
+            values<<"血量 "<<with_delta(st.max_hp,true)<<"\n伤害 "<<with_delta(st.damage,false)<<"\n射程 "<<st.range<<" 格   视野 "<<st.vision<<" 格\n建造 "<<st.cost_stone<<" 石 / "<<st.cost_wood<<" 木\n基础周期产出 "<<st.income_amount<<"\n下一次升级 "<<level_<<" 到 "<<level_+1<<"\n"<<rules_->bld_upgrade_cost_stone(type,level_)<<" 石 / "<<rules_->bld_upgrade_cost_wood(type,level_)<<" 木\n工时 "<<st.upgrade_ticks<<"\n";
+            if(type!=rts::BldType::Keep) {values<<"本级";requirement((level_-1)*stats.global.building_level_cap_divisor+1);values<<"下一级";requirement(level_*stats.global.building_level_cap_divisor+1);}
+            else values<<"无堡垒等级限制\n";
         } else {
-            ident=std::array<std::string_view,3>{"StonePt","WoodPt","GoldPt"}[static_cast<std::size_t>(selected_)];notes=resource_notes[static_cast<std::size_t>(selected_)];
+            ident=std::array<std::string_view,3>{"StonePt","WoodPt","GoldPt"}[static_cast<std::size_t>(selected_)];notes=std::string(resource_notes[static_cast<std::size_t>(selected_)])+" 产出不随等级增长。";
             values<<"基础周期产出 "<<stats.of(rts::gatherer_of(static_cast<rts::Resource>(selected_))).income_amount<<"\n周期 "<<static_cast<float>(stats.global.income_period_ticks)/20<<" 秒";
         }
         const float hero_top=149,hero_height=std::clamp(vp.y*0.40f,220.0f,330.0f);
@@ -202,9 +240,17 @@ public:
         DrawTexturePro(sprite.texture,source,{382-image_w/2,floor-image_h,image_w,image_h},{0,0},0,WHITE);
         font.draw("基础档案",{270,hero_top+hero_height-24},13,Color{123,97,56,255});
         font.draw(name,{details_x+6,hero_top+17},29,gold);
-        font.draw("属性记录",{details_x+6,hero_top+57},15,Color{157,177,166,255});
-        float y=hero_top+86;std::string line;std::istringstream rows(values.str());
-        while(std::getline(rows,line)) {font.draw(line,{details_x+6,y},17,white);DrawLineEx({details_x+6,y+25},{vp.x-46,y+25},1,Color{64,78,69,135});y+=28;}
+        font.draw("属性可滚动 · 增量相对一级",{details_x+6,hero_top+57},15,Color{157,177,166,255});
+        std::vector<std::string> stat_rows;std::string line;std::istringstream rows(values.str());
+        while(std::getline(rows,line)) stat_rows.push_back(line);
+        stat_max_=std::max(0.0f,static_cast<float>(stat_rows.size())*28-(hero_height-92));
+        stat_scroll_=bottom_preview_?stat_max_:std::clamp(stat_scroll_,0.0f,stat_max_);
+        const auto stat_clip=viewport.pixels({details_x+6,hero_top+84,vp.x-details_x-36,hero_height-92});
+        BeginScissorMode(static_cast<int>(stat_clip.x),static_cast<int>(stat_clip.y),static_cast<int>(stat_clip.width),static_cast<int>(stat_clip.height));
+        float y=hero_top+86-stat_scroll_;
+        for(const auto& row:stat_rows) {font.draw(row,{details_x+6,y},17,white);DrawLineEx({details_x+6,y+25},{vp.x-46,y+25},1,Color{64,78,69,135});y+=28;}
+        EndScissorMode();
+        if(stat_max_>0) {const float track=hero_height-96;DrawRectangleRec({vp.x-34,hero_top+86,3,track},Color{66,77,66,255});DrawRectangleRec({vp.x-34,hero_top+86+(track-24)*stat_scroll_/stat_max_,3,24},gold);}
         const float note_top=hero_top+hero_height+14;
         DrawRectangleRec({252,note_top,vp.x-276,vp.y-note_top-46},Color{27,36,35,235});
         DrawRectangleRec({252,note_top,3,25},Color{155,92,62,255});
@@ -214,7 +260,7 @@ public:
         BeginScissorMode(static_cast<int>(clip.x),static_cast<int>(clip.y),static_cast<int>(clip.width),static_cast<int>(clip.height));
         line.clear();auto flush=[&]() {font.draw(line,{269,ty},19,white);ty+=27;line.clear();};
         for(std::size_t i=0;i<notes.size();) {int bytes=0;GetCodepointNext(notes.c_str()+i,&bytes);auto glyph=notes.substr(i,static_cast<std::size_t>(bytes));if(!line.empty()&&font.measure(line+glyph,19).x>width && std::string_view("，。；、！？：）").find(glyph)==std::string_view::npos) flush();line+=glyph;i+=static_cast<std::size_t>(bytes);}if(!line.empty()) flush();EndScissorMode();max_scroll_=std::max(0.0f,ty+scroll_-bottom);
-        font.draw("方向键选择 · 滚轮阅读 · Esc 返回",{28,vp.y-34},15,Color{169,158,121,255});
+        font.draw("方向键选择 · 滚轮阅读 · 点击等级输入 · 回车确认 · Esc 返回",{28,vp.y-34},15,Color{169,158,121,255});
         EndMode2D();
 
     }

@@ -341,3 +341,14 @@ if(RTS_BUILD_TESTS)
             --screenshot "${CMAKE_CURRENT_BINARY_DIR}/guide-${res}.png" --size ${width} ${height})
     endforeach()
 endif()
+
+if(RTS_BUILD_TESTS)
+    foreach(entry RANGE 0 24)
+        add_test(NAME render_guide_level_${entry} COMMAND rts_render --guide-entry ${entry} --guide-level 10
+            --screenshot "${CMAKE_CURRENT_BINARY_DIR}/guide-level-${entry}.png" --size 960 540)
+    endforeach()
+    add_test(NAME render_guide_level_costs COMMAND rts_render --guide-entry 8 --guide-level 10 --guide-bottom
+        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/guide-level-costs.png" --size 2559 1368)
+    add_test(NAME render_guide_level_boundary COMMAND rts_render --guide-entry 0 --guide-level 9999 --guide-bottom
+        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/guide-level-boundary.png" --size 960 540)
+endif()

@@ -171,7 +171,8 @@ struct Options {
     std::string screen;          // 开局前先切到哪一屏（main / help / paused），截图用
     int ticks = 0;               // 截图模式下先推进这么多 tick 再拍
     int inspect_x=-1,inspect_y=-1;
-    int guide_entry = 0;
+    int guide_entry = 0,guide_level=1;
+    bool guide_bottom=false;
     int developer_wave = 0;
     int journal_page = -1;
     int journal_ending = 0;
@@ -230,7 +231,11 @@ bool parse(const std::vector<std::string>& args, Options& out) {
             }
             return &args[++i];
         };
-        if(a=="--guide-entry") {
+        if(a=="--guide-bottom") {out.guide_bottom=true;} else if(a=="--guide-level") {
+            const auto* value=next("--guide-level");if(!value) return false;
+            const auto result=std::from_chars(value->data(),value->data()+value->size(),out.guide_level);
+            if(result.ec!=std::errc{} || result.ptr!=value->data()+value->size() || out.guide_level<1 || out.guide_level>9999) return false;
+        } else if(a=="--guide-entry") {
             const auto* value=next("--guide-entry");if(!value) return false;
             const auto result=std::from_chars(value->data(),value->data()+value->size(),out.guide_entry);
             if(result.ec!=std::errc{} || result.ptr!=value->data()+value->size() || out.guide_entry<0 || out.guide_entry>24) return false;
@@ -327,7 +332,7 @@ bool parse(const std::vector<std::string>& args, Options& out) {
     }
     if(out.inspect_x>=0 && (out.screenshot.empty() || !out.battle)) {std::fprintf(stderr,"--inspect requires --battle --screenshot\n");return false;}
     if(out.developer_wave>0 && out.screenshot.empty()) return false;
-    if((out.screen=="developer" || out.guide_entry!=0) && out.screenshot.empty()) return false;
+    if((out.screen=="developer" || out.guide_entry!=0 || out.guide_level!=1 || out.guide_bottom) && out.screenshot.empty()) return false;
     if(out.journal_page>=0 && out.screenshot.empty()) { std::fprintf(stderr,"--journal-page 仅用于截图预览\n"); return false; }
     if((out.journal_ending>0 || out.journal_bottom) && out.journal_page<0) return false;
     if(out.journal_ending>0 && out.journal_page!=7) return false;
@@ -1220,7 +1225,7 @@ int run_game(const Options& opt) {
     int enemy_report_wave=0;
     bool enemy_reported=false;
     bool developer_panel=opt.screen=="developer";
-    render::FieldGuide guide;guide.preview(opt.guide_entry);
+    render::FieldGuide guide;guide.preview(opt.guide_entry);guide.preview_level(opt.guide_level);guide.preview_bottom(opt.guide_bottom);
     std::string developer_wave_text="1";
     int story_wave_seen=shell.battle()?shell.battle()->world().wave():0;
     int story_attempt=shell.attempt();
@@ -1657,7 +1662,7 @@ int run_game(const Options& opt) {
         // 菜单几屏：先压暗，再画面板。主菜单压得重一些（后面没有正在发生的事，
         // 压暗让面板成为唯一焦点）；暂停与败局压得轻，好让人还能看清战场。
         if(developer_panel) {render::draw_developer(*font,developer_wave_text);return;}
-        if(shell.screen()==game::Screen::Guide) {guide.draw(*font,atlas,stats,vp);return;}
+        if(shell.screen()==game::Screen::Guide) {guide.draw(*font,atlas,stats,vp,shell.battle()?&shell.battle()->world():nullptr);return;}
         menu_view.dim(vp, shell.screen() == game::Screen::Main ? 150 : 140);
         if(shell.screen()==game::Screen::Main && atmosphere_on && vp.x>=1150) {
             const Vector2 crest{vp.x*0.77f,vp.y*0.42f};
