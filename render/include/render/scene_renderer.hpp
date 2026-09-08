@@ -11,6 +11,8 @@
 #include "game/scene_model.hpp"
 #include "game/iso_projection.hpp"
 #include "render/sprite_atlas.hpp"
+#include "render/sanctum_ground.hpp"
+#include <map>
 
 namespace render {
 
@@ -25,6 +27,8 @@ public:
     // 动态场景版本（`game::BattleScene` 的产物：静态地砖 + 每帧重排的深度序列）。
     void draw(const std::vector<game::DrawItem>& tiles,
               const std::vector<game::DrawItem>& sorted);
+    void draw_ground(const std::vector<game::DrawItem>& tiles);
+    void draw_objects(const std::vector<game::DrawItem>& sorted);
 
     // 把绘制列表里出现的全部标识符预载一遍，缺素材立刻抛。
     // 理由见 SpriteAtlas::preload_idle：渲到一半才报错比一开始就报错难查得多。
@@ -51,9 +55,20 @@ public:
     }
 
     void set_presentation(bool enabled, float seconds) noexcept { presentation_=enabled; seconds_=seconds; }
+    static float presentation_scale(std::string_view ident,bool enabled) noexcept {
+        return enabled && ident=="Keep" ? 1.55f : 1.0f;
+    }
+    // The visual and alpha picking share the same grounded transform.
+    static Vector2 sprite_pixel(const Sprite& sprite,Vector2 anchor,Vector2 point,float scale) noexcept {
+        const float x=scale==1?static_cast<float>(static_cast<int>(anchor.x-sprite.ground_anchor.x)):anchor.x-sprite.ground_anchor.x*scale;
+        const float y=scale==1?static_cast<float>(static_cast<int>(anchor.y-sprite.ground_anchor.y)):anchor.y-sprite.ground_anchor.y*scale;
+        return {(point.x-x)/scale,(point.y-y)/scale};
+    }
 private:
     bool presentation_ = true;
     float seconds_ = 0;
+    SanctumGround ground_;
+    std::map<unsigned int,float> keep_tops_;
     void shadow(const game::DrawItem& item);
     // 关键一步：把**锚点**对齐到格心，而不是把图片左上角对齐到格心。
     // 各精灵画布尺寸不同（地砖 256×128、密林 532×758），按左上角贴会让高个子

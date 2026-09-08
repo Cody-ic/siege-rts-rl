@@ -14,6 +14,32 @@ bool hostile(std::string_view id) {
         if(rts::ident_of(static_cast<rts::UnitType>(i))==id) return true;
     return false;
 }
+void oval(Vector2 c,float rx,float ry,float thickness,Color color) {
+    for(int i=0;i<64;++i) {
+        const float a=static_cast<float>(i)*0.09817477f,b=a+0.09817477f;
+        DrawLineEx({c.x+rx*std::cos(a),c.y+ry*std::sin(a)},
+                   {c.x+rx*std::cos(b),c.y+ry*std::sin(b)},thickness,color);
+    }
+}
+void keep_crown(Vector2 top,float w,float time,int level) {
+    const float radius=w*(level>=10?0.78f:level>=4?0.68f:0.58f);
+    for(int i=4;i>0;--i) DrawCircleGradient(static_cast<int>(top.x),static_cast<int>(top.y),
+        radius*(1+static_cast<float>(i)*0.18f),Color{158,210,204,5},Color{158,210,204,0});
+    oval(top,radius,radius*0.38f,w*0.012f,Color{225,207,155,230});
+    oval(top,radius*0.82f,radius*0.31f,w*0.006f,Color{135,188,184,190});
+    const int rays=level>=10?12:8;
+    for(int i=0;i<rays;++i) {
+        const float a=static_cast<float>(i)*6.2831853f/static_cast<float>(rays)+time*0.05f;
+        const Vector2 p{top.x+std::cos(a)*radius,top.y+std::sin(a)*radius*0.38f};
+        DrawLineEx({p.x,p.y-w*0.055f},{p.x,p.y+w*0.055f},w*0.008f,Color{226,210,158,230});
+    }
+    DrawLineEx({top.x,top.y-w*0.27f},{top.x,top.y+w*0.20f},w*0.012f,Color{231,215,164,235});
+    const float d=w*0.09f;
+    DrawLineEx({top.x,top.y-d},{top.x-d*0.6f,top.y},w*0.013f,Color{245,232,188,255});
+    DrawLineEx({top.x-d*0.6f,top.y},{top.x,top.y+d},w*0.013f,Color{245,232,188,255});
+    DrawLineEx({top.x,top.y+d},{top.x+d*0.6f,top.y},w*0.013f,Color{245,232,188,255});
+    DrawLineEx({top.x+d*0.6f,top.y},{top.x,top.y-d},w*0.013f,Color{245,232,188,255});
+}
 }
 void SceneRenderer::shadow(const game::DrawItem& item) {
     if(!presentation_ || atlas_->is_projectile(item.sprite) || !item.stand_on.empty()) return;
@@ -38,7 +64,7 @@ void SceneRenderer::shadow(const game::DrawItem& item) {
     }
     const bool unit=item.continuous;
     const float rx=w*(unit?0.16f:0.50f), ry=w*(unit?0.06f:0.14f);
-    DrawEllipse(static_cast<int>(c.x+rx*0.4f),static_cast<int>(c.y+ry*0.3f),rx,ry,Color{19,28,36,48});
+    DrawEllipse(static_cast<int>(c.x+rx*0.55f),static_cast<int>(c.y+ry*0.4f),rx*1.1f,ry*1.15f,Color{13,25,32,65});
     if(unit && hostile(item.sprite)) {
         DrawEllipseLines(static_cast<int>(c.x),static_cast<int>(c.y),rx,ry,Color{148,198,200,145});
     }
@@ -46,6 +72,7 @@ void SceneRenderer::shadow(const game::DrawItem& item) {
 
 
 void SceneRenderer::place(const game::DrawItem& item) {
+    if(presentation_ && item.sprite.starts_with("Plain") && ground_.draw(item,proj_)) return;
     // 状态回落：不是每个实体都有每种状态（`_sprite_meta.json` 的 note：
     // 未声明状态的实体只有 idle）。回落是**这里**的知识——`game/` 不该知道
     // 素材有哪些状态，问了就是把素材侧知识泄进逻辑层（§7 的同族问题）。
@@ -102,8 +129,11 @@ void SceneRenderer::place(const game::DrawItem& item) {
         const float h = static_cast<float>(s.texture.height);
         if(presentation_) {
             const float length=std::sqrt(dx*dx+dy*dy);
-            if(length>0.01f) DrawLineEx({c.x-dx/length*proj_.tile_w()*0.24f,c.y-dy/length*proj_.tile_w()*0.24f},
-                                      {c.x,c.y},std::max(2.0f,2.0f*ui_scale_),Color{231,224,189,150});
+            if(length>0.01f) {
+                const float tail=proj_.tile_w()*(item.projectile_source=="Flak"?0.65f:0.28f);
+                DrawLineEx({c.x-dx/length*tail,c.y-dy/length*tail},{c.x,c.y},
+                          std::max(2.0f,1.6f*ui_scale_),Color{231,224,189,145});
+            }
         }
         DrawTexturePro(s.texture, Rectangle{0.0f, 0.0f, w, h},
                        Rectangle{c.x, c.y, w, h}, pivot, deg, WHITE);
@@ -125,21 +155,69 @@ void SceneRenderer::place(const game::DrawItem& item) {
     Color tint=WHITE;
     if(presentation_) {
         const bool terrain=item.sprite.substr(0,5)=="Plain" || item.sprite=="Forest";
-        tint=terrain?Color{221,205,170,255}:Color{255,230,196,255};
+        tint=terrain?Color{175,191,168,255}:Color{243,229,207,255};
         if(item.sprite=="Water") tint=Color{168,191,213,255};
         if(hostile(item.sprite)) tint=Color{183,206,226,255};
         if(item.sprite=="Phoenix") tint=Color{247,250,255,255};
     }
-    DrawTexture(s.texture, static_cast<int>(c.x - s.ground_anchor.x),
-                static_cast<int>(c.y - s.ground_anchor.y), tint);
+    const float visual_scale=presentation_scale(item.sprite,presentation_);
+    if(presentation_ && item.sprite=="Keep") {
+        const float w=static_cast<float>(proj_.tile_w());
+        auto top=keep_tops_.find(s.texture.id);
+        if(top==keep_tops_.end()) {
+            int visible_y=0;bool found=false;
+            for(int y=0;y<s.texture.height&&!found;++y) for(int x=0;x<s.texture.width;++x)
+                if(atlas_->opaque_at(s,x,y)) {visible_y=y;found=true;break;}
+            top=keep_tops_.emplace(s.texture.id,static_cast<float>(visible_y)).first;
+        }
+        keep_crown({c.x,c.y+(top->second-s.ground_anchor.y)*visual_scale-w*0.10f},w*1.2f,seconds_,item.level);
+    }
+    if(visual_scale!=1) {
+        DrawTexturePro(s.texture,{0,0,static_cast<float>(s.texture.width),static_cast<float>(s.texture.height)},
+            {c.x,c.y,static_cast<float>(s.texture.width)*visual_scale,static_cast<float>(s.texture.height)*visual_scale},
+            {s.ground_anchor.x*visual_scale,s.ground_anchor.y*visual_scale},0,tint);
+    } else DrawTexture(s.texture, static_cast<int>(c.x - s.ground_anchor.x),static_cast<int>(c.y - s.ground_anchor.y), tint);
+    if(presentation_ && item.sprite=="Keep") {
+        const float w=static_cast<float>(proj_.tile_w()),base=c.y-w*0.06f;
+        const float height=s.ground_anchor.y*visual_scale*0.45f;
+        for(int side:{-1,1}) {
+            const float x=c.x+static_cast<float>(side)*w*0.20f;
+            DrawRectangleRec({x-w*0.055f,base-height,w*0.11f,height},Color{143,132,109,255});
+            DrawRectangleRec({x-w*0.055f,base-height,w*0.035f,height},Color{192,177,141,255});
+            DrawTriangle({x-w*0.065f,base-height},{x+w*0.065f,base-height},{x,base-height-w*0.12f},Color{206,188,145,255});
+            for(int j=1;j<4;++j) DrawLineEx({x-w*0.055f,base-height*static_cast<float>(j)/4},
+                {x+w*0.055f,base-height*static_cast<float>(j)/4},w*0.006f,Color{101,103,93,180});
+        }
+    }
+    if(presentation_ && (item.sprite=="Wall" || item.sprite=="Gate") && item.hp_frac>=0 && item.hp_frac<0.65f) {
+        const float w=static_cast<float>(proj_.tile_w());
+        const Vector2 start{c.x,c.y-s.ground_anchor.y*0.63f};
+        const int steps=item.hp_frac<0.3f?5:3;
+        Vector2 last=start;
+        for(int i=1;i<=steps;++i) {
+            const Vector2 next{start.x+(i%2?1.0f:-0.6f)*w*0.035f,start.y+static_cast<float>(i)*w*0.095f};
+            DrawLineEx(last,next,w*0.016f,Color{57,60,53,230});last=next;
+        }
+    }
     if(item.sprite=="Tower" && item.attack_progress>=1.0f && item.attack_progress<1.5f) {
         const auto offset=atlas_->muzzle_offset(item.sprite,game::to_string(item.facing));
         const Vector2 port{c.x+offset.x,c.y+offset.y};
         DrawCircleV(port,proj_.tile_w()*0.022f,Color{255,222,141,210});
     }
+    if(presentation_ && item.sprite=="Flak" && item.attack_progress>=0) {
+        const auto offset=atlas_->muzzle_offset(item.sprite,game::to_string(item.facing));
+        const Vector2 port{c.x+offset.x,c.y+offset.y};const float w=static_cast<float>(proj_.tile_w());
+        if(item.attack_progress<1) {
+            const float r=w*(0.045f+item.attack_progress*0.025f);
+            oval(port,r,r*0.5f,w*0.008f,Color{228,202,144,140});
+        } else if(item.attack_progress<1.4f) {
+            DrawCircleGradient(static_cast<int>(port.x),static_cast<int>(port.y),w*0.12f,Color{250,224,167,130},Color{250,224,167,0});
+            DrawCircleV(port,w*0.026f,Color{255,241,196,230});
+        }
+    }
     if(presentation_ && (item.sprite=="Keep" || item.sprite=="Gate")) {
         const float w=static_cast<float>(proj_.tile_w());
-        const Vector2 pole{c.x+w*0.15f,c.y-s.ground_anchor.y*0.81f};
+        const Vector2 pole{c.x+w*0.15f,c.y-s.ground_anchor.y*visual_scale*0.81f};
         const float flutter=std::sin(seconds_*2.4f+c.x)*w*0.018f;
         DrawLineEx(pole,{pole.x,pole.y-w*0.28f},w*0.012f,Color{171,141,86,255});
         DrawTriangle({pole.x,pole.y-w*0.28f},{pole.x,pole.y-w*0.10f},
@@ -179,7 +257,7 @@ void SceneRenderer::place(const game::DrawItem& item) {
         const float x = c.x - w * 0.5f;
         // 竖直位置仍按**精灵**算（贴在它头顶），所以这一项不缩放——
         // 缩放它会让血条在拉近时飘到天上去。
-        const float y = c.y - s.ground_anchor.y - h - gap;
+        const float y = c.y - s.ground_anchor.y*visual_scale - h - gap;
         // 深色描边 + 空槽底。只画一个深色边框的话，掉了一半血的那一半是透明的，
         // 压在草地上读不出「还剩多少」——空槽必须是实心的。
         DrawRectangleRec(
@@ -206,13 +284,19 @@ void SceneRenderer::draw(const game::DrawLists& lists) {
 }
 
 void SceneRenderer::draw(const std::vector<game::DrawItem>& tiles,
-                         const std::vector<game::DrawItem>& sorted) {
-    for (const game::DrawItem& t : tiles) place(t);
+                            const std::vector<game::DrawItem>& sorted) {
+    draw_ground(tiles);draw_objects(sorted);
+}
+void SceneRenderer::draw_ground(const std::vector<game::DrawItem>& tiles) {
+    for(const auto& t:tiles) place(t);
+}
+void SceneRenderer::draw_objects(const std::vector<game::DrawItem>& sorted) {
     for (const auto& o : sorted) shadow(o);
     for (const game::DrawItem& o : sorted) place(o);
 }
 
 void SceneRenderer::preload(const game::DrawLists& lists) {
+    ground_.prepare(lists.tiles,lists.sorted);
     std::set<std::string> idents;
     for (const game::DrawItem& t : lists.tiles) idents.insert(std::string(t.sprite));
     for (const game::DrawItem& o : lists.sorted) idents.insert(std::string(o.sprite));
@@ -221,6 +305,7 @@ void SceneRenderer::preload(const game::DrawLists& lists) {
 
 void SceneRenderer::preload(const std::vector<game::DrawItem>& tiles,
                             const std::vector<game::DrawItem>& sorted) {
+    ground_.prepare(tiles,sorted);
     std::set<std::string> idents;
     for (const game::DrawItem& t : tiles) idents.insert(std::string(t.sprite));
     for (const game::DrawItem& o : sorted) idents.insert(std::string(o.sprite));

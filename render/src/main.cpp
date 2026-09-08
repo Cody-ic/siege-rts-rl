@@ -60,6 +60,7 @@
 #include "render/camera_controller.hpp"
 #include "render/chronicle_view.hpp"
 #include "render/battle_atmosphere.hpp"
+#include "render/battle_audio.hpp"
 #include "game/chronicle.hpp"
 #include "render/cli.hpp"
 #include "render/menu_view.hpp"
@@ -178,6 +179,7 @@ struct Options {
     int journal_ending = 0;
     bool journal_bottom = false;
     bool classic_visuals = false;
+    bool mute = false;
     std::string save_dir;
     int width = 1600;
     int height = 900;
@@ -249,6 +251,8 @@ bool parse(const std::vector<std::string>& args, Options& out) {
             const auto* value=next("--save-dir");if(!value) return false;out.save_dir=*value;
         } else if (a == "--classic-visuals") {
             out.classic_visuals = true;
+        } else if (a == "--mute") {
+            out.mute = true;
         } else if (a == "--journal-bottom") {
             out.journal_bottom=true;
         } else if (a == "--journal-ending") {
@@ -436,16 +440,15 @@ int run_verify(const Options& opt) {
 
 std::optional<rts::GridPos> pick_building_sprite(
     const game::MapData& map, const rts::WorldView& view, rts::Tick tick,
-    const game::IsoProjection& proj, render::SpriteAtlas& atlas, Vector2 mouse) {
+    const game::IsoProjection& proj, render::SpriteAtlas& atlas, Vector2 mouse,bool presentation) {
     const auto items = game::BattleScene::sorted(map, view, tick);
     for (auto it = items.rbegin(); it != items.rend(); ++it) {
         if (it->continuous || atlas.is_projectile(it->sprite)) continue;
         const auto& sprite = atlas.get(it->sprite, "idle", game::to_string(it->facing));
         const auto c = proj.grid_to_screen(it->pos);
-        const int x = static_cast<int>(std::floor(mouse.x - static_cast<float>(
-            static_cast<int>(c.x-sprite.ground_anchor.x))));
-        const int y = static_cast<int>(std::floor(mouse.y - static_cast<float>(
-            static_cast<int>(c.y-sprite.ground_anchor.y))));
+        const auto pixel=render::SceneRenderer::sprite_pixel(sprite,{c.x,c.y},mouse,
+            render::SceneRenderer::presentation_scale(it->sprite,presentation));
+        const int x=static_cast<int>(std::floor(pixel.x)),y=static_cast<int>(std::floor(pixel.y));
         if (!atlas.opaque_at(sprite, x, y)) continue;
         for (std::size_t k = 0; k < view.bld_pos().size(); ++k) {
             if (view.bld_alive()[k] && view.bld_pos()[k] == it->pos &&
@@ -1219,6 +1222,8 @@ int run_game(const Options& opt) {
     bool paused = false;
     bool atmosphere_on = !opt.classic_visuals;
     render::BattleAtmosphere atmosphere;
+    render::BattleAudio audio(opt.screenshot.empty());
+    if(opt.mute) audio.toggle();
     render::ChronicleView journal;
     int reached_wave = stored_wave;
     if(opt.journal_page>=0) { journal.preview(opt.journal_page,opt.journal_ending,opt.journal_bottom); reached_wave=70; }
@@ -1469,9 +1474,10 @@ int run_game(const Options& opt) {
         renderer.set_presentation(atmosphere_on,b?static_cast<float>(b->world().now())/rts::kTicksPerSecond:static_cast<float>(GetTime()));
         BeginMode2D(cam.camera());
         if (b != nullptr) {
-            renderer.draw(tiles, game::BattleScene::sorted(
-                                     map, b->world().view(rts::Side::Defender),
-                                     b->world().now()));
+            renderer.draw_ground(tiles);
+            if(atmosphere_on) atmosphere.draw_ground(proj);
+            renderer.draw_objects(game::BattleScene::sorted(
+                                     map,b->world().view(rts::Side::Defender),b->world().now()));
         } else {
             // 主菜单也画地图：那张图本身就是最好的背景，而且它让「素材载入
             // 成功了没有」在第一屏就看得见。
@@ -1572,7 +1578,7 @@ int run_game(const Options& opt) {
             if(screen_w-hint_x>420) {
                 std::snprintf(hint,sizeof(hint),"已选 %zu 名   右键移动 / 驻墙",selected.size());
                 font->draw(hint,rts::Vec2{hint_x,screen_h-60},20,Color{218,221,207,255});
-                std::snprintf(hint,sizeof(hint),"J 日记  V 氛围  N 迎敌  [/] 征兵等级 %d",train_level_sel);
+                std::snprintf(hint,sizeof(hint),"J 日记  V 氛围  M 声音  [/] 征兵等级 %d",train_level_sel);
                 font->draw(hint,rts::Vec2{hint_x,screen_h-33},18,Color{162,174,167,255});
             }
             const auto info=b->world().view(rts::Side::Defender);
@@ -1753,6 +1759,7 @@ int run_game(const Options& opt) {
             cam.focus_keep(proj, shell.battle()->world().keep_pos(), vp);
             paused = false;
             atmosphere.reset();
+            audio.active(false);
             choice_presented = false;
             enemy_report_wave=0;enemy_reported=false;
             popup = Popup{};
@@ -1771,6 +1778,13 @@ int run_game(const Options& opt) {
         const Vector2 mouse = GetMousePosition();
         const bool in_menu = shell.screen() != game::Screen::Battle;
         rts::GridPos cell{};
+        audio.active(shell.screen()==game::Screen::Main ||
+                     (shell.should_advance() && !paused && !journal.open && !developer_panel));
+        if(!developer_panel && IsKeyPressed(KEY_M)) {
+            audio.toggle();
+            notice=!audio.ready()?"声音设备不可用":audio.muted()?"声音已关闭":"声音已开启";
+            notice_until=GetTime()+3;
+        }
 
         if(IsKeyPressed(KEY_F12) && (IsKeyDown(KEY_LEFT_ALT)||IsKeyDown(KEY_RIGHT_ALT))) {
             if(!shell.battle() || shell.battle()->defeated() || shell.chronicle().completed()) shell.apply(game::MenuAction::StartNew);
@@ -1779,6 +1793,7 @@ int run_game(const Options& opt) {
             developer_panel=!developer_panel;developer_wave_text.clear();
         }
         if(developer_panel) {
+            audio.active(false);
             for(int ch=GetCharPressed();ch>0;ch=GetCharPressed()) if(ch>='0'&&ch<='9'&&developer_wave_text.size()<4) developer_wave_text+=static_cast<char>(ch);
             if(IsKeyPressed(KEY_BACKSPACE)&&!developer_wave_text.empty()) developer_wave_text.pop_back();
             if((IsKeyPressed(KEY_ENTER) || (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(mouse,render::developer_apply_button(vp))))&&!developer_wave_text.empty()) {
@@ -2024,7 +2039,7 @@ int run_game(const Options& opt) {
                     }
                 } else if (in_map && !dragged) {
                     if (const auto hit = pick_building_sprite(map, view, b->world().now(),
-                                                              proj, atlas, wpos)) cell = *hit;
+                                                              proj, atlas, wpos,atmosphere_on)) cell = *hit;
                     inspected = cell;
                     inspected_busy=false;
                     // 点（没拖开）：这一格能不能弹出菜单。**练兵优先于维修**——
@@ -2114,6 +2129,7 @@ int run_game(const Options& opt) {
                 shell.battle()->update(1);
                 atmosphere.observe(shell.battle()->world().view(rts::Side::Defender),
                                    shell.battle()->world().now(),shell.battle()->world().wave());
+                audio.play(atmosphere.signals().events(),proj,cam.camera(),vp);
                 advance_recon_alert();
                 acc -= kTickDt;
                 ++steps;

@@ -160,6 +160,7 @@ std::vector<DrawItem> BattleScene::sorted(const MapData& map,
             }
         }
         it.hp_frac = hp_frac_of(b_hp[k], b_max[k]);
+        it.level = view.bld_level()[k];
         out.push_back(it);
         // 拐角格补竖板（同 `SceneModel::build` 那条纪律）：城圈四角横竖两条边
         // 相交，`run_direction` 只给横板（NE），竖边缺一格、角在画面上是开的。
