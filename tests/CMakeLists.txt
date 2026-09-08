@@ -5,6 +5,10 @@ if(RTS_WITH_ONNX)
     target_link_libraries(macro_game_check PRIVATE game)
     rts_set_warnings(macro_game_check TESTS)
     rts_copy_onnx_runtime(macro_game_check)
+    add_executable(macro_game_evaluate macro_game_evaluate.cpp)
+    target_link_libraries(macro_game_evaluate PRIVATE game nlohmann_json_hdr)
+    rts_set_warnings(macro_game_evaluate TESTS)
+    rts_copy_onnx_runtime(macro_game_evaluate)
 endif()
 
 # CMP0135（CMake 3.24 起）：URL 下载解压后用解压时间而非归档内的时间戳，

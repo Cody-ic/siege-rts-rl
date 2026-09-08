@@ -1,0 +1,41 @@
+{
+  "runner": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\build-onnx\\tests\\Release\\macro_game_evaluate.exe",
+  "models": {
+    "before": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\runs\\macro-joint-initial-20260909\\export-native-v2",
+    "after": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\runs\\macro-joint-20260909\\export-native-v2"
+  },
+  "stats": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\stats_placeholder.json",
+  "attacker": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\runs\\prepared-final-20260909\\export\\attacker.onnx",
+  "maps": [
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01002000.json",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01003000.json",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json"
+  ],
+  "seeds": [
+    501,
+    502
+  ],
+  "max_wave": 6,
+  "max_ticks": 100000,
+  "period": 20,
+  "files": {
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\build-onnx\\tests\\Release\\macro_game_evaluate.exe": "8bc6ef0045c219efd7423f5fc2c1b4d313974bcf73b1ac4c9a17d3ad905d4265",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\stats_placeholder.json": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\runs\\prepared-final-20260909\\export\\attacker.onnx": "2e62e27f1b2b7002e9e727a09a58f0357909cc0ee01ee76e1db0477bdf52c7c3",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01002000.json": "258426af6ee45cece5789f02ced8dff215b2db1e130471c766a9eb9c2c6628bf",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01003000.json": "1eca9b886a26f424b8039fb4665a8d4ca056b145672d54e9a060a03d453c737d",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json": "65f8ed3f8102fba260e8bc2b9a0b386bb3b2d0ae66081e4008f520e10f0463fd",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json": "09a441043b8e1bfdfe9b6405fdd60c0bb1cef5f943049fd4f03ccc8bde680ebf",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\build-onnx\\tests\\Release\\onnxruntime.dll": "69d8e6d3879a3b4001cdc74c8ed9ccc7e7f799a5b847059738323404519ec471",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\tests\\macro_game_evaluate.cpp": "bbc738545c50b774c43dbbfb41d6bbdf23d3cec2f27312a1c912d9ead7860604",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\train\\native_macro_evaluate.py": "7f602c6408501f2ce2b9b2bea3dd011f8d5160397c2eabdb866de345697944e2",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\runs\\macro-joint-initial-20260909\\export-native-v2\\manifest.json": "8f64f2abd2cae68666168e6f214cc2ed39259c0331ab93678d94f25304e5181a",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\runs\\macro-joint-initial-20260909\\export-native-v2\\encoder.onnx": "675fe74b31e74b6ba3b3a4688d677edd3cc153ede0deba4640e928b94fa92833",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\runs\\macro-joint-initial-20260909\\export-native-v2\\decoder.onnx": "baf5688ff9f41f8651642d157ad84747ce6c86848a5a6547301537632994d3c8",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\runs\\macro-joint-20260909\\export-native-v2\\manifest.json": "45a2f1065134c7098e221dba69f4cd45ee82b84521e0a4eb7c2d580bb7d7da9f",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\runs\\macro-joint-20260909\\export-native-v2\\encoder.onnx": "ffa89fe3ed4f8ceed6c8b7a1ac645868c5fd9331de7f3be0308ef87a28d46da2",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\runs\\macro-joint-20260909\\export-native-v2\\decoder.onnx": "a8f6c463f89f10ff02bf776447460822500e6cdbc3cf329aef7affb2653d81e4"
+  },
+  "scope": "Native game runtime validation on maps excluded from joint training; maps have prior evaluation history, seeds are new. Not interchangeable with PyTorch sampling."
+}
