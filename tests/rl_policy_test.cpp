@@ -6,6 +6,7 @@
 #include "game/save_game.hpp"
 #include "game/map_loader.hpp"
 #include "game/stats_loader.hpp"
+#include "game/world_builder.hpp"
 #include "rts/batched_env.hpp"
 
 TEST_CASE("Policy argmax obeys legal masks and rejects nonfinite outputs", "[rlpolicy]") {
@@ -36,6 +37,39 @@ TEST_CASE("Policy loading checks metadata and batch sizes", "[rlpolicy]") {
     REQUIRE(policy.logits(0,{},{},{}).empty());
     REQUIRE_THROWS(policy.logits(1,{},{},{}));
     REQUIRE_THROWS(policy.logits(33,{},{},{}));
+}
+
+TEST_CASE("Game policy batches all squads beyond the training row limit", "[rlpolicy]") {
+    if(!game::TacticalPolicy::runtime_available()) return;
+    const auto stats=game::StatsLoader::from_file(std::string(GAME_DATA_DIR)+"/stats_placeholder.json");
+    const auto map=game::MapLoader::from_file(std::string(GAME_DATA_DIR)+"/demo_skirmish.json");
+    auto init=game::make_world_init(map,stats,51,1);
+    init.units.clear();
+    for (std::uint16_t squad=0;squad<65;++squad) {
+        for (int member=0;member<2;++member) {
+            init.units.push_back({rts::UnitType::Ghoul,
+                {10.5f+static_cast<float>(squad%8),10.5f+static_cast<float>(squad/8)},
+                1,100,100,squad});
+        }
+    }
+    rts::World world(std::move(init));
+    game::TacticalPolicy policy(std::string(GAME_TESTDATA_DIR)+"/rl_constant.onnx",stats.fingerprint());
+    std::vector<rts::UnitId> ids,leaders;
+    world.enumerate_units(rts::Side::Attacker,ids);
+    world.enumerate_squads(rts::Side::Attacker,leaders);
+    REQUIRE(leaders.size()==65);
+    std::vector<rts::UnitAction> actions(ids.size(),rts::UnitAction::Stop);
+    REQUIRE(game::apply_tactical_policy(world,policy,ids,actions)==65);
+    for (std::size_t i=0;i<ids.size();++i) {
+        // The synthetic fixture ranks actions by enum value. Compare the
+        // expected leader decision for every member, including the final batch.
+        const auto leader=leaders[world.unit_squad(ids[i])];
+        const auto mask=world.action_mask(leader);
+        int expected=0;
+        for (int action=0;action<rts::kUnitActionCount;++action)
+            if (mask & (1u<<action)) expected=action;
+        REQUIRE(static_cast<int>(actions[i])==expected);
+    }
 }
 
 TEST_CASE("RL battle saves retain the same model for snapshot and replay recovery", "[rlpolicy]") {

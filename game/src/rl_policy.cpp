@@ -228,7 +228,21 @@ std::size_t apply_tactical_policy(const rts::World& w, TacticalPolicy& policy,
             std::span(glob).subspan(q*rts::kObsGlobalFloats,rts::kObsGlobalFloats));
         masks.push_back(w.action_mask(id));
     }
-    const auto selected=TacticalPolicy::argmax(policy.logits(n,cells,own,glob),masks);
+    // The network shares parameters across independent squads. Real waves are
+    // not limited to the training buffer's 32 rows; infer contiguous batches
+    // without dropping squads or exceeding the verified runtime batch contract.
+    std::vector<rts::UnitAction> selected;
+    selected.reserve(n);
+    constexpr std::size_t batch = rts::BatchedEnv::kMaxUnitsPerEnv;
+    for (std::size_t first=0;first<n;first+=batch) {
+        const auto count=std::min(batch,n-first);
+        auto logits=policy.logits(count,
+            std::span(cells).subspan(first*rts::kObsCellFloats,count*rts::kObsCellFloats),
+            std::span(own).subspan(first*rts::kObsSelfFloats,count*rts::kObsSelfFloats),
+            std::span(glob).subspan(first*rts::kObsGlobalFloats,count*rts::kObsGlobalFloats));
+        auto actions_for_batch=TacticalPolicy::argmax(logits,std::span(masks).subspan(first,count));
+        selected.insert(selected.end(),actions_for_batch.begin(),actions_for_batch.end());
+    }
     for (std::size_t i=0;i<ids.size();++i) {
         const auto squad=w.unit_squad(ids[i]);
         for (std::size_t q=0;q<n;++q) {
