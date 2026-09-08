@@ -54,6 +54,7 @@ add_executable(rts_tests
     save_game_test.cpp
     rl_policy_test.cpp
     training_campaign_test.cpp
+    macro_observation_test.cpp
     battle_fixes_test.cpp
     hash_test.cpp
     types_test.cpp

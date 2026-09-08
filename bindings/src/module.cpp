@@ -32,6 +32,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <string>
@@ -42,6 +43,7 @@
 #include "game/world_builder.hpp"
 #include "game/attacker_macro.hpp"
 #include "game/training_campaign.hpp"
+#include "game/macro_observation.hpp"
 #include "scripted_defender.hpp"
 #include "rts/action.hpp"
 #include "rts/batched_env.hpp"
@@ -52,6 +54,24 @@
 namespace py = pybind11;
 
 namespace {
+
+using EncodedCommands = std::vector<std::tuple<int,int,int,int>>;
+std::vector<rts::Command> parse_campaign_commands(const EncodedCommands& commands) {
+    std::vector<rts::Command> parsed;
+    parsed.reserve(commands.size());
+    for(const auto& [kind,slot,what,level]:commands) {
+        if(kind<0 || kind>=rts::kCommandKindCount || slot<0 || slot>rts::kNoSlot ||
+           what<0 || what>255 || level<1 || level>255)
+            throw rts::ContractError("Invalid campaign command encoding");
+        rts::Command command;
+        command.kind=static_cast<rts::CommandKind>(kind);
+        command.slot=static_cast<std::uint16_t>(slot);
+        command.what=static_cast<std::uint8_t>(what);
+        command.level=static_cast<std::uint8_t>(level);
+        parsed.push_back(command);
+    }
+    return parsed;
+}
 
 struct WorldFactory {
     game::MapData map;
@@ -113,6 +133,11 @@ PYBIND11_MODULE(rts_native, m) {
     for(int i=0;i<rts::kCommandKindCount;++i)
         command_names.append(std::string(rts::ident_of(static_cast<rts::CommandKind>(i))));
     m.attr("COMMAND_KIND_NAMES")=command_names;
+    auto macro_obs=m.def_submodule("macro_obs","Defender-only regional observation contract");
+    macro_obs.attr("VERSION")=game::kMacroObsVersion;
+    macro_obs.attr("GRID")=game::kMacroGrid;
+    macro_obs.attr("CELL_NAMES")=game::macro_cell_names();
+    macro_obs.attr("GLOBAL_NAMES")=game::macro_global_names();
     // This is a full game, not a WorldInit approximation. Returned hashes are
     // diagnostics, never policy observations. Macro observation packing follows
     // the defender's own information boundary separately.
@@ -138,6 +163,22 @@ PYBIND11_MODULE(rts_native, m) {
                 game::StatsLoader::from_file(stats),seed);
         }),py::arg("map_path"),py::arg("stats_path"),py::arg("seed")=1)
         .def("fork",&game::TrainingCampaign::fork)
+        .def("defender_observation",[](const game::TrainingCampaign& c) {
+            const auto packed=game::pack_macro_observation(c.world().view(rts::Side::Defender));
+            py::array_t<float> cells({game::kMacroGrid,game::kMacroGrid,game::kMacroChannels});
+            py::array_t<float> global(game::kMacroGlobals);
+            std::copy(packed.cells.begin(),packed.cells.end(),cells.mutable_data());
+            std::copy(packed.global.begin(),packed.global.end(),global.mutable_data());
+            return py::make_tuple(cells,global);
+        })
+        .def("command_mask",[](const game::TrainingCampaign& c,const EncodedCommands& commands) {
+            const auto parsed=parse_campaign_commands(commands);
+            py::array_t<bool> mask(static_cast<py::ssize_t>(parsed.size()));
+            const auto view=c.world().view(rts::Side::Defender);
+            for(std::size_t i=0;i<parsed.size();++i)
+                mask.mutable_data()[i]=game::macro_command_legal(view,parsed[i],c.summon_allowed());
+            return mask;
+        },py::arg("commands"))
         .def_property_readonly("wave",[](const game::TrainingCampaign& c){return c.world().wave();})
         .def_property_readonly("tick",[](const game::TrainingCampaign& c){return c.world().now();})
         .def_property_readonly("diagnostic_state_hash",[](const game::TrainingCampaign& c){return c.world().state_hash();})
@@ -147,19 +188,8 @@ PYBIND11_MODULE(rts_native, m) {
             return transition(result);
         },py::arg("max_ticks")=20)
         .def("advance",[transition](game::TrainingCampaign& c,int ticks,
-             const std::vector<std::tuple<int,int,int,int>>& commands) {
-            std::vector<rts::Command> parsed;
-            for(const auto& [kind,slot,what,level]:commands) {
-                if(kind<0 || kind>=rts::kCommandKindCount || slot<0 || slot>rts::kNoSlot ||
-                   what<0 || what>255 || level<1 || level>255)
-                    throw rts::ContractError("Invalid campaign command encoding");
-                rts::Command command;
-                command.kind=static_cast<rts::CommandKind>(kind);
-                command.slot=static_cast<std::uint16_t>(slot);
-                command.what=static_cast<std::uint8_t>(what);
-                command.level=static_cast<std::uint8_t>(level);
-                parsed.push_back(command);
-            }
+             const EncodedCommands& commands) {
+            const auto parsed=parse_campaign_commands(commands);
             game::CampaignTransition result;
             {py::gil_scoped_release nogil;result=c.advance(ticks,parsed);}
             return transition(result);

@@ -27,6 +27,7 @@ public:
                      std::shared_ptr<TacticalPolicy> attacker = {});
     const rts::World& world() const noexcept { return battle_.world(); }
     bool defeated() const noexcept { return battle_.defeated(); }
+    bool summon_allowed() const noexcept { return battle_.summon_accepted_now(); }
 
     // Deep-copy game and opponent state for paired decisions. No reseeding or
     // reconstruction from visible summaries; any frozen inference model is shared.
