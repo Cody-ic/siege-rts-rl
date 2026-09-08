@@ -271,8 +271,8 @@ def make_worlds(cfg: Cfg, n: int, frac: float = 1.0, start: int = 0) -> list:
 
 
 def validate(cfg):
-    if cfg.tactical_goals not in ('keep','known-economy'):
-        raise ValueError('tactical_goals must be keep or known-economy')
+    if cfg.tactical_goals not in ('keep','known-economy','split-economy'):
+        raise ValueError('tactical_goals must be keep, known-economy or split-economy')
     if not 0 <= cfg.defender_prepare_ticks <= 2400 or (cfg.defender_prepare_ticks and not cfg.defender):
         raise ValueError('defender_prepare_ticks requires a defender and must be in [0,2400]')
     if cfg.roster not in ('ghouls','mixed'):

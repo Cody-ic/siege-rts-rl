@@ -417,7 +417,7 @@ PYBIND11_MODULE(rts_native, m) {
                          int defender_macro_period, rts::ObsNorms norms,
                          const std::vector<std::string>& defender_maps,
                          int defender_prepare_ticks, const std::string& tactical_goals) {
-                 if(tactical_goals!="keep" && tactical_goals!="known-economy")
+                 if(tactical_goals!="keep" && tactical_goals!="known-economy" && tactical_goals!="split-economy")
                      throw rts::ContractError("Unknown tactical goal mode");
                  if(tactical_goals!="keep" && side!=rts::Side::Attacker)
                      throw rts::ContractError("Economy goals require attacker side");
@@ -467,6 +467,18 @@ PYBIND11_MODULE(rts_native, m) {
                              return brain->prepare(std::move(init), i, defender_prepare_ticks, ticks_per_step);
                          };
                      }
+                 }
+                 if(tactical_goals=="split-economy") {
+                     auto goals=std::make_shared<std::vector<game::SplitEconomyTrainingGoals>>(bi.worlds.size());
+                     auto prepare=std::move(bi.world_factory);
+                     bi.world_factory=[goals,prepare](rts::WorldInit init,int i) {
+                         auto world=prepare ? prepare(std::move(init),i) : std::make_unique<rts::World>(std::move(init));
+                         (*goals)[static_cast<std::size_t>(i)].reset(*world);
+                         return world;
+                     };
+                     bi.goal_hook=[goals](const rts::WorldView& view,std::span<const rts::UnitId> leaders,int i) {
+                         return (*goals)[static_cast<std::size_t>(i)](view,leaders);
+                     };
                  }
                  return std::make_unique<rts::BatchedEnv>(std::move(bi));
              }),

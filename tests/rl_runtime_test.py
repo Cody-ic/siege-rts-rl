@@ -384,7 +384,7 @@ class RuntimeTests(unittest.TestCase):
                 self.assertEqual(type(a),type(b));self.assertEqual(len(a),len(b))
                 for x,y in zip(a,b):equal(x,y)
             else:self.assertEqual(a,b)
-        for mode in ('keep','known-economy'):
+        for mode in ('keep','known-economy','split-economy'):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as folder:
                 root=Path(folder)
                 config=['--total-steps','24','--max-ticks','18','--curriculum','1.0',
