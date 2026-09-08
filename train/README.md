@@ -470,3 +470,45 @@ ctest --test-dir build-Release --output-on-failure
 覆盖实际训练与恢复、强杀进程、部分写入、损坏回退、互斥运行、旧权重热启动、随机状态、课程窗口、编队身份 GAE、真假行前向一致、守方重置、固定策略评估与批大小无关。主机没有 PyTorch 时保留普通 C++ 测试；显式开启训练测试后缺依赖会报错。
 
 保存格式参考 [PyTorch 官方检查点说明](https://docs.pytorch.org/tutorials/beginner/saving_loading_models.html)，性能取舍参考 [官方性能指南](https://docs.pytorch.org/tutorials/recipes/recipes/tuning_guide.html)。当前保留 float32，未在未验证的 GPU 上默认启用混合精度或编译优化。
+
+## 经济目标、实际覆盖与价值网络对照
+
+攻方训练新增三个显式目标模式：`keep` 保留堡垒目标；`known-economy` 让所有编队使用迷雾记忆中的
+经济建筑；`split-economy` 只给固定的一部分食尸鬼/重骑分派经济任务，其他编队保留主攻。
+没有已知经济建筑时回退堡垒，队长阵亡不改变同队任务。后者仍是训练侧采样规则，
+并未实现窥使跨波情报、可学习的编成和分兵；不能当作攻方宏观 RL 已完成。
+
+`--value-features` 默认 `shared`。`detached` 仅阻断价值损失进入动作特征；实验选项 `independent`
+使用独立特征、价值头、Adam 和裁剪，动作网络与游戏推理格式不变。目前没有证据支持将其设为默认。
+在已配置好原生绑定与 Python 环境的仓库根目录，可以新建对照 run（示例为 PowerShell）：
+
+```powershell
+python train/ppo.py --run-dir runs/my-independent-trial --init-weights runs/my-baseline/policy.pt `
+  --device cpu --envs 8 --threads 4 --torch-threads 1 --total-steps 32768 `
+  --map-pool game/data/maps/pool/gen_01001000.json,game/data/maps/pool/gen_01004000.json `
+  --roster mixed --levels 1,4,8,16 --curriculum 1.0 --defender-prepare-ticks 900 `
+  --tactical-goals split-economy --value-features independent --reference-coef 1 --lr 0.00001
+python train/ppo.py --run-dir runs/my-independent-trial --resume auto
+```
+
+示例中的基线权重需换成实际保留的文件；目录应新建。其余参数使用当前默认值，
+这不是已验证的最优配置。检查点保存 `value_model`/`value_optimizer`；缺失该状态的 independent
+检查点不能续跑。旧训练恢复必须使用原源码、数据与原生版本，不能为方便续训跳过合同核验。
+
+`state.json` 的 `progress.completed_coverage` 按地图、等级、入口、课程阶段累计真实终局和步数，
+恢复后继续累计。配置写了四档等级不代表四档均有完整对局；未完成的局中环境不会记成已覆盖。
+先检查实际覆盖，再冻结最终检查点做同环境对照，保留原始基线，不把训练胜率当作泛化成绩。
+
+## 在模型走偏的局面上补充离线标签
+
+`demonstrations.py collect` 可同时接受 `--tactical-goals split-economy` 与
+`--behavior-checkpoint PATH`：冻结模型负责行动，教师只提供当前公开观测下的合法标签。
+省略行为权重仍使用原教师采集。模型内容身份进入采集计划，更换行为模型需新目录。
+`fit --init-weights PATH` 可从已有模型拟合，之后普通 `--resume` 恢复两阶段的拟合状态，
+无需重复提供初始化路径。该过程是模仿纠正，不能计作 PPO 收益。
+
+导出拟合检查点时，必须给 `export_policy.py` 额外传入
+`--demonstrations PATH_TO_EXACT_DATASET`，数据 SHA 与拟合检查点引用必须匹配，才可恢复目标语义。
+使用完整 `latest.pt` 或其冻结副本；只剩 `policy.pt` 时没有足够元数据证明新目标模式。
+导出验证只确认动作一致性，不会自动采用模型。当前失败实验、完整对照和未完成范围见
+[稳定性与交付记录](../docs/rl-stability-and-deployment.md)。
