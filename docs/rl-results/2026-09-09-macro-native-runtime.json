@@ -1,0 +1,724 @@
+{
+  "checkpoint_sha256": "d51f11fd52fe17c20898870eb4711c212f6d344333bed83060b8799697411c86",
+  "manifest_sha256": "45a2f1065134c7098e221dba69f4cd45ee82b84521e0a4eb7c2d580bb7d7da9f",
+  "simulation": "d8cf0aaffd27ad52c347bed7e8d20fe880400fe27d164a7250d6085fc916541c",
+  "check_sha256": "afb1cec0b24e761c5bf5a9564bd81d79d188537dde284cf91c6cb174ec1b94d1",
+  "decisions": 64,
+  "cases": [
+    {
+      "map": "gen_01001000.json",
+      "seed": 1,
+      "tick": 0,
+      "command": [
+        1,
+        16230,
+        1,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 1,
+      "tick": 220,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 1,
+      "tick": 440,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 1,
+      "tick": 660,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 1,
+      "tick": 880,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 1,
+      "tick": 1100,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 1,
+      "tick": 1320,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 1,
+      "tick": 1540,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 1,
+      "tick": 1760,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 1,
+      "tick": 1980,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 1,
+      "tick": 2200,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 1,
+      "tick": 2420,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 1,
+      "tick": 2640,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 1,
+      "tick": 2860,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 1,
+      "tick": 2958,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 1,
+      "tick": 3178,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 2,
+      "tick": 0,
+      "command": [
+        1,
+        16230,
+        1,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 2,
+      "tick": 220,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 2,
+      "tick": 440,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 2,
+      "tick": 660,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 2,
+      "tick": 880,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 2,
+      "tick": 1100,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 2,
+      "tick": 1320,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 2,
+      "tick": 1540,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 2,
+      "tick": 1760,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 2,
+      "tick": 1980,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 2,
+      "tick": 2200,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 2,
+      "tick": 2420,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 2,
+      "tick": 2640,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 2,
+      "tick": 2860,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 2,
+      "tick": 2958,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01001000.json",
+      "seed": 2,
+      "tick": 3178,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 1,
+      "tick": 0,
+      "command": [
+        1,
+        14544,
+        1,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 1,
+      "tick": 220,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 1,
+      "tick": 440,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 1,
+      "tick": 660,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 1,
+      "tick": 880,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 1,
+      "tick": 1100,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 1,
+      "tick": 1320,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 1,
+      "tick": 1540,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 1,
+      "tick": 1760,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 1,
+      "tick": 1980,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 1,
+      "tick": 2200,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 1,
+      "tick": 2323,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 1,
+      "tick": 2543,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 1,
+      "tick": 2763,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 1,
+      "tick": 2983,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 1,
+      "tick": 3203,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 2,
+      "tick": 0,
+      "command": [
+        1,
+        14544,
+        1,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 2,
+      "tick": 220,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 2,
+      "tick": 440,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 2,
+      "tick": 660,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 2,
+      "tick": 880,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 2,
+      "tick": 1100,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 2,
+      "tick": 1320,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 2,
+      "tick": 1540,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 2,
+      "tick": 1760,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 2,
+      "tick": 1980,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 2,
+      "tick": 2200,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 2,
+      "tick": 2282,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 2,
+      "tick": 2502,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 2,
+      "tick": 2722,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 2,
+      "tick": 2942,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    },
+    {
+      "map": "gen_01006001.json",
+      "seed": 2,
+      "tick": 3162,
+      "command": [
+        0,
+        65535,
+        0,
+        1
+      ]
+    }
+  ],
+  "exact_commands": true,
+  "read_only": true,
+  "matched_transition_hashes": true,
+  "rejected": [
+    "obs_version",
+    "period",
+    "hidden",
+    "selection",
+    "graph-content"
+  ],
+  "game_frontend_integrated": false
+}

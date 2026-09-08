@@ -17,6 +17,13 @@ from checkpointing import atomic_json,atomic_write,sha256
 from macro_evaluate import load_policy
 
 
+def fnv64(path):
+    value=0xcbf29ce484222325
+    for byte in Path(path).read_bytes():
+        value=((value^byte)*0x100000001b3)&0xffffffffffffffff
+    return str(value)
+
+
 class Encoder(torch.nn.Module):
     def __init__(self,policy):
         super().__init__();self.policy=policy
@@ -134,9 +141,11 @@ def export(checkpoint,maps,stats,output):
                 np.testing.assert_allclose(result,target.numpy(),rtol=2e-4,atol=2e-5)
     if sha256(checkpoint)!=checkpoint_sha256:
         raise ValueError('Checkpoint changed during export; refusing to publish a verified manifest')
-    manifest=dict(format='defender-macro-onnx-v1',checkpoint_sha256=checkpoint_sha256,
+    manifest=dict(format='defender-macro-onnx-v2',checkpoint_sha256=checkpoint_sha256,
         exporter_sha256=sha256(__file__),
         graphs={name:sha256(output/name) for name in ('encoder.onnx','decoder.onnx')},
+        graphs_fnv64={name:fnv64(output/name) for name in ('encoder.onnx','decoder.onnx')},
+        stats_fnv64=fnv64(stats),
         obs_version=native.macro_obs.VERSION,cells=list(native.macro_obs.CELL_NAMES),
         global_names=list(native.macro_obs.GLOBAL_NAMES),detail=list(native.macro_obs.DETAIL_NAMES),
         commands=list(native.COMMAND_KIND_NAMES),stats_sha256=sha256(stats),

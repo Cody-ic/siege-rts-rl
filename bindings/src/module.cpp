@@ -44,6 +44,7 @@
 #include "game/attacker_macro.hpp"
 #include "game/training_campaign.hpp"
 #include "game/rl_policy.hpp"
+#include "game/macro_policy.hpp"
 #include "game/macro_observation.hpp"
 #include "scripted_defender.hpp"
 #include "rts/action.hpp"
@@ -159,6 +160,14 @@ PYBIND11_MODULE(rts_native, m) {
         out["defender_tally"]=tally(value.defender);
         return out;
     };
+    py::class_<game::MacroPolicy>(m,"DefenderPolicy")
+        .def(py::init<const std::string&,const std::string&>(),py::arg("directory"),py::arg("stats_path"))
+        .def_property_readonly("period",&game::MacroPolicy::period)
+        .def_property_readonly("identity",&game::MacroPolicy::identity)
+        .def("decide",[](game::MacroPolicy& policy,const game::TrainingCampaign& campaign) {
+            const auto c=policy.decide(campaign.world().view(rts::Side::Defender),campaign.summon_allowed());
+            return py::make_tuple(static_cast<int>(c.kind),c.slot,c.what,c.level);
+        });
     py::class_<game::TacticalPolicy,std::shared_ptr<game::TacticalPolicy>>(m,"FrozenAttacker")
         .def(py::init([](const std::string& model,const std::string& stats) {
             return std::make_shared<game::TacticalPolicy>(model,

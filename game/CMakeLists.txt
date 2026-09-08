@@ -54,6 +54,7 @@ add_library(game STATIC
     src/rl_policy.cpp
     src/training_campaign.cpp
     src/macro_observation.cpp
+    src/macro_policy.cpp
     ${_game_self_contained_srcs}
 )
 
