@@ -1,0 +1,1278 @@
+{
+  "plan_sha256": "bc54973b33a59db69241a8e048ce92bac2e9ac3cd13a32b6d574eb150abe467d",
+  "plan_files_verified": true,
+  "levels": {
+    "1": {
+      "summary": {
+        "baseline": {
+          "wins": 4,
+          "building_value": 4260.0,
+          "losses": 25540.0
+        },
+        "candidate": {
+          "wins": 3,
+          "building_value": 4425.0,
+          "losses": 29280.0
+        }
+      },
+      "pairs": [
+        {
+          "map": "game/data/maps/pool/gen_01010001.json",
+          "seed": 907000,
+          "win_delta": 0,
+          "building_value_delta": 10.0,
+          "losses_delta": -140.0
+        },
+        {
+          "map": "game/data/maps/pool/gen_01011000.json",
+          "seed": 907001,
+          "win_delta": 0,
+          "building_value_delta": 30.0,
+          "losses_delta": 2660.0
+        },
+        {
+          "map": "game/data/maps/pool/gen_01012000.json",
+          "seed": 907002,
+          "win_delta": 0,
+          "building_value_delta": 115.0,
+          "losses_delta": 0.0
+        },
+        {
+          "map": "game/data/maps/pool/gen_01008000.json",
+          "seed": 907003,
+          "win_delta": -1,
+          "building_value_delta": 240.0,
+          "losses_delta": 930.0
+        },
+        {
+          "map": "game/data/maps/pool/gen_01010001.json",
+          "seed": 907004,
+          "win_delta": 0,
+          "building_value_delta": -350.0,
+          "losses_delta": 190.0
+        },
+        {
+          "map": "game/data/maps/pool/gen_01011000.json",
+          "seed": 907005,
+          "win_delta": 0,
+          "building_value_delta": 120.0,
+          "losses_delta": -700.0
+        },
+        {
+          "map": "game/data/maps/pool/gen_01012000.json",
+          "seed": 907006,
+          "win_delta": 0,
+          "building_value_delta": 0.0,
+          "losses_delta": 0.0
+        },
+        {
+          "map": "game/data/maps/pool/gen_01008000.json",
+          "seed": 907007,
+          "win_delta": 0,
+          "building_value_delta": 0.0,
+          "losses_delta": 800.0
+        }
+      ],
+      "reports": {
+        "baseline": {
+          "config": {
+            "threads": 4,
+            "torch_threads": 1,
+            "max_ticks": 2400,
+            "save_every": 1,
+            "target_kl": 0.03,
+            "envs": 8,
+            "ticks_per_step": 6,
+            "rollout": 64,
+            "total_steps": 200000,
+            "lr": 0.0003,
+            "gamma": 0.99,
+            "gae_lambda": 0.95,
+            "clip": 0.2,
+            "epochs": 4,
+            "minibatches": 4,
+            "ent_coef": 0.01,
+            "vf_coef": 0.5,
+            "value_features": "shared",
+            "reference_coef": 0.0,
+            "max_grad_norm": 0.5,
+            "seed": 907,
+            "reward_mode": "economic",
+            "win_reward": 2000.0,
+            "curriculum": [
+              1.0
+            ],
+            "promote_at": 0.6,
+            "promote_outcome_at": 0.25,
+            "promote_window": 100,
+            "map_path": "game/data/maps/pool/gen_01001000.json",
+            "map_pool": [
+              "game/data/maps/pool/gen_01010001.json",
+              "game/data/maps/pool/gen_01011000.json",
+              "game/data/maps/pool/gen_01012000.json",
+              "game/data/maps/pool/gen_01008000.json"
+            ],
+            "roster": "mixed",
+            "tactical_goals": "known-economy",
+            "levels": [
+              1
+            ],
+            "defender": true,
+            "defender_macro_period": 4,
+            "defender_prepare_ticks": 900,
+            "stats_path": "game/data/stats_placeholder.json",
+            "device": "cpu"
+          },
+          "contract": {
+            "obs_version": 2,
+            "obs_fingerprint": 13173046946482585016,
+            "actions": 13,
+            "max_agents": 32,
+            "map_sha256": "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+            "stats_sha256": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+            "map_pool_sha256": [
+              "75330c033aef2663eb6ad46d746d99bd9a853ea8b559c63c8e5df9f56bf7ee0e",
+              "11e930e51e0e75e961c0a3188aab81a07b892e03be35095fa62374b9b796d523",
+              "ca8443d13a77fcdb39eb67767c9c31f69ede95f14825f1c8f154a58849bb3e62",
+              "7cd3ef88926ad5089df91b020743c8472fbf03dff311d1db00e06c596e231aeb"
+            ],
+            "simulation_fingerprint": "61abbb70028f3dcd30f41ace3d9ba6af3cc3d50909505f130e7ad9421d53dba5",
+            "native_build_mode": "Release",
+            "learner_version": 6,
+            "learner_sha256": {
+              "ppo.py": "8d2ce0c5f16d11099e4f2059094bb30f24cbb9afaee959ef0efa0c9b9b781a61",
+              "learning.py": "04c647de5551ba2642fcb61f738b729d4b10c020e85f1908d35f3b7e2fef46a4",
+              "rollout.py": "77b792a2ef89de002807681b5c89fd9f774b1dcfe029968d130c60e107e4398a",
+              "checkpointing.py": "a6f1fa75d77ad8d85899d781dd991905d3e4464dd8c5d5add35c1774095cf9bc",
+              "stable_kl.py": "ca7cd18ffb5a9c199278ea42d735168a79b9b375c65d91ecf7ee3d9ed3b44b8c"
+            }
+          },
+          "checkpoint_sha256": "b556e8e3ff216d5fc3dc8e960fed12c2ccce79f318472cc6be8cff6c90550276",
+          "policy": "frozen_argmax",
+          "rows": [
+            {
+              "environment": 0,
+              "observations": 400,
+              "economy_observations": 247,
+              "first_goal_tick": 228,
+              "peak_known_targets": 3,
+              "assigned_squad_observations": 1438,
+              "live_squad_observations": 1939,
+              "map": "game/data/maps/pool/gen_01010001.json",
+              "world_seed": 907000,
+              "level": 1,
+              "spawn_index": 1,
+              "end": "EpisodeEnd.Timeout",
+              "ticks": 2400,
+              "tally": {
+                "dmg_to_units": 664.0,
+                "dmg_to_blds": 6180.0,
+                "units_killed": 3.0,
+                "blds_destroyed": 11.0,
+                "bld_value": 620.0,
+                "scouts_killed": 0.0,
+                "losses": 4230.0,
+                "progress": 849.0
+              }
+            },
+            {
+              "environment": 1,
+              "observations": 313,
+              "economy_observations": 167,
+              "first_goal_tick": 306,
+              "peak_known_targets": 3,
+              "assigned_squad_observations": 1503,
+              "live_squad_observations": 2817,
+              "map": "game/data/maps/pool/gen_01011000.json",
+              "world_seed": 907001,
+              "level": 1,
+              "spawn_index": 3,
+              "end": "EpisodeEnd.KeepDestroyed",
+              "ticks": 1878,
+              "tally": {
+                "dmg_to_units": 1040.0,
+                "dmg_to_blds": 5516.0,
+                "units_killed": 1.0,
+                "blds_destroyed": 12.0,
+                "bld_value": 660.0,
+                "scouts_killed": 0.0,
+                "losses": 360.0,
+                "progress": 981.0
+              }
+            },
+            {
+              "environment": 2,
+              "observations": 400,
+              "economy_observations": 249,
+              "first_goal_tick": 174,
+              "peak_known_targets": 3,
+              "assigned_squad_observations": 1543,
+              "live_squad_observations": 1957,
+              "map": "game/data/maps/pool/gen_01012000.json",
+              "world_seed": 907002,
+              "level": 1,
+              "spawn_index": 2,
+              "end": "EpisodeEnd.Timeout",
+              "ticks": 2400,
+              "tally": {
+                "dmg_to_units": 506.0,
+                "dmg_to_blds": 4062.0,
+                "units_killed": 1.0,
+                "blds_destroyed": 6.0,
+                "bld_value": 415.0,
+                "scouts_killed": 0.0,
+                "losses": 4230.0,
+                "progress": 830.0
+              }
+            },
+            {
+              "environment": 3,
+              "observations": 323,
+              "economy_observations": 148,
+              "first_goal_tick": 180,
+              "peak_known_targets": 2,
+              "assigned_squad_observations": 1332,
+              "live_squad_observations": 2489,
+              "map": "game/data/maps/pool/gen_01008000.json",
+              "world_seed": 907003,
+              "level": 1,
+              "spawn_index": 2,
+              "end": "EpisodeEnd.KeepDestroyed",
+              "ticks": 1938,
+              "tally": {
+                "dmg_to_units": 484.0,
+                "dmg_to_blds": 5022.0,
+                "units_killed": 7.0,
+                "blds_destroyed": 11.0,
+                "bld_value": 510.0,
+                "scouts_killed": 0.0,
+                "losses": 3300.0,
+                "progress": 991.0
+              }
+            },
+            {
+              "environment": 4,
+              "observations": 400,
+              "economy_observations": 351,
+              "first_goal_tick": 294,
+              "peak_known_targets": 3,
+              "assigned_squad_observations": 1097,
+              "live_squad_observations": 1538,
+              "map": "game/data/maps/pool/gen_01010001.json",
+              "world_seed": 907004,
+              "level": 1,
+              "spawn_index": 2,
+              "end": "EpisodeEnd.Timeout",
+              "ticks": 2400,
+              "tally": {
+                "dmg_to_units": 152.0,
+                "dmg_to_blds": 6002.0,
+                "units_killed": 0.0,
+                "blds_destroyed": 10.0,
+                "bld_value": 565.0,
+                "scouts_killed": 0.0,
+                "losses": 4230.0,
+                "progress": 833.0
+              }
+            },
+            {
+              "environment": 5,
+              "observations": 340,
+              "economy_observations": 148,
+              "first_goal_tick": 252,
+              "peak_known_targets": 2,
+              "assigned_squad_observations": 1331,
+              "live_squad_observations": 2304,
+              "map": "game/data/maps/pool/gen_01011000.json",
+              "world_seed": 907005,
+              "level": 1,
+              "spawn_index": 0,
+              "end": "EpisodeEnd.KeepDestroyed",
+              "ticks": 2040,
+              "tally": {
+                "dmg_to_units": 290.0,
+                "dmg_to_blds": 4805.0,
+                "units_killed": 1.0,
+                "blds_destroyed": 10.0,
+                "bld_value": 410.0,
+                "scouts_killed": 0.0,
+                "losses": 3440.0,
+                "progress": 984.0
+              }
+            },
+            {
+              "environment": 6,
+              "observations": 400,
+              "economy_observations": 210,
+              "first_goal_tick": 198,
+              "peak_known_targets": 3,
+              "assigned_squad_observations": 1345,
+              "live_squad_observations": 2186,
+              "map": "game/data/maps/pool/gen_01012000.json",
+              "world_seed": 907006,
+              "level": 1,
+              "spawn_index": 3,
+              "end": "EpisodeEnd.Timeout",
+              "ticks": 2400,
+              "tally": {
+                "dmg_to_units": 618.0,
+                "dmg_to_blds": 5648.0,
+                "units_killed": 2.0,
+                "blds_destroyed": 10.0,
+                "bld_value": 570.0,
+                "scouts_killed": 0.0,
+                "losses": 3390.0,
+                "progress": 881.0
+              }
+            },
+            {
+              "environment": 7,
+              "observations": 257,
+              "economy_observations": 112,
+              "first_goal_tick": 180,
+              "peak_known_targets": 2,
+              "assigned_squad_observations": 1008,
+              "live_squad_observations": 2239,
+              "map": "game/data/maps/pool/gen_01008000.json",
+              "world_seed": 907007,
+              "level": 1,
+              "spawn_index": 3,
+              "end": "EpisodeEnd.KeepDestroyed",
+              "ticks": 1542,
+              "tally": {
+                "dmg_to_units": 935.0,
+                "dmg_to_blds": 5006.0,
+                "units_killed": 5.0,
+                "blds_destroyed": 11.0,
+                "bld_value": 510.0,
+                "scouts_killed": 0.0,
+                "losses": 2360.0,
+                "progress": 1011.0
+              }
+            }
+          ],
+          "complete": true,
+          "seconds": 21.5407666000101,
+          "scope": "Development goal coverage, not independent policy improvement evaluation"
+        },
+        "candidate": {
+          "config": {
+            "threads": 4,
+            "torch_threads": 1,
+            "max_ticks": 2400,
+            "save_every": 1,
+            "target_kl": 0.03,
+            "envs": 8,
+            "ticks_per_step": 6,
+            "rollout": 64,
+            "total_steps": 200000,
+            "lr": 0.0003,
+            "gamma": 0.99,
+            "gae_lambda": 0.95,
+            "clip": 0.2,
+            "epochs": 4,
+            "minibatches": 4,
+            "ent_coef": 0.01,
+            "vf_coef": 0.5,
+            "value_features": "shared",
+            "reference_coef": 0.0,
+            "max_grad_norm": 0.5,
+            "seed": 907,
+            "reward_mode": "economic",
+            "win_reward": 2000.0,
+            "curriculum": [
+              1.0
+            ],
+            "promote_at": 0.6,
+            "promote_outcome_at": 0.25,
+            "promote_window": 100,
+            "map_path": "game/data/maps/pool/gen_01001000.json",
+            "map_pool": [
+              "game/data/maps/pool/gen_01010001.json",
+              "game/data/maps/pool/gen_01011000.json",
+              "game/data/maps/pool/gen_01012000.json",
+              "game/data/maps/pool/gen_01008000.json"
+            ],
+            "roster": "mixed",
+            "tactical_goals": "known-economy",
+            "levels": [
+              1
+            ],
+            "defender": true,
+            "defender_macro_period": 4,
+            "defender_prepare_ticks": 900,
+            "stats_path": "game/data/stats_placeholder.json",
+            "device": "cpu"
+          },
+          "contract": {
+            "obs_version": 2,
+            "obs_fingerprint": 13173046946482585016,
+            "actions": 13,
+            "max_agents": 32,
+            "map_sha256": "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+            "stats_sha256": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+            "map_pool_sha256": [
+              "75330c033aef2663eb6ad46d746d99bd9a853ea8b559c63c8e5df9f56bf7ee0e",
+              "11e930e51e0e75e961c0a3188aab81a07b892e03be35095fa62374b9b796d523",
+              "ca8443d13a77fcdb39eb67767c9c31f69ede95f14825f1c8f154a58849bb3e62",
+              "7cd3ef88926ad5089df91b020743c8472fbf03dff311d1db00e06c596e231aeb"
+            ],
+            "simulation_fingerprint": "61abbb70028f3dcd30f41ace3d9ba6af3cc3d50909505f130e7ad9421d53dba5",
+            "native_build_mode": "Release",
+            "learner_version": 6,
+            "learner_sha256": {
+              "ppo.py": "8d2ce0c5f16d11099e4f2059094bb30f24cbb9afaee959ef0efa0c9b9b781a61",
+              "learning.py": "04c647de5551ba2642fcb61f738b729d4b10c020e85f1908d35f3b7e2fef46a4",
+              "rollout.py": "77b792a2ef89de002807681b5c89fd9f774b1dcfe029968d130c60e107e4398a",
+              "checkpointing.py": "a6f1fa75d77ad8d85899d781dd991905d3e4464dd8c5d5add35c1774095cf9bc",
+              "stable_kl.py": "ca7cd18ffb5a9c199278ea42d735168a79b9b375c65d91ecf7ee3d9ed3b44b8c"
+            }
+          },
+          "checkpoint_sha256": "0d1b286e16d5583a3a93c6fb7f00501e2f6721f29395ca7f270ecf5b47026af3",
+          "policy": "frozen_argmax",
+          "rows": [
+            {
+              "environment": 0,
+              "observations": 400,
+              "economy_observations": 224,
+              "first_goal_tick": 228,
+              "peak_known_targets": 3,
+              "assigned_squad_observations": 1408,
+              "live_squad_observations": 2178,
+              "map": "game/data/maps/pool/gen_01010001.json",
+              "world_seed": 907000,
+              "level": 1,
+              "spawn_index": 1,
+              "end": "EpisodeEnd.Timeout",
+              "ticks": 2400,
+              "tally": {
+                "dmg_to_units": 190.0,
+                "dmg_to_blds": 5778.0,
+                "units_killed": 0.0,
+                "blds_destroyed": 11.0,
+                "bld_value": 630.0,
+                "scouts_killed": 0.0,
+                "losses": 4090.0,
+                "progress": 858.0
+              }
+            },
+            {
+              "environment": 1,
+              "observations": 392,
+              "economy_observations": 196,
+              "first_goal_tick": 306,
+              "peak_known_targets": 3,
+              "assigned_squad_observations": 1696,
+              "live_squad_observations": 2769,
+              "map": "game/data/maps/pool/gen_01011000.json",
+              "world_seed": 907001,
+              "level": 1,
+              "spawn_index": 3,
+              "end": "EpisodeEnd.KeepDestroyed",
+              "ticks": 2352,
+              "tally": {
+                "dmg_to_units": 840.0,
+                "dmg_to_blds": 5406.0,
+                "units_killed": 3.0,
+                "blds_destroyed": 12.0,
+                "bld_value": 690.0,
+                "scouts_killed": 0.0,
+                "losses": 3020.0,
+                "progress": 957.0
+              }
+            },
+            {
+              "environment": 2,
+              "observations": 400,
+              "economy_observations": 292,
+              "first_goal_tick": 174,
+              "peak_known_targets": 3,
+              "assigned_squad_observations": 1482,
+              "live_squad_observations": 1854,
+              "map": "game/data/maps/pool/gen_01012000.json",
+              "world_seed": 907002,
+              "level": 1,
+              "spawn_index": 2,
+              "end": "EpisodeEnd.Timeout",
+              "ticks": 2400,
+              "tally": {
+                "dmg_to_units": 304.0,
+                "dmg_to_blds": 7059.0,
+                "units_killed": 0.0,
+                "blds_destroyed": 11.0,
+                "bld_value": 530.0,
+                "scouts_killed": 0.0,
+                "losses": 4230.0,
+                "progress": 837.0
+              }
+            },
+            {
+              "environment": 3,
+              "observations": 400,
+              "economy_observations": 237,
+              "first_goal_tick": 180,
+              "peak_known_targets": 3,
+              "assigned_squad_observations": 1936,
+              "live_squad_observations": 2459,
+              "map": "game/data/maps/pool/gen_01008000.json",
+              "world_seed": 907003,
+              "level": 1,
+              "spawn_index": 2,
+              "end": "EpisodeEnd.Timeout",
+              "ticks": 2400,
+              "tally": {
+                "dmg_to_units": 634.0,
+                "dmg_to_blds": 7490.0,
+                "units_killed": 3.0,
+                "blds_destroyed": 13.0,
+                "bld_value": 750.0,
+                "scouts_killed": 0.0,
+                "losses": 4230.0,
+                "progress": 907.0
+              }
+            },
+            {
+              "environment": 4,
+              "observations": 335,
+              "economy_observations": 0,
+              "first_goal_tick": null,
+              "peak_known_targets": 0,
+              "assigned_squad_observations": 0,
+              "live_squad_observations": 1370,
+              "map": "game/data/maps/pool/gen_01010001.json",
+              "world_seed": 907004,
+              "level": 1,
+              "spawn_index": 2,
+              "end": "EpisodeEnd.AttackersEliminated",
+              "ticks": 2010,
+              "tally": {
+                "dmg_to_units": 29.0,
+                "dmg_to_blds": 4013.0,
+                "units_killed": 0.0,
+                "blds_destroyed": 4.0,
+                "bld_value": 215.0,
+                "scouts_killed": 0.0,
+                "losses": 4420.0,
+                "progress": 833.0
+              }
+            },
+            {
+              "environment": 5,
+              "observations": 368,
+              "economy_observations": 149,
+              "first_goal_tick": 252,
+              "peak_known_targets": 2,
+              "assigned_squad_observations": 1331,
+              "live_squad_observations": 2468,
+              "map": "game/data/maps/pool/gen_01011000.json",
+              "world_seed": 907005,
+              "level": 1,
+              "spawn_index": 0,
+              "end": "EpisodeEnd.KeepDestroyed",
+              "ticks": 2208,
+              "tally": {
+                "dmg_to_units": 572.0,
+                "dmg_to_blds": 5505.0,
+                "units_killed": 2.0,
+                "blds_destroyed": 11.0,
+                "bld_value": 530.0,
+                "scouts_killed": 0.0,
+                "losses": 2740.0,
+                "progress": 976.0
+              }
+            },
+            {
+              "environment": 6,
+              "observations": 400,
+              "economy_observations": 211,
+              "first_goal_tick": 198,
+              "peak_known_targets": 3,
+              "assigned_squad_observations": 1349,
+              "live_squad_observations": 2181,
+              "map": "game/data/maps/pool/gen_01012000.json",
+              "world_seed": 907006,
+              "level": 1,
+              "spawn_index": 3,
+              "end": "EpisodeEnd.Timeout",
+              "ticks": 2400,
+              "tally": {
+                "dmg_to_units": 316.0,
+                "dmg_to_blds": 5648.0,
+                "units_killed": 1.0,
+                "blds_destroyed": 10.0,
+                "bld_value": 570.0,
+                "scouts_killed": 0.0,
+                "losses": 3390.0,
+                "progress": 883.0
+              }
+            },
+            {
+              "environment": 7,
+              "observations": 285,
+              "economy_observations": 112,
+              "first_goal_tick": 180,
+              "peak_known_targets": 2,
+              "assigned_squad_observations": 1008,
+              "live_squad_observations": 2212,
+              "map": "game/data/maps/pool/gen_01008000.json",
+              "world_seed": 907007,
+              "level": 1,
+              "spawn_index": 3,
+              "end": "EpisodeEnd.KeepDestroyed",
+              "ticks": 1710,
+              "tally": {
+                "dmg_to_units": 556.0,
+                "dmg_to_blds": 5006.0,
+                "units_killed": 3.0,
+                "blds_destroyed": 11.0,
+                "bld_value": 510.0,
+                "scouts_killed": 0.0,
+                "losses": 3160.0,
+                "progress": 1011.0
+              }
+            }
+          ],
+          "complete": true,
+          "seconds": 21.48487600000226,
+          "scope": "Development goal coverage, not independent policy improvement evaluation"
+        }
+      }
+    },
+    "4": {
+      "summary": {
+        "baseline": {
+          "wins": 6,
+          "building_value": 4445.0,
+          "losses": 30476.0
+        },
+        "candidate": {
+          "wins": 5,
+          "building_value": 4485.0,
+          "losses": 28354.0
+        }
+      },
+      "pairs": [
+        {
+          "map": "game/data/maps/pool/gen_01010001.json",
+          "seed": 907000,
+          "win_delta": 0,
+          "building_value_delta": -15.0,
+          "losses_delta": -283.0
+        },
+        {
+          "map": "game/data/maps/pool/gen_01011000.json",
+          "seed": 907001,
+          "win_delta": 0,
+          "building_value_delta": -20.0,
+          "losses_delta": 322.0
+        },
+        {
+          "map": "game/data/maps/pool/gen_01012000.json",
+          "seed": 907002,
+          "win_delta": 0,
+          "building_value_delta": -60.0,
+          "losses_delta": -837.0
+        },
+        {
+          "map": "game/data/maps/pool/gen_01008000.json",
+          "seed": 907003,
+          "win_delta": -1,
+          "building_value_delta": 145.0,
+          "losses_delta": -964.0
+        },
+        {
+          "map": "game/data/maps/pool/gen_01010001.json",
+          "seed": 907004,
+          "win_delta": 0,
+          "building_value_delta": -10.0,
+          "losses_delta": 0.0
+        },
+        {
+          "map": "game/data/maps/pool/gen_01011000.json",
+          "seed": 907005,
+          "win_delta": 0,
+          "building_value_delta": 0.0,
+          "losses_delta": 0.0
+        },
+        {
+          "map": "game/data/maps/pool/gen_01012000.json",
+          "seed": 907006,
+          "win_delta": 0,
+          "building_value_delta": 0.0,
+          "losses_delta": 0.0
+        },
+        {
+          "map": "game/data/maps/pool/gen_01008000.json",
+          "seed": 907007,
+          "win_delta": 0,
+          "building_value_delta": 0.0,
+          "losses_delta": -360.0
+        }
+      ],
+      "reports": {
+        "baseline": {
+          "config": {
+            "threads": 4,
+            "torch_threads": 1,
+            "max_ticks": 2400,
+            "save_every": 1,
+            "target_kl": 0.03,
+            "envs": 8,
+            "ticks_per_step": 6,
+            "rollout": 64,
+            "total_steps": 200000,
+            "lr": 0.0003,
+            "gamma": 0.99,
+            "gae_lambda": 0.95,
+            "clip": 0.2,
+            "epochs": 4,
+            "minibatches": 4,
+            "ent_coef": 0.01,
+            "vf_coef": 0.5,
+            "value_features": "shared",
+            "reference_coef": 0.0,
+            "max_grad_norm": 0.5,
+            "seed": 907,
+            "reward_mode": "economic",
+            "win_reward": 2000.0,
+            "curriculum": [
+              1.0
+            ],
+            "promote_at": 0.6,
+            "promote_outcome_at": 0.25,
+            "promote_window": 100,
+            "map_path": "game/data/maps/pool/gen_01001000.json",
+            "map_pool": [
+              "game/data/maps/pool/gen_01010001.json",
+              "game/data/maps/pool/gen_01011000.json",
+              "game/data/maps/pool/gen_01012000.json",
+              "game/data/maps/pool/gen_01008000.json"
+            ],
+            "roster": "mixed",
+            "tactical_goals": "known-economy",
+            "levels": [
+              4
+            ],
+            "defender": true,
+            "defender_macro_period": 4,
+            "defender_prepare_ticks": 900,
+            "stats_path": "game/data/stats_placeholder.json",
+            "device": "cpu"
+          },
+          "contract": {
+            "obs_version": 2,
+            "obs_fingerprint": 13173046946482585016,
+            "actions": 13,
+            "max_agents": 32,
+            "map_sha256": "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+            "stats_sha256": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+            "map_pool_sha256": [
+              "75330c033aef2663eb6ad46d746d99bd9a853ea8b559c63c8e5df9f56bf7ee0e",
+              "11e930e51e0e75e961c0a3188aab81a07b892e03be35095fa62374b9b796d523",
+              "ca8443d13a77fcdb39eb67767c9c31f69ede95f14825f1c8f154a58849bb3e62",
+              "7cd3ef88926ad5089df91b020743c8472fbf03dff311d1db00e06c596e231aeb"
+            ],
+            "simulation_fingerprint": "61abbb70028f3dcd30f41ace3d9ba6af3cc3d50909505f130e7ad9421d53dba5",
+            "native_build_mode": "Release",
+            "learner_version": 6,
+            "learner_sha256": {
+              "ppo.py": "8d2ce0c5f16d11099e4f2059094bb30f24cbb9afaee959ef0efa0c9b9b781a61",
+              "learning.py": "04c647de5551ba2642fcb61f738b729d4b10c020e85f1908d35f3b7e2fef46a4",
+              "rollout.py": "77b792a2ef89de002807681b5c89fd9f774b1dcfe029968d130c60e107e4398a",
+              "checkpointing.py": "a6f1fa75d77ad8d85899d781dd991905d3e4464dd8c5d5add35c1774095cf9bc",
+              "stable_kl.py": "ca7cd18ffb5a9c199278ea42d735168a79b9b375c65d91ecf7ee3d9ed3b44b8c"
+            }
+          },
+          "checkpoint_sha256": "b556e8e3ff216d5fc3dc8e960fed12c2ccce79f318472cc6be8cff6c90550276",
+          "policy": "frozen_argmax",
+          "rows": [
+            {
+              "environment": 0,
+              "observations": 328,
+              "economy_observations": 180,
+              "first_goal_tick": 228,
+              "peak_known_targets": 3,
+              "assigned_squad_observations": 1543,
+              "live_squad_observations": 2405,
+              "map": "game/data/maps/pool/gen_01010001.json",
+              "world_seed": 907000,
+              "level": 4,
+              "spawn_index": 1,
+              "end": "EpisodeEnd.KeepDestroyed",
+              "ticks": 1968,
+              "tally": {
+                "dmg_to_units": 363.0,
+                "dmg_to_blds": 7927.0,
+                "units_killed": 5.0,
+                "blds_destroyed": 12.0,
+                "bld_value": 645.0,
+                "scouts_killed": 0.0,
+                "losses": 4067.0,
+                "progress": 931.0
+              }
+            },
+            {
+              "environment": 1,
+              "observations": 286,
+              "economy_observations": 151,
+              "first_goal_tick": 306,
+              "peak_known_targets": 3,
+              "assigned_squad_observations": 1359,
+              "live_squad_observations": 2574,
+              "map": "game/data/maps/pool/gen_01011000.json",
+              "world_seed": 907001,
+              "level": 4,
+              "spawn_index": 3,
+              "end": "EpisodeEnd.KeepDestroyed",
+              "ticks": 1716,
+              "tally": {
+                "dmg_to_units": 235.0,
+                "dmg_to_blds": 5514.0,
+                "units_killed": 1.0,
+                "blds_destroyed": 12.0,
+                "bld_value": 660.0,
+                "scouts_killed": 0.0,
+                "losses": 283.0,
+                "progress": 981.0
+              }
+            },
+            {
+              "environment": 2,
+              "observations": 400,
+              "economy_observations": 164,
+              "first_goal_tick": 174,
+              "peak_known_targets": 3,
+              "assigned_squad_observations": 1291,
+              "live_squad_observations": 2074,
+              "map": "game/data/maps/pool/gen_01012000.json",
+              "world_seed": 907002,
+              "level": 4,
+              "spawn_index": 2,
+              "end": "EpisodeEnd.Timeout",
+              "ticks": 2400,
+              "tally": {
+                "dmg_to_units": 240.0,
+                "dmg_to_blds": 6013.0,
+                "units_killed": 1.0,
+                "blds_destroyed": 9.0,
+                "bld_value": 460.0,
+                "scouts_killed": 0.0,
+                "losses": 5444.0,
+                "progress": 837.0
+              }
+            },
+            {
+              "environment": 3,
+              "observations": 268,
+              "economy_observations": 131,
+              "first_goal_tick": 180,
+              "peak_known_targets": 2,
+              "assigned_squad_observations": 1179,
+              "live_squad_observations": 2308,
+              "map": "game/data/maps/pool/gen_01008000.json",
+              "world_seed": 907003,
+              "level": 4,
+              "spawn_index": 2,
+              "end": "EpisodeEnd.KeepDestroyed",
+              "ticks": 1608,
+              "tally": {
+                "dmg_to_units": 363.0,
+                "dmg_to_blds": 5026.0,
+                "units_killed": 7.0,
+                "blds_destroyed": 11.0,
+                "bld_value": 510.0,
+                "scouts_killed": 0.0,
+                "losses": 3707.0,
+                "progress": 997.0
+              }
+            },
+            {
+              "environment": 4,
+              "observations": 400,
+              "economy_observations": 336,
+              "first_goal_tick": 294,
+              "peak_known_targets": 3,
+              "assigned_squad_observations": 1261,
+              "live_squad_observations": 1717,
+              "map": "game/data/maps/pool/gen_01010001.json",
+              "world_seed": 907004,
+              "level": 4,
+              "spawn_index": 2,
+              "end": "EpisodeEnd.Timeout",
+              "ticks": 2400,
+              "tally": {
+                "dmg_to_units": 333.0,
+                "dmg_to_blds": 7303.0,
+                "units_killed": 0.0,
+                "blds_destroyed": 12.0,
+                "bld_value": 630.0,
+                "scouts_killed": 0.0,
+                "losses": 5444.0,
+                "progress": 830.0
+              }
+            },
+            {
+              "environment": 5,
+              "observations": 280,
+              "economy_observations": 129,
+              "first_goal_tick": 252,
+              "peak_known_targets": 2,
+              "assigned_squad_observations": 1161,
+              "live_squad_observations": 2232,
+              "map": "game/data/maps/pool/gen_01011000.json",
+              "world_seed": 907005,
+              "level": 4,
+              "spawn_index": 0,
+              "end": "EpisodeEnd.KeepDestroyed",
+              "ticks": 1680,
+              "tally": {
+                "dmg_to_units": 509.0,
+                "dmg_to_blds": 5417.0,
+                "units_killed": 0.0,
+                "blds_destroyed": 10.0,
+                "bld_value": 460.0,
+                "scouts_killed": 0.0,
+                "losses": 3577.0,
+                "progress": 993.0
+              }
+            },
+            {
+              "environment": 6,
+              "observations": 351,
+              "economy_observations": 181,
+              "first_goal_tick": 198,
+              "peak_known_targets": 3,
+              "assigned_squad_observations": 1373,
+              "live_squad_observations": 2218,
+              "map": "game/data/maps/pool/gen_01012000.json",
+              "world_seed": 907006,
+              "level": 4,
+              "spawn_index": 3,
+              "end": "EpisodeEnd.KeepDestroyed",
+              "ticks": 2106,
+              "tally": {
+                "dmg_to_units": 243.0,
+                "dmg_to_blds": 6264.0,
+                "units_killed": 1.0,
+                "blds_destroyed": 11.0,
+                "bld_value": 570.0,
+                "scouts_killed": 0.0,
+                "losses": 4067.0,
+                "progress": 910.0
+              }
+            },
+            {
+              "environment": 7,
+              "observations": 235,
+              "economy_observations": 93,
+              "first_goal_tick": 180,
+              "peak_known_targets": 2,
+              "assigned_squad_observations": 837,
+              "live_squad_observations": 1941,
+              "map": "game/data/maps/pool/gen_01008000.json",
+              "world_seed": 907007,
+              "level": 4,
+              "spawn_index": 3,
+              "end": "EpisodeEnd.KeepDestroyed",
+              "ticks": 1410,
+              "tally": {
+                "dmg_to_units": 406.0,
+                "dmg_to_blds": 5006.0,
+                "units_killed": 7.0,
+                "blds_destroyed": 11.0,
+                "bld_value": 510.0,
+                "scouts_killed": 0.0,
+                "losses": 3887.0,
+                "progress": 1010.0
+              }
+            }
+          ],
+          "complete": true,
+          "seconds": 22.354071900001145,
+          "scope": "Development goal coverage, not independent policy improvement evaluation"
+        },
+        "candidate": {
+          "config": {
+            "threads": 4,
+            "torch_threads": 1,
+            "max_ticks": 2400,
+            "save_every": 1,
+            "target_kl": 0.03,
+            "envs": 8,
+            "ticks_per_step": 6,
+            "rollout": 64,
+            "total_steps": 200000,
+            "lr": 0.0003,
+            "gamma": 0.99,
+            "gae_lambda": 0.95,
+            "clip": 0.2,
+            "epochs": 4,
+            "minibatches": 4,
+            "ent_coef": 0.01,
+            "vf_coef": 0.5,
+            "value_features": "shared",
+            "reference_coef": 0.0,
+            "max_grad_norm": 0.5,
+            "seed": 907,
+            "reward_mode": "economic",
+            "win_reward": 2000.0,
+            "curriculum": [
+              1.0
+            ],
+            "promote_at": 0.6,
+            "promote_outcome_at": 0.25,
+            "promote_window": 100,
+            "map_path": "game/data/maps/pool/gen_01001000.json",
+            "map_pool": [
+              "game/data/maps/pool/gen_01010001.json",
+              "game/data/maps/pool/gen_01011000.json",
+              "game/data/maps/pool/gen_01012000.json",
+              "game/data/maps/pool/gen_01008000.json"
+            ],
+            "roster": "mixed",
+            "tactical_goals": "known-economy",
+            "levels": [
+              4
+            ],
+            "defender": true,
+            "defender_macro_period": 4,
+            "defender_prepare_ticks": 900,
+            "stats_path": "game/data/stats_placeholder.json",
+            "device": "cpu"
+          },
+          "contract": {
+            "obs_version": 2,
+            "obs_fingerprint": 13173046946482585016,
+            "actions": 13,
+            "max_agents": 32,
+            "map_sha256": "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+            "stats_sha256": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+            "map_pool_sha256": [
+              "75330c033aef2663eb6ad46d746d99bd9a853ea8b559c63c8e5df9f56bf7ee0e",
+              "11e930e51e0e75e961c0a3188aab81a07b892e03be35095fa62374b9b796d523",
+              "ca8443d13a77fcdb39eb67767c9c31f69ede95f14825f1c8f154a58849bb3e62",
+              "7cd3ef88926ad5089df91b020743c8472fbf03dff311d1db00e06c596e231aeb"
+            ],
+            "simulation_fingerprint": "61abbb70028f3dcd30f41ace3d9ba6af3cc3d50909505f130e7ad9421d53dba5",
+            "native_build_mode": "Release",
+            "learner_version": 6,
+            "learner_sha256": {
+              "ppo.py": "8d2ce0c5f16d11099e4f2059094bb30f24cbb9afaee959ef0efa0c9b9b781a61",
+              "learning.py": "04c647de5551ba2642fcb61f738b729d4b10c020e85f1908d35f3b7e2fef46a4",
+              "rollout.py": "77b792a2ef89de002807681b5c89fd9f774b1dcfe029968d130c60e107e4398a",
+              "checkpointing.py": "a6f1fa75d77ad8d85899d781dd991905d3e4464dd8c5d5add35c1774095cf9bc",
+              "stable_kl.py": "ca7cd18ffb5a9c199278ea42d735168a79b9b375c65d91ecf7ee3d9ed3b44b8c"
+            }
+          },
+          "checkpoint_sha256": "0d1b286e16d5583a3a93c6fb7f00501e2f6721f29395ca7f270ecf5b47026af3",
+          "policy": "frozen_argmax",
+          "rows": [
+            {
+              "environment": 0,
+              "observations": 333,
+              "economy_observations": 167,
+              "first_goal_tick": 228,
+              "peak_known_targets": 3,
+              "assigned_squad_observations": 1412,
+              "live_squad_observations": 2470,
+              "map": "game/data/maps/pool/gen_01010001.json",
+              "world_seed": 907000,
+              "level": 4,
+              "spawn_index": 1,
+              "end": "EpisodeEnd.KeepDestroyed",
+              "ticks": 1998,
+              "tally": {
+                "dmg_to_units": 145.0,
+                "dmg_to_blds": 5841.0,
+                "units_killed": 4.0,
+                "blds_destroyed": 12.0,
+                "bld_value": 630.0,
+                "scouts_killed": 0.0,
+                "losses": 3784.0,
+                "progress": 923.0
+              }
+            },
+            {
+              "environment": 1,
+              "observations": 285,
+              "economy_observations": 161,
+              "first_goal_tick": 306,
+              "peak_known_targets": 3,
+              "assigned_squad_observations": 1449,
+              "live_squad_observations": 2565,
+              "map": "game/data/maps/pool/gen_01011000.json",
+              "world_seed": 907001,
+              "level": 4,
+              "spawn_index": 3,
+              "end": "EpisodeEnd.KeepDestroyed",
+              "ticks": 1710,
+              "tally": {
+                "dmg_to_units": 360.0,
+                "dmg_to_blds": 5406.0,
+                "units_killed": 1.0,
+                "blds_destroyed": 12.0,
+                "bld_value": 640.0,
+                "scouts_killed": 0.0,
+                "losses": 605.0,
+                "progress": 996.0
+              }
+            },
+            {
+              "environment": 2,
+              "observations": 400,
+              "economy_observations": 164,
+              "first_goal_tick": 174,
+              "peak_known_targets": 3,
+              "assigned_squad_observations": 1291,
+              "live_squad_observations": 2034,
+              "map": "game/data/maps/pool/gen_01012000.json",
+              "world_seed": 907002,
+              "level": 4,
+              "spawn_index": 2,
+              "end": "EpisodeEnd.Timeout",
+              "ticks": 2400,
+              "tally": {
+                "dmg_to_units": 480.0,
+                "dmg_to_blds": 7444.0,
+                "units_killed": 2.0,
+                "blds_destroyed": 5.0,
+                "bld_value": 400.0,
+                "scouts_killed": 0.0,
+                "losses": 4607.0,
+                "progress": 837.0
+              }
+            },
+            {
+              "environment": 3,
+              "observations": 400,
+              "economy_observations": 244,
+              "first_goal_tick": 180,
+              "peak_known_targets": 3,
+              "assigned_squad_observations": 1947,
+              "live_squad_observations": 2994,
+              "map": "game/data/maps/pool/gen_01008000.json",
+              "world_seed": 907003,
+              "level": 4,
+              "spawn_index": 2,
+              "end": "EpisodeEnd.Timeout",
+              "ticks": 2400,
+              "tally": {
+                "dmg_to_units": 890.0,
+                "dmg_to_blds": 10755.0,
+                "units_killed": 3.0,
+                "blds_destroyed": 12.0,
+                "bld_value": 655.0,
+                "scouts_killed": 0.0,
+                "losses": 2743.0,
+                "progress": 930.0
+              }
+            },
+            {
+              "environment": 4,
+              "observations": 400,
+              "economy_observations": 220,
+              "first_goal_tick": 1080,
+              "peak_known_targets": 3,
+              "assigned_squad_observations": 532,
+              "live_squad_observations": 1966,
+              "map": "game/data/maps/pool/gen_01010001.json",
+              "world_seed": 907004,
+              "level": 4,
+              "spawn_index": 2,
+              "end": "EpisodeEnd.Timeout",
+              "ticks": 2400,
+              "tally": {
+                "dmg_to_units": 242.0,
+                "dmg_to_blds": 6936.0,
+                "units_killed": 4.0,
+                "blds_destroyed": 11.0,
+                "bld_value": 620.0,
+                "scouts_killed": 0.0,
+                "losses": 5444.0,
+                "progress": 836.0
+              }
+            },
+            {
+              "environment": 5,
+              "observations": 280,
+              "economy_observations": 129,
+              "first_goal_tick": 252,
+              "peak_known_targets": 2,
+              "assigned_squad_observations": 1161,
+              "live_squad_observations": 2239,
+              "map": "game/data/maps/pool/gen_01011000.json",
+              "world_seed": 907005,
+              "level": 4,
+              "spawn_index": 0,
+              "end": "EpisodeEnd.KeepDestroyed",
+              "ticks": 1680,
+              "tally": {
+                "dmg_to_units": 509.0,
+                "dmg_to_blds": 5417.0,
+                "units_killed": 0.0,
+                "blds_destroyed": 10.0,
+                "bld_value": 460.0,
+                "scouts_killed": 0.0,
+                "losses": 3577.0,
+                "progress": 990.0
+              }
+            },
+            {
+              "environment": 6,
+              "observations": 347,
+              "economy_observations": 180,
+              "first_goal_tick": 198,
+              "peak_known_targets": 3,
+              "assigned_squad_observations": 1359,
+              "live_squad_observations": 2192,
+              "map": "game/data/maps/pool/gen_01012000.json",
+              "world_seed": 907006,
+              "level": 4,
+              "spawn_index": 3,
+              "end": "EpisodeEnd.KeepDestroyed",
+              "ticks": 2082,
+              "tally": {
+                "dmg_to_units": 337.0,
+                "dmg_to_blds": 6264.0,
+                "units_killed": 2.0,
+                "blds_destroyed": 11.0,
+                "bld_value": 570.0,
+                "scouts_killed": 0.0,
+                "losses": 4067.0,
+                "progress": 916.0
+              }
+            },
+            {
+              "environment": 7,
+              "observations": 229,
+              "economy_observations": 93,
+              "first_goal_tick": 180,
+              "peak_known_targets": 2,
+              "assigned_squad_observations": 837,
+              "live_squad_observations": 1977,
+              "map": "game/data/maps/pool/gen_01008000.json",
+              "world_seed": 907007,
+              "level": 4,
+              "spawn_index": 3,
+              "end": "EpisodeEnd.KeepDestroyed",
+              "ticks": 1374,
+              "tally": {
+                "dmg_to_units": 732.0,
+                "dmg_to_blds": 5006.0,
+                "units_killed": 8.0,
+                "blds_destroyed": 11.0,
+                "bld_value": 510.0,
+                "scouts_killed": 0.0,
+                "losses": 3527.0,
+                "progress": 1011.0
+              }
+            }
+          ],
+          "complete": true,
+          "seconds": 22.480989600007888,
+          "scope": "Development goal coverage, not independent policy improvement evaluation"
+        }
+      }
+    }
+  }
+}

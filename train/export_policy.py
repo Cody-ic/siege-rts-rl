@@ -31,6 +31,10 @@ def export(args):
     torch.set_num_threads(1)
     source=torch.load(args.checkpoint,map_location='cpu',weights_only=True)
     source_contract={}
+    source_config=source.get('config',{}) if isinstance(source,dict) else {}
+    goal_mode=source_config.get('tactical_goals','keep')
+    if goal_mode not in ('keep','known-economy'):
+        raise ValueError('Unknown checkpoint tactical goal semantics')
     if isinstance(source,dict) and 'format' in source:
         source_contract=source.get('contract',source.get('plan',{}).get('signature',{}).get('contract',{}))
     if source_contract:
@@ -52,16 +56,26 @@ def export(args):
         raise ValueError('Invalid level/decision period contract')
     samples=[]
     trajectory_steps=[]
+    goal_validation_rows=0
+    first_goal_row=None
     with torch.inference_mode():
         for level in sorted({args.min_level,args.max_level}):
             cfg=Cfg(device='cpu',envs=1,threads=1,torch_threads=1,map_path=args.map_path,stats_path=args.stats_path,
-                    roster='ghouls' if set(types)=={'Ghoul'} else 'mixed',levels=(level,),ticks_per_step=args.ticks_per_step)
+                    roster='ghouls' if set(types)=={'Ghoul'} else 'mixed',levels=(level,),ticks_per_step=args.ticks_per_step,
+                    tactical_goals=goal_mode,
+                    defender_prepare_ticks=source_config.get('defender_prepare_ticks',0) if goal_mode!='keep' else 0)
             env=make_env(cfg,1,1.)
             obs=Observer(env)
             for step in range(301):
                 rows,c,s,g,m=obs.read()
                 if len(rows)==0:break
-                if step%50==0: samples.append((c.copy(),s.copy(),g.copy(),m.copy()))
+                if step%50==0:
+                    samples.append((c.copy(),s.copy(),g.copy(),m.copy()))
+                    if goal_mode!='keep':
+                        assigned=env.goal_diagnostics[0][1]
+                        goal_validation_rows+=assigned
+                        if assigned and first_goal_row is None:
+                            first_goal_row=sum(len(sample[0]) for sample in samples[:-1])
                 logits=actor(*(torch.from_numpy(x) for x in (c,s,g))).numpy()
                 actions=np.zeros((1,obs.mu),np.uint8)
                 actions.reshape(-1)[rows]=np.where(m,logits,-np.inf).argmax(-1)
@@ -69,6 +83,8 @@ def export(args):
                 env.step(actions,done)
                 if done[0]:break
             trajectory_steps.append(dict(level=level,steps=step+1))
+    if goal_mode!='keep' and goal_validation_rows==0:
+        raise ValueError('No actual economy-goal observations sampled for version-2 export validation')
     c,s,g,m=(np.concatenate([sample[i] for sample in samples]) for i in range(4))
     example=tuple(torch.from_numpy(x[:1]) for x in (c,s,g))
     output=Path(args.output)
@@ -80,7 +96,7 @@ def export(args):
             dynamic_axes={key:{0:'agents'} for key in ('cells','own','global','logits')},
             opset_version=17,dynamo=False,external_data=False)
     model=onnx.load_model_from_string(buffer.getvalue())
-    metadata={'rts.format':'tactical-policy-1','rts.obs_version':str(R.obs.VERSION),
+    metadata={'rts.format':'tactical-policy-2' if goal_mode!='keep' else 'tactical-policy-1','rts.obs_version':str(R.obs.VERSION),
         'rts.obs_fingerprint':str(R.obs.LAYOUT_FINGERPRINT),'rts.stats_fingerprint':contract['stats_fingerprint'],
         'rts.cells_layout':'NHWC','rts.actions':str(R.obs.ACTION_COUNT),
         'rts.agent_semantics':'squad-leader-broadcast-v1','rts.unit_types':','.join(str(R.obs.UNIT_TYPE_NAMES.index(t)) for t in types),
@@ -88,6 +104,7 @@ def export(args):
         'rts.ticks_per_step':str(args.ticks_per_step),'rts.source_sha256':sha256(args.checkpoint),
         'rts.training_simulation_fingerprint':str(source_contract.get('simulation_fingerprint','unknown-policy-only')),
         'rts.validation_simulation_fingerprint':str(R.SIMULATION_FINGERPRINT)}
+    if goal_mode!='keep':metadata['rts.goal_semantics']='macro-flow-v1'
     onnx.helper.set_model_props(model,metadata)
     onnx.checker.check_model(model)
     options=ort.SessionOptions();options.intra_op_num_threads=1;options.inter_op_num_threads=1
@@ -97,6 +114,7 @@ def export(args):
     with torch.inference_mode():
         for count in (1,9,R.obs.MAX_UNITS_PER_ENV):
             indices=np.linspace(0,len(c)-1,count,dtype=int)
+            if first_goal_row is not None:indices[0]=first_goal_row
             arrays={name:np.ascontiguousarray(x[indices]) for name,x in zip(('cells','own','global'),(c,s,g))}
             expected=actor(*(torch.from_numpy(x) for x in arrays.values())).numpy()
             actual=runtime.run(['logits'],arrays)[0]
@@ -118,6 +136,7 @@ def export(args):
                 'cpp_model_identity':cpp['identity'],'torch':torch.__version__,'onnx':onnx.__version__,
                 'onnxruntime':ort.__version__,'validation_map':args.map_path,
                 'trajectory_observations':len(c),'trajectories':trajectory_steps,
+                'goal_mode':goal_mode,'economy_goal_validation_rows':goal_validation_rows,
                 'observed_unit_types':sorted(set(s[:,:R.obs.SELF_COUNT-3].argmax(-1).tolist()))}
         atomic_json(output.with_suffix('.verification.json'),report)
     except BaseException:
