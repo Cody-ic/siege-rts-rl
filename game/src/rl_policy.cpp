@@ -32,6 +32,7 @@ struct TacticalPolicy::Impl {
     int max_level = 1;
     int period = 6;
     std::uint64_t stats = 0;
+    bool macro_goals = false;
 #if RTS_WITH_ONNX
     Ort::Env environment{ORT_LOGGING_LEVEL_WARNING, "siege-policy"};
     Ort::Session session{nullptr};
@@ -94,7 +95,13 @@ TacticalPolicy::TacticalPolicy(const std::string& path, std::uint64_t stats_fing
         if (field(key) != expected)
             throw std::runtime_error(std::string("Incompatible policy metadata: ") + key);
     };
-    require("rts.format", "tactical-policy-1");
+    const auto format=field("rts.format");
+    if(format=="tactical-policy-2") {
+        require("rts.goal_semantics","macro-flow-v1");
+        p_->macro_goals=true;
+    } else if(format!="tactical-policy-1") {
+        throw std::runtime_error("Unsupported tactical policy format");
+    }
     require("rts.obs_version", std::to_string(rts::kObsVersion));
     require("rts.obs_fingerprint", std::to_string(rts::kObsLayoutFingerprint));
     require("rts.stats_fingerprint", std::to_string(stats_fingerprint));
@@ -157,6 +164,7 @@ TacticalPolicy& TacticalPolicy::operator=(TacticalPolicy&&) noexcept = default;
 const std::string& TacticalPolicy::identity() const noexcept { return p_->identity; }
 int TacticalPolicy::ticks_per_step() const noexcept { return p_->period; }
 std::uint64_t TacticalPolicy::stats_fingerprint() const noexcept { return p_->stats; }
+bool TacticalPolicy::supports_macro_goals() const noexcept { return p_->macro_goals; }
 bool TacticalPolicy::supports(rts::UnitType type, int level) const noexcept {
     return level >= p_->min_level && level <= p_->max_level &&
         std::find(p_->types.begin(),p_->types.end(),static_cast<int>(type)) != p_->types.end();
@@ -218,8 +226,14 @@ std::vector<rts::UnitAction> TacticalPolicy::argmax(std::span<const float> logit
 
 std::size_t apply_tactical_policy(const rts::World& w, TacticalPolicy& policy,
                                  std::span<const rts::UnitId> ids,
-                                 std::span<rts::UnitAction> actions) {
+                                 std::span<rts::UnitAction> actions,
+                                 std::span<const std::uint8_t> goal_sets,
+                                 std::span<const rts::GridPos> economy_goals) {
     if (ids.size()!=actions.size()) throw std::runtime_error("Policy action/ID count mismatch");
+    if(!goal_sets.empty() && goal_sets.size()!=ids.size()) throw std::runtime_error("Policy goal/ID count mismatch");
+    for(auto group:goal_sets) if(group>1) throw std::runtime_error("Invalid tactical goal set");
+    for(auto cell:economy_goals) if(cell.i<0 || cell.j<0 || cell.i>=w.width() || cell.j>=w.height())
+        throw std::runtime_error("Tactical goal outside map");
     std::vector<rts::UnitId> leaders;
     w.enumerate_squads(rts::Side::Attacker,leaders);
     std::erase_if(leaders,[&](rts::UnitId id){return !policy.supports(w.unit_type(id),w.unit_level(id));});
@@ -227,7 +241,7 @@ std::size_t apply_tactical_policy(const rts::World& w, TacticalPolicy& policy,
     const auto n=leaders.size();
     std::vector<float> cells(n*rts::kObsCellFloats),own(n*rts::kObsSelfFloats),glob(n*rts::kObsGlobalFloats);
     std::vector<std::uint16_t> masks;
-    std::array<std::optional<rts::FlowField>,rts::kUnitTypeCount*rts::kFlowTierCount> fields;
+    std::array<std::optional<rts::FlowField>,rts::kUnitTypeCount*rts::kFlowTierCount*2> fields;
     const auto view=w.view(rts::Side::Attacker);
     const rts::GridPos goal[]={w.keep_pos()};
     const rts::FlowTiering tiers;
@@ -235,8 +249,14 @@ std::size_t apply_tactical_policy(const rts::World& w, TacticalPolicy& policy,
         const auto id=leaders[q];
         const auto type=w.unit_type(id);
         const int tier=rts::flow_tier_of(w.unit_level(id),tiers);
-        auto& field=fields[static_cast<std::size_t>(type)*rts::kFlowTierCount+static_cast<std::size_t>(tier)];
-        if (!field) field.emplace(rts::FlowField::compute(view,type,tier,goal,tiers));
+        std::size_t group=0;
+        if(policy.supports_macro_goals() && !goal_sets.empty() && !economy_goals.empty()) {
+            const auto found=std::find(ids.begin(),ids.end(),id);
+            if(found!=ids.end()) group=goal_sets[static_cast<std::size_t>(found-ids.begin())];
+        }
+        auto& field=fields[(static_cast<std::size_t>(type)*rts::kFlowTierCount+static_cast<std::size_t>(tier))*2+group];
+        const std::span<const rts::GridPos> targets=group==1?economy_goals:std::span<const rts::GridPos>(goal);
+        if (!field) field.emplace(rts::FlowField::compute(view,type,tier,targets,tiers));
         rts::pack_unit_obs(view,id,&*field,{},std::span(cells).subspan(q*rts::kObsCellFloats,rts::kObsCellFloats),
             std::span(own).subspan(q*rts::kObsSelfFloats,rts::kObsSelfFloats),
             std::span(glob).subspan(q*rts::kObsGlobalFloats,rts::kObsGlobalFloats));

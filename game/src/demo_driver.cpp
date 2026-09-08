@@ -1046,8 +1046,14 @@ void DemoBattle::issue_actions() {
     // 编队是「共享意图、各自走」。那种视觉编队要换回 waypoint A*。
 
     learned_squads_ = 0;
-    if (policy_ && w_.phase()==rts::WavePhase::Assault)
-        learned_squads_ = apply_tactical_policy(w_,*policy_,ids_,acts_);
+    if (policy_ && w_.phase()==rts::WavePhase::Assault) {
+        std::vector<std::uint8_t> goals;
+        if(policy_->supports_macro_goals()) {
+            goals.reserve(ids_.size());
+            for(auto id:ids_) goals.push_back(static_cast<std::uint8_t>(squad_goal_of(id)));
+        }
+        learned_squads_ = apply_tactical_policy(w_,*policy_,ids_,acts_,goals,econ_goals_);
+    }
     w_.submit_actions(rts::Side::Attacker, acts_.data(), acts_.size());
 }
 

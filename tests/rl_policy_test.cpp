@@ -37,12 +37,62 @@ TEST_CASE("Policy loading checks metadata and batch sizes", "[rlpolicy]") {
     game::TacticalPolicy policy(path,stats.fingerprint());
     REQUIRE(policy.identity()==file_identity);
     REQUIRE(policy.ticks_per_step()==6);
+    REQUIRE_FALSE(policy.supports_macro_goals());
     REQUIRE(policy.supports(rts::UnitType::Ghoul,1));
     REQUIRE_FALSE(policy.supports(rts::UnitType::Mason,1));
     REQUIRE_FALSE(policy.supports(rts::UnitType::Ghoul,1001));
     REQUIRE(policy.logits(0,{},{},{}).empty());
     REQUIRE_THROWS(policy.logits(1,{},{},{}));
     REQUIRE_THROWS(policy.logits(33,{},{},{}));
+}
+
+TEST_CASE("Goal-aware tactical policy follows macro economy goals while legacy stays unchanged", "[rlgoals]") {
+    if(!game::TacticalPolicy::runtime_available()) return;
+    const auto stats=game::StatsLoader::from_file(std::string(GAME_DATA_DIR)+"/stats_placeholder.json");
+    const auto map=game::MapLoader::from_file(std::string(GAME_DATA_DIR)+"/demo_skirmish.json");
+    auto init=game::make_world_init(map,stats,51,1);
+    init.units.clear();init.units.push_back({rts::UnitType::Ghoul,{10.5f,10.5f},1,100,100,0});
+    rts::World world(std::move(init));
+    std::vector<rts::UnitId> ids;world.enumerate_units(rts::Side::Attacker,ids);
+    game::TacticalPolicy legacy(std::string(GAME_TESTDATA_DIR)+"/rl_flow_legacy.onnx",stats.fingerprint());
+    game::TacticalPolicy macro(std::string(GAME_TESTDATA_DIR)+"/rl_flow_macro.onnx",stats.fingerprint());
+    REQUIRE(macro.supports_macro_goals());REQUIRE_FALSE(legacy.supports_macro_goals());
+    std::array<rts::UnitAction,1> old{},goal{},fallback{};
+    // The keep lies to the west; choose an exterior goal to the east so
+    // the first steps diverge instead of sharing the same route home.
+    const std::array<std::uint8_t,1> group{1};const std::array<rts::GridPos,1> economy{{{18,10}}};
+    REQUIRE(game::apply_tactical_policy(world,legacy,ids,old,group,economy)==1);
+    REQUIRE(game::apply_tactical_policy(world,macro,ids,goal,group,economy)==1);
+    REQUIRE(game::apply_tactical_policy(world,macro,ids,fallback,group,{})==1);
+    REQUIRE(old==fallback);REQUIRE(goal!=old);
+    const auto field=rts::FlowField::compute(world.view(rts::Side::Attacker),rts::UnitType::Ghoul,0,economy,rts::FlowTiering{});
+    REQUIRE(goal[0]==field.step_of({10,10}));
+    const std::array<std::uint8_t,1> invalid{2};
+    REQUIRE_THROWS(game::apply_tactical_policy(world,macro,ids,goal,invalid,economy));
+    const std::array<std::uint8_t,2> wrong_count{0,1};
+    REQUIRE_THROWS(game::apply_tactical_policy(world,macro,ids,goal,wrong_count,economy));
+    const std::array<rts::GridPos,1> outside{{{static_cast<std::int16_t>(world.width()),10}}};
+    REQUIRE_THROWS(game::apply_tactical_policy(world,macro,ids,goal,group,outside));
+
+    auto mixed_init=game::make_world_init(map,stats,51,1);
+    mixed_init.units.clear();
+    for(std::uint16_t squad=0;squad<2;++squad)
+        for(int member=0;member<2;++member)
+            mixed_init.units.push_back({rts::UnitType::Ghoul,{10.5f,10.5f},1,100,100,squad});
+    rts::World mixed(std::move(mixed_init));
+    mixed.enumerate_units(rts::Side::Attacker,ids);
+    std::vector<std::uint8_t> groups;
+    for(auto id:ids) groups.push_back(static_cast<std::uint8_t>(mixed.unit_squad(id)));
+    std::vector<rts::UnitAction> selected(ids.size());
+    REQUIRE(game::apply_tactical_policy(mixed,macro,ids,selected,groups,economy)==2);
+    for(std::size_t i=0;i<ids.size();++i)
+        REQUIRE(selected[i]==(groups[i]==1?goal[0]:old[0]));
+    // Reversing targets must also reverse each squad's result, including its
+    // follower. Type/tier cache entries must not leak across goal sets.
+    for(auto& g:groups) g=1-g;
+    REQUIRE(game::apply_tactical_policy(mixed,macro,ids,selected,groups,economy)==2);
+    for(std::size_t i=0;i<ids.size();++i)
+        REQUIRE(selected[i]==(groups[i]==1?goal[0]:old[0]));
 }
 
 TEST_CASE("Game policy batches all squads beyond the training row limit", "[rlpolicy]") {

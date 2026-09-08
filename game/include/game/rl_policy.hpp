@@ -33,6 +33,7 @@ public:
     bool supports(rts::UnitType type, int level) const noexcept;
     int ticks_per_step() const noexcept;
     std::uint64_t stats_fingerprint() const noexcept;
+    bool supports_macro_goals() const noexcept;
 
     // cells: [agents,K,K,C], own: [agents,S], globals: [agents,G].
     // Masks use the same bit positions as rts::World::action_mask.
@@ -49,9 +50,14 @@ private:
 // Override only supported squads, in enumerate_units order. This explicit model
 // contract reproduces BatchedEnv; the default game's scripted controller remains
 // independent. Only the attacker's fog-filtered view enters the observation pack.
+// goal_sets is parallel to ids: 0 = keep, 1 = supplied economy targets.
+// Only tactical-policy-2 / macro-flow-v1 consumes it; v1 keeps its training
+// contract. Empty economy targets fall back to keep. A squad follows its leader.
 std::size_t apply_tactical_policy(const rts::World& world, TacticalPolicy& policy,
                                  std::span<const rts::UnitId> ids,
-                                 std::span<rts::UnitAction> actions);
+                                 std::span<rts::UnitAction> actions,
+                                 std::span<const std::uint8_t> goal_sets={},
+                                 std::span<const rts::GridPos> economy_goals={});
 
 }  // namespace game
 #endif
