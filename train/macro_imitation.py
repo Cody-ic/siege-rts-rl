@@ -17,13 +17,27 @@ from macro_train import Config,campaign,contract
 from macro_policy import MacroPolicy
 
 
-def run(cfg,folder,decisions,epochs):
+def sample_epoch(rows,active_fraction):
+    """Resample waiting/active strata; weighting one-sample Adam losses is insufficient."""
+    if active_fraction is None:
+        return torch.randperm(len(rows)).tolist()
+    if not 0<active_fraction<1:
+        raise ValueError('active sample fraction must be between zero and one')
+    active=torch.tensor([row['command'][0]!=native.COMMAND_KIND_NAMES.index('None') for row in rows])
+    count=int(active.sum())
+    if count in (0,len(rows)):
+        return torch.randperm(len(rows)).tolist()
+    weights=torch.where(active,active_fraction/count,(1-active_fraction)/(len(rows)-count))
+    return torch.multinomial(weights,len(rows),replacement=True).tolist()
+
+
+def run(cfg,folder,decisions,epochs,active_fraction=None):
     folder=Path(folder)
     if decisions<1 or epochs<1:
         raise ValueError('positive collection and epoch budgets required')
     torch.set_num_threads(1);torch.manual_seed(cfg.seed)
     identity=dict(config=asdict(cfg),contract=contract(cfg),decisions_per_map=decisions,
-                  imitation_source=sha256(__file__))
+                  imitation_source=sha256(__file__),active_fraction=active_fraction)
     with run_lock(folder):
         existing,_=load_auto(folder)
         if existing and (existing['progress']['updates']>0 or
@@ -67,7 +81,7 @@ def run(cfg,folder,decisions,epochs):
         rows=data['rows']
         while completed<epochs:
             total=0.
-            for index in torch.randperm(len(rows)).tolist():
+            for index in sample_epoch(rows,active_fraction):
                 row=rows[index]
                 domains=[x.numpy() for x in row['domains']]
                 decision=policy.rescore(row['cells'],row['global_values'],row['command'],domains,row['shape'])
@@ -99,6 +113,7 @@ if __name__=='__main__':
     parser.add_argument('--run-dir',required=True)
     parser.add_argument('--decisions',type=int,default=200)
     parser.add_argument('--epochs',type=int,default=8)
+    parser.add_argument('--active-fraction',type=float,help='Optional active/waiting resampling, e.g. 0.5')
     args=parser.parse_args()
     run(Config(tuple(str(Path(p).resolve()) for p in args.maps),str(Path(args.stats).resolve()),period=20),
-        args.run_dir,args.decisions,args.epochs)
+        args.run_dir,args.decisions,args.epochs,args.active_fraction)

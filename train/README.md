@@ -264,6 +264,11 @@ python train/macro_evaluate.py --checkpoint runs/my-defender-macro/latest.pt --m
 python train/macro_imitation.py --maps game/data/maps/pool/gen_01001000.json game/data/maps/pool/gen_01008000.json --run-dir runs/my-macro-imitation --decisions 200 --epochs 8
 ```
 
+可在新实验目录加 `--active-fraction 0.5`，将有效操作和等待两类样本的抽样概率质量
+各设为一半。使用有放回重采样，不删除等待动作，也不只缩放逐样本 Adam 的损失。
+该设置进入恢复契约，修改后必须使用新目录；不指定时保留原始样本比例。
+不同抽样分布下记录的平均负对数似然不可直接横向比较。
+
 示范数据原子写入 `demonstrations.pt`，训练每轮保存 `fit.pt`（优化器和随机状态齐全）。
 采集被中断时会重新采集；训练被中断时从上一完整轮恢复。最终 `latest.pt` 是可供宏观 PPO
 读取的初始化，PPO 优化器特意重新初始化，不沿用模仿学习的 Adam 动量；来源信息持续保留。

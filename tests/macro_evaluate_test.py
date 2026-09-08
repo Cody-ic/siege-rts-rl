@@ -38,6 +38,11 @@ class MacroEvaluateTests(unittest.TestCase):
         self.assertTrue(a['completed'])
         self.assertFalse(a['timeout'])
         self.assertEqual(a,b)
+        teacher_args=(*args[:3],'teacher',*args[4:])
+        teacher=evaluate_case(*teacher_args)
+        self.assertTrue(teacher['completed'])
+        self.assertGreater(teacher['commands'].get('Build',0),0)
+        self.assertEqual(teacher,evaluate_case(*teacher_args))
 
 
 if __name__=='__main__':

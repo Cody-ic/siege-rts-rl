@@ -43,6 +43,12 @@ def evaluate_case(map_path,stats,seed,policy,period,max_wave,max_ticks,greedy=Fa
         duration=min(period,max_ticks-world.tick)
         if policy is None:
             result=world.advance_scripted(duration)
+        elif policy=='teacher':
+            command=world.teacher_command()
+            if not world.command_mask([command])[0]:
+                raise ValueError('Teacher selected an illegal command')
+            commands[native.COMMAND_KIND_NAMES[command[0]]]+=1
+            result=world.advance(duration,[command])
         else:
             with torch.no_grad():
                 decision=policy.decide(*world.defender_observation(),world.candidates(),
