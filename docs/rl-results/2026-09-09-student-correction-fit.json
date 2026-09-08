@@ -1,0 +1,97 @@
+{
+  "plan_sha256": "be4e5dec621fd95ad9543283d488270ac4cf1cedd6cf0061e6c660a9a3107e18",
+  "plan_files_verified": true,
+  "checkpoint": "runs\\student-correction-fit-20260909\\frozen-epoch8.pt",
+  "checkpoint_sha256": "9d0649409f819de27fe3ec4ba49c86a99de837c005880052d932336f2100e6cd",
+  "initialization": {
+    "kind": "flow_demonstrations",
+    "teacher": "flow_breach",
+    "plan": {
+      "dataset_sha256": "69775a2cd740dcd9ebcf4091676fe268cd9d8366fbfbd4ed284b1bce77ecbbe6",
+      "signature": {
+        "contract": {
+          "actions": 13,
+          "learner_sha256": {
+            "checkpointing.py": "a6f1fa75d77ad8d85899d781dd991905d3e4464dd8c5d5add35c1774095cf9bc",
+            "learning.py": "04c647de5551ba2642fcb61f738b729d4b10c020e85f1908d35f3b7e2fef46a4",
+            "ppo.py": "d3dc15438ebd94037df1b1dcd7c01df004df9b1b1e8a2f1d761ccee9a5ebda50",
+            "rollout.py": "77b792a2ef89de002807681b5c89fd9f774b1dcfe029968d130c60e107e4398a",
+            "stable_kl.py": "ca7cd18ffb5a9c199278ea42d735168a79b9b375c65d91ecf7ee3d9ed3b44b8c"
+          },
+          "learner_version": 6,
+          "map_pool_sha256": [
+            "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+            "d11740be256d2666dc66318255efa4a7912744f47917f745ab920c572f56df45",
+            "7c43e2030fde2389cfc0784fd25410f21969e4b3f27911de798857e109f9a18d",
+            "7f32afd88e5dfdaea06cae08a9df2bf53d0169f7d9f3fbf89c909214b6fdd160"
+          ],
+          "map_sha256": "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+          "max_agents": 32,
+          "native_build_mode": "Release",
+          "obs_fingerprint": 13173046946482585016,
+          "obs_version": 2,
+          "simulation_fingerprint": "22ee6f2b6b018eaa1af3f96ad9607d3e941f43adb914ce9abe2aafb1b821ed65",
+          "stats_sha256": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7"
+        },
+        "source": {
+          "demonstrations.py": "78cf419b3b6289210cbead6381e5292234523572596a4f3909c4e5b6bfc0a5ab",
+          "diagnostics.py": "f9e1d045f5aa8f5e68f4b1aabd6656e58540c5270dbb3fc125b822adeb56ea9a",
+          "evaluate.py": "27d9621bde8d049fe818e239beaaa34943537092a1fea451aca016101311dd2c"
+        }
+      },
+      "seed": 1,
+      "batch_size": 256,
+      "lr": 0.0001,
+      "initialization_sha256": "710c2843873ef86ea293017405ae876a57522b83476a9687081ea753420869b8"
+    },
+    "epochs": 8,
+    "examples": 45234,
+    "collection_env_steps": 25600,
+    "behavior_sha256": "710c2843873ef86ea293017405ae876a57522b83476a9687081ea753420869b8",
+    "history": [
+      {
+        "epoch": 1,
+        "loss": 0.04769188518230614,
+        "accuracy": 0.9875536101162842
+      },
+      {
+        "epoch": 2,
+        "loss": 0.014402835902931673,
+        "accuracy": 0.9955343325816863
+      },
+      {
+        "epoch": 3,
+        "loss": 0.00937561657278165,
+        "accuracy": 0.9969491975063006
+      },
+      {
+        "epoch": 4,
+        "loss": 0.006820514713595073,
+        "accuracy": 0.9977892735552902
+      },
+      {
+        "epoch": 5,
+        "loss": 0.004905150204868061,
+        "accuracy": 0.9985409205464916
+      },
+      {
+        "epoch": 6,
+        "loss": 0.003918906074350746,
+        "accuracy": 0.998872529513198
+      },
+      {
+        "epoch": 7,
+        "loss": 0.0036771949881720866,
+        "accuracy": 0.998850422248751
+      },
+      {
+        "epoch": 8,
+        "loss": 0.00283647019966345,
+        "accuracy": 0.9993588893310342
+      }
+    ],
+    "policy_sha256": "4af81f3abfce11206a63d878ffb4032c309d50f7a9bfda27c0fd84fdee67caf2",
+    "status": "complete"
+  },
+  "scope": "Teacher-labelled student-trajectory imitation, not additional PPO optimization"
+}
