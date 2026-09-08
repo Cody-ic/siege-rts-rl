@@ -41,6 +41,22 @@ class RuntimeTests(unittest.TestCase):
         with patch.object(sys,'argv',args), contextlib.redirect_stdout(io.StringIO()):
             return ppo.main()
 
+    def test_cuda_alias_resolves_current_device_and_preserves_explicit_index(self):
+        class DeviceSelected(Exception):
+            pass
+
+        # Exercise the CLI startup with PyTorch's real device-index validation.
+        # Stop before allocating GPU tensors, so this regression also runs on CPU CI.
+        for device, expected in [('cuda', 1), ('cuda:2', 2)]:
+            with self.subTest(device=device), tempfile.TemporaryDirectory() as folder:
+                with patch.object(torch.cuda, 'is_available', return_value=True), \
+                     patch.object(torch.cuda, 'current_device', return_value=1), \
+                     patch.object(torch.cuda, 'set_device', side_effect=torch.cuda._get_device_index) as select, \
+                     patch.object(torch.cuda, 'mem_get_info', side_effect=DeviceSelected):
+                    with self.assertRaises(DeviceSelected):
+                        self.run_train(folder, ['--device', device])
+                    self.assertEqual(torch.cuda._get_device_index(select.call_args.args[0]), expected)
+
     def test_resume_keeps_optimizer_curriculum_and_counts_interruptions(self):
         with tempfile.TemporaryDirectory() as folder:
             self.run_train(folder, ['--stop-after-updates','1'])

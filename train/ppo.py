@@ -327,7 +327,8 @@ def train(cfg, args, saved):
     if torch.device(dev).type == 'cuda':
         if not torch.cuda.is_available():
             raise ValueError('CUDA requested but unavailable')
-        torch.cuda.set_device(torch.device(dev))
+        requested = torch.device(dev)
+        torch.cuda.set_device(requested.index if requested.index is not None else torch.cuda.current_device())
         free, total = torch.cuda.mem_get_info()
         print(f'GPU free {free / 2**30:.1f}/{total / 2**30:.1f} GiB', flush=True)
 
