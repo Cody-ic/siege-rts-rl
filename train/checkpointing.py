@@ -36,7 +36,7 @@ def contract(native, cfg):
         'native_build_mode': native.BUILD_MODE,
         'learner_version': 6,  # optional prepared city; old defaults preserved
         'learner_sha256': {name: sha256(ROOT/'train'/name) for name in
-                           ('ppo.py', 'learning.py', 'rollout.py', 'checkpointing.py')},
+                           ('ppo.py', 'learning.py', 'rollout.py', 'checkpointing.py', 'stable_kl.py')},
     }
 
 

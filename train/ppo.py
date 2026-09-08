@@ -49,6 +49,7 @@ import torch.nn as nn
 
 import rts_native as R
 from learning import CompletionWindow, potential_reward, task_reward
+from stable_kl import masked_reference_kl
 
 # ——奖励权重。**只有这一处有权重**，C++ 侧只给计数——
 #
@@ -619,8 +620,7 @@ def train(cfg, args, saved):
                     if reference is not None:
                         with torch.no_grad():
                             ref_logits,_ = reference(cells,own,glob)
-                            ref_dist = torch.distributions.Categorical(logits=ref_logits.masked_fill(~legal,float('-inf')))
-                        ref_kl = torch.distributions.kl_divergence(ref_dist,dist).mean()
+                        ref_kl = masked_reference_kl(ref_logits,logits,legal).mean()
                         loss = loss + cfg.reference_coef * ref_kl
                     if not torch.isfinite(loss):
                         raise FloatingPointError('Non-finite PPO loss; last good checkpoint retained')
