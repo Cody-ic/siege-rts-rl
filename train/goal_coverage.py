@@ -6,18 +6,22 @@ import numpy as np
 import torch
 import rts_native as R
 from checkpointing import atomic_json, contract, load_weights, sha256
-from ppo import Cfg, Observer, Policy, make_env, policy_forward
+from ppo import Cfg, Observer, Policy, make_env, policy_forward, episode_map
 
 
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--checkpoint',required=True)
     ap.add_argument('--output',required=True)
+    ap.add_argument('--maps',default='01001000,01004000,01005000,01006001')
+    ap.add_argument('--seed',type=int,default=1)
+    ap.add_argument('--levels',default='4,8')
     args=ap.parse_args()
     torch.set_num_threads(1)
-    maps=tuple(f'game/data/maps/pool/gen_{i}.json' for i in ('01001000','01004000','01005000','01006001'))
+    maps=tuple(f'game/data/maps/pool/gen_{i}.json' for i in args.maps.split(','))
+    levels=tuple(int(x) for x in args.levels.split(','))
     cfg=Cfg(envs=8,threads=4,torch_threads=1,device='cpu',map_pool=maps,
-            roster='mixed',levels=(4,8),curriculum=(1.,),tactical_goals='known-economy',
+            seed=args.seed,roster='mixed',levels=levels,curriculum=(1.,),tactical_goals='known-economy',
             defender_prepare_ticks=900,max_ticks=2400)
     net=Policy(R.obs.K,R.obs.CHANNEL_COUNT,R.obs.SELF_COUNT,R.obs.GLOBAL_COUNT,R.obs.ACTION_COUNT)
     net.load_state_dict(load_weights(args.checkpoint));net.eval()
@@ -31,6 +35,11 @@ def main():
     rows=[dict(environment=i,observations=0,economy_observations=0,first_goal_tick=None,
                peak_known_targets=0,assigned_squad_observations=0,live_squad_observations=0)
           for i in range(cfg.envs)]
+    for i,row in enumerate(rows):
+        path=episode_map(cfg,i); spawns=R.map_sites(path)['spawns']; episode_round=i//len(maps)
+        row.update(map=path,world_seed=cfg.seed*1000+i,
+                   level=levels[(episode_round//len(spawns))%len(levels)],
+                   spawn_index=(cfg.seed+episode_round)%len(spawns))
     with torch.inference_mode():
         for step in range(cfg.max_ticks//cfg.ticks_per_step):
             observation=obs.read()
