@@ -57,6 +57,38 @@ $PY train/ppo.py --run-dir runs/warm-economic-v2 \
 
 旧文件也可能来自旧数值表或旧守方代码，结构相同不代表行为相同。旧实验保留为历史对照，新规则下重新评估；不要覆盖服务器归档。
 
+## 可选：示范初始化后再接 PPO
+
+当策略存在固定方向偏好、多个入口长期无法接触建筑时，可先用同一套局部观测和合法动作收集 flow 规则示范，学习基础行进与接敌，再**另开 PPO 运行目录**。示范只参与初始化；PPO 和游戏推理不调用老师、不替换网络动作，13 个动作、观测布局、奖励与检查点合约保持原样。示范损失不训练价值函数，后续仍需 PPO 学习战果和价值。
+
+以下是本轮已验证的 CPU 试验参数；示范工具本身仅运行于 CPU。它默认处理五种距离、每种 4 个环境各 300 次决策，共 **6000 teacher env-step**，每 4 次决策采样一次有效编队观测，本图得到 12,252 条示范。`--steps` 是每个环境、每种距离的决策数，并非完整对局数。
+
+```bash
+$PY train/demonstrations.py collect --out-dir runs/navigation-data
+$PY train/demonstrations.py fit --data runs/navigation-data/demonstrations.npz \
+    --run-dir runs/navigation-fit --epochs 12
+
+# 仅在冻结评估确认初始化已能从各入口推进后，采用本轮的实际距离对照参数。
+$PY train/ppo.py --run-dir runs/navigation-ppo \
+    --init-weights runs/navigation-fit/policy.pt --device cpu \
+    --envs 16 --threads 2 --torch-threads 2 --curriculum 1.0 --total-steps 32768
+```
+
+`--curriculum 1.0` 是这次对照的显式设置，**没有改动原训练的默认课程**。随机初始化对照使用相同参数并去掉 `--init-weights`，但两组只有 PPO 步数相同：示范组另付了示范收集与拟合成本，不能称为总算力等价。先用 `evaluate.py` 在实际距离、每个入口、两种冻结执行方式下检查结果；示范拟合准确率并不是游戏表现。
+
+中断后，收集命令可以原样重跑；完整距离分块会复用，只有未写完的分块需要重采。拟合使用：
+
+```bash
+$PY train/demonstrations.py fit --data runs/navigation-data/demonstrations.npz \
+    --run-dir runs/navigation-fit --epochs 12 --resume
+```
+
+拟合每个完整 epoch 保存模型、Adam、CPU/NumPy 随机状态和已完成轮数，`--epochs` 是累计目标；最新文件损坏时明确回退 `previous.pt`。强杀最多丢掉尚未保存的拟合轮次，SIGINT/SIGTERM 在轮次结束保存退出。运行目录有系统互斥锁，数据、来源代码和拟合参数改变时拒绝混用旧结果；线程数和累计轮数可调整。完成后重跑不会重新拟合。最终数据与临时分块分开，拟合器拒绝把分块当作完整数据。
+
+`navigation-fit/latest.pt` 是**示范拟合检查点**，不是 PPO 续训存档。交给 PPO 的是导出的 `policy.pt`，旁边的 `initialization.json` 记录数据、老师代码和权重校验值。PPO 开始后按原有方式使用 `navigation-ppo/latest.pt` 与 `--resume auto`。更换机器、原生绑定或平台时仍按原合约检查，必要时显式使用权重热启动；不要把 Windows 的完整训练状态冒充服务器原环境续跑。
+
+本轮同图与另一张地图的结果、成本及限制见 [示范初始化试验](../docs/rl-demonstration-pilot.md)。这仍是单训练种子的初筛，没有达到完整游戏 AI 的交付条件。
+
 ## 先短实验，再增加预算
 
 ```bash

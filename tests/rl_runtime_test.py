@@ -18,6 +18,7 @@ import rts_native as R
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT/'train'))
 import ppo
+import demonstrations as demos
 from checkpointing import (atomic_write, load_auto, load_training, restore_rng,
                            repair_metrics, rng_state, run_lock, save_run, sha256)
 from evaluate import evaluate, flow_actions
@@ -41,6 +42,97 @@ class RuntimeTests(unittest.TestCase):
                 '--total-steps','12',*extra]
         with patch.object(sys,'argv',args), contextlib.redirect_stdout(io.StringIO()):
             return ppo.main()
+
+    def collect_demo(self, folder):
+        with contextlib.redirect_stdout(io.StringIO()):
+            demos.main(['collect','--out-dir',str(folder),'--envs','2','--threads','1',
+                        '--steps','3','--stride','1','--fractions','0.15,0.3'])
+        return Path(folder)/'demonstrations.npz'
+
+    def fit_demo(self, data, folder, *extra):
+        with contextlib.redirect_stdout(io.StringIO()):
+            return demos.main(['fit','--data',str(data),'--run-dir',str(folder),
+                               '--epochs','2','--batch-size','32','--torch-threads','1',*extra])
+
+    def test_demonstrations_reuse_completed_shards_and_reject_illegal_labels(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            data = self.collect_demo(folder)
+            before = {p.name:sha256(p) for p in folder.glob('*.npz')}
+            with patch.object(demos,'make_env',side_effect=AssertionError('must use cached shards')):
+                self.collect_demo(folder)
+                data.unlink()  # Simulate interruption before final dataset publication.
+                self.collect_demo(folder)
+            self.assertEqual(before,{p.name:sha256(p) for p in folder.glob('*.npz')})
+            arrays, metadata = demos.load_dataset(data)
+            self.assertTrue(np.all(arrays[3][np.arange(len(arrays[4])),arrays[4]]))
+            with self.assertRaisesRegex(ValueError,'incomplete collection part'):
+                self.fit_demo(folder/'part-0.npz',folder/'bad-fit')
+            arrays[3][:] = False
+            invalid = folder/'invalid.npz'
+            demos.save_dataset(invalid,arrays,metadata)
+            with self.assertRaisesRegex(ValueError,'illegal action'):
+                demos.load_dataset(invalid)
+
+    def test_demonstration_fit_resume_matches_uninterrupted_model_and_optimizer(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            data = self.collect_demo(folder/'data')
+            self.fit_demo(data,folder/'full')
+            self.fit_demo(data,folder/'resumed','--epochs','1')
+            self.fit_demo(data,folder/'resumed','--resume')
+            full = demos.read_fit(folder/'full/latest.pt')
+            resumed = demos.read_fit(folder/'resumed/latest.pt')
+            self.assertEqual(resumed['epoch'],2)
+            self.assertEqual(full['history'],resumed['history'])
+            for key,value in full['model'].items():
+                torch.testing.assert_close(value,resumed['model'][key],rtol=0,atol=0)
+            for key,state in full['optimizer']['state'].items():
+                for field,value in state.items():
+                    torch.testing.assert_close(value,resumed['optimizer']['state'][key][field],rtol=0,atol=0)
+            checksum = sha256(folder/'resumed/latest.pt')
+            self.fit_demo(data,folder/'resumed','--resume')
+            self.assertEqual(checksum,sha256(folder/'resumed/latest.pt'))
+            with self.assertRaisesRegex(ValueError,'changed'):
+                self.fit_demo(data,folder/'resumed','--resume','--lr','0.01')
+
+    def test_demonstration_fit_recovers_previous_and_exports_a_real_ppo_warm_start(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            data = self.collect_demo(folder/'data')
+            self.fit_demo(data,folder/'fit')
+            expected = demos.read_fit(folder/'fit/latest.pt')
+            (folder/'fit/latest.pt').write_bytes(b'crash-truncated')
+            with self.assertWarns(UserWarning):
+                self.fit_demo(data,folder/'fit','--resume')
+            actual = demos.read_fit(folder/'fit/latest.pt')
+            for key,value in expected['model'].items():
+                torch.testing.assert_close(value,actual['model'][key],rtol=0,atol=0)
+            policy = folder/'fit/policy.pt'
+            self.run_train(folder/'ppo',['--init-weights',str(policy),'--total-steps','6'])
+            learned = load_training(folder/'ppo/latest.pt')
+            self.assertEqual(learned['initialization']['sha256'],sha256(policy))
+            self.assertEqual(learned['progress']['updates'],1)
+            self.assertTrue(learned['optimizer']['state'])
+            self.assertTrue(any(not torch.equal(v,learned['model'][k]) for k,v in actual['model'].items()))
+
+    def test_demonstration_sigterm_saves_at_epoch_boundary(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            data = self.collect_demo(folder/'data')
+            clip = torch.nn.utils.clip_grad_norm_
+            sent = [False]
+            def stop_once(*args,**kwargs):
+                if not sent[0]:
+                    sent[0] = True
+                    signal.raise_signal(signal.SIGTERM)
+                return clip(*args,**kwargs)
+            with patch.object(torch.nn.utils,'clip_grad_norm_',side_effect=stop_once):
+                self.assertEqual(self.fit_demo(data,folder/'fit'),128+signal.SIGTERM)
+            self.assertEqual(demos.read_fit(folder/'fit/latest.pt')['epoch'],1)
+            self.assertEqual(json.loads((folder/'fit/initialization.json').read_text())['status'],'paused')
+            self.fit_demo(data,folder/'fit','--resume')
+            self.assertEqual(demos.read_fit(folder/'fit/latest.pt')['epoch'],2)
 
     def test_cuda_alias_resolves_current_device_and_preserves_explicit_index(self):
         class DeviceSelected(Exception):
