@@ -1,0 +1,38 @@
+{
+  "purpose": "Frozen low-level follow-up comparison after the level-8 ceiling; both levels must be reported",
+  "seed": 709,
+  "maps": [
+    "01002000",
+    "01003000",
+    "01007000",
+    "01009000"
+  ],
+  "levels": [
+    1,
+    4
+  ],
+  "envs": 8,
+  "prepare_ticks": 900,
+  "max_ticks": 2400,
+  "selection": "frozen_argmax",
+  "primary": "paired keep destruction outcomes",
+  "secondary": [
+    "total building value",
+    "own HP losses",
+    "goal exposure"
+  ],
+  "files": {
+    "train/goal_coverage.py": "bc651936f4d71b78914bc9036dfee0bb39d51db22ff3e094882195e4aedd5685",
+    "train/ppo.py": "cc225c21337f93ad46ef7778bf74e6ff12ee5df2334bac5bd71db50d0a34dd76",
+    "runs/prepared-final-20260909/candidate.pt": "b556e8e3ff216d5fc3dc8e960fed12c2ccce79f318472cc6be8cff6c90550276",
+    "runs/economy-goal-pilot-20260909/frozen-update16.pt": "f2d558bee3a59a52788dc7525790b899b2a3d9feffed30c4a267f6dc81174df4",
+    "game/data/maps/pool/gen_01002000.json": "258426af6ee45cece5789f02ced8dff215b2db1e130471c766a9eb9c2c6628bf",
+    "game/data/maps/pool/gen_01003000.json": "1eca9b886a26f424b8039fb4665a8d4ca056b145672d54e9a060a03d453c737d",
+    "game/data/maps/pool/gen_01007000.json": "65f8ed3f8102fba260e8bc2b9a0b386bb3b2d0ae66081e4008f520e10f0463fd",
+    "game/data/maps/pool/gen_01009000.json": "09a441043b8e1bfdfe9b6405fdd60c0bb1cef5f943049fd4f03ccc8bde680ebf",
+    "game/data/stats_placeholder.json": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+    "build-goal-training/bindings/Release/rts_native.cp313-win_amd64.pyd": "86d7b676d980abb9b0cdc1a15e48a43e45408b445a770e55882ce6700403de29"
+  },
+  "limits": "Maps used in older project evaluations; this fixed map/seed/level set was not used in this pilot training or its development selection. No statistical significance or 70-wave claim.",
+  "cases_per_level": 8
+}
