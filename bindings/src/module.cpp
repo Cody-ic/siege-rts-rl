@@ -40,6 +40,7 @@
 #include "game/map_loader.hpp"
 #include "game/stats_loader.hpp"
 #include "game/world_builder.hpp"
+#include "scripted_defender.hpp"
 #include "rts/action.hpp"
 #include "rts/batched_env.hpp"
 #include "rts/obs.hpp"
@@ -48,6 +49,32 @@
 namespace py = pybind11;
 
 namespace {
+
+struct WorldFactory {
+    game::MapData map;
+    rts::StatsTable stats;
+    WorldFactory(const std::string& map_path, const std::string& stats_path)
+        : map(game::MapLoader::from_file(map_path)),
+          stats(game::StatsLoader::from_file(stats_path)) {}
+
+    rts::WorldInit make(std::uint64_t seed, std::int32_t level,
+        const std::vector<std::tuple<int, float, float, int, int>>& attackers) const {
+        auto init = game::make_world_init(map, stats, seed, level);
+        for (const auto& [t, x, y, lvl, sq] : attackers) {
+            if (t < 0 || t >= rts::kUnitTypeCount || lvl < 1 || sq < -1 || sq >= rts::kNoSquad) {
+                throw rts::ContractError("WorldFactory: invalid attacker roster");
+            }
+            const auto ut = static_cast<rts::UnitType>(t);
+            if (rts::side_of(ut) != rts::Side::Attacker) {
+                throw rts::ContractError("WorldFactory: attacker side required");
+            }
+            const auto hp = stats.of(ut).max_hp;
+            const auto squad = sq < 0 ? rts::kNoSquad : static_cast<std::uint16_t>(sq);
+            init.units.push_back(rts::UnitInit{ut, rts::Vec2{x, y}, lvl, hp, hp, squad});
+        }
+        return init;
+    }
+};
 
 // numpy 数组 → `std::span`。**要求 C 连续且 dtype 恰好对**：
 // 不检查的话 pybind11 会悄悄做一次转换拷贝，于是我们写进去的是那份**副本**，
@@ -78,6 +105,8 @@ auto as_cspan(const Arr& a) {
 }  // namespace
 
 PYBIND11_MODULE(rts_native, m) {
+    m.attr("SIMULATION_FINGERPRINT") = RTS_SIMULATION_FINGERPRINT;
+    m.attr("BUILD_MODE") = RTS_NATIVE_BUILD_MODE;
     m.doc() = "siege-rts-rl 的原生仿真（不变量 3：in-process，不走 IPC）";
 
     // ——观测布局：Python 侧一律从这里读，**不硬编码**——
@@ -157,6 +186,13 @@ PYBIND11_MODULE(rts_native, m) {
     // 而那个结构还在长（机制每落一批就可能加一个初始状态）。
     py::class_<rts::WorldInit>(m, "WorldInit", "不透明的建局参数，只用来递给 BatchedEnv");
 
+    py::class_<WorldFactory>(m, "WorldFactory")
+        .def(py::init<const std::string&, const std::string&>(),
+             py::arg("map_path"), py::arg("stats_path"))
+        .def("make", &WorldFactory::make, py::arg("seed") = 0,
+             py::arg("nominal_level") = 1,
+             py::arg("attackers") = std::vector<std::tuple<int, float, float, int, int>>{});
+
     m.def(
         "make_world_init",
         [](const std::string& map_path, const std::string& stats_path,
@@ -229,7 +265,8 @@ PYBIND11_MODULE(rts_native, m) {
     py::class_<rts::BatchedEnv>(m, "BatchedEnv")
         .def(py::init([](std::vector<rts::WorldInit> worlds, rts::Side side,
                          int ticks_per_step, int threads, int max_ticks_per_episode,
-                         rts::ObsNorms norms) {
+                         const std::string& defender_map, int defender_seed,
+                         int defender_macro_period, rts::ObsNorms norms) {
                  rts::BatchedEnvInit bi;
                  bi.worlds = std::move(worlds);
                  bi.side = side;
@@ -237,12 +274,48 @@ PYBIND11_MODULE(rts_native, m) {
                  bi.threads = threads;
                  bi.max_ticks_per_episode = max_ticks_per_episode;
                  bi.norms = norms;
+                 // **接上真正的守方**（`scripted_defender.hpp`）。
+                 //
+                 // 给了地图路径就接、不给就不接（默认不接 = 此前的行为，
+                 // 对侧一动不动）。**它必须是 `shared_ptr` 捕获进
+                 // `std::function`**：`BatchedEnv` 只存那个 function，
+                 // 而大脑得活到最后一次 `step()`。
+                 //
+                 // ⚠️ 这里**再读一次地图**（`MapLoader::from_file`）。
+                 // 不复用 `make_world_init` 那次是因为那一层只返回
+                 // `WorldInit`、不返回 `MapData`，而 `DefenderMacro` 要的
+                 // 是后者（它构造时要算环半径与候选塔位）。一次性开销。
+                 if (!defender_map.empty()) {
+                     const game::MapData dm = game::MapLoader::from_file(defender_map);
+                     auto brain = std::make_shared<bindings::ScriptedDefender>(
+                         dm, static_cast<int>(bi.worlds.size()),
+                         static_cast<std::uint64_t>(defender_seed),
+                         game::MacroParams{}, game::ScriptParams{},
+                         defender_macro_period);
+                     bi.opponent_hook = [brain](rts::World& w, int i) {
+                         (*brain)(w, i);
+                     };
+                 }
                  return std::make_unique<rts::BatchedEnv>(std::move(bi));
              }),
              py::arg("worlds"), py::arg("side") = rts::Side::Attacker,
              py::arg("ticks_per_step") = 6, py::arg("threads") = 0,
              py::arg("max_ticks_per_episode") = 2400,
-             py::arg("norms") = rts::ObsNorms{})
+             py::arg("defender_map") = std::string{},
+             py::arg("defender_seed") = 20260907,
+             py::arg("defender_macro_period") = 1,
+             py::arg("norms") = rts::ObsNorms{},
+             "defender_map 给了就**接上真正的守方**（game::DefenderScript + "
+             "DefenderMacro，逐局各一份）。**不给 = 对侧一动不动**——那是 "
+             "2026-09-07 之前的行为，而它让 enemy_* 那几条观测通道十万局零"
+             "梯度。注意：光把守方单位摆进 World 是不够的，单位出生动作是 "
+             "Stop、攻击阶段只处理攻击类动作 ⇒ 没人替它们下令就一枪不放。")
+        .def("agent_keys", [](const rts::BatchedEnv& e,
+                              py::array_t<std::int64_t, py::array::c_style> out) {
+            const auto target = as_span(out);
+            py::gil_scoped_release nogil;
+            e.agent_keys(target);
+        }, py::arg("out"))
         .def_property_readonly("batch_size", &rts::BatchedEnv::batch_size)
         .def_property_readonly("max_ticks_per_episode",
                                &rts::BatchedEnv::max_ticks_per_episode)
@@ -340,7 +413,8 @@ PYBIND11_MODULE(rts_native, m) {
     py::enum_<rts::BatchedEnv::EpisodeEnd>(m, "EpisodeEnd")
         .value("Running", rts::BatchedEnv::EpisodeEnd::Running)
         .value("KeepDestroyed", rts::BatchedEnv::EpisodeEnd::KeepDestroyed)
-        .value("Timeout", rts::BatchedEnv::EpisodeEnd::Timeout);
+        .value("Timeout", rts::BatchedEnv::EpisodeEnd::Timeout)
+        .value("AttackersEliminated", rts::BatchedEnv::EpisodeEnd::AttackersEliminated);
 
     // `UnitAction` 的枚举值：Python 侧构造动作数组要用它，而硬编码 0..12
     // 与硬编码通道顺序是同一类错。

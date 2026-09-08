@@ -44,11 +44,27 @@ class CompletionWindow:
         self.count = 0
         self.hits = 0
 
+    def state_dict(self):
+        return {'minimum': self.minimum, 'batches': list(self.batches)}
+
+    def load_state_dict(self, state):
+        if state['minimum'] != self.minimum:
+            raise ValueError('completion window size differs')
+        self.clear()
+        for count, hits in state['batches']:
+            if not 0 <= hits <= count or count < 1:
+                raise ValueError('invalid completion batch')
+            self.batches.append((count, hits))
+            self.count += count
+            self.hits += hits
+
     def add(self, damage):
         batch = tuple(damage)
         if not batch:
             return
-        entry = (len(batch), sum(x > 0 for x in batch))
+        # np.bool_ sums produce np.int64, which isn't weights_only-safe or JSON
+        # serializable. Checkpoint windows contain ordinary Python integers.
+        entry = (len(batch), sum(int(x > 0) for x in batch))
         self.batches.append(entry)
         self.count += entry[0]
         self.hits += entry[1]

@@ -727,3 +727,211 @@ TEST_CASE("训练势：同一批的移动、死亡和重置都按当前状态读
     e.step(stay, b.done);
     CHECK(e.potentials()[0] < -10.0);
 }
+
+TEST_CASE("对侧钩子：在 advance 之前被调、每步每局恰好一次", "[batchenv]") {
+    // `opponent_hook` 是 2026-09-07 加的，用来**把真正的守方接进训练回路**
+    // （实现在 `bindings/src/scripted_defender.hpp`，因为 `rts_core` 不能
+    // 依赖 `game/`）。这里测的是**钩子这个机制**，不是守方逻辑。
+    //
+    // 三条契约各测一条：调用次数、时序（在 `advance` 之前）、以及
+    // **下标正确**——最后那条是并行安全的前提，钩子的实现按下标取自己那
+    // 一份状态，下标错了就是跨局写。
+    rts::BatchedEnvInit bi;
+    for (int k = 0; k < 4; ++k) bi.worlds.push_back(one(k, 2));
+    bi.side = rts::Side::Attacker;
+    bi.threads = 1;   // 计数用共享 vector，所以这条用例单线程（并行那条见下）
+    std::vector<int> calls(4, 0);
+    std::vector<rts::Tick> saw_tick(4, -1);
+    bi.opponent_hook = [&calls, &saw_tick](rts::World& w, int i) {
+        ++calls[static_cast<std::size_t>(i)];
+        // **在 `advance` 之前**：第一次被调时世界还在 tick 0。
+        if (saw_tick[static_cast<std::size_t>(i)] < 0) {
+            saw_tick[static_cast<std::size_t>(i)] = w.now();
+        }
+    };
+    rts::BatchedEnv e(std::move(bi));
+    Bufs b(4);
+    std::vector<rts::UnitAction> stay(
+        4 * static_cast<std::size_t>(rts::BatchedEnv::kMaxUnitsPerEnv),
+        rts::UnitAction::Stop);
+    for (int k = 0; k < 5; ++k) e.step(stay, b.done);
+
+    for (int i = 0; i < 4; ++i) {
+        CAPTURE(i, calls[static_cast<std::size_t>(i)],
+                saw_tick[static_cast<std::size_t>(i)]);
+        CHECK(calls[static_cast<std::size_t>(i)] == 5);   // 每步每局恰好一次
+        CHECK(saw_tick[static_cast<std::size_t>(i)] == 0);  // 在 advance 之前
+    }
+}
+
+TEST_CASE("对侧钩子：真的能改变对侧行为——不接就一枪不放", "[batchenv]") {
+    // **这一条是那个洞的回归**：光把守方单位摆进 `World` 是不够的
+    // ——单位出生动作是 `Stop`，而攻击阶段只处理攻击类动作 ⇒ 没人替它们
+    // 下令的话它们会站在原地被打死而一枪不放。40M 那轮就是这个局面
+    // （`杀` 全程 0），而它**不会让任何测试变红**，所以补这一条。
+    //
+    // 判据取**攻方掉了多少血**：攻方全程 `Stop`，`one()` 那张图没有塔，
+    // 所以攻方受到的伤害只可能来自守方单位。
+    const auto attacker_hp_after = [](bool hook) {
+        rts::WorldInit init = one(0, 3);
+        // 一名弓手贴着攻方（`one()` 把 Ghoul 摆在 (12.5,12.5) 起）。
+        init.units.push_back(rts::UnitInit{
+            rts::UnitType::Archer, rts::Vec2{13.0f, 12.5f}, 1, 200, 200});
+        rts::BatchedEnvInit bi;
+        bi.worlds.push_back(std::move(init));
+        bi.side = rts::Side::Attacker;
+        bi.threads = 1;
+        if (hook) {
+            // **最小的「会开枪」钩子**：给每个守方单位发 `AtkNear`。
+            // 真正的守方（`ScriptedDefender`）做的事多得多，但这一条要测的
+            // 是「钩子能不能改变对侧行为」，所以刻意最小。
+            bi.opponent_hook = [](rts::World& w, int) {
+                std::vector<rts::UnitId> ids;
+                w.enumerate_units(rts::Side::Defender, ids);
+                std::vector<rts::UnitAction> a(ids.size(), rts::UnitAction::AtkNear);
+                w.submit_actions(rts::Side::Defender, a.data(), a.size());
+            };
+        }
+        rts::BatchedEnv e(std::move(bi));
+        Bufs b(1);
+        std::vector<rts::UnitAction> stay(
+            static_cast<std::size_t>(rts::BatchedEnv::kMaxUnitsPerEnv),
+            rts::UnitAction::Stop);
+        for (int k = 0; k < 40; ++k) e.step(stay, b.done);
+        const rts::WorldView v = e.world_at(0).view(rts::Side::Attacker);
+        const auto ut = v.unit_type();
+        const auto ua = v.unit_alive();
+        const auto hp = v.unit_hp();
+        std::int64_t total = 0;
+        for (std::size_t k = 0; k < ut.size(); ++k) {
+            if (ua[k] && rts::side_of(ut[k]) == rts::Side::Attacker) total += hp[k];
+        }
+        return total;
+    };
+
+    const std::int64_t idle = attacker_hp_after(false);
+    const std::int64_t armed = attacker_hp_after(true);
+    CAPTURE(idle, armed);
+    // 不接钩子 ⇒ 守方一枪不放 ⇒ 攻方满血。**这一半是对照**，
+    // 少了它下面那条可能只是「地图上有塔在打」。
+    CHECK(armed < idle);
+}
+
+TEST_CASE("对侧钩子：结果与线程数无关", "[batchenv]") {
+    // 钩子在工作线程里被调 ⇒ 它是「结果与线程数无关」这条不变量的新入口。
+    // 一个**只碰自己那一局**的钩子必须仍然满足它；而这条用例也是那句纪律
+    // （写在 `opponent_hook` 声明处）的可执行版本。
+    const auto hash_after = [](int threads) {
+        rts::BatchedEnvInit bi;
+        for (int k = 0; k < 6; ++k) bi.worlds.push_back(one(k, 2));
+        bi.side = rts::Side::Attacker;
+        bi.threads = threads;
+        // 按**下标**决定动作：下标传错就会算出不同的哈希。
+        bi.opponent_hook = [](rts::World& w, int i) {
+            std::vector<rts::UnitId> ids;
+            w.enumerate_units(rts::Side::Defender, ids);
+            std::vector<rts::UnitAction> a(
+                ids.size(), i % 2 == 0 ? rts::UnitAction::AtkNear
+                                       : rts::UnitAction::MoveN);
+            w.submit_actions(rts::Side::Defender, a.data(), a.size());
+        };
+        rts::BatchedEnv e(std::move(bi));
+        Bufs b(6);
+        std::vector<rts::UnitAction> go(
+            6 * static_cast<std::size_t>(rts::BatchedEnv::kMaxUnitsPerEnv),
+            rts::UnitAction::MoveN);
+        for (int k = 0; k < 30; ++k) e.step(go, b.done);
+        std::vector<std::uint64_t> hs;
+        for (int i = 0; i < 6; ++i) hs.push_back(e.world_at(i).state_hash());
+        return hs;
+    };
+    const std::vector<std::uint64_t> one_thread = hash_after(1);
+    const std::vector<std::uint64_t> many = hash_after(6);
+    REQUIRE(one_thread.size() == many.size());
+    for (std::size_t k = 0; k < many.size(); ++k) {
+        CAPTURE(k, one_thread[k], many[k]);
+        CHECK(one_thread[k] == many[k]);
+    }
+}
+
+TEST_CASE("训练全灭立即终局并冻结，重置后可继续", "[batchenv]") {
+    auto init = one(0, 0);
+    rts::BatchedEnvInit bi;
+    bi.worlds = {init};
+    bi.ticks_per_step = 1;
+    bi.max_ticks_per_episode = 100;
+    rts::BatchedEnv env(std::move(bi));
+    Bufs buffers(1);
+    std::vector<rts::UnitAction> actions(rts::BatchedEnv::kMaxUnitsPerEnv, rts::UnitAction::Stop);
+    env.step(actions, buffers.done);
+    CHECK(buffers.done[0] == 1);
+    CHECK(env.episode_ends()[0] == rts::BatchedEnv::EpisodeEnd::AttackersEliminated);
+    const auto frozen = env.world_at(0).state_hash();
+    env.step(actions, buffers.done);
+    CHECK(env.world_at(0).state_hash() == frozen);
+    env.reset_one(0, one(1, 1));
+    CHECK(env.episode_ends()[0] == rts::BatchedEnv::EpisodeEnd::Running);
+    env.step(actions, buffers.done);
+    CHECK(buffers.done[0] == 0);
+}
+
+TEST_CASE("编队身份在队长替换与观测压缩后仍可匹配", "[batchenv]") {
+    auto init = one(0, 3);
+    init.units[0].squad = 2;
+    init.units[1].squad = 2;
+    init.units[2].squad = 7;
+    rts::BatchedEnvInit bi;
+    bi.worlds = {init};
+    rts::BatchedEnv env(std::move(bi));
+    std::vector<std::int64_t> keys(rts::BatchedEnv::kMaxUnitsPerEnv);
+    env.agent_keys(keys);
+    CHECK(keys[0] == 3);
+    CHECK(keys[1] == 8);
+    CHECK(keys[2] == 0);
+    // Remove the original squad leader; the remaining member represents same agent.
+    init.units.erase(init.units.begin());
+    env.reset_one(0, init);
+    env.agent_keys(keys);
+    CHECK(keys[0] == 3);
+    CHECK(keys[1] == 8);
+    // Remove the whole first squad; second squad compacts into row zero.
+    init.units.erase(init.units.begin());
+    env.reset_one(0, init);
+    env.agent_keys(keys);
+    CHECK(keys[0] == 8);
+    CHECK(keys[1] == 0);
+    CHECK_THROWS_AS(env.agent_keys(std::span<std::int64_t>{}), rts::ContractError);
+}
+
+TEST_CASE("攻方全灭仍等待已发射的致胜弹丸", "[batchenv]") {
+    auto init = one(0, 0);
+    init.buildings[0].hp = 1;
+    init.units = {
+        rts::UnitInit{rts::UnitType::Shade, {4.5f, 2.5f}, 1, 1, 1},
+        rts::UnitInit{rts::UnitType::Spear, {4.6f, 2.5f}, 1, 20, 20}};
+    auto& shade = init.stats.unit[static_cast<std::size_t>(rts::UnitType::Shade)];
+    shade.damage = 500;
+    shade.range = 6.0f;
+    shade.windup_ticks = 0;
+    shade.proj_speed = 0.1f;
+    auto& spear = init.stats.unit[static_cast<std::size_t>(rts::UnitType::Spear)];
+    spear.damage = 100;
+    spear.windup_ticks = 3;
+    rts::BatchedEnvInit bi;
+    bi.worlds = {init};
+    bi.ticks_per_step = 1;
+    bi.opponent_hook = [](rts::World& w, int) {
+        const rts::UnitAction a = rts::UnitAction::AtkNear;
+        w.submit_actions(rts::Side::Defender, &a, 1);
+    };
+    rts::BatchedEnv env(std::move(bi));
+    Bufs buffers(1);
+    std::vector<rts::UnitAction> actions(rts::BatchedEnv::kMaxUnitsPerEnv, rts::UnitAction::AtkBld);
+    bool saw_pending_after_death = false;
+    for (int i = 0; i < 80 && !buffers.done[0]; ++i) {
+        env.step(actions, buffers.done);
+        if (env.unit_counts()[0] == 0 && !buffers.done[0]) saw_pending_after_death = true;
+    }
+    CHECK(saw_pending_after_death);
+    CHECK(env.episode_ends()[0] == rts::BatchedEnv::EpisodeEnd::KeepDestroyed);
+}

@@ -36,6 +36,8 @@ C++ 只给「发生了什么」（`take_tally` 的 7 个计数）。**权重是�
 from __future__ import annotations
 
 import argparse
+from collections import deque
+from functools import lru_cache
 import json
 import time
 from dataclasses import asdict, dataclass
@@ -82,6 +84,11 @@ POTENTIAL_W = 0.02
 
 @dataclass
 class Cfg:
+    threads: int = 8
+    torch_threads: int = 1
+    max_ticks: int = 2400
+    save_every: int = 1
+    target_kl: float = 0.03
     envs: int = 256
     ticks_per_step: int = 6      # 决策频率：CLAUDE.md 要求 4–8 tick 一次
     rollout: int = 64
@@ -129,8 +136,25 @@ class Cfg:
     # 交接 §3 R 写的就是「判据看**有没有战果**，不是 loss」，而那一条对
     # shaping 奖励同样成立：**shaping 不是战果**。
     promote_at: float = 0.6
+    # Contact alone doesn't establish combat mastery. Require a completed-episode
+    # fraction with a destroyed building OR victory; attrition remains legitimate.
+    promote_outcome_at: float = 0.25
     promote_window: int = 100
     map_path: str = "game/data/maps/pool/gen_01001000.json"
+    # ——**接不接真正的守方**（2026-09-07）——
+    #
+    # 默认 **接**。不接时对侧一动不动，而那是 40M 那轮的局面：
+    # 训练图里**一个守方单位都没有** ⇒ `enemy_*` 那几条观测通道
+    # 十万局零梯度（`配平工作交接.md` §2.14.3d）。
+    #
+    # **守方单位不靠摆进去，靠 `DefenderMacro` 自己招**（它会下 `Train`
+    # 命令）——那才是真实路径：玩家征兵，而不是地图文件给兵。
+    # 所以这里只给地图路径，不用代 `make_world_init` 摆人。
+    defender: bool = True
+    # 守方宏观层多少个决策拍跑一次。它每次要扫城区 (2R+1)² 格 +
+    # 资源点，而它的动作是波次级的（建造要几百 tick）⇒ 不必逐拍跑。
+    # **单兵那一半不受它节流**（登墙意愿必须每拍重发）。
+    defender_macro_period: int = 4
     stats_path: str = "game/data/stats_placeholder.json"
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -168,6 +192,11 @@ class Policy(nn.Module):
         return self.actor(h), self.critic(h).squeeze(-1)
 
 
+@lru_cache(maxsize=8)
+def world_factory(map_path, stats_path):
+    return R.WorldFactory(map_path, stats_path), R.map_sites(map_path)
+
+
 def make_worlds(cfg: Cfg, n: int, frac: float = 1.0, start: int = 0) -> list:
     """造 n 个局面。
 
@@ -185,7 +214,7 @@ def make_worlds(cfg: Cfg, n: int, frac: float = 1.0, start: int = 0) -> list:
     这是「摆错地方不报错」那一类静默失败，所以坐标不许写死。
     """
     gh = R.obs.UNIT_TYPE_NAMES.index("Ghoul")
-    sites = R.map_sites(cfg.map_path)
+    factory, sites = world_factory(cfg.map_path, cfg.stats_path)
     spawns = list(sites["spawns"])
     if not spawns:
         raise SystemExit(f"{cfg.map_path} 没有集结点——攻方无处生成")
@@ -210,381 +239,431 @@ def make_worlds(cfg: Cfg, n: int, frac: float = 1.0, start: int = 0) -> list:
                 dx = (q % 3) - 1 + m * 0.3
                 dy = (q // 3) - 1
                 atk.append((gh, sx + 0.5 + dx, sy + 0.5 + dy, 1, q))
-        out.append(R.make_world_init(cfg.map_path, cfg.stats_path,
-                                     seed=cfg.seed * 1000 + i,
+        out.append(factory.make(seed=cfg.seed * 1000 + i,
                                      nominal_level=1, attackers=atk))
     return out
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser()
-    for f, t in (("envs", int), ("rollout", int), ("total-steps", int),
-                 ("lr", float), ("seed", int), ("device", str)):
-        ap.add_argument(f"--{f}", type=t, default=None)
-    ap.add_argument("--reward-mode", choices=("economic", "victory"), default=None)
-    ap.add_argument("--win-reward", type=float, default=None)
-    a = ap.parse_args()
-    cfg = Cfg()
-    for f in ("envs", "rollout", "lr", "seed", "device"):
-        if getattr(a, f) is not None:
-            setattr(cfg, f, getattr(a, f))
-    if a.total_steps is not None:
-        cfg.total_steps = a.total_steps
-    if a.reward_mode is not None:
-        cfg.reward_mode = a.reward_mode
-    if a.win_reward is not None:
-        cfg.win_reward = a.win_reward
-    task_reward(0.0, False, cfg.reward_mode, cfg.win_reward)  # fail before setup
-    print(f"奖励模式 {cfg.reward_mode}  胜利奖励 {cfg.win_reward:g}")
+def validate(cfg):
+    for name in ('envs', 'ticks_per_step', 'rollout', 'total_steps', 'epochs',
+                 'minibatches', 'torch_threads', 'max_ticks', 'promote_window',
+                 'defender_macro_period', 'save_every'):
+        if getattr(cfg, name) < 1:
+            raise ValueError(f'{name} must be positive')
+    if cfg.threads < 0 or not 0 <= cfg.promote_at <= 1 or not 0 <= cfg.promote_outcome_at <= 1 or not 0 < cfg.gamma <= 1:
+        raise ValueError('invalid threads, promote_at or gamma')
+    for name in ('lr', 'clip', 'gae_lambda', 'ent_coef', 'vf_coef', 'max_grad_norm', 'target_kl'):
+        if not np.isfinite(getattr(cfg, name)) or getattr(cfg, name) < 0:
+            raise ValueError(f'{name} must be finite and nonnegative')
+    if not cfg.curriculum or any(not 0 < f <= 1 for f in cfg.curriculum):
+        raise ValueError('curriculum fractions must be in (0,1]')
+    if tuple(sorted(set(cfg.curriculum))) != tuple(cfg.curriculum):
+        raise ValueError('curriculum must be strictly increasing')
+    task_reward(0, False, cfg.reward_mode, cfg.win_reward)
 
+
+def make_env(cfg, n, frac, start=0):
+    return R.BatchedEnv(make_worlds(cfg, n, frac, start), side=R.Side.Attacker,
+                        defender_map=cfg.map_path if cfg.defender else '',
+                        defender_seed=cfg.seed * 31 + 7,
+                        defender_macro_period=cfg.defender_macro_period,
+                        ticks_per_step=cfg.ticks_per_step, threads=cfg.threads,
+                        max_ticks_per_episode=cfg.max_ticks)
+
+
+class Observer:
+    def __init__(self, env):
+        self.env = env
+        self.n, self.mu = env.batch_size, R.obs.MAX_UNITS_PER_ENV
+        self.k, self.c = R.obs.K, R.obs.CHANNEL_COUNT
+        self.cells = np.zeros((self.n, self.mu, self.k, self.k, self.c), np.float32)
+        self.own = np.zeros((self.n, self.mu, R.obs.SELF_COUNT), np.float32)
+        self.glob = np.zeros((self.n, R.obs.GLOBAL_COUNT), np.float32)
+        self.masks = np.zeros((self.n, self.mu), np.uint16)
+        self.keys = np.zeros((self.n, self.mu), np.int64)
+        self.bits = (1 << np.arange(R.obs.ACTION_COUNT)).astype(np.uint16)
+
+    def read(self):
+        self.env.observe(self.cells, self.own, self.glob)
+        self.env.action_masks(self.masks)
+        self.env.agent_keys(self.keys)
+        rows = np.flatnonzero(self.keys.reshape(-1))
+        # Native buffers stay at the public 32-row layout; only live rows leave CPU.
+        return (rows, self.cells.reshape(-1, self.k, self.k, self.c)[rows],
+                self.own.reshape(-1, R.obs.SELF_COUNT)[rows],
+                self.glob[rows // self.mu],
+                (self.masks.reshape(-1)[rows, None] & self.bits) != 0)
+
+
+def policy_forward(net, observation, device):
+    rows, c, s, g, legal = observation
+    if len(rows) == 0:
+        return None, torch.empty(0, device=device)
+    logits, value = net(torch.from_numpy(c).to(device).permute(0, 3, 1, 2),
+                        torch.from_numpy(s).to(device), torch.from_numpy(g).to(device))
+    logits = logits.masked_fill(~torch.from_numpy(legal).to(device), float('-inf'))
+    return torch.distributions.Categorical(logits=logits), value
+
+
+def train(cfg, args, saved):
+    import random
+    import signal
+    from checkpointing import FORMAT, atomic_json, contract, load_weights, repair_metrics, restore_rng, rng_state, save_run, sha256
+    from rollout import RolloutStorage, advantages
+
+    validate(cfg)
+    torch.set_num_threads(cfg.torch_threads)
     torch.manual_seed(cfg.seed)
     np.random.seed(cfg.seed)
-
-    # **开跑前看一眼 GPU 还剩多少。** 这台机器四人共用，而
-    # `训练服务器环境.md` 明写「GPU 空闲不等于 GPU 归你，跑之前先
-    # `nvidia-smi`」。实测撞过一次：别人占 66.7 GiB、只剩 1.2 GiB，
-    # 于是 rollout 缓冲一分配就 `OutOfMemoryError`——**而那时已经跑了
-    # 五分钟、课程都升到第 4 档了**，日志末尾才是那条异常。早查早报。
-    if cfg.device != "cpu" and torch.cuda.is_available():
-        free_b, total_b = torch.cuda.mem_get_info()
-        print(f"GPU 空闲 {free_b / 2**30:.1f} / {total_b / 2**30:.1f} GiB")
-        if free_b < 4 * 2**30:
-            print("  ⚠️ 空闲不足 4 GiB —— 别人在用。要么等，要么 --device cpu")
-
-    # ——布局一律从模块读（见文件头）——
-    K, C = R.obs.K, R.obs.CHANNEL_COUNT
-    SELF_N, GLOB_N = R.obs.SELF_COUNT, R.obs.GLOBAL_COUNT
-    MU, NA = R.obs.MAX_UNITS_PER_ENV, R.obs.ACTION_COUNT
-    TF = R.obs.TALLY_FIELDS
-    print(f"obs 版本 {R.obs.VERSION} 指纹 {R.obs.LAYOUT_FINGERPRINT:#x}")
-    print(f"K={K} 通道={C} 自身={SELF_N} 全局={GLOB_N} agent上限={MU} 动作={NA}")
-    print(f"战果列: {R.obs.TALLY_NAMES}")
-    print(f"设备 {cfg.device}  局数 {cfg.envs}  rollout {cfg.rollout}")
-
-    # 奖励权重按 C++ 给的列序排成一个向量。**照名字对齐，不按位置猜**——
-    # 位置错了不会报错，只会让「击杀数」被当成「自身损失」。
-    w = np.array([REWARD_W[n] for n in R.obs.TALLY_NAMES], dtype=np.float32)
-    # 日志要印的那几列的下标。**照名字取**，同上一行的纪律。
-    i_dmg_b = R.obs.TALLY_NAMES.index("dmg_to_blds")
-    i_bldv = R.obs.TALLY_NAMES.index("bld_value")
-    i_kill = R.obs.TALLY_NAMES.index("units_killed")
-    i_loss = R.obs.TALLY_NAMES.index("losses")
-    i_prog = R.obs.TALLY_NAMES.index("progress")
-
-    # ——课程：从最近那一档起步——
-    stage = 0
-    frac = cfg.curriculum[stage]
-    print(f"课程 {cfg.curriculum}  起于第 1 档 frac={frac}")
-    env = R.BatchedEnv(make_worlds(cfg, cfg.envs, frac), side=R.Side.Attacker,
-                       ticks_per_step=cfg.ticks_per_step, threads=0)
-
-    # ——缓冲区由 Python 持有、反复复用**（不是每步 new 一块）。
-    cells = np.zeros((cfg.envs, MU, K, K, C), dtype=np.float32)
-    self_v = np.zeros((cfg.envs, MU, SELF_N), dtype=np.float32)
-    glob = np.zeros((cfg.envs, GLOB_N), dtype=np.float32)
-    masks = np.zeros((cfg.envs, MU), dtype=np.uint16)
-    tally = np.zeros((cfg.envs, TF), dtype=np.float32)
-    acts_np = np.zeros((cfg.envs, MU), dtype=np.uint8)
-    done_np = np.zeros((cfg.envs,), dtype=np.uint8)
-
-    net = Policy(K, C, SELF_N, GLOB_N, NA).to(cfg.device)
-    opt = torch.optim.Adam(net.parameters(), lr=cfg.lr, eps=1e-5)
-
-    N = cfg.envs * MU     # 一步里有多少个 agent 决策
+    random.seed(cfg.seed)
+    signature = contract(R, cfg)
+    if saved and signature != saved['contract']:
+        raise ValueError('Checkpoint contract differs (map/stats/native/observation/learner). '
+                         'Use a new run directory and --init-weights for an explicit warm start.')
+    folder = Path(args.run_dir)
+    if saved:
+        repair_metrics(folder,saved['progress']['env_steps'])
     dev = cfg.device
+    if torch.device(dev).type == 'cuda':
+        if not torch.cuda.is_available():
+            raise ValueError('CUDA requested but unavailable')
+        torch.cuda.set_device(torch.device(dev))
+        free, total = torch.cuda.mem_get_info()
+        print(f'GPU free {free / 2**30:.1f}/{total / 2**30:.1f} GiB', flush=True)
 
-    ar_mu = np.arange(MU, dtype=np.int32).reshape(1, MU)
-    bits_np = (np.uint16(1) << np.arange(NA, dtype=np.uint16)).reshape(1, NA)
+    net = Policy(R.obs.K, R.obs.CHANNEL_COUNT, R.obs.SELF_COUNT,
+                 R.obs.GLOBAL_COUNT, R.obs.ACTION_COUNT).to(dev)
+    opt = torch.optim.Adam(net.parameters(), lr=cfg.lr, eps=1e-5)
+    initialization = saved.get('initialization') if saved else (
+        {'kind':'warm_start', 'path':str(Path(args.init_weights).resolve()),
+         'sha256':sha256(args.init_weights)} if args.init_weights else {'kind':'random', 'seed':cfg.seed})
+    stage = cfg.curriculum.index(args.init_frac) if args.init_frac is not None else 0
+    step_count = updates = wins = timeouts = eliminated = completed = completed_steps = 0
+    curriculum_resets = resume_resets = stage_episodes = 0
+    next_episode = 0
+    elapsed_before = 0.0
+    stage_ret = deque(maxlen=50)
+    stage_hits = CompletionWindow(cfg.promote_window)
+    stage_wins = CompletionWindow(cfg.promote_window)
+    stage_outcomes = CompletionWindow(cfg.promote_window)
+    if saved:
+        net.load_state_dict(saved['model'])
+        opt.load_state_dict(saved['optimizer'])
+        p = saved['progress']
+        stage, step_count, updates = p['stage'], p['env_steps'], p['updates']
+        wins, timeouts, eliminated = p['wins'], p['timeouts'], p['eliminated']
+        completed, completed_steps = p['completed'], p['completed_steps']
+        curriculum_resets = p['curriculum_resets']
+        resume_resets = p['resume_resets']
+        elapsed_before = p['elapsed_seconds']
+        next_episode = p['next_episode']
+        stage_episodes = p['stage_episodes']
+        stage_ret.extend(p['recent_returns'])
+        stage_hits.load_state_dict(p['stage_hits'])
+        stage_wins.load_state_dict(p['stage_wins'])
+        stage_outcomes.load_state_dict(p['stage_outcomes'])
+        if step_count >= cfg.total_steps:
+            print(f'Already reached {step_count:,} / {cfg.total_steps:,} steps; checkpoint unchanged.')
+            return 0
+        resume_resets += p['active_partial_episodes']
+        print(f'Resume {step_count:,} steps, stage {stage + 1}; '
+              f'restart {p["active_partial_episodes"]} unfinished native episodes.', flush=True)
+    elif args.init_weights:
+        net.load_state_dict(load_weights(args.init_weights))
+        print('Warm start: policy weights retained; new optimizer, counters and curriculum. '
+              'Old rewards and win rates are not carried into this run.', flush=True)
 
-    def observe() -> tuple:
-        """一次观测。返回 (给前向用的 GPU 张量, 给 rollout 缓冲用的 numpy)。
-
-        ⚠️ **两份刻意分开，不要把 GPU 那份搬回来存。** 第一版是
-        `buf_c[t] = c.to("cpu")` —— 观测已经在 CPU 的 numpy 缓冲里，
-        那行把它送上 GPU 又原路搬回来，**每个决策拍多走 103 MB 的
-        device→host**（256 局 × 32 行 × 15 × 15 × 14 × 4 B），一个 rollout
-        6.6 GB。实测「采样 21.8s / 更新 5.5s」—— 瓶颈在搬运，不在学习，
-        而我原以为在学习。
-        """
-        env.observe(cells, self_v, glob)
-        env.action_masks(masks)
-        # **哪些行是真的 agent。** `unit_counts` 是「这一局当前有几个属于
-        # `side` 的活 agent」，而张量里**前几段有效**（`observe` 的契约）
-        # ⇒ 判据是「行号 < 该局的 agent 数」，不是去猜掩码。
-        #
-        # 不拿「掩码只剩 Stop」当判据：那与「一个真的 agent 恰好无路可走」
-        # 不可区分，而后者在被围住时真的会发生。
-        live_np = (ar_mu < np.asarray(env.unit_counts, dtype=np.int32).reshape(-1, 1)
-                   ).reshape(N)
-        c_np = cells.reshape(N, K, K, C)
-        s_np = self_v.reshape(N, SELF_N)
-        # 全局标量对同一局的所有 agent 相同 ⇒ 广播到每一行。
-        g_np = np.repeat(glob, MU, axis=0)
-        # 掩码：uint16 位图 → (N, NA) 的 bool
-        m_np = (masks.reshape(N, 1) & bits_np) != 0
-        # 上 GPU 只为了这一次前向。channel-first 是 torch 卷积要的，
-        # 而 C++ 写的是 channel-last（`kObsCellFloats` 的布局是 K*K*C）。
-        gpu = (torch.from_numpy(c_np).to(dev).permute(0, 3, 1, 2),
-               torch.from_numpy(s_np).to(dev),
-               torch.from_numpy(g_np).to(dev),
-               torch.from_numpy(m_np).to(dev))
-        return gpu, (c_np, s_np, g_np, m_np, live_np)
-
-    # ——rollout 缓冲——
-    #
-    # ⚠️ **观测那三块放 CPU（pinned），不放 GPU。** `buf_c` 是
-    # `T×N×C×K×K×4` 字节 = 64×4096×14×15×15×4 ≈ **3.1 GiB**，而这台机器
-    # 四人共用：实测跑的时候别人占着 66.7 GiB，只剩 1.2 GiB ⇒ 直接
-    # `torch.OutOfMemoryError`。（`训练服务器环境.md` 明写「GPU 空闲不等于
-    # GPU 归你」。）
-    #
-    # 而它**本来就不需要常驻显存**：更新时按 minibatch 取一小片，
-    # `pin_memory` + `non_blocking` 的搬运在这个尺寸上开销可忽略。
-    # 小的那几块（动作/回报/价值）留在 GPU——它们参与 GAE 的逐步递推。
-    T = cfg.rollout
-    pin = dev != "cpu"
-    # **channel-last 存**：这样 `buf_c[t] = 那块 numpy` 是一次连续拷贝，
-    # 不需要先 permute（permute 出来的视图不连续，赋值会多一次整块搬运）。
-    # channel-first 只在更新时按 minibatch 转，那一小片的开销可忽略。
-    buf_c = torch.zeros((T, N, K, K, C), pin_memory=pin)
-    buf_s = torch.zeros((T, N, SELF_N), pin_memory=pin)
-    buf_g = torch.zeros((T, N, GLOB_N), pin_memory=pin)
-    buf_m = torch.zeros((T, N, NA), dtype=torch.bool, pin_memory=pin)
-    # **哪些行是真 agent。** padding 行占多数（编成 9 支 vs `MAX_UNITS_PER_ENV`
-    # 32 ⇒ 28% 有效），把它们喂进更新是**纯浪费 + 稀释**：
-    #   * 策略项梯度恒 0（掩码只剩 Stop ⇒ log_prob ≡ 0，与参数无关）
-    #   * 价值项却不是 0 —— 它拿全零观测去拟合局级回报，占掉七成价值梯度
-    # 所以更新时只取 live 行。见更新那一段。
-    buf_live = torch.zeros((T, N), dtype=torch.bool, pin_memory=pin)
-    buf_a = torch.zeros((T, N), dtype=torch.long, device=dev)
-    buf_lp = torch.zeros((T, N), device=dev)
-    buf_v = torch.zeros((T, N), device=dev)
+    frac = cfg.curriculum[stage]
+    world_factory.cache_clear()
+    env = make_env(cfg, cfg.envs, frac, next_episode)
+    next_episode += cfg.envs
+    obs = Observer(env)
+    mu, n, T = obs.mu, cfg.envs * obs.mu, cfg.rollout
+    capacity = sum(env.unit_counts)
+    if capacity == 0:
+        raise ValueError('No live agents in initial roster')
+    storage = RolloutStorage(T, capacity, obs.k, obs.c, R.obs.SELF_COUNT,
+                             R.obs.GLOBAL_COUNT, R.obs.ACTION_COUNT,
+                             pin=torch.device(dev).type == 'cuda')
+    print(f'Reward={cfg.reward_mode}; defender={cfg.defender}; stage={stage+1} frac={frac}; '
+          f'envs={cfg.envs}; native_threads={cfg.threads}; torch_threads={cfg.torch_threads}', flush=True)
+    print(f'Rollout observation storage {storage.bytes / 2**20:.1f} MiB; '
+          f'{capacity}/{n} live rows at start.', flush=True)
+    buf_a = torch.zeros((T, n), dtype=torch.long, device=dev)
+    buf_lp = torch.zeros((T, n), device=dev)
+    buf_v = torch.zeros((T, n), device=dev)
     buf_r = torch.zeros((T, cfg.envs), device=dev)
     buf_d = torch.zeros((T, cfg.envs), device=dev)
+    keys = np.zeros((T + 1, cfg.envs, mu), np.int64)
+    actions = np.zeros((cfg.envs, mu), np.uint8)
+    done = np.zeros(cfg.envs, np.uint8)
+    tally = np.zeros((cfg.envs, R.obs.TALLY_FIELDS), np.float32)
+    weights = np.array([REWARD_W[name] for name in R.obs.TALLY_NAMES], np.float32)
+    dmg_index = R.obs.TALLY_NAMES.index('dmg_to_blds')
+    value_index = R.obs.TALLY_NAMES.index('bld_value')
+    ep_ret, ep_hit = np.zeros(cfg.envs), np.zeros(cfg.envs)
+    ep_value = np.zeros(cfg.envs)
+    ep_steps = np.zeros(cfg.envs, np.int64)
+    phi = np.asarray(env.potentials)
+    if saved:
+        restore_rng(saved['rng'])  # after constructing the new network and environments
+    t_start, session_start_step, session_updates = time.perf_counter(), step_count, 0
+    stop = [0]
+    handlers = {}
+    def request_stop(signum, _frame):
+        stop[0] = signum
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        handlers[sig] = signal.signal(sig, request_stop)
 
-    step_count, t_start, n_roll = 0, time.perf_counter(), 0
-    ep_ret = np.zeros((cfg.envs,), dtype=np.float64)
-    # **两个列表，别合成一个。** `stage_ret` 是**本档**的回报（升档时清空，
-    # 因为换了任务、旧成功率不代表现在）；`all_ret` 是全程累计（只增，用于
-    # 显示「一共跑了多少局」）。
-    #
-    # 合成一个会自相矛盾：我第一版只有 `recent`，升档时 clear ⇒ 日志里
-    # 「完成 0 局」与紧邻一行的「上一档成功率 89%」同时出现，而「有战果」
-    # 那一列此后恒 0%（每次刚清空就统计）。
-    stage_ret: list[float] = []
-    all_ret: list[float] = []
-    # 逐局「这一局有没有真的打到建筑」。**升档判据读它，不读回报**（见
-    # `promote_at` 那段：回报里含 shaping，而 shaping 不是战果）。
-    ep_hit = np.zeros((cfg.envs,), dtype=np.float64)
-    stage_hits = CompletionWindow(cfg.promote_window)
-    next_episode = cfg.envs
-    stage_wins = CompletionWindow(cfg.promote_window)
-    wins = timeouts = curriculum_resets = 0
-    ep_steps = np.zeros(cfg.envs, dtype=np.int64)
-    completed_steps = 0
-    phi = env.potentials
+    def progress():
+        return dict(env_steps=step_count, updates=updates, stage=stage, frac=frac,
+                    wins=wins, timeouts=timeouts, eliminated=eliminated,
+                    completed=completed, completed_steps=completed_steps,
+                    curriculum_resets=curriculum_resets, resume_resets=resume_resets,
+                    active_partial_episodes=int(np.count_nonzero(ep_steps)),
+                    next_episode=next_episode, stage_episodes=stage_episodes,
+                    recent_returns=list(stage_ret), stage_hits=stage_hits.state_dict(),
+                    stage_wins=stage_wins.state_dict(),
+                    stage_outcomes=stage_outcomes.state_dict(),
+                    elapsed_seconds=elapsed_before + time.perf_counter() - t_start)
 
-    def save_checkpoint():
-        torch.save(net.state_dict(), "train/ppo_attacker.pt")
-        Path("train/ppo_attacker.json").write_text(json.dumps({
-            "config": asdict(cfg), "potential_weight": POTENTIAL_W,
-            "env_steps": step_count, "wins": wins, "timeouts": timeouts,
-            "curriculum_resets": curriculum_resets,
-            "completed_steps": completed_steps,
-            "active_partial_episodes": int(np.count_nonzero(ep_steps)),
-        }, indent=2), encoding="utf-8")
+    def save(status):
+        save_run(folder, dict(format=FORMAT, config=asdict(cfg), contract=signature,
+                              initialization=initialization,
+                              model=net.state_dict(), optimizer=opt.state_dict(),
+                              progress=progress(), rng=rng_state(), status=status))
 
-    while step_count < cfg.total_steps:
-        t_roll = 0.0
-        t_upd = 0.0
-        # 本 rollout 的战果累计。**这是判据本身**（交接 §3 R：「判据看有没有
-        # 战果，不是 loss」），而按局统计的那两个数在每一档的头 6 个 rollout
-        # 里恒为空（一局要 ~400 个决策拍、一个 rollout 只有 64 个）——
-        # 于是长跑的前几分钟完全瞎。逐 rollout 的战果和立刻就有值。
-        roll_tally = np.zeros((TF,), dtype=np.float64)
-        _t0 = time.perf_counter()
-        for t in range(T):
-            (c, s, g, mk), (c_np, s_np, g_np, m_np, lv_np) = observe()
+    atomic_json(folder / 'config.json', asdict(cfg))
+    # A recoverable initial point exists even if the first rollout crashes.
+    if not saved:
+        save('running')
+    try:
+        while step_count < cfg.total_steps and not stop[0]:
+            sample_start = time.perf_counter()
+            roll_tally = np.zeros(R.obs.TALLY_FIELDS, np.float64)
+            buf_v.zero_()
+            # The final update uses only collected samples, with no uninitialized tail.
+            horizon = min(T, max(1, (cfg.total_steps - step_count + cfg.envs - 1) // cfg.envs))
+            for t in range(horizon):
+                observation = obs.read()
+                rows = observation[0]
+                keys[t] = obs.keys
+                storage.store(t, *observation)
+                with torch.no_grad():
+                    dist, value = policy_forward(net, observation, dev)
+                    actions.fill(0)
+                    if dist is not None:
+                        act = dist.sample()
+                        buf_a[t, rows], buf_v[t, rows] = act, value
+                        buf_lp[t, rows] = dist.log_prob(act)
+                        actions.reshape(-1)[rows] = act.cpu().numpy().astype(np.uint8)
+                env.step(actions, done)
+                env.take_tally(tally)
+                ends = env.episode_ends
+                won = np.array([e == R.EpisodeEnd.KeepDestroyed for e in ends])
+                after = np.asarray(env.potentials)
+                # Vectorized form of the same PBRS and task_reward equations.
+                rew = (tally @ weights) if cfg.reward_mode == 'economic' else np.zeros(cfg.envs)
+                rew = rew + won * cfg.win_reward + POTENTIAL_W * (cfg.gamma * after * (1-done) - phi)
+                buf_r[t] = torch.from_numpy(rew).to(dev)
+                buf_d[t] = torch.from_numpy(done.astype(np.float32)).to(dev)
+                roll_tally += tally.sum(0)
+                ep_ret += rew
+                ep_hit += tally[:, dmg_index]
+                ep_value += tally[:, value_index]
+                ep_steps += 1
+                step_count += cfg.envs
+                finished = np.flatnonzero(done)
+                stage_hits.add(ep_hit[finished])
+                stage_wins.add(won[finished])
+                stage_outcomes.add(won[finished] | (ep_value[finished] > 0))
+                for i in finished:
+                    wins += int(won[i])
+                    timeouts += int(ends[i] == R.EpisodeEnd.Timeout)
+                    eliminated += int(ends[i] == R.EpisodeEnd.AttackersEliminated)
+                    completed += 1
+                    stage_episodes += 1
+                    completed_steps += int(ep_steps[i])
+                    stage_ret.append(float(ep_ret[i]))
+                    ep_ret[i] = ep_hit[i] = ep_steps[i] = 0
+                    ep_value[i] = 0
+                    env.reset_one(int(i), make_worlds(cfg, 1, frac, next_episode)[0])
+                    next_episode += 1
+                phi = np.asarray(env.potentials)
             with torch.no_grad():
-                logits, value = net(c, s, g)
-                # **掩掉非法动作**（CLAUDE.md 明令要做掩码）。
-                logits = logits.masked_fill(~mk, float("-inf"))
-                dist = torch.distributions.Categorical(logits=logits)
-                act = dist.sample()
-                buf_lp[t] = dist.log_prob(act)
-            # **从 numpy 直接存，不经 GPU**（见 `observe` 的 docstring）。
-            buf_c[t] = torch.from_numpy(c_np)
-            buf_s[t] = torch.from_numpy(s_np)
-            buf_g[t] = torch.from_numpy(g_np)
-            buf_m[t] = torch.from_numpy(m_np)
-            buf_live[t] = torch.from_numpy(lv_np)
-            buf_a[t], buf_v[t] = act, value
-
-            acts_np[:] = act.view(cfg.envs, MU).to("cpu").numpy().astype(np.uint8)
-            env.step(acts_np, done_np)
-            env.take_tally(tally)
-
-            roll_tally += tally.sum(axis=0, dtype=np.float64)
-            after = env.potentials  # 必须在 reset 之前读
-            shaping = np.array([potential_reward(p, q, bool(d), cfg.gamma)
-                                for p, q, d in zip(phi, after, done_np)])
-            ends = env.episode_ends  # terminal cause must be read before reset
-            won = np.array([e == R.EpisodeEnd.KeepDestroyed for e in ends])
-            economic = (tally * w).sum(axis=1)
-            rew = np.array([task_reward(float(r), bool(v), cfg.reward_mode,
-                                        cfg.win_reward) for r, v in zip(economic, won)])
-            rew += POTENTIAL_W * shaping
-            buf_r[t] = torch.from_numpy(rew).to(dev)
-            buf_d[t] = torch.from_numpy(done_np.astype(np.float32)).to(dev)
-            ep_ret += rew
-            ep_hit += tally[:, i_dmg_b]
-            step_count += cfg.envs
-            ep_steps += 1
-
-            # 终局的局重置。**重置时机归 train/**（`BatchedEnv::reset_one` 的
-            # 注释：要按波次分层采样，重置成哪一波是训练侧的决定）。
-            completed = np.nonzero(done_np)[0]
-            stage_hits.add(ep_hit[completed])
-            stage_wins.add(won[completed])
-            for i in completed:
-                wins += int(won[i])
-                timeouts += int(ends[i] == R.EpisodeEnd.Timeout)
-                completed_steps += int(ep_steps[i])
-                ep_steps[i] = 0
-                stage_ret.append(float(ep_ret[i]))
-                all_ret.append(float(ep_ret[i]))
-                ep_ret[i] = 0.0
-                ep_hit[i] = 0.0
-                env.reset_one(int(i), make_worlds(cfg, 1, frac, next_episode)[0])
-                next_episode += 1
-            phi = env.potentials
-
-        # ——GAE。奖励是**逐局**的，而 agent 是逐编队的 ⇒ 把局级奖励广播到
-        #   该局的所有 agent。这是「共享策略 + 团队奖励」的标准做法，也是
-        #   `CLAUDE.md`「奖励：以本波战果为主」那句的直接后果（战果是全队的）。
-        with torch.no_grad():
-            (c, s, g, _), _ = observe()
-            _, next_v = net(c, s, g)
-        t_roll = time.perf_counter() - _t0
-        _t0 = time.perf_counter()
-        adv = torch.zeros_like(buf_v)
-        last = torch.zeros(N, device=dev)
-        for t in reversed(range(T)):
-            r = buf_r[t].unsqueeze(1).expand(-1, MU).reshape(N)
-            d = buf_d[t].unsqueeze(1).expand(-1, MU).reshape(N)
-            nv = next_v if t == T - 1 else buf_v[t + 1]
-            delta = r + cfg.gamma * nv * (1.0 - d) - buf_v[t]
-            last = delta + cfg.gamma * cfg.gae_lambda * (1.0 - d) * last
-            adv[t] = last
-        ret = adv + buf_v
-
-        # GAE 已用旧任务的末状态完成 bootstrap，之后才允许全批升档。
-        if stage_hits.ready and stage + 1 < len(cfg.curriculum):
-            rate = stage_hits.rate
-            if rate >= cfg.promote_at:
+                end_obs = obs.read()
+                keys[horizon] = obs.keys
+                _, value = policy_forward(net, end_obs, dev)
+                next_v = torch.zeros(n, device=dev)
+                next_v[end_obs[0]] = value
+            if torch.device(dev).type == 'cuda':
+                torch.cuda.synchronize()
+            sample_seconds = time.perf_counter() - sample_start
+            update_start = time.perf_counter()
+            adv = advantages(buf_v[:horizon], buf_r[:horizon], buf_d[:horizon],
+                             keys[:horizon+1], next_v, cfg.gamma, cfg.gae_lambda)
+            ret = adv + buf_v[:horizon]
+            packed, native = storage.indices(horizon, n)
+            count = len(packed)
+            # A dead squad's in-flight projectile can still settle this episode.
+            # Zero actor samples during that bounded tail are legitimate.
+            b_adv, b_ret = adv.reshape(-1), ret.reshape(-1)
+            a, lp = buf_a.reshape(-1), buf_lp.reshape(-1)
+            # Tiny final batches are valid: population std avoids the singleton NaN.
+            minibatch = max(1, (count + cfg.minibatches - 1) // cfg.minibatches)
+            order = np.arange(count)
+            losses, kls, clips, entropies = [], [], [], []
+            stopped_kl = False
+            for epoch in range(cfg.epochs):
+                np.random.shuffle(order)
+                for offset in range(0, count, minibatch):
+                    chosen = order[offset:offset+minibatch]
+                    jc = torch.from_numpy(packed[chosen])
+                    j = torch.as_tensor(native[chosen], device=dev)
+                    logits, value = net(storage.c.flatten(0, 1)[jc].to(dev).permute(0, 3, 1, 2),
+                                        storage.s.flatten(0, 1)[jc].to(dev),
+                                        storage.g.flatten(0, 1)[jc].to(dev))
+                    logits = logits.masked_fill(~storage.m.flatten(0, 1)[jc].to(dev), float('-inf'))
+                    dist = torch.distributions.Categorical(logits=logits)
+                    logratio = dist.log_prob(a[j]) - lp[j]
+                    ratio = logratio.exp()
+                    kl = ((ratio - 1) - logratio).mean()
+                    # Stop before applying another oversized update.
+                    if cfg.target_kl and kl.item() > cfg.target_kl:
+                        stopped_kl = True
+                        break
+                    advantage = b_adv[j]
+                    advantage = (advantage-advantage.mean()) / (advantage.std(unbiased=False)+1e-8)
+                    pg = -torch.min(ratio * advantage,
+                                    ratio.clamp(1-cfg.clip, 1+cfg.clip) * advantage).mean()
+                    vf = .5 * (value-b_ret[j]).square().mean()
+                    entropy = dist.entropy().mean()
+                    loss = pg + cfg.vf_coef * vf - cfg.ent_coef * entropy
+                    if not torch.isfinite(loss):
+                        raise FloatingPointError('Non-finite PPO loss; last good checkpoint retained')
+                    opt.zero_grad(set_to_none=True)
+                    loss.backward()
+                    nn.utils.clip_grad_norm_(net.parameters(), cfg.max_grad_norm, error_if_nonfinite=True)
+                    opt.step()
+                    losses.append(float(loss.detach()))
+                    kls.append(float(kl.detach()))
+                    clips.append(float(((ratio-1).abs() > cfg.clip).float().mean().detach()))
+                    entropies.append(float(entropy.detach()))
+                if stopped_kl:
+                    break
+            # GAE and update finished against old task before a curriculum reset.
+            trained_stage, trained_frac = stage, frac
+            promoted = False
+            if (stage_hits.ready and stage + 1 < len(cfg.curriculum)
+                    and stage_hits.rate >= cfg.promote_at
+                    and stage_outcomes.rate >= cfg.promote_outcome_at):
                 stage += 1
                 frac = cfg.curriculum[stage]
-                print(f"  ↑ 升档：第 {stage + 1}/{len(cfg.curriculum)} 档 "
-                      f"frac={frac}（完整批次 {stage_hits.count} 局，成功率 {rate:.0%}）",
-                      flush=True)
+                promoted = True
+                print(f'  ↑ 升档：第 {stage+1} 档 frac={frac}（完整批次 {stage_hits.count} 局）', flush=True)
+                curriculum_resets += int(np.count_nonzero(ep_steps))
                 stage_ret.clear()
                 stage_hits.clear()
                 stage_wins.clear()
-                # Freshly reset environments have zero steps: do not count them
-                # as interrupted episodes when a promotion lands on completion.
-                curriculum_resets += int(np.count_nonzero(ep_steps))
-                ep_steps[:] = 0
+                stage_outcomes.clear()
+                stage_episodes = 0
                 for i, world in enumerate(make_worlds(cfg, cfg.envs, frac, next_episode)):
                     env.reset_one(i, world)
                 next_episode += cfg.envs
-                ep_ret[:] = 0.0
-                ep_hit[:] = 0.0
-                phi = env.potentials
-
-        # ——更新——
-        # 观测那几块留在 CPU，按 minibatch 搬（见缓冲区那段注释）。
-        b_c = buf_c.reshape(T * N, K, K, C)
-        b_s = buf_s.reshape(T * N, SELF_N)
-        b_g = buf_g.reshape(T * N, GLOB_N)
-        b_m = buf_m.reshape(T * N, NA)
-        b_a = buf_a.reshape(T * N)
-        b_lp = buf_lp.reshape(T * N)
-        b_adv = adv.reshape(T * N)
-        b_ret = ret.reshape(T * N)
-        # **只更新真 agent 的那些行**（见 `buf_live` 那段注释）。编成 9 支、
-        # 上限 32 ⇒ 大约七成的行是 padding，滤掉它们既省算力也不再稀释
-        # 价值头的梯度。**这不是近似**：那些行的策略梯度本来恒为 0。
-        idx = np.nonzero(buf_live.reshape(T * N).numpy())[0]
-        n_live = len(idx)
-        if n_live == 0:
-            raise SystemExit("一个 live agent 都没有 —— 编成或 unit_counts 坏了")
-        # **向上取整**，于是恰好切成 `minibatches` 块、最后一块是余数。
-        mb = -(-n_live // cfg.minibatches)
-        for _ in range(cfg.epochs):
-            np.random.shuffle(idx)
-            for start in range(0, n_live, mb):
-                # ⚠️ **只剩 1 个样本的尾块必须跳过。** `n_live` 不再是 2 的幂
-                # （它随编队死亡逐拍变化），而 `Tensor.std()` 默认是**无偏**的
-                # ⇒ 1 个样本时 dof = 0、返回 **NaN**，优势归一化把它传遍整张
-                # 网，此后每个 logit 都是 NaN，报错却发生在几十个 minibatch
-                # 之后的 `Categorical` 构造里 —— 与真因隔着一层。
-                #
-                # 滤 padding 行之前 `T*N` 恒是 2 的幂、整除，所以这个洞一直
-                # 存在但从未触发。torch 只给了一句 `UserWarning`。
-                if len(idx[start:start + mb]) < 2:
-                    continue
-                jc = torch.from_numpy(idx[start:start + mb])   # CPU 侧索引
-                j = jc.to(dev)
-                logits, v = net(b_c[jc].to(dev, non_blocking=True)
-                                .permute(0, 3, 1, 2),
-                                b_s[jc].to(dev, non_blocking=True),
-                                b_g[jc].to(dev, non_blocking=True))
-                logits = logits.masked_fill(
-                    ~b_m[jc].to(dev, non_blocking=True), float("-inf"))
-                dist = torch.distributions.Categorical(logits=logits)
-                lp = dist.log_prob(b_a[j])
-                ratio = (lp - b_lp[j]).exp()
-                a_mb = b_adv[j]
-                a_mb = (a_mb - a_mb.mean()) / (a_mb.std() + 1e-8)
-                pg = -torch.min(ratio * a_mb,
-                                ratio.clamp(1 - cfg.clip, 1 + cfg.clip) * a_mb).mean()
-                vloss = 0.5 * (v - b_ret[j]).pow(2).mean()
-                loss = pg + cfg.vf_coef * vloss - cfg.ent_coef * dist.entropy().mean()
-                opt.zero_grad()
-                loss.backward()
-                nn.utils.clip_grad_norm_(net.parameters(), cfg.max_grad_norm)
-                opt.step()
-
-        t_upd = time.perf_counter() - _t0
-        dt = time.perf_counter() - t_start
-        # **周期性存盘。** 长跑（几小时）只在末尾存一次，一崩就全丢；
-        # 而这台机器是四人共用的，别人一占满显存我们就 OOM（已经发生过一次，
-        # 那次已经跑到课程第 4 档）。存的是权重本身，**跨平台通用**。
-        n_roll += 1
-        if n_roll % 50 == 0:
-            save_checkpoint()
-        mean_ret = float(np.mean(stage_ret[-50:])) if stage_ret else float("nan")
-        rate = stage_hits.rate
-        print(f"step {step_count:>9,}  {step_count / dt:>8,.0f} env-step/s  "
-              f"档{stage + 1}(f={frac:.2f})  回报 {mean_ret:>9.2f}  "
-              f"打到建筑 {rate:>4.0%}（窗口 {stage_hits.count} 局）  本档 {len(stage_ret)} 局  "
-              f"累计 {len(all_ret)} 局  "
-              f"胜利 {wins} / 超时 {timeouts} / 升档中断 {curriculum_resets}  "
-              f"胜率 {stage_wins.rate:.1%}（本档窗口 {stage_wins.count} 局）  "
-              f"完成局均长 {completed_steps / max(1, len(all_ret)):.1f}步  "
-              f"| 建筑伤 {roll_tally[i_dmg_b]:>9,.0f}  "
-              f"拆了 {roll_tally[i_bldv]:>7,.0f}值  "
-              f"杀 {roll_tally[i_kill]:>5,.0f}  损 {roll_tally[i_loss]:>8,.0f}  "
-              f"进 {roll_tally[i_prog]:>8,.0f}格  "
-              f"[采样 {t_roll:.1f}s / 更新 {t_upd:.1f}s  "
-              f"live {n_live / (T * N):.0%}]", flush=True)
-
-    save_checkpoint()
-    print("权重已存 train/ppo_attacker.pt")
-    # **策略权重是跨平台通用的**（回放文件不是——CLAUDE.md 明令不要建立
-    # 依赖跨平台回放的工作流）。所以「服务器上发现精彩局 → 在 Windows 上
-    # 重现」的正确做法是拿这份权重**重跑**，不是搬回放。
+                ep_steps.fill(0)
+                ep_ret.fill(0)
+                ep_hit.fill(0)
+                ep_value.fill(0)
+                phi = np.asarray(env.potentials)
+            updates += 1
+            session_updates += 1
+            if torch.device(dev).type == 'cuda':
+                torch.cuda.synchronize()
+            update_seconds = time.perf_counter() - update_start
+            elapsed = time.perf_counter() - t_start
+            row = dict(env_steps=step_count, updates=updates, trained_stage=trained_stage,
+                       trained_frac=trained_frac, stage=stage, frac=frac,
+                       sample_seconds=sample_seconds, update_seconds=update_seconds,
+                       env_steps_per_second=(step_count-session_start_step)/max(elapsed,1e-9),
+                       live_agent_steps=count, observation_bytes=storage.bytes,
+                       loss=float(np.mean(losses)) if losses else None,
+                       approx_kl=float(np.mean(kls)) if kls else None,
+                       clip_fraction=float(np.mean(clips)) if clips else None,
+                       entropy=float(np.mean(entropies)) if entropies else None,
+                       kl_early_stop=stopped_kl, wins=wins, timeouts=timeouts,
+                       optimizer_minibatches=len(losses),
+                       eliminated=eliminated, completed=completed,
+                       hit_rate=stage_hits.rate, window_win_rate=stage_wins.rate,
+                       outcome_rate=stage_outcomes.rate,
+                       window_count=stage_hits.count,
+                       mean_return=float(np.mean(stage_ret)) if stage_ret else None,
+                       tally=dict(zip(R.obs.TALLY_NAMES, roll_tally.tolist())))
+            with (folder/'metrics.jsonl').open('a', encoding='utf-8') as log:
+                log.write(json.dumps(row, ensure_ascii=False, allow_nan=False)+'\n')
+            print(f'step {step_count:,}  {row["env_steps_per_second"]:,.0f} env-step/s  '
+                  f'档{stage+1}(f={frac:.2f}) 打到建筑 {stage_hits.rate:.0%} '
+                  f'胜利 {wins} / 超时 {timeouts} / 全灭 {eliminated} / 升档中断 {curriculum_resets} '
+                  f'完成局均长 {completed_steps/max(1,completed):.1f}步 '
+                  f'[采样 {sample_seconds:.2f}s / 更新 {update_seconds:.2f}s]', flush=True)
+            limited = args.stop_after_updates and session_updates >= args.stop_after_updates
+            finished = step_count >= cfg.total_steps
+            if finished or stop[0] or limited or promoted or updates % cfg.save_every == 0:
+                save('complete' if finished else 'paused' if stop[0] or limited else 'running')
+            if limited:
+                break
+        if stop[0]:
+            save('paused')
+            print('Stop requested; checkpoint saved at completed update boundary.', flush=True)
+        return 128 + stop[0] if stop[0] else 0
+    finally:
+        for sig, handler in handlers.items():
+            signal.signal(sig, handler)
 
 
-if __name__ == "__main__":
-    main()
+def main():
+    from dataclasses import fields
+    from checkpointing import load_auto, load_training, run_lock
+    ap = argparse.ArgumentParser(description='Resumable attacker IPPO, native scripted defender, no rendering')
+    default = Cfg()
+    for field in fields(default):
+        name, value = field.name, getattr(default, field.name)
+        if name == 'defender':
+            ap.add_argument('--no-defender', action='store_true', default=None)
+        elif name == 'curriculum':
+            ap.add_argument('--curriculum', type=lambda s: tuple(float(x) for x in s.split(',')))
+        else:
+            ap.add_argument('--'+name.replace('_','-'), type=type(value), default=None)
+    ap.add_argument('--run-dir', default='runs/attacker')
+    source = ap.add_mutually_exclusive_group()
+    source.add_argument('--resume', nargs='?', const='auto')
+    source.add_argument('--init-weights')
+    ap.add_argument('--init-frac', type=float)
+    ap.add_argument('--stop-after-updates', type=int, default=0)
+    args = ap.parse_args()
+    with run_lock(args.run_dir):
+        saved = None
+        if args.resume == 'auto':
+            saved, _ = load_auto(args.run_dir)
+        elif args.resume:
+            saved = load_training(args.resume)
+        elif any((Path(args.run_dir)/n).exists() for n in ('latest.pt','previous.pt','metrics.jsonl','policy.pt')):
+            raise ValueError('Run directory contains a previous run; use --resume auto or a new --run-dir')
+        cfg = Cfg(**saved['config']) if saved else default
+        cfg.curriculum = tuple(cfg.curriculum)
+        runtime = {'total_steps', 'device', 'threads', 'torch_threads', 'save_every'}
+        for field in fields(default):
+            name = field.name
+            value = (not args.no_defender) if name == 'defender' and args.no_defender is not None else getattr(args, name, None)
+            if value is not None:
+                if saved and name not in runtime and value != getattr(cfg, name):
+                    raise ValueError(f'Cannot change {name} while resuming; use --init-weights in a new run')
+                setattr(cfg, name, value)
+        if saved and args.init_frac is not None:
+            raise ValueError('--init-frac is only for a new run')
+        if args.stop_after_updates < 0:
+            raise ValueError('--stop-after-updates must be nonnegative')
+        return train(cfg, args, saved)
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
