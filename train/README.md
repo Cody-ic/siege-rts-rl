@@ -177,6 +177,21 @@ $PY train/evaluate.py --checkpoint runs/example/latest.pt --device cpu \
 
 ## 性能与验证
 
+### 完整多波环境（宏观训练基础）
+
+新原生接口 `rts_native.TrainingCampaign(map_path, stats_path, seed)` 直接运行游戏的
+完整波次循环，而非固定九队编成的单波近似。`advance_scripted(max_ticks)` 使用真实
+守方宏观脚本；`advance(max_ticks, commands)` 接受玩家级命令，自动微操仍由游戏执行层负责。
+命令为 `(kind, slot, what, level)`，`kind` 从 `COMMAND_KIND_NAMES` 查询。
+
+两者在跨波或败局时提前返回，返回实际推进 tick 数、波次边界、败局状态及双方战果增量。
+跨波不清空城市、经济、迷雾或幸存者。`fork()` 在内存中复制完整游戏与脚本状态，
+可用同一局势对比不同决策；它不是跨启动的磁盘检查点。`diagnostic_state_hash` 只用于
+确定性核验，禁止当成策略观测。
+
+当前此接口是宏观训练的基础：尚需补齐迷雾约束的宏观观测、合法候选槽位与动作掩码、
+调兵绑定、宏观策略训练和恢复。不能把跑通这个环境称为宏观 RL 已完成。
+
 ### 一条命令运行完整实验
 
 在已经构建原生绑定、配置好 `PYTHONPATH` 的仓库根目录运行：

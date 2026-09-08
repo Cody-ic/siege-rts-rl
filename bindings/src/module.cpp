@@ -41,6 +41,7 @@
 #include "game/stats_loader.hpp"
 #include "game/world_builder.hpp"
 #include "game/attacker_macro.hpp"
+#include "game/training_campaign.hpp"
 #include "scripted_defender.hpp"
 #include "rts/action.hpp"
 #include "rts/batched_env.hpp"
@@ -108,6 +109,61 @@ auto as_cspan(const Arr& a) {
 }  // namespace
 
 PYBIND11_MODULE(rts_native, m) {
+    py::list command_names;
+    for(int i=0;i<rts::kCommandKindCount;++i)
+        command_names.append(std::string(rts::ident_of(static_cast<rts::CommandKind>(i))));
+    m.attr("COMMAND_KIND_NAMES")=command_names;
+    // This is a full game, not a WorldInit approximation. Returned hashes are
+    // diagnostics, never policy observations. Macro observation packing follows
+    // the defender's own information boundary separately.
+    const auto transition = [](const game::CampaignTransition& value) {
+        py::dict out;
+        out["ticks"]=value.ticks;
+        out["wave_advanced"]=value.wave_advanced;
+        out["defeated"]=value.defeated;
+        const auto tally=[](const rts::World::Tally& t) {
+            py::dict d;
+            d["dmg_to_units"]=t.dmg_to_units;d["dmg_to_blds"]=t.dmg_to_blds;
+            d["units_killed"]=t.units_killed;d["blds_destroyed"]=t.blds_destroyed;
+            d["bld_value"]=t.bld_value;d["scouts_killed"]=t.scouts_killed;d["losses"]=t.losses;
+            return d;
+        };
+        out["attacker_tally"]=tally(value.attacker);
+        out["defender_tally"]=tally(value.defender);
+        return out;
+    };
+    py::class_<game::TrainingCampaign>(m,"TrainingCampaign")
+        .def(py::init([](const std::string& map,const std::string& stats,std::uint64_t seed) {
+            return std::make_unique<game::TrainingCampaign>(game::MapLoader::from_file(map),
+                game::StatsLoader::from_file(stats),seed);
+        }),py::arg("map_path"),py::arg("stats_path"),py::arg("seed")=1)
+        .def("fork",&game::TrainingCampaign::fork)
+        .def_property_readonly("wave",[](const game::TrainingCampaign& c){return c.world().wave();})
+        .def_property_readonly("tick",[](const game::TrainingCampaign& c){return c.world().now();})
+        .def_property_readonly("diagnostic_state_hash",[](const game::TrainingCampaign& c){return c.world().state_hash();})
+        .def("advance_scripted",[transition](game::TrainingCampaign& c,int ticks) {
+            game::CampaignTransition result;
+            {py::gil_scoped_release nogil;result=c.advance_scripted(ticks);}
+            return transition(result);
+        },py::arg("max_ticks")=20)
+        .def("advance",[transition](game::TrainingCampaign& c,int ticks,
+             const std::vector<std::tuple<int,int,int,int>>& commands) {
+            std::vector<rts::Command> parsed;
+            for(const auto& [kind,slot,what,level]:commands) {
+                if(kind<0 || kind>=rts::kCommandKindCount || slot<0 || slot>rts::kNoSlot ||
+                   what<0 || what>255 || level<1 || level>255)
+                    throw rts::ContractError("Invalid campaign command encoding");
+                rts::Command command;
+                command.kind=static_cast<rts::CommandKind>(kind);
+                command.slot=static_cast<std::uint16_t>(slot);
+                command.what=static_cast<std::uint8_t>(what);
+                command.level=static_cast<std::uint8_t>(level);
+                parsed.push_back(command);
+            }
+            game::CampaignTransition result;
+            {py::gil_scoped_release nogil;result=c.advance(ticks,parsed);}
+            return transition(result);
+        },py::arg("max_ticks"),py::arg("commands"));
     m.def("squad_cap",[](int type) {
         if(type<0 || type>=rts::kUnitTypeCount) throw rts::ContractError("Invalid unit type");
         return game::squad_cap_of(static_cast<rts::UnitType>(type));
