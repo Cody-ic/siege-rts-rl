@@ -207,6 +207,8 @@ endif()
 if(Python3_FOUND)
     add_test(NAME training_math
              COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/training_math_test.py")
+    add_test(NAME compare_goal_evaluations
+             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/compare_goal_evaluations_test.py")
     set(_checker "${CMAKE_SOURCE_DIR}/tools/check_determinism_bans.py")
     # 扫 rts_core/ 与 game/ 两处。
     #
