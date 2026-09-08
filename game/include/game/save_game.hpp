@@ -13,6 +13,8 @@ inline constexpr int kSaveVersion=3;
 struct BattleArchive {
     std::string map_json,stats_json,snapshot;
     std::string tactical_policy_identity;
+    std::string defender_policy_identity;
+    rts::Rng::State defender_policy_rng{};
     std::uint64_t seed=0,hash=0,snapshot_hash=0;
     rts::Tick tick=0;
     int wave=1,attempt=1;
@@ -22,7 +24,7 @@ struct BattleArchive {
 using RestoreProgress=std::function<bool(rts::Tick,rts::Tick)>;
 BattleArchive capture_battle(const GameShell& shell,std::string map_json,std::string stats_json);
 std::unique_ptr<DemoBattle> restore_battle(const BattleArchive& archive,const RestoreProgress& progress={},
-                                        std::shared_ptr<TacticalPolicy> policy={});
+                                        std::shared_ptr<TacticalPolicy> policy={},std::shared_ptr<MacroPolicy> defender={});
 void write_archive(const std::filesystem::path& file,const BattleArchive& archive);
 BattleArchive read_archive(const std::filesystem::path& file);
 void preserve_incompatible_archive(const std::filesystem::path& file);

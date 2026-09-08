@@ -1,4 +1,11 @@
 include(FetchContent)
+if(RTS_WITH_ONNX)
+    # Explicit real-model integration check; no silently skipped CTest case.
+    add_executable(macro_game_check macro_game_check.cpp)
+    target_link_libraries(macro_game_check PRIVATE game)
+    rts_set_warnings(macro_game_check TESTS)
+    rts_copy_onnx_runtime(macro_game_check)
+endif()
 
 # CMP0135（CMake 3.24 起）：URL 下载解压后用解压时间而非归档内的时间戳，
 # 否则 URL 变了但归档内时间戳更旧时不会重新构建。用 if(POLICY) 包住是因为顶层的

@@ -30,8 +30,8 @@ std::uint64_t seed_for_attempt(std::uint64_t base, int attempt) {
 }  // namespace
 
 GameShell::GameShell(MapData map, rts::StatsTable stats, std::uint64_t base_seed,
-                     std::shared_ptr<TacticalPolicy> policy)
-    : map_(std::move(map)), stats_(std::move(stats)), base_seed_(base_seed), policy_(std::move(policy)) {
+                     std::shared_ptr<TacticalPolicy> policy,std::shared_ptr<MacroPolicy> defender)
+    : map_(std::move(map)), stats_(std::move(stats)), base_seed_(base_seed), policy_(std::move(policy)),defender_policy_(std::move(defender)) {
     go_(Screen::Main);
 }
 
@@ -91,6 +91,7 @@ void GameShell::start_battle_() {
     battle_.reset();
     battle_.emplace(map_, stats_, seed_for_attempt(base_seed_, attempt_));
     battle_->set_tactical_policy(policy_);
+    battle_->set_defender_policy(defender_policy_);
 }
 
 void GameShell::apply(MenuAction a) {

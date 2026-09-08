@@ -20,6 +20,7 @@ public:
     rts::Command decide(const rts::WorldView& defender,bool summon_allowed,rts::Rng* rng=nullptr);
     static std::size_t sample_index(std::span<const float> logits,double uniform);
     int period() const noexcept;
+    std::uint64_t stats_fingerprint() const noexcept;
     const std::string& identity() const noexcept;
 private:
     struct Impl;

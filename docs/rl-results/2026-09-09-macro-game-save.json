@@ -1,0 +1,14 @@
+{
+  "save_version": 5,
+  "model_identity": "17228096830293534042",
+  "model_manifest_sha256": "45a2f1065134c7098e221dba69f4cd45ee82b84521e0a4eb7c2d580bb7d7da9f",
+  "check_source_sha256": "0dc84b48fc90cf9fe93a6d66e4da259f1f209c04713113ceafce2f568e9f660d",
+  "saved_tick": 1000,
+  "continued_tick": 1800,
+  "continuation_checks": 40,
+  "snapshot_and_replay_exact": true,
+  "wrong_model_and_rng_rejected": true,
+  "default_regression_assertions": 217,
+  "default_regression_cases": 7,
+  "frontend_integrated": false
+}

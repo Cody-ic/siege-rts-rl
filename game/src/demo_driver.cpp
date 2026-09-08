@@ -1057,6 +1057,13 @@ void DemoBattle::set_tactical_policy(std::shared_ptr<TacticalPolicy> policy) {
         throw std::runtime_error("Tactical policy stats do not match this battle");
     policy_=std::move(policy);
 }
+void DemoBattle::set_defender_policy(std::shared_ptr<MacroPolicy> policy) {
+    if(w_.now()!=0) throw std::runtime_error("Set defender policy before advancing battle");
+    if(policy && policy->stats_fingerprint()!=w_.stats().fingerprint())
+        throw std::runtime_error("Defender policy stats do not match battle");
+    defender_policy_=std::move(policy);
+    defender_rng_=rts::Rng(w_.seed()^0x646566656e646572ull);
+}
 
 void DemoBattle::enable_developer() {
     w_.enable_developer();
@@ -1074,6 +1081,11 @@ void DemoBattle::developer_wave(int wave) {
 void DemoBattle::update(int ticks) {
     for (int k = 0; k < ticks; ++k) {
         if (defeated_) return;   // 败局定格：世界停在最后一帧
+        if(defender_policy_ && w_.now()%defender_policy_->period()==0) {
+            const auto command=defender_policy_->decide(w_.view(rts::Side::Defender),summon_accepted_now(),&defender_rng_);
+            // Policy actions are regenerated on replay, not duplicated as human events.
+            w_.submit(rts::Side::Defender,&command,1);
+        }
         if (w_.phase() == rts::WavePhase::Build && build_left_ > 0) {
             --build_left_;
         } else if (w_.phase() == rts::WavePhase::Build) {

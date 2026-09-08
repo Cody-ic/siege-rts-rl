@@ -28,6 +28,7 @@ struct MacroPolicy::Impl {
 };
 MacroPolicy::~MacroPolicy()=default;
 int MacroPolicy::period() const noexcept { return p_->period; }
+std::uint64_t MacroPolicy::stats_fingerprint() const noexcept { return p_->stats; }
 const std::string& MacroPolicy::identity() const noexcept { return p_->identity; }
 
 std::size_t MacroPolicy::sample_index(std::span<const float> logits,double uniform) {

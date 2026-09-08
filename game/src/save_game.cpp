@@ -71,6 +71,8 @@ BattleArchive capture_battle(const GameShell& shell,std::string map_json,std::st
     require(battle.world().now()<=kMaxSaveTicks && battle.player_events().size()<=kMaxEvents,"对局超出当前存档容量");
     BattleArchive result;
     result.tactical_policy_identity=battle.tactical_policy_identity();
+    result.defender_policy_identity=battle.defender_policy_identity();
+    if(!result.defender_policy_identity.empty()) result.defender_policy_rng=battle.defender_policy_rng();
     result.map_json=std::move(map_json);result.stats_json=std::move(stats_json);
     result.seed=battle.world().seed();result.hash=battle.world().state_hash();result.tick=battle.world().now();
     result.wave=battle.world().wave();result.attempt=shell.attempt();result.choice=shell.chronicle().choice();
@@ -78,13 +80,16 @@ BattleArchive capture_battle(const GameShell& shell,std::string map_json,std::st
     rts::StateHash digest;digest.feed(result.snapshot.data(),result.snapshot.size());result.snapshot_hash=digest.value();return result;
 }
 std::unique_ptr<DemoBattle> restore_battle(const BattleArchive& a,const RestoreProgress& progress,
-                                        std::shared_ptr<TacticalPolicy> policy) {
+                                        std::shared_ptr<TacticalPolicy> policy,std::shared_ptr<MacroPolicy> defender) {
+    require(a.defender_policy_identity==(defender?defender->identity():std::string{}),
+            "Defender policy differs from saved battle; load original model");
     require(a.tactical_policy_identity==(policy?policy->identity():std::string{}),
             "Tactical policy differs from the saved battle; load the original model");
     require(a.tick>=0 && a.tick<=kMaxSaveTicks && a.events.size()<=kMaxEvents,"存档超出恢复范围");
     const auto map=MapLoader::from_string(a.map_json);
     auto battle=std::make_unique<DemoBattle>(map,StatsLoader::from_string(a.stats_json),a.seed);
     battle->set_tactical_policy(policy);
+    battle->set_defender_policy(defender);
     require(a.attempt>0 && a.attempt<1000000,"存档局次无效");
     require(a.choice==ChronicleChoice::None || (a.wave>=70 && (a.choice==ChronicleChoice::Guard || a.choice==ChronicleChoice::Release)),"存档结局无效");
     rts::Tick checked_tick=0;
@@ -95,12 +100,14 @@ std::unique_ptr<DemoBattle> restore_battle(const BattleArchive& a,const RestoreP
             rts::StateHash digest;digest.feed(a.snapshot.data(),a.snapshot.size());
             require(digest.value()==a.snapshot_hash,"快照校验失败");
             SnapshotCodec::restore(*battle,a.snapshot,a.events);
+            require(!defender || battle->defender_policy_rng()==a.defender_policy_rng,"Defender RNG snapshot mismatch");
             require(battle->world().state_hash()==a.hash && battle->world().now()==a.tick && battle->world().wave()==a.wave,"快照校验失败");
             snapshot_restored=true;
         } catch(const std::exception& e) {
             std::fprintf(stderr,"snapshot fallback: %s\n",e.what());
             battle=std::make_unique<DemoBattle>(map,StatsLoader::from_string(a.stats_json),a.seed);
             battle->set_tactical_policy(policy);
+            battle->set_defender_policy(defender);
         }
     }
     if(snapshot_restored) {
@@ -125,6 +132,7 @@ std::unique_ptr<DemoBattle> restore_battle(const BattleArchive& a,const RestoreP
         else throw std::runtime_error("存档操作类型无效");
     }
     advance_to(a.tick);
+    require(!defender || battle->defender_policy_rng()==a.defender_policy_rng,"Defender RNG replay mismatch");
     require(battle->world().state_hash()==a.hash && battle->world().wave()==a.wave,"存档校验不一致，未载入此局");
     require(a.attempt>0 && a.attempt<1000000,"存档局次无效");
     require(a.choice==ChronicleChoice::None || (a.wave>=70 && (a.choice==ChronicleChoice::Guard || a.choice==ChronicleChoice::Release)),"存档结局无效");
@@ -140,7 +148,8 @@ void write_archive(const std::filesystem::path& file,const BattleArchive& a) {
     }
     // Script-only saves remain v3. Old executables must reject RL saves instead
     // of silently continuing them with a different controller.
-    atomic_json(file,{{"format","siege-save"},{"version",a.tactical_policy_identity.empty()?kSaveVersion:kSaveVersion+1},
+    atomic_json(file,{{"format","siege-save"},{"version",!a.defender_policy_identity.empty()?kSaveVersion+2:(a.tactical_policy_identity.empty()?kSaveVersion:kSaveVersion+1)},
+        {"defender_policy_identity",a.defender_policy_identity},{"defender_policy_rng",a.defender_policy_rng},
         {"tactical_policy_identity",a.tactical_policy_identity},{"platform",rts::kPlatformFingerprint},
         {"world",rts::kWorldHashTag},{"map",a.map_json},{"stats",a.stats_json},{"seed",a.seed},{"hash",a.hash},
         {"tick",a.tick},{"wave",a.wave},{"attempt",a.attempt},{"choice",static_cast<int>(a.choice)},{"events",events},{"snapshot",a.snapshot},{"snapshot_hash",a.snapshot_hash}});
@@ -158,11 +167,22 @@ void preserve_incompatible_archive(const std::filesystem::path& file) {
 
 BattleArchive read_archive(const std::filesystem::path& file) {
     const auto j=load_json(file);
-    require(j.at("format")=="siege-save" && (j.at("version")==kSaveVersion || j.at("version")==kSaveVersion+1),"存档版本不兼容");
+    require(j.at("format")=="siege-save" && (j.at("version")==kSaveVersion || j.at("version")==kSaveVersion+1 || j.at("version")==kSaveVersion+2),"存档版本不兼容");
     require(j.at("platform").get<std::string>()==rts::kPlatformFingerprint && j.at("world").get<std::string>()==rts::kWorldHashTag,"存档平台或仿真版本不兼容");
     BattleArchive a;
     a.tactical_policy_identity=j.value("tactical_policy_identity",std::string{});
-    require((j.at("version")==kSaveVersion)==a.tactical_policy_identity.empty(),"Invalid policy save version");
+    a.defender_policy_identity=j.value("defender_policy_identity",std::string{});
+    const int expected_version=!a.defender_policy_identity.empty()?kSaveVersion+2:(a.tactical_policy_identity.empty()?kSaveVersion:kSaveVersion+1);
+    require(j.at("version")==expected_version,"Invalid policy save version");
+    if(!a.defender_policy_identity.empty()) {
+        const auto& state=j.at("defender_policy_rng");
+        require(state.is_array() && state.size()==4,"Invalid defender RNG");
+        for(std::size_t i=0;i<4;++i) {
+            require(state[i].is_number_unsigned() && state[i].get<std::uint64_t>()<=UINT32_MAX,"Invalid defender RNG word");
+            a.defender_policy_rng[i]=state[i].get<std::uint32_t>();
+        }
+        require(std::any_of(a.defender_policy_rng.begin(),a.defender_policy_rng.end(),[](auto v){return v!=0;}),"Invalid zero defender RNG");
+    }
     a.snapshot_hash=j.value("snapshot_hash",std::uint64_t{0});
     a.snapshot=j.value("snapshot",std::string{});
     a.map_json=j.at("map").get<std::string>();a.stats_json=j.at("stats").get<std::string>();

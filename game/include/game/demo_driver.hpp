@@ -27,6 +27,7 @@
 #include "rts/stats.hpp"
 #include "game/attacker_macro.hpp"
 #include "game/rl_policy.hpp"
+#include "game/macro_policy.hpp"
 #include "rts/world.hpp"
 
 namespace game {
@@ -161,6 +162,9 @@ public:
     // **败局（Keep 被拆）后世界定格**——再 update 也不推进，好让人看清最后一帧。
     void update(int ticks);
     void set_tactical_policy(std::shared_ptr<TacticalPolicy> policy);
+    void set_defender_policy(std::shared_ptr<MacroPolicy> policy);
+    std::string defender_policy_identity() const { return defender_policy_?defender_policy_->identity():std::string{}; }
+    rts::Rng::State defender_policy_rng() const noexcept { return defender_rng_.state(); }
     std::string tactical_policy_identity() const { return policy_ ? policy_->identity() : std::string{}; }
     std::size_t learned_squads() const noexcept { return learned_squads_; }
 
@@ -253,6 +257,8 @@ public:
 
 private:
     std::shared_ptr<TacticalPolicy> policy_;
+    std::shared_ptr<MacroPolicy> defender_policy_;
+    rts::Rng defender_rng_{1};
     std::size_t learned_squads_ = 0;
     std::vector<PlayerEvent> player_events_;
     void issue_actions();
