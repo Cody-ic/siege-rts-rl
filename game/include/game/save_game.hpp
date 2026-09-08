@@ -31,6 +31,8 @@ void preserve_incompatible_archive(const std::filesystem::path& file);
 int read_journal_progress(const std::filesystem::path& file);
 void write_journal_progress(const std::filesystem::path& file,int highest_wave);
 std::filesystem::path default_save_directory();
+std::filesystem::path policy_save_directory(const std::filesystem::path& base,
+    const std::string& attacker_identity,const std::string& defender_identity);
 std::string read_save_text(const std::filesystem::path& file);
 }
 #endif

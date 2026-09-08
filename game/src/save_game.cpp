@@ -79,6 +79,13 @@ BattleArchive capture_battle(const GameShell& shell,std::string map_json,std::st
     result.events=battle.player_events();result.snapshot=SnapshotCodec::capture(battle);
     rts::StateHash digest;digest.feed(result.snapshot.data(),result.snapshot.size());result.snapshot_hash=digest.value();return result;
 }
+std::filesystem::path policy_save_directory(const std::filesystem::path& base,
+    const std::string& attacker,const std::string& defender) {
+    if(attacker.empty() && defender.empty()) return base;
+    auto result=base/"rl"/(attacker.empty()?"script":attacker);
+    if(!defender.empty()) result=result/"defender"/defender;
+    return result;
+}
 std::unique_ptr<DemoBattle> restore_battle(const BattleArchive& a,const RestoreProgress& progress,
                                         std::shared_ptr<TacticalPolicy> policy,std::shared_ptr<MacroPolicy> defender) {
     require(a.defender_policy_identity==(defender?defender->identity():std::string{}),

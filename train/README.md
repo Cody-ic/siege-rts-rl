@@ -32,7 +32,18 @@ macro_game_check MAP.json STATS.json MODEL_DIRECTORY FRESH_SAVE_PATH.json
 ```
 
 已验证快照恢复及日志回放继续到 1800 tick、40 次状态对照一致，以及错误模型/随机状态拒绝。
-这是正式对局和存档层的集成；启动参数、游戏界面标识及模型专用存档目录仍待接通。
+游戏现支持 `--defender-policy <v2导出目录>`，可与攻方 `--rl-policy` 同时使用：
+
+```text
+build-onnx/render/Release/rts_render.exe --battle --rl-policy runs/prepared-final-20260909/export/attacker.onnx --defender-policy runs/macro-joint-20260909/export-native-v2
+```
+
+路径为本地已验证产物；模型不在 Git 中，其他机器需取得模型包。
+HUD 显示 `Defender AI`，有攻方模型时同时显示受控编队数量。双方模型在真实游戏中
+同时运行到 1200 tick 的截图已核对。默认存档目录增加
+`rl/<攻方身份或script>/defender/<守方身份>`，旧的仅攻方路径保持不变。
+显式 `--save-dir` 仍尊重调用者指定的目录，测试时请使用独立位置。
+仓库 `play.bat` 仍启动普通游戏，不默认让 AI 替玩家经营；完整分发包仍待更新。
 
 宏观 PPO 采样复用下一次决策已经算出的价值，只在非终止批次末尾额外推理一次。
 跨波和败局仍截断回报。原实现与优化版在两次更新、32 决策和三次完整败局中，

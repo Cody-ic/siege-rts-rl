@@ -167,6 +167,7 @@ struct Options {
     std::string font_path;       // 非空 = 只用这个字体，不试候选
     std::string stats_path;      // 游戏模式必需：JSON 数值表
     std::string rl_policy_path;
+    std::string defender_policy_path;
     bool verify_assets = false;  // 只校验素材，不渲场景
     bool battle = false;         // 游戏模式，且**跳过主菜单**直接开局
     bool menu = false;           // 游戏模式，停在主菜单（截图用；窗口下同默认）
@@ -192,6 +193,7 @@ void print_usage(const char* argv0) {
         "\n"
         "  --battle              直接开局，跳过主菜单\n"
         "  --rl-policy <ONNX>    Load an experimental tactical policy (CPU)\n"
+        "  --defender-policy <DIR>  Experimental defender AI (native CPU)\n"
         "  --save-dir <目录>     指定存档目录；截图模式完全不读写存档\n"
         "  --classic-visuals     使用原始画面；游戏中 V 可切换\n"
         "  --journal-page <0..7> 仅配合截图预览指定日记章节\n"
@@ -303,6 +305,10 @@ bool parse(const std::vector<std::string>& args, Options& out) {
             const std::string* v=next("--rl-policy");
             if(!v) return false;
             out.rl_policy_path=*v;
+        } else if (a == "--defender-policy") {
+            const std::string* v=next("--defender-policy");
+            if(!v || v->empty()) return false;
+            out.defender_policy_path=*v;
         } else if (a == "--battle") {
             out.battle = true;
         } else if (a == "--menu") {
@@ -918,8 +924,10 @@ void draw_battle_hud(const render::FontSet& font,
                   battle.wave_scouted()?"窥使侦查成功，情报影响下一波":"窥使尚未得手，沿用旧情报",
                   actual.rams-base.rams,actual.phoenixes-base.phoenixes);
     font.draw(buf,rts::Vec2{30,145},16,Color{235,190,140,255});
-    if(!battle.tactical_policy_identity().empty()) {
-        std::snprintf(buf,sizeof(buf),"RL: %zu squads",battle.learned_squads());
+    if(!battle.tactical_policy_identity().empty() || !battle.defender_policy_identity().empty()) {
+        if(battle.tactical_policy_identity().empty()) std::snprintf(buf,sizeof(buf),"Defender AI");
+        else std::snprintf(buf,sizeof(buf),"RL: %zu squads%s",battle.learned_squads(),
+                           battle.defender_policy_identity().empty()?"":" / Defender AI");
         const float width=font.measure(buf,16).x;
         const float x=14+panel_w-width-16;
         DrawRectangleRec({x-8,27,width+16,25},Color{43,52,48,245});
@@ -1009,8 +1017,12 @@ int run_game(const Options& opt) {
     if(persistent) {
         try {
             save_dir=opt.save_dir.empty()?game::default_save_directory():rts::path_from_utf8(opt.save_dir);
-            if(opt.save_dir.empty() && !opt.rl_policy_path.empty())
-                save_dir=save_dir/"rl"/game::TacticalPolicy::file_identity(opt.rl_policy_path);
+            if(opt.save_dir.empty()) {
+                const auto attacker=opt.rl_policy_path.empty()?std::string{}:game::TacticalPolicy::file_identity(opt.rl_policy_path);
+                const auto defender=opt.defender_policy_path.empty()?std::string{}:
+                    game::TacticalPolicy::file_identity(rts::utf8_from_path(rts::path_from_utf8(opt.defender_policy_path)/"manifest.json"));
+                save_dir=game::policy_save_directory(save_dir,attacker,defender);
+            }
             std::filesystem::create_directories(save_dir);
             storage_ready=true;
             stored_wave=game::read_journal_progress(save_dir/"journal.json");
@@ -1049,7 +1061,12 @@ int run_game(const Options& opt) {
         std::fprintf(stderr,"Experimental RL policy %s; unsupported units retain scripted control\n",
                      tactical_policy->identity().c_str());
     }
-    game::GameShell shell(map, stats, kBattleSeed,tactical_policy);
+    std::shared_ptr<game::MacroPolicy> defender_policy;
+    if(!opt.defender_policy_path.empty()) {
+        defender_policy=std::make_shared<game::MacroPolicy>(opt.defender_policy_path,opt.stats_path);
+        std::fprintf(stderr,"Experimental defender AI %s; native categorical sampling\n",defender_policy->identity().c_str());
+    }
+    game::GameShell shell(map, stats, kBattleSeed,tactical_policy,defender_policy);
     // `--battle` = 跳过主菜单直接开局。旧命令行的行为，截图模式也靠它。
     if (opt.battle) shell.apply(game::MenuAction::StartNew);
     if(opt.developer_wave>0) {shell.battle()->enable_developer();shell.battle()->developer_wave(opt.developer_wave);}
@@ -1099,10 +1116,10 @@ int run_game(const Options& opt) {
             font->draw(message,{50,80},28,Color{234,218,178,255});
             font->draw("长局恢复需要一些时间，请稍候",{50,128},22,Color{180,191,189,255});
             EndDrawing();return true;
-        },tactical_policy);
+        },tactical_policy,defender_policy);
         map_json=candidate.map_json;stats_json=candidate.stats_json;
         map=game::MapLoader::from_string(map_json);
-        shell=game::GameShell(map,game::StatsLoader::from_string(stats_json),kBattleSeed,tactical_policy);
+        shell=game::GameShell(map,game::StatsLoader::from_string(stats_json),kBattleSeed,tactical_policy,defender_policy);
         shell.adopt_saved_battle(std::move(*restored),candidate.attempt,candidate.choice);
         stored_wave=std::max(stored_wave,candidate.wave);
         storage_status=shell.battle()->defeated() || shell.chronicle().completed()
@@ -2199,7 +2216,7 @@ int cli_main_impl(const std::vector<std::string>& args) {
     }
     // 模式判定。**「什么都不给」= 游戏**，这是双击启动那条路径的落点；
     // 只给 `--map` 仍是地图查看器（生成器的产物要靠它目视验收）。
-    const bool game_mode = opt.battle || opt.menu || !opt.rl_policy_path.empty() ||
+    const bool game_mode = opt.battle || opt.menu || !opt.rl_policy_path.empty() || !opt.defender_policy_path.empty() ||
                            (!opt.verify_assets && opt.map_path.empty());
     const std::string argv0 = args.empty() ? std::string() : args[0];
     std::string err;

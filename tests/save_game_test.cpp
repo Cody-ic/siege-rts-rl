@@ -17,6 +17,15 @@ std::string map_text(){return game::read_save_text(std::filesystem::path(GAME_DA
 std::string stats_text(){return game::read_save_text(std::filesystem::path(GAME_DATA_DIR)/"stats_placeholder.json");}
 game::GameShell shell(){return {game::MapLoader::from_string(map_text()),game::StatsLoader::from_string(stats_text()),7};}
 }
+TEST_CASE("Policy save directories isolate controller combinations", "[savepath]") {
+    const std::filesystem::path base="saves";
+    REQUIRE(game::policy_save_directory(base,"","")==base);
+    REQUIRE(game::policy_save_directory(base,"123","")==base/"rl"/"123");
+    REQUIRE(game::policy_save_directory(base,"","456")==base/"rl"/"script"/"defender"/"456");
+    REQUIRE(game::policy_save_directory(base,"123","456")==base/"rl"/"123"/"defender"/"456");
+    REQUIRE(game::policy_save_directory(base,"123","456")!=game::policy_save_directory(base,"123","789"));
+}
+
 TEST_CASE("存档还原临时指令、待执行命令、战斗及后续确定性", "[save]") {
     Temp temp;auto original=shell();original.apply(game::MenuAction::StartNew);
     auto& battle=*original.battle();battle.update(2);

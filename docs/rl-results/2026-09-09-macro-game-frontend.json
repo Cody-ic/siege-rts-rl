@@ -1,0 +1,11 @@
+{
+  "tick": 1200,
+  "hud": "RL: 6 squads / Defender AI",
+  "attacker_identity": "9554465781158682901",
+  "defender_identity": "17228096830293534042",
+  "screenshot_sha256": "e5c682fe48c2fd054e1be851dd0abbf886692e8bb8973d51cb8addf85677f557",
+  "render_exe_sha256": "3c0457f2c78d7da957ec2f9d4cb0894a5608ae3a70f3e16808d0769f0726e6a8",
+  "save_path_assertions": 5,
+  "default_render_build": true,
+  "standalone_package_verified": false
+}
