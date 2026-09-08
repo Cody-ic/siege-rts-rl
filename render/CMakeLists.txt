@@ -84,6 +84,9 @@ add_library(render_lib STATIC
     src/menu_view.cpp
     src/chronicle_view.cpp
     src/battle_atmosphere.cpp
+    src/sanctum_ground.cpp
+    src/battle_signals.cpp
+    src/battle_audio.cpp
     ${_render_self_contained_srcs}
 )
 
@@ -105,6 +108,27 @@ rts_set_warnings(rts_render)
 # 查的是「跑得通且真画出了东西」：退出码 0 + 导出的 PNG 存在且非空。
 # 没有它的话，渲染层的任何回归都只能靠人开窗看才能发现。
 if(RTS_BUILD_TESTS)
+    add_executable(presentation_probe src/presentation_probe.cpp)
+    target_link_libraries(presentation_probe PRIVATE render_lib)
+    rts_set_warnings(presentation_probe)
+    add_test(NAME presentation_observer_contract COMMAND presentation_probe
+        "${CMAKE_SOURCE_DIR}/game/data/stats_placeholder.json")
+    add_executable(sanctum_probe src/sanctum_probe.cpp)
+    target_link_libraries(sanctum_probe PRIVATE render_lib)
+    rts_set_warnings(sanctum_probe)
+    add_test(NAME presentation_combat_shots COMMAND sanctum_probe
+        "${CMAKE_SOURCE_DIR}/game/data/demo_skirmish.json"
+        "${CMAKE_SOURCE_DIR}/game/data/stats_placeholder.json"
+        "${CMAKE_SOURCE_DIR}/tools/sprite_gen/out_3d"
+        "${CMAKE_CURRENT_BINARY_DIR}/sanctum")
+    add_test(NAME presentation_small_view COMMAND rts_render --battle --ticks 100
+        --map "${CMAKE_SOURCE_DIR}/game/data/maps/pool/gen_01001000.json"
+        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/sanctum-small.png" --size 960 540)
+    add_test(NAME presentation_large_view COMMAND rts_render --battle --ticks 100
+        --map "${CMAKE_SOURCE_DIR}/game/data/maps/pool/gen_01001000.json"
+        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/sanctum-large.png" --size 2560 1440)
+    add_test(NAME presentation_classic_view COMMAND rts_render --battle --ticks 100 --classic-visuals --mute
+        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/sanctum-classic.png" --size 1200 800)
     add_executable(weapon_probe src/weapon_probe.cpp)
     target_link_libraries(weapon_probe PRIVATE render_lib)
     rts_set_warnings(weapon_probe)

@@ -65,6 +65,7 @@ struct DrawItem {
     float attack_progress=-1.0f; // [0,1) 前摇，[1,2] 释放，素材侧映射命中帧
     std::string_view projectile_source{};
     float flight_progress=0.0f;
+    int level=1; // Read-only presentation metadata; never used by simulation.
 
 
     // 画家算法的深度键：gi + gj。**叠加物与实体必须在同一个序列里排**，
