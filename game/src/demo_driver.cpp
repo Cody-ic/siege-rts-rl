@@ -1045,7 +1045,17 @@ void DemoBattle::issue_actions() {
     // 上，所以那条路排除。代价要认下来：画面上不会出现整齐的三人小队，
     // 编队是「共享意图、各自走」。那种视觉编队要换回 waypoint A*。
 
+    learned_squads_ = 0;
+    if (policy_ && w_.phase()==rts::WavePhase::Assault)
+        learned_squads_ = apply_tactical_policy(w_,*policy_,ids_,acts_);
     w_.submit_actions(rts::Side::Attacker, acts_.data(), acts_.size());
+}
+
+void DemoBattle::set_tactical_policy(std::shared_ptr<TacticalPolicy> policy) {
+    if (w_.now()!=0) throw std::runtime_error("Set tactical policy before advancing the battle");
+    if (policy && policy->stats_fingerprint()!=w_.stats().fingerprint())
+        throw std::runtime_error("Tactical policy stats do not match this battle");
+    policy_=std::move(policy);
 }
 
 void DemoBattle::enable_developer() {
@@ -1106,7 +1116,7 @@ void DemoBattle::update(int ticks) {
             issue_actions();   // 新生成的单位当拍拿到动作，不呆等一个决策周期
             since_decision_ = 0;
         }
-        if (since_decision_ >= rts::kDecisionPeriodMax) {
+        if (since_decision_ >= (policy_ ? policy_->ticks_per_step() : rts::kDecisionPeriodMax)) {
             issue_actions();
             since_decision_ = 0;
         }

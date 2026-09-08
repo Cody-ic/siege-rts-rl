@@ -70,16 +70,21 @@ BattleArchive capture_battle(const GameShell& shell,std::string map_json,std::st
     require(!battle.developer(),"开发者对局不写入正式存档");
     require(battle.world().now()<=kMaxSaveTicks && battle.player_events().size()<=kMaxEvents,"对局超出当前存档容量");
     BattleArchive result;
+    result.tactical_policy_identity=battle.tactical_policy_identity();
     result.map_json=std::move(map_json);result.stats_json=std::move(stats_json);
     result.seed=battle.world().seed();result.hash=battle.world().state_hash();result.tick=battle.world().now();
     result.wave=battle.world().wave();result.attempt=shell.attempt();result.choice=shell.chronicle().choice();
     result.events=battle.player_events();result.snapshot=SnapshotCodec::capture(battle);
     rts::StateHash digest;digest.feed(result.snapshot.data(),result.snapshot.size());result.snapshot_hash=digest.value();return result;
 }
-std::unique_ptr<DemoBattle> restore_battle(const BattleArchive& a,const RestoreProgress& progress) {
+std::unique_ptr<DemoBattle> restore_battle(const BattleArchive& a,const RestoreProgress& progress,
+                                        std::shared_ptr<TacticalPolicy> policy) {
+    require(a.tactical_policy_identity==(policy?policy->identity():std::string{}),
+            "Tactical policy differs from the saved battle; load the original model");
     require(a.tick>=0 && a.tick<=kMaxSaveTicks && a.events.size()<=kMaxEvents,"存档超出恢复范围");
     const auto map=MapLoader::from_string(a.map_json);
     auto battle=std::make_unique<DemoBattle>(map,StatsLoader::from_string(a.stats_json),a.seed);
+    battle->set_tactical_policy(policy);
     require(a.attempt>0 && a.attempt<1000000,"存档局次无效");
     require(a.choice==ChronicleChoice::None || (a.wave>=70 && (a.choice==ChronicleChoice::Guard || a.choice==ChronicleChoice::Release)),"存档结局无效");
     rts::Tick checked_tick=0;
@@ -95,6 +100,7 @@ std::unique_ptr<DemoBattle> restore_battle(const BattleArchive& a,const RestoreP
         } catch(const std::exception& e) {
             std::fprintf(stderr,"snapshot fallback: %s\n",e.what());
             battle=std::make_unique<DemoBattle>(map,StatsLoader::from_string(a.stats_json),a.seed);
+            battle->set_tactical_policy(policy);
         }
     }
     if(snapshot_restored) {
@@ -132,7 +138,10 @@ void write_archive(const std::filesystem::path& file,const BattleArchive& a) {
         events.push_back({{"tick",e.tick},{"kind",e.kind},{"cmd",{e.command.slot,static_cast<int>(e.command.kind),static_cast<int>(e.command.side),e.command.what,e.command.level}},
                           {"ids",ids},{"target",{e.target.i,e.target.j}}});
     }
-    atomic_json(file,{{"format","siege-save"},{"version",kSaveVersion},{"platform",rts::kPlatformFingerprint},
+    // Script-only saves remain v3. Old executables must reject RL saves instead
+    // of silently continuing them with a different controller.
+    atomic_json(file,{{"format","siege-save"},{"version",a.tactical_policy_identity.empty()?kSaveVersion:kSaveVersion+1},
+        {"tactical_policy_identity",a.tactical_policy_identity},{"platform",rts::kPlatformFingerprint},
         {"world",rts::kWorldHashTag},{"map",a.map_json},{"stats",a.stats_json},{"seed",a.seed},{"hash",a.hash},
         {"tick",a.tick},{"wave",a.wave},{"attempt",a.attempt},{"choice",static_cast<int>(a.choice)},{"events",events},{"snapshot",a.snapshot},{"snapshot_hash",a.snapshot_hash}});
 }
@@ -149,9 +158,11 @@ void preserve_incompatible_archive(const std::filesystem::path& file) {
 
 BattleArchive read_archive(const std::filesystem::path& file) {
     const auto j=load_json(file);
-    require(j.at("format")=="siege-save" && j.at("version")==kSaveVersion,"存档版本不兼容");
+    require(j.at("format")=="siege-save" && (j.at("version")==kSaveVersion || j.at("version")==kSaveVersion+1),"存档版本不兼容");
     require(j.at("platform").get<std::string>()==rts::kPlatformFingerprint && j.at("world").get<std::string>()==rts::kWorldHashTag,"存档平台或仿真版本不兼容");
     BattleArchive a;
+    a.tactical_policy_identity=j.value("tactical_policy_identity",std::string{});
+    require((j.at("version")==kSaveVersion)==a.tactical_policy_identity.empty(),"Invalid policy save version");
     a.snapshot_hash=j.value("snapshot_hash",std::uint64_t{0});
     a.snapshot=j.value("snapshot",std::string{});
     a.map_json=j.at("map").get<std::string>();a.stats_json=j.at("stats").get<std::string>();

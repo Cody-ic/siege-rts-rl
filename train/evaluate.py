@@ -72,6 +72,8 @@ def breach_actions(observation):
 
 
 def evaluate(checkpoint, cfg, episodes, frac, policy='frozen_argmax', *, diagnostics=False, trace_every=25):
+    if cfg.map_pool:
+        raise ValueError('Evaluate each map separately with map_pool=(); do not average away failed maps')
     if episodes < 1 or cfg.envs < 1 or not 0 < frac <= 1 or cfg.max_ticks < 1:
         raise ValueError('positive episodes/envs/max_ticks and 0 < frac <= 1 required')
     if policy not in ('frozen_argmax', 'frozen_sample', 'flow', 'flow_breach'):
@@ -199,6 +201,8 @@ def main():
     ap.add_argument('--stats-path')
     ap.add_argument('--max-ticks', type=int)
     ap.add_argument('--ticks-per-step', type=int)
+    ap.add_argument('--roster',choices=('ghouls','mixed'))
+    ap.add_argument('--levels',type=lambda s:tuple(int(x) for x in s.split(',')))
     args = ap.parse_args()
     cfg, saved = Cfg(), None
     if args.checkpoint:
@@ -208,7 +212,7 @@ def main():
             cfg = Cfg(**saved['config'])
         else:
             print('Legacy policy-only file: opponent/map settings must be supplied explicitly.')
-    for name in ('envs','seed','device','threads','torch_threads','map_path','stats_path','max_ticks','ticks_per_step'):
+    for name in ('envs','seed','device','threads','torch_threads','map_path','stats_path','max_ticks','ticks_per_step','roster','levels'):
         value = getattr(args,name)
         if value is not None:
             if saved and name in ('map_path','stats_path','max_ticks','ticks_per_step') and value != getattr(cfg,name):

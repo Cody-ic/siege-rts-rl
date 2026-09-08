@@ -94,16 +94,16 @@ class ResetSamplingTests(unittest.TestCase):
         # Execute the production factory without importing torch.
         source = Path(__file__).resolve().parents[1] / 'train/ppo.py'
         tree = ast.parse(source.read_text(encoding='utf-8'))
-        fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
-                  and n.name == 'make_worlds')
+        functions = [n for n in tree.body if isinstance(n,ast.FunctionDef)
+                     and n.name in ('make_worlds','episode_map')]
         native = SimpleNamespace(
             obs=SimpleNamespace(UNIT_TYPE_NAMES=['Ghoul']),
             map_sites=lambda _: {'spawns':[(0,0),(100,0),(100,100),(0,100)], 'keep':(50,50)},
             make_world_init=lambda *a, **kw: kw)
         namespace = {'R':native, 'Cfg':object,
                      'world_factory':lambda *_: (SimpleNamespace(make=native.make_world_init),native.map_sites(''))}
-        exec(compile(ast.Module(body=[fn], type_ignores=[]), str(source), 'exec'), namespace)
-        cfg = SimpleNamespace(seed=1,map_path='',stats_path='')
+        exec(compile(ast.Module(body=functions, type_ignores=[]), str(source), 'exec'), namespace)
+        cfg = SimpleNamespace(seed=1,map_path='',stats_path='',map_pool=(),roster='ghouls',levels=(1,))
         make = namespace['make_worlds']
         batch = make(cfg, 4, start=8)
         singles = [make(cfg, 1, start=i)[0] for i in range(8,12)]

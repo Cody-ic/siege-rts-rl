@@ -54,6 +54,134 @@ class RuntimeTests(unittest.TestCase):
             return demos.main(['fit','--data',str(data),'--run-dir',str(folder),
                                '--epochs','2','--batch-size','32','--torch-threads','1',*extra])
 
+    def test_detached_value_features_do_not_change_forward_or_actor_gradients(self):
+        net = ppo.Policy(R.obs.K,R.obs.CHANNEL_COUNT,R.obs.SELF_COUNT,R.obs.GLOBAL_COUNT,R.obs.ACTION_COUNT)
+        c = torch.randn(3,R.obs.CHANNEL_COUNT,R.obs.K,R.obs.K)
+        s,g = torch.randn(3,R.obs.SELF_COUNT),torch.randn(3,R.obs.GLOBAL_COUNT)
+        logits,value = net(c,s,g)
+        detached_logits,detached_value = net(c,s,g,detach_value=True)
+        torch.testing.assert_close(logits,detached_logits,rtol=0,atol=0)
+        torch.testing.assert_close(value,detached_value,rtol=0,atol=0)
+        detached_value.square().mean().backward()
+        self.assertIsNotNone(net.critic.weight.grad)
+        self.assertTrue(all(p.grad is None for m in (net.conv,net.trunk,net.actor) for p in m.parameters()))
+        net.zero_grad(set_to_none=True)
+        detached_logits[:,0].sum().backward()
+        self.assertGreater(float(net.trunk[0].weight.grad.abs().sum()),0)
+        self.assertGreater(float(net.actor.weight.grad.abs().sum()),0)
+
+    def test_map_pool_defenders_match_separate_maps_before_and_after_reset(self):
+        paths=tuple(str(ROOT/'game/data/maps/pool'/name) for name in ('gen_01001000.json','gen_01002000.json'))
+        cfg=self.cfg(map_pool=paths,seed=3)
+        worlds=ppo.make_worlds(cfg,2,1.)
+        env=ppo.make_env(cfg,2,1.)
+        def single(world,episode):
+            return R.BatchedEnv([world],defender_map=ppo.episode_map(cfg,episode),
+                defender_seed=cfg.seed*31+7,defender_macro_period=cfg.defender_macro_period,threads=1)
+        singles=[single(world,i) for i,world in enumerate(worlds)]
+        for step in range(80):
+            if step==30:
+                world=ppo.make_worlds(cfg,1,1.,7)[0]
+                env.reset_one(0,world);singles[0]=single(world,7)
+            combined=ppo.Observer(env).read()
+            separate=[ppo.Observer(e).read() for e in singles]
+            for field in range(1,5):
+                np.testing.assert_array_equal(combined[field],np.concatenate([s[field] for s in separate]))
+            env.step(np.zeros((2,R.obs.MAX_UNITS_PER_ENV),np.uint8),np.zeros(2,np.uint8))
+            for one in singles:one.step(np.zeros((1,R.obs.MAX_UNITS_PER_ENV),np.uint8),np.zeros(1,np.uint8))
+
+    def test_mixed_roster_full_health_and_map_spawn_level_cartesian_coverage(self):
+        paths=tuple(str(ROOT/'game/data/maps/pool'/name) for name in ('gen_01001000.json','gen_01002000.json'))
+        cfg=self.cfg(map_pool=paths,roster='mixed',levels=(1,4),seed=1)
+        from types import SimpleNamespace
+        def capture(path,stats):
+            return SimpleNamespace(make=lambda **kw:dict(path=path,**kw)),R.map_sites(path)
+        with patch.object(ppo,'world_factory',side_effect=capture):
+            worlds=ppo.make_worlds(cfg,40,1.)
+        for path in paths:
+            actual={(tuple(w['attackers'][0][1:3]),w['nominal_level']) for w in worlds if w['path']==path}
+            expected={((x-.5,y-.5),level) for x,y in R.map_sites(path)['spawns'] for level in (1,4)}
+            self.assertEqual(actual,expected)
+        # Start at a level-4 episode and inspect the actual native roster.
+        env=ppo.make_env(cfg,1,1.,16)
+        _,c,own,g,legal=ppo.Observer(env).read()
+        self.assertEqual(len(own),9)
+        self.assertEqual(set(own[:,:R.obs.SELF_COUNT-3].argmax(-1)),{5,6,7,8,10})
+        np.testing.assert_array_equal(own[:,-2],np.ones(9,np.float32))
+        self.assertTrue(np.all(own[:,-3]>1/1000))
+
+    def test_mixed_pool_training_and_demonstrations_resume(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder=Path(temporary)
+            pool=','.join(str(ROOT/'game/data/maps/pool'/name) for name in ('gen_01001000.json','gen_01002000.json'))
+            self.run_train(folder/'ppo',['--map-pool',pool,'--roster','mixed','--levels','1,4',
+                                        '--stop-after-updates','1'])
+            self.run_train(folder/'ppo',['--resume','auto'])
+            saved=load_training(folder/'ppo/latest.pt')
+            self.assertEqual(saved['config']['roster'],'mixed')
+            self.assertEqual(len(saved['contract']['map_pool_sha256']),2)
+            data=self.collect_demo(folder/'data','--map-pool',pool,'--roster','mixed','--levels','1,4')
+            self.fit_demo(data,folder/'fit')
+            self.fit_demo(data,folder/'fit','--resume')
+
+    def test_potential_shaping_telescopes_at_squad_death_and_world_end(self):
+        # Squad 10 dies early; 20 survives compaction and the world ends later.
+        keys=np.array([[[10,20]],[[20,0]],[[20,0]],[[0,0]]])
+        gamma=.9
+        phi=torch.tensor([-10.,-8.,-5.,0.],dtype=torch.float64)
+        next_phi=phi[1:,None]
+        rewards=(gamma*phi[1:]-phi[:-1])[:,None]
+        dones=torch.tensor([[0.],[0.],[1.]])
+        values=torch.zeros((3,2),dtype=torch.float64)
+        result=advantages(values,rewards,dones,keys,torch.zeros(2),gamma,1.,next_phi)
+        torch.testing.assert_close(result[0],torch.tensor([10.,10.],dtype=torch.float64))
+        self.assertAlmostEqual(float(result[1,0]),8.)
+        legacy=advantages(values,rewards,dones,keys,torch.zeros(2),gamma,1.)
+        self.assertAlmostEqual(float(legacy[0,0]),2.8)
+        # Economic rewards retain their original per-agent stopping semantics.
+        task=torch.tensor([[3.],[4.],[5.]],dtype=torch.float64)
+        combined=advantages(values,rewards+task,dones,keys,torch.zeros(2),gamma,1.,next_phi)
+        unshaped=advantages(values,task,dones,keys,torch.zeros(2),gamma,1.)
+        torch.testing.assert_close(combined-result,unshaped)
+
+    def test_potential_boundary_is_preserved_for_live_rollout_bootstrap(self):
+        keys=np.array([[[1]],[[1]]])
+        args=(torch.zeros((1,1)),torch.tensor([[2.8]]),torch.zeros((1,1)),keys,
+              torch.tensor([7.]),.9,.95)
+        torch.testing.assert_close(advantages(*args,next_potential=torch.tensor([[-8.]])),advantages(*args))
+
+    def test_reference_is_frozen_self_contained_and_restored_after_source_removal(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder=Path(temporary)
+            net=ppo.Policy(R.obs.K,R.obs.CHANNEL_COUNT,R.obs.SELF_COUNT,R.obs.GLOBAL_COUNT,R.obs.ACTION_COUNT)
+            source=folder/'initial.pt'
+            torch.save(net.state_dict(),source)
+            self.run_train(folder/'run',['--init-weights',str(source),'--reference-coef','1',
+                                        '--value-features','detached','--stop-after-updates','1'])
+            first=load_training(folder/'run/latest.pt')
+            source.unlink()
+            self.run_train(folder/'run',['--resume','auto'])
+            last=load_training(folder/'run/latest.pt')
+            for key,value in net.state_dict().items():
+                torch.testing.assert_close(value,first['reference_model'][key],rtol=0,atol=0)
+                torch.testing.assert_close(value,last['reference_model'][key],rtol=0,atol=0)
+            self.assertTrue(any(not torch.equal(v,last['model'][k]) for k,v in net.state_dict().items()))
+            rows=[json.loads(l) for l in (folder/'run/metrics.jsonl').read_text().splitlines()]
+            self.assertTrue(all(np.isfinite(r['reference_kl']) for r in rows))
+            last.pop('reference_model')
+            save_run(folder/'run',last)
+            with self.assertRaisesRegex(ValueError,'Missing reference'):
+                self.run_train(folder/'run',['--resume','auto','--total-steps','18'])
+
+    def test_reference_regularization_requires_explicit_source_and_valid_settings(self):
+        with tempfile.TemporaryDirectory() as folder:
+            with self.assertRaisesRegex(ValueError,'explicit --init-weights'):
+                self.run_train(folder,['--reference-coef','1'])
+            self.assertFalse((Path(folder)/'latest.pt').exists())
+        for config in (self.cfg(reference_coef=float('nan')),self.cfg(reference_coef=-1),
+                       self.cfg(value_features='typo')):
+            with self.assertRaises(ValueError):ppo.validate(config)
+
     def test_demonstrations_reuse_completed_shards_and_reject_illegal_labels(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)
@@ -436,9 +564,13 @@ class RuntimeTests(unittest.TestCase):
         # an optimizer halfway through its next minibatch.
         with tempfile.TemporaryDirectory() as folder:
             self.run_train(folder,['--stop-after-updates','1'])
-            command = [sys.executable,str(ROOT/'train/ppo.py'),'--run-dir',folder,
+            # Windows venv python.exe can be a redirector which starts another
+            # process. Kill the actual interpreter, not just that launcher.
+            interpreter = sys._base_executable if os.name == 'nt' else sys.executable
+            command = [interpreter,str(ROOT/'train/ppo.py'),'--run-dir',folder,
                        '--resume','auto','--total-steps','1000000']
-            env = dict(os.environ,PYTHONPATH=str(Path(R.__file__).parent),PYTHONUNBUFFERED='1',PYTHONIOENCODING='utf-8')
+            env = dict(os.environ,PYTHONPATH=os.pathsep.join([str(Path(R.__file__).parent),*sys.path]),
+                       PYTHONUNBUFFERED='1',PYTHONIOENCODING='utf-8')
             process = subprocess.Popen(command,cwd=ROOT,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,encoding='utf-8')
             killed_after_update = False
             try:
@@ -452,6 +584,7 @@ class RuntimeTests(unittest.TestCase):
             finally:
                 if process.poll() is None:
                     process.kill()
+                    process.wait(timeout=30)
                 process.stdout.close()
             self.assertTrue(killed_after_update,'child must reach a real training update before it is killed')
             saved,_ = load_auto(folder)

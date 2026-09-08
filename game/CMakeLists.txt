@@ -51,6 +51,7 @@ add_library(game STATIC
     src/menu_model.cpp
     src/game_shell.cpp
     src/save_game.cpp
+    src/rl_policy.cpp
     ${_game_self_contained_srcs}
 )
 
@@ -60,6 +61,10 @@ target_include_directories(game PUBLIC "${CMAKE_CURRENT_LIST_DIR}/include")
 # JSON 是 PRIVATE：**依赖到 map_loader.cpp 为止**，这正是本模块存在的意义之一
 # ——rts_core 与 render/ 都只看见 MapData，都不必引入 JSON。
 target_link_libraries(game PUBLIC rts_core PRIVATE nlohmann_json_hdr)
+target_compile_definitions(game PRIVATE RTS_WITH_ONNX=$<BOOL:${RTS_WITH_ONNX}>)
+if(RTS_WITH_ONNX)
+    target_link_libraries(game PRIVATE rts_onnx)
+endif()
 
 rts_set_warnings(game)
 

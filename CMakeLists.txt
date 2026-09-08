@@ -72,6 +72,7 @@ include(CompilerWarnings)
 # 被 game/ 与 render/ 共用的第三方依赖（目前只有 nlohmann/json）。
 # 集中声明而不是各自 FetchContent 一遍，理由见该文件开头。
 include(ThirdParty)
+include(OnnxRuntime)
 
 # `enable_testing()` 必须早于**任何** add_test，而 render/ 也注册两条（截图冒烟 +
 # 素材缺失必须红）。它原来跟在 add_subdirectory(tests) 前面，那时只有 tests/ 注册测试，
@@ -95,6 +96,9 @@ add_subdirectory(game)
 # §7 校准 runner（tools/calibration_runner，2026-09-02）：纯 C++、无渲染，
 # 无条件构建的理由与 game/ 相同——tests/ 给它挂了一条冒烟 ctest。
 add_subdirectory(tools/calibration_runner)
+if(RTS_WITH_ONNX)
+    add_subdirectory(tools/policy_probe)
+endif()
 
 # 不变量 2 与 3 的构建侧落地：RTS_BUILD_RENDER 默认 OFF，于是训练构建**根本不配置**
 # render/ 这个子目录——不是"编译了但不链接"，而是它连 CMake 层面都不参与。

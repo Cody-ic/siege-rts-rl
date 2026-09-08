@@ -101,6 +101,8 @@ class Cfg:
     minibatches: int = 4
     ent_coef: float = 0.01
     vf_coef: float = 0.5
+    value_features: str = "shared"  # detached isolates critic gradients from policy features
+    reference_coef: float = 0.0     # optional KL(reference || policy), explicit warm starts only
     max_grad_norm: float = 0.5
     seed: int = 1
     # Keep the documented attrition objective by default. Victory-only is an
@@ -141,6 +143,9 @@ class Cfg:
     promote_outcome_at: float = 0.25
     promote_window: int = 100
     map_path: str = "game/data/maps/pool/gen_01001000.json"
+    map_pool: tuple = ()  # Optional ordered training pool; world seed selects map.
+    roster: str = "ghouls"  # ghouls (legacy control) or mixed combat squads
+    levels: tuple = (1,)
     # ——**接不接真正的守方**（2026-09-07）——
     #
     # 默认 **接**。不接时对侧一动不动，而那是 40M 那轮的局面：
@@ -185,16 +190,21 @@ class Policy(nn.Module):
         self.actor = nn.Linear(256, n_act)
         self.critic = nn.Linear(256, 1)
 
-    def forward(self, cells, self_v, glob):
+    def forward(self, cells, self_v, glob, *, detach_value=False):
         # cells: (N, C, K, K)；self_v: (N, S)；glob: (N, G)
         z = self.conv(cells)
         h = self.trunk(torch.cat([z, self_v, glob], dim=1))
-        return self.actor(h), self.critic(h).squeeze(-1)
+        return self.actor(h), self.critic(h.detach() if detach_value else h).squeeze(-1)
 
 
 @lru_cache(maxsize=8)
 def world_factory(map_path, stats_path):
     return R.WorldFactory(map_path, stats_path), R.map_sites(map_path)
+
+
+def episode_map(cfg, episode):
+    paths=cfg.map_pool or (cfg.map_path,)
+    return paths[(cfg.seed*1000+episode)%len(paths)]
 
 
 def make_worlds(cfg: Cfg, n: int, frac: float = 1.0, start: int = 0) -> list:
@@ -213,17 +223,21 @@ def make_worlds(cfg: Cfg, n: int, frac: float = 1.0, start: int = 0) -> list:
     （env-step/s 好看、loss 在降、回报恒 nan 因为一局都没结束）。
     这是「摆错地方不报错」那一类静默失败，所以坐标不许写死。
     """
-    gh = R.obs.UNIT_TYPE_NAMES.index("Ghoul")
-    factory, sites = world_factory(cfg.map_path, cfg.stats_path)
-    spawns = list(sites["spawns"])
-    if not spawns:
-        raise SystemExit(f"{cfg.map_path} 没有集结点——攻方无处生成")
-    squads, per = 9, 3      # 9 支 × 3 = 27 个单位，编队数 9 < MAX_UNITS_PER_ENV
+    names=['Ghoul']*9 if cfg.roster=='ghouls' else ['Ghoul']*3+['Shade']*2+['Knight']*2+['Ram','Phoenix']
+    types=[R.obs.UNIT_TYPE_NAMES.index(name) for name in names]
     out = []
     for i in range(start, start + n):
+        path=episode_map(cfg,i)
+        factory,sites=world_factory(path,cfg.stats_path)
+        spawns=list(sites['spawns'])
+        if not spawns:raise ValueError(f'{path}: no attacker spawns')
+        # Traverse maps, then entrances, then levels. Using i % count for all
+        # three would permanently pair a map with one entrance/level.
+        episode_round=i//max(1,len(cfg.map_pool))
+        level=cfg.levels[(episode_round//len(spawns))%len(cfg.levels)]
         # 每局挑一个集结点（轮换）。**宏观层还没上**，所以这里是轮换而不是
         # 决策——CLAUDE.md「战术层必须先跑通，不要两层同时上」。
-        sx, sy = spawns[(cfg.seed + i) % len(spawns)]
+        sx, sy = spawns[(cfg.seed + episode_round) % len(spawns)]
         # **课程**：把出生点沿「集结点 → keep」的直线拉近 `frac` 倍。
         # frac = 1.0 是真实距离；小 frac 让随机策略也能撞到目标、拿到
         # 第一次奖励。行军距离是训练侧的课程旋钮，不是设计改动——
@@ -232,19 +246,30 @@ def make_worlds(cfg: Cfg, n: int, frac: float = 1.0, start: int = 0) -> list:
         sx = kx + (sx - kx) * frac
         sy = ky + (sy - ky) * frac
         atk = []
-        for q in range(squads):
+        for q,unit_type in enumerate(types):
+            per=3 if cfg.roster=='ghouls' else R.squad_cap(unit_type)
             for m in range(per):
                 # 7×7 环上错开落位（同 `spawn_wave` 的做法）：同坐标生成会
                 # 让单位挤在一起。
                 dx = (q % 3) - 1 + m * 0.3
                 dy = (q // 3) - 1
-                atk.append((gh, sx + 0.5 + dx, sy + 0.5 + dy, 1, q))
+                atk.append((unit_type, sx + 0.5 + dx, sy + 0.5 + dy, level, q))
         out.append(factory.make(seed=cfg.seed * 1000 + i,
-                                     nominal_level=1, attackers=atk))
+                                     nominal_level=level, attackers=atk))
     return out
 
 
 def validate(cfg):
+    if cfg.roster not in ('ghouls','mixed'):
+        raise ValueError('roster must be ghouls or mixed')
+    if not cfg.levels or any(not isinstance(lv,int) or lv<1 or lv>1000 for lv in cfg.levels):
+        raise ValueError('levels must be integers in [1,1000]')
+    if len(set(cfg.levels))!=len(cfg.levels) or len(set(cfg.map_pool))!=len(cfg.map_pool):
+        raise ValueError('Duplicate map/level entries bias the sampling distribution')
+    if cfg.value_features not in ('shared','detached'):
+        raise ValueError('value_features must be shared or detached')
+    if not np.isfinite(cfg.reference_coef) or cfg.reference_coef < 0:
+        raise ValueError('reference_coef must be finite and nonnegative')
     for name in ('envs', 'ticks_per_step', 'rollout', 'total_steps', 'epochs',
                  'minibatches', 'torch_threads', 'max_ticks', 'promote_window',
                  'defender_macro_period', 'save_every'):
@@ -263,12 +288,13 @@ def validate(cfg):
 
 
 def make_env(cfg, n, frac, start=0):
+    maps={'defender_maps':list(cfg.map_pool)} if cfg.defender and cfg.map_pool else {}
     return R.BatchedEnv(make_worlds(cfg, n, frac, start), side=R.Side.Attacker,
-                        defender_map=cfg.map_path if cfg.defender else '',
+                        defender_map=cfg.map_path if cfg.defender and not cfg.map_pool else '',
                         defender_seed=cfg.seed * 31 + 7,
                         defender_macro_period=cfg.defender_macro_period,
                         ticks_per_step=cfg.ticks_per_step, threads=cfg.threads,
-                        max_ticks_per_episode=cfg.max_ticks)
+                        max_ticks_per_episode=cfg.max_ticks,**maps)
 
 
 class Observer:
@@ -374,6 +400,20 @@ def train(cfg, args, saved):
         print('Warm start: policy weights retained; new optimizer, counters and curriculum. '
               'Old rewards and win rates are not carried into this run.', flush=True)
 
+    reference = None
+    if cfg.reference_coef:
+        import copy
+        if not saved and not args.init_weights:
+            raise ValueError('Reference regularization requires explicit --init-weights')
+        # Deepcopy consumes no RNG; paired runs retain the same sampling stream.
+        reference = copy.deepcopy(net).eval().requires_grad_(False)
+        if saved:
+            if not isinstance(saved.get('reference_model'),dict):
+                raise ValueError('Missing reference policy in resumable checkpoint')
+            reference.load_state_dict(saved['reference_model'])
+        if any(not torch.isfinite(v).all() for v in reference.state_dict().values()):
+            raise ValueError('Nonfinite reference policy')
+
     frac = cfg.curriculum[stage]
     world_factory.cache_clear()
     env = make_env(cfg, cfg.envs, frac, next_episode)
@@ -395,6 +435,7 @@ def train(cfg, args, saved):
     buf_v = torch.zeros((T, n), device=dev)
     buf_r = torch.zeros((T, cfg.envs), device=dev)
     buf_d = torch.zeros((T, cfg.envs), device=dev)
+    buf_next_potential = torch.zeros((T, cfg.envs), device=dev)
     keys = np.zeros((T + 1, cfg.envs, mu), np.int64)
     actions = np.zeros((cfg.envs, mu), np.uint8)
     done = np.zeros(cfg.envs, np.uint8)
@@ -432,6 +473,7 @@ def train(cfg, args, saved):
         save_run(folder, dict(format=FORMAT, config=asdict(cfg), contract=signature,
                               initialization=initialization,
                               model=net.state_dict(), optimizer=opt.state_dict(),
+                              reference_model=reference.state_dict() if reference is not None else None,
                               progress=progress(), rng=rng_state(), status=status))
 
     atomic_json(folder / 'config.json', asdict(cfg))
@@ -468,6 +510,7 @@ def train(cfg, args, saved):
                 rew = rew + won * cfg.win_reward + POTENTIAL_W * (cfg.gamma * after * (1-done) - phi)
                 buf_r[t] = torch.from_numpy(rew).to(dev)
                 buf_d[t] = torch.from_numpy(done.astype(np.float32)).to(dev)
+                buf_next_potential[t] = torch.from_numpy(POTENTIAL_W * after * (1-done)).to(dev)
                 roll_tally += tally.sum(0)
                 ep_ret += rew
                 ep_hit += tally[:, dmg_index]
@@ -502,7 +545,8 @@ def train(cfg, args, saved):
             sample_seconds = time.perf_counter() - sample_start
             update_start = time.perf_counter()
             adv = advantages(buf_v[:horizon], buf_r[:horizon], buf_d[:horizon],
-                             keys[:horizon+1], next_v, cfg.gamma, cfg.gae_lambda)
+                             keys[:horizon+1], next_v, cfg.gamma, cfg.gae_lambda,
+                             buf_next_potential[:horizon])
             ret = adv + buf_v[:horizon]
             packed, native = storage.indices(horizon, n)
             count = len(packed)
@@ -514,6 +558,7 @@ def train(cfg, args, saved):
             minibatch = max(1, (count + cfg.minibatches - 1) // cfg.minibatches)
             order = np.arange(count)
             losses, kls, clips, entropies = [], [], [], []
+            policy_losses, value_losses, reference_kls = [], [], []
             stopped_kl = False
             for epoch in range(cfg.epochs):
                 np.random.shuffle(order)
@@ -521,10 +566,12 @@ def train(cfg, args, saved):
                     chosen = order[offset:offset+minibatch]
                     jc = torch.from_numpy(packed[chosen])
                     j = torch.as_tensor(native[chosen], device=dev)
-                    logits, value = net(storage.c.flatten(0, 1)[jc].to(dev).permute(0, 3, 1, 2),
-                                        storage.s.flatten(0, 1)[jc].to(dev),
-                                        storage.g.flatten(0, 1)[jc].to(dev))
-                    logits = logits.masked_fill(~storage.m.flatten(0, 1)[jc].to(dev), float('-inf'))
+                    cells = storage.c.flatten(0, 1)[jc].to(dev).permute(0, 3, 1, 2)
+                    own = storage.s.flatten(0, 1)[jc].to(dev)
+                    glob = storage.g.flatten(0, 1)[jc].to(dev)
+                    legal = storage.m.flatten(0, 1)[jc].to(dev)
+                    logits, value = net(cells,own,glob,detach_value=cfg.value_features=='detached')
+                    logits = logits.masked_fill(~legal, float('-inf'))
                     dist = torch.distributions.Categorical(logits=logits)
                     logratio = dist.log_prob(a[j]) - lp[j]
                     ratio = logratio.exp()
@@ -540,6 +587,13 @@ def train(cfg, args, saved):
                     vf = .5 * (value-b_ret[j]).square().mean()
                     entropy = dist.entropy().mean()
                     loss = pg + cfg.vf_coef * vf - cfg.ent_coef * entropy
+                    ref_kl = None
+                    if reference is not None:
+                        with torch.no_grad():
+                            ref_logits,_ = reference(cells,own,glob)
+                            ref_dist = torch.distributions.Categorical(logits=ref_logits.masked_fill(~legal,float('-inf')))
+                        ref_kl = torch.distributions.kl_divergence(ref_dist,dist).mean()
+                        loss = loss + cfg.reference_coef * ref_kl
                     if not torch.isfinite(loss):
                         raise FloatingPointError('Non-finite PPO loss; last good checkpoint retained')
                     opt.zero_grad(set_to_none=True)
@@ -550,6 +604,10 @@ def train(cfg, args, saved):
                     kls.append(float(kl.detach()))
                     clips.append(float(((ratio-1).abs() > cfg.clip).float().mean().detach()))
                     entropies.append(float(entropy.detach()))
+                    policy_losses.append(float(pg.detach()))
+                    value_losses.append(float(vf.detach()))
+                    if ref_kl is not None:
+                        reference_kls.append(float(ref_kl.detach()))
                 if stopped_kl:
                     break
             # GAE and update finished against old task before a curriculum reset.
@@ -588,6 +646,10 @@ def train(cfg, args, saved):
                        env_steps_per_second=(step_count-session_start_step)/max(elapsed,1e-9),
                        live_agent_steps=count, observation_bytes=storage.bytes,
                        loss=float(np.mean(losses)) if losses else None,
+                       policy_loss=float(np.mean(policy_losses)) if policy_losses else None,
+                       value_loss=float(np.mean(value_losses)) if value_losses else None,
+                       reference_kl=float(np.mean(reference_kls)) if reference_kls else None,
+                       reference_coef=cfg.reference_coef,
                        approx_kl=float(np.mean(kls)) if kls else None,
                        clip_fraction=float(np.mean(clips)) if clips else None,
                        entropy=float(np.mean(entropies)) if entropies else None,
@@ -632,6 +694,10 @@ def main():
             ap.add_argument('--no-defender', action='store_true', default=None)
         elif name == 'curriculum':
             ap.add_argument('--curriculum', type=lambda s: tuple(float(x) for x in s.split(',')))
+        elif name == 'map_pool':
+            ap.add_argument('--map-pool',type=lambda s:tuple(s.split(',')))
+        elif name == 'levels':
+            ap.add_argument('--levels',type=lambda s:tuple(int(x) for x in s.split(',')))
         else:
             ap.add_argument('--'+name.replace('_','-'), type=type(value), default=None)
     ap.add_argument('--run-dir', default='runs/attacker')
@@ -651,6 +717,8 @@ def main():
             raise ValueError('Run directory contains a previous run; use --resume auto or a new --run-dir')
         cfg = Cfg(**saved['config']) if saved else default
         cfg.curriculum = tuple(cfg.curriculum)
+        cfg.map_pool = tuple(cfg.map_pool)
+        cfg.levels = tuple(cfg.levels)
         runtime = {'total_steps', 'device', 'threads', 'torch_threads', 'save_every'}
         for field in fields(default):
             name = field.name

@@ -56,12 +56,18 @@ public:
                      const game::MacroParams& mp = {},
                      const game::ScriptParams& sp = {},
                      int macro_period_steps = 1)
-        : map_(map), mp_(mp), sp_(sp), seed_(seed),
+        : ScriptedDefender(std::vector<game::MapData>{map},n,seed,mp,sp,macro_period_steps) {}
+
+    ScriptedDefender(const std::vector<game::MapData>& maps, int n, std::uint64_t seed,
+                     const game::MacroParams& mp = {}, const game::ScriptParams& sp = {},
+                     int macro_period_steps = 1)
+        : maps_(maps), mp_(mp), sp_(sp), seed_(seed),
           macro_period_(macro_period_steps < 1 ? 1 : macro_period_steps) {
+        if(maps_.empty()) throw rts::ContractError("ScriptedDefender requires at least one map");
         per_.reserve(static_cast<std::size_t>(n));
         for (int i = 0; i < n; ++i) {
             per_.push_back(std::make_unique<Per>(
-                map, mp, sp, seed + static_cast<std::uint64_t>(i) * 7919u));
+                maps_.front(), mp, sp, seed + static_cast<std::uint64_t>(i) * 7919u));
         }
     }
 
@@ -78,7 +84,9 @@ public:
         // reset_one replaces World but does not recreate this captured callback.
         // Reset at tick zero, including the first episode, using world seed rather
         // than batch index so frozen evaluation is independent of batching.
-        if (w.now() == 0) reset(i, map_, seed_ ^ w.seed(), mp_, sp_);
+        // Training assigns map index = world seed modulo the map pool size.
+        // The same rule applies after reset_one, independent of batch slot.
+        if (w.now() == 0) reset(i, maps_[w.seed()%maps_.size()], seed_ ^ w.seed(), mp_, sp_);
         Per& s = *per_[static_cast<std::size_t>(i)];
 
         // ——宏观：建 / 修 / 招 / 升 / 清野——
@@ -142,7 +150,7 @@ private:
     // 搬动本身是安全的，但钩子在多线程里按下标取引用 ⇒ **绝不能让
     // 那些引用因为一次扩容而失效**。指针稳定这条比省一层间接重要。
     std::vector<std::unique_ptr<Per>> per_;
-    game::MapData map_;
+    std::vector<game::MapData> maps_;
     game::MacroParams mp_;
     game::ScriptParams sp_;
     std::uint64_t seed_;

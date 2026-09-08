@@ -1,0 +1,4 @@
+add_executable(policy_probe main.cpp)
+target_link_libraries(policy_probe PRIVATE game nlohmann_json_hdr)
+rts_set_warnings(policy_probe)
+rts_copy_onnx_runtime(policy_probe)

@@ -1,0 +1,84 @@
+# RL 续训稳定性与游戏接入（2026-09-08）
+
+本轮先解决已有突破能力在 PPO 续训中退化的问题，再补训练范围与部署接口。旧服务器权重、此前示范初始化及对照目录均保留。工作在本地 CPU 上完成，未干扰共用服务器其他项目。
+
+## 奖励与训练更新
+
+一个编队阵亡时，它的 GAE 链终止，但原先共享的势函数奖励仍保留其他存活编队的下一状态势能。其折扣回报因此多出一个与阵亡时刻有关的边界项，不再只是固定的初始势能偏移。四局真实轨迹中记录到 14 次这样的提前终止；其中一例残留项为 −0.2638448973。
+
+现在为每个编队定义终止状态势能为零：阵亡且世界尚未结束时，从该编队的最后一步扣除 `gamma × 加权下一状态势能`；普通任务奖励保持原样，存活编队在 rollout 边界继续 bootstrap。终局、阵亡、行压缩和存活跨 rollout 的测试均覆盖。这是公式正确性修复，不能仅凭它断言所有训练退化都已解决。
+
+另加两个显式选项：
+
+- `--value-features detached`：价值损失只更新价值输出层，避免未训练好的价值头直接改动策略共享特征。它不是完整的 PPG 算法。
+- `--reference-coef 1`：对已初始化的策略加入 `KL(冻结参考策略 || 当前策略)` 约束。参考模型随完整检查点一起保存；删除原始初始化文件后仍能恢复。新实验必须明确提供初始化权重，不能把随机网络悄悄当作可靠参考。
+
+两个选项默认关闭。加入选项、尚未修改奖励公式时，与 v2 学习器做了一次真实 1,024 步更新对照，12 个模型张量逐一完全相等。之后的奖励边界修正会有意改变训练结果，并提升学习器合约版本。
+
+参考动机：[策略与价值特征相互干扰的 PPG 论文](https://proceedings.mlr.press/v139/cobbe21a/cobbe21a.pdf)、[示范策略正则化研究](https://deepmind.google/research/publications/41182/)。这里采用的具体损失和默认参数仍需由本项目实验验证。
+
+## 一级亡灵步兵的完整距离复测
+
+全部从此前 `flow_breach` 示范模型初始化，各组训练 32,768 env-step，经济奖励、真实脚本守方、16 个环境、CPU。原先默认 PPO 的两图四种评估全部为 0/32 胜；仅分离价值梯度的小样本对照仍为 0/8 胜。加入参考约束后能保留已有突破能力。
+
+修正奖励边界并采用分离价值梯度 + 参考系数 1 后，冻结模型在每张图、每种选动作方式各评估 32 局：
+
+| 地图 | 最大概率动作胜局 | 按概率采样胜局 | 有建筑接触 |
+|---|---:|---:|---:|
+| `gen_01001000`（训练图） | 16/32 | 17/32 | 两种均 32/32 |
+| `gen_01002000`（诊断图） | 6/32 | 15/32 | 两种均 32/32 |
+| `gen_01003000`（第三图） | 7/32 | 8/32 | 两种均 32/32 |
+
+示范初始化对应胜局为 16/17、6/14、7/8；本轮结果支持“续训保住已有能力”，不构成统计显著提升的证据。第三图的确定性策略从 26/32 建筑接触恢复到 32/32，但仍有入口只能造成很少伤害。三图已经用于诊断，后续不能再称为从未见过的最终测试集。
+
+原始运行：`runs/stability-pilot-20260908`（修正前对照）、`runs/terminal-pilot-20260908`（修正后对照与完整复测）。每个报告保留模型、地图、数值表和评估源码哈希，以及逐局种子、入口和结局。新混兵训练另外使用 `runs/mixed-pilot-20260908`。
+
+仓库内保存 [22 份报告、320 局的复核数据](rl-results/2026-09-08-stability.json)，包含全部逐局结局与战果；较大的逐步轨迹留在上述原始目录，复核数据记录对应文件哈希。
+
+## 多地图、混兵、等级
+
+`--map-pool` 接受有序的逗号分隔地图路径。地图由世界种子对池大小取模选择；守方陪练使用同一规则，在每次换局时重新绑定正确地图。测试将混合批次与逐图独立运行的观测逐项对比，并覆盖同一槽位换成另一张地图。
+
+`--roster mixed` 使用 3 队亡灵步兵、2 队亡灵法师、2 队鬼域骑士、1 队攻城锤、1 队不死鸟。每队人数直接读取游戏定义；幽影窥使的侦查仍由脚本负责。`--levels 1,4,8,16` 控制初始等级，单位满血与等级缩放一致。地图、入口、等级按交叉组合遍历，避免相同取模把一张地图永远锁在某个入口或等级。
+
+```bash
+python train/demonstrations.py collect --out-dir runs/mixed/data \
+  --map-pool game/data/maps/pool/gen_01001000.json,game/data/maps/pool/gen_01004000.json \
+  --roster mixed --levels 1,4,8,16 --teacher flow_breach
+python train/demonstrations.py fit --data runs/mixed/data/demonstrations.npz \
+  --run-dir runs/mixed/fit --epochs 16
+python train/ppo.py --run-dir runs/mixed/ppo --init-weights runs/mixed/fit/policy.pt \
+  --map-pool game/data/maps/pool/gen_01001000.json,game/data/maps/pool/gen_01004000.json \
+  --roster mixed --levels 1,4,8,16 --curriculum 1 \
+  --value-features detached --reference-coef 1 --total-steps 32768
+```
+
+评估逐图进行，不把失败地图藏在一个平均数里。跨图复测使用独立的 `policy.pt`，显式指定地图、兵种、等级、守方与时限；完整检查点仍严格校验原训练合约。
+
+## 导出与实际游戏推理
+
+普通构建默认不引入 ONNX Runtime。可选 CPU 推理使用官方 1.29.0 SDK；Windows/Linux x64 自动下载均锁定 SHA256，也可用 `RTS_ONNX_ROOT` 指定已有 SDK。发布时保留随可执行文件复制的运行库与许可文件。
+
+```bash
+cmake -S . -B build-rl -DRTS_BUILD_RENDER=ON -DRTS_WITH_ONNX=ON
+cmake --build build-rl --config Release
+# 导出环境另需 torch、onnx、onnxruntime，以及对应版本的 rts_native。
+python train/export_policy.py --checkpoint runs/attacker/policy.pt \
+  --output runs/export/attacker.onnx --probe build-rl/tools/policy_probe/Release/policy_probe.exe \
+  --unit-types Ghoul --min-level 1 --max-level 1
+build-rl/render/Release/rts_render.exe --rl-policy runs/export/attacker.onnx
+```
+
+示例是 Windows 多配置构建路径；Linux 单配置可执行文件没有 `Release/` 和 `.exe`。声明的兵种与等级必须来自实际训练及评估覆盖，不能仅为启用更多单位而扩大范围。
+
+导出器使用真实冻结策略轨迹抽样，分别验证 1、9、32 个 agent 的 PyTorch/ONNX 输出和合法动作，再调用编译后的 C++ 程序复核。首个已验证模型抽取 271 步中的 54 个观测，最大 logit 误差约 7.63×10⁻⁶，动作完全一致。32 agent 的 C++ 推理均值约 1.83 ms；这只计模型前向，不含方向场与观测打包，也不是完整帧耗时。
+
+游戏显式加载 `--rl-policy` 后显示 `RL: N squads`。只有模型声明支持的编队由网络控制，其余保留脚本。模型输入来自攻方迷雾视角，观测目标、归一化、13 动作掩码、编队队长观测与广播规则匹配当前训练接口，决策间隔来自模型元数据。首波实际截图确认 6 支编队在使用模型。
+
+这里有一个需要继续评估的行为边界：训练接口将队长动作广播给成员；默认游戏脚本则让成员分别采样方向场。实验性模型模式明确采用前者，不在接入时偷偷改成另一套执行规则。未来若调整这个编队契约，必须同时更新训练和运行端并重新验证，不能直接复用旧成绩。
+
+存档记录模型内容标识。读取 RL 对局必须提供同一个模型；完整快照与操作日志回放的后续状态哈希均已验证一致。普通对局仍保存为 v3，RL 对局使用 v4，让旧程序明确拒绝它，避免用脚本静默接替。默认 `play.bat` 仍进入正式游戏；当前模型尚未作为完整攻方 AI 自动启用。
+
+## 尚未完成
+
+多地图混兵的最终成绩、更多等级与未使用地图的独立测试、宏观编成学习、守方宏观 RL 陪练和可分发模型包仍需继续推进。已接通推理与能恢复训练不等于这些内容已经完成。

@@ -40,11 +40,13 @@
 #include "game/map_loader.hpp"
 #include "game/stats_loader.hpp"
 #include "game/world_builder.hpp"
+#include "game/attacker_macro.hpp"
 #include "scripted_defender.hpp"
 #include "rts/action.hpp"
 #include "rts/batched_env.hpp"
 #include "rts/obs.hpp"
 #include "rts/roster.hpp"
+#include "rts/combat_math.hpp"
 
 namespace py = pybind11;
 
@@ -68,7 +70,8 @@ struct WorldFactory {
             if (rts::side_of(ut) != rts::Side::Attacker) {
                 throw rts::ContractError("WorldFactory: attacker side required");
             }
-            const auto hp = stats.of(ut).max_hp;
+            const auto hp = rts::apply_permille(stats.of(ut).max_hp,
+                {rts::level_permille(lvl,stats.global.hp_permille_per_level)});
             const auto squad = sq < 0 ? rts::kNoSquad : static_cast<std::uint16_t>(sq);
             init.units.push_back(rts::UnitInit{ut, rts::Vec2{x, y}, lvl, hp, hp, squad});
         }
@@ -105,6 +108,10 @@ auto as_cspan(const Arr& a) {
 }  // namespace
 
 PYBIND11_MODULE(rts_native, m) {
+    m.def("squad_cap",[](int type) {
+        if(type<0 || type>=rts::kUnitTypeCount) throw rts::ContractError("Invalid unit type");
+        return game::squad_cap_of(static_cast<rts::UnitType>(type));
+    });
     m.attr("SIMULATION_FINGERPRINT") = RTS_SIMULATION_FINGERPRINT;
     m.attr("BUILD_MODE") = RTS_NATIVE_BUILD_MODE;
     m.doc() = "siege-rts-rl 的原生仿真（不变量 3：in-process，不走 IPC）";
@@ -266,7 +273,8 @@ PYBIND11_MODULE(rts_native, m) {
         .def(py::init([](std::vector<rts::WorldInit> worlds, rts::Side side,
                          int ticks_per_step, int threads, int max_ticks_per_episode,
                          const std::string& defender_map, int defender_seed,
-                         int defender_macro_period, rts::ObsNorms norms) {
+                         int defender_macro_period, rts::ObsNorms norms,
+                         const std::vector<std::string>& defender_maps) {
                  rts::BatchedEnvInit bi;
                  bi.worlds = std::move(worlds);
                  bi.side = side;
@@ -285,10 +293,14 @@ PYBIND11_MODULE(rts_native, m) {
                  // 不复用 `make_world_init` 那次是因为那一层只返回
                  // `WorldInit`、不返回 `MapData`，而 `DefenderMacro` 要的
                  // 是后者（它构造时要算环半径与候选塔位）。一次性开销。
-                 if (!defender_map.empty()) {
-                     const game::MapData dm = game::MapLoader::from_file(defender_map);
+                 if (!defender_map.empty() && !defender_maps.empty())
+                     throw rts::ContractError("Choose defender_map or defender_maps, not both");
+                 if (!defender_map.empty() || !defender_maps.empty()) {
+                     std::vector<game::MapData> maps;
+                     if(!defender_map.empty()) maps.push_back(game::MapLoader::from_file(defender_map));
+                     for(const auto& path:defender_maps) maps.push_back(game::MapLoader::from_file(path));
                      auto brain = std::make_shared<bindings::ScriptedDefender>(
-                         dm, static_cast<int>(bi.worlds.size()),
+                         maps, static_cast<int>(bi.worlds.size()),
                          static_cast<std::uint64_t>(defender_seed),
                          game::MacroParams{}, game::ScriptParams{},
                          defender_macro_period);
@@ -305,6 +317,7 @@ PYBIND11_MODULE(rts_native, m) {
              py::arg("defender_seed") = 20260907,
              py::arg("defender_macro_period") = 1,
              py::arg("norms") = rts::ObsNorms{},
+             py::arg("defender_maps") = std::vector<std::string>{},
              "defender_map 给了就**接上真正的守方**（game::DefenderScript + "
              "DefenderMacro，逐局各一份）。**不给 = 对侧一动不动**——那是 "
              "2026-09-07 之前的行为，而它让 enemy_* 那几条观测通道十万局零"

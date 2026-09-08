@@ -7,6 +7,7 @@
 add_executable(calibration_runner main.cpp)
 
 target_link_libraries(calibration_runner PRIVATE game)
+rts_copy_onnx_runtime(calibration_runner)
 rts_set_warnings(calibration_runner)
 
 # 默认数值表与地图目录：与 tests/ 同一个编译期常量（game/CMakeLists.txt

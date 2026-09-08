@@ -67,7 +67,10 @@ def collect(args):
     if not fractions or fractions != sorted(set(fractions)) or not all(0 < f <= 1 for f in fractions):
         raise ValueError('Fractions must be increasing, unique and in (0,1]')
     cfg = Cfg(envs=args.envs,threads=args.threads,torch_threads=1,device='cpu',seed=args.seed,
-              map_path=args.map_path,stats_path=args.stats_path)
+              map_path=args.map_path,stats_path=args.stats_path,map_pool=tuple(args.map_pool.split(',')) if args.map_pool else (),
+              roster=args.roster,levels=tuple(int(x) for x in args.levels.split(',')))
+    from ppo import validate
+    validate(cfg)
     # JSON normalization makes tuple/list config fields identical after a restart.
     plan = json.loads(json.dumps(dict(config=asdict(cfg),signature=signature(cfg),
                     steps=args.steps,stride=args.stride,fractions=fractions,teacher=args.teacher)))
@@ -261,6 +264,9 @@ def main(argv=None):
                             help='Explicit teacher choice; flow preserves the original attack-first baseline')
     collect_ap.add_argument('--map-path',default=Cfg().map_path)
     collect_ap.add_argument('--stats-path',default=Cfg().stats_path)
+    collect_ap.add_argument('--map-pool',default='')
+    collect_ap.add_argument('--roster',choices=('ghouls','mixed'),default='ghouls')
+    collect_ap.add_argument('--levels',default='1')
     fit_ap = commands.add_parser('fit',help='Fit on CPU; restore optimizer and epoch checkpoints with --resume')
     fit_ap.add_argument('--data',required=True)
     fit_ap.add_argument('--run-dir',required=True)

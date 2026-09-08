@@ -31,9 +31,10 @@ def contract(native, cfg):
         'actions': native.obs.ACTION_COUNT,
         'max_agents': native.obs.MAX_UNITS_PER_ENV,
         'map_sha256': sha256(cfg.map_path), 'stats_sha256': sha256(cfg.stats_path),
+        'map_pool_sha256': [sha256(path) for path in cfg.map_pool],
         'simulation_fingerprint': native.SIMULATION_FINGERPRINT,
         'native_build_mode': native.BUILD_MODE,
-        'learner_version': 2,  # identity-aware GAE, live-only sampling, true opponent reset
+        'learner_version': 5,  # multi-map, mixed-roster and level training
         'learner_sha256': {name: sha256(ROOT/'train'/name) for name in
                            ('ppo.py', 'learning.py', 'rollout.py', 'checkpointing.py')},
     }

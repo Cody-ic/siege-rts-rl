@@ -52,6 +52,7 @@ add_executable(rts_tests
     msvc_debug_to_stderr.cpp
     rng_test.cpp
     save_game_test.cpp
+    rl_policy_test.cpp
     battle_fixes_test.cpp
     hash_test.cpp
     types_test.cpp
@@ -87,6 +88,7 @@ add_executable(rts_tests
 )
 
 target_link_libraries(rts_tests PRIVATE rts_core game Catch2::Catch2WithMain)
+rts_copy_onnx_runtime(rts_tests)
 rts_set_warnings(rts_tests TESTS)
 
 # 夹具地图的路径作为编译期常量给测试，**不依赖 ctest 的工作目录**。
@@ -144,7 +146,7 @@ target_compile_definitions(rts_tests PRIVATE
 #     ./build/tests/Release/rts_tests "<用例名>"
 foreach(_tag rng hash types map scene iso names utf8path roster action command obs
         terrain fog world replay behavior stats mech econ garrison charge proj flow
-        script input menu assets demo obspack batchenv macro save battlefix)
+        script input menu assets demo obspack batchenv macro save battlefix rlpolicy)
     add_test(NAME rts_tests_${_tag} COMMAND rts_tests "[${_tag}]")
 endforeach()
 
