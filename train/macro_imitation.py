@@ -45,7 +45,7 @@ def run(cfg,folder,decisions,epochs,active_fraction=None):
                          existing['initialization'].get('kind')!='single-command-script-imitation'):
             raise ValueError('Refusing to overwrite a PPO or unrelated run with imitation')
         policy=MacroPolicy(len(native.macro_obs.CELL_NAMES),len(native.macro_obs.GLOBAL_NAMES),
-                           len(native.COMMAND_KIND_NAMES),cfg.hidden)
+                           len(native.COMMAND_KIND_NAMES),cfg.hidden,len(native.macro_obs.DETAIL_NAMES))
         data_path=folder/'demonstrations.pt'
         if data_path.exists():
             data=torch.load(data_path,weights_only=True)
@@ -58,10 +58,11 @@ def run(cfg,folder,decisions,epochs,active_fraction=None):
                 resets=0
                 for _ in range(decisions):
                     obs=world.defender_observation();command=world.teacher_command()
+                    detail=world.defender_detail().astype(np.float16)
                     with torch.no_grad():
-                        d=policy.decide(*obs,world.candidates(),world.map_shape,command=command)
+                        d=policy.decide(*obs,world.candidates(),world.map_shape,command=command,detail=detail)
                     rows.append(dict(cells=torch.from_numpy(obs[0]),global_values=torch.from_numpy(obs[1]),
-                        command=command,domains=[torch.from_numpy(x) for x in d.domains],shape=world.map_shape))
+                        command=command,detail=torch.from_numpy(detail),domains=[torch.from_numpy(x) for x in d.domains],shape=world.map_shape))
                     result=world.advance(cfg.period,[command])
                     if result['defeated']:
                         resets+=1
@@ -84,7 +85,7 @@ def run(cfg,folder,decisions,epochs,active_fraction=None):
             for index in sample_epoch(rows,active_fraction):
                 row=rows[index]
                 domains=[x.numpy() for x in row['domains']]
-                decision=policy.rescore(row['cells'],row['global_values'],row['command'],domains,row['shape'])
+                decision=policy.rescore(row['cells'],row['global_values'],row['command'],domains,row['shape'],detail=row['detail'])
                 loss=-decision.log_prob
                 optimizer.zero_grad();loss.backward()
                 torch.nn.utils.clip_grad_norm_(policy.parameters(),1.,error_if_nonfinite=True)

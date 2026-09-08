@@ -5,6 +5,44 @@
 #include "game/player_input.hpp"
 
 namespace game {
+std::vector<std::string> macro_detail_names() {
+    std::vector<std::string> names={"buildable","obstacle","stone_site","wood_site","gold_site"};
+    for(int i=0;i<rts::kBldTypeCount;++i)
+        names.push_back("building_"+std::string(rts::ident_of(static_cast<rts::BldType>(i))));
+    for(const auto* name:{"hp_fraction","level","built","upgrade_active","work_active","train_active",
+                          "visible","explored"}) names.emplace_back(name);
+    return names;
+}
+std::vector<float> pack_macro_detail(const rts::WorldView& v) {
+    if(v.side()!=rts::Side::Defender) throw rts::ContractError("Macro detail requires defender view");
+    std::vector<float> out(static_cast<std::size_t>(v.width()*v.height()*kMacroDetailChannels),0.f);
+    const auto index=[&](int x,int y) {return static_cast<std::size_t>((y*v.width()+x)*kMacroDetailChannels);};
+    constexpr int state=5+rts::kBldTypeCount;
+    for(int y=0;y<v.height();++y) for(int x=0;x<v.width();++x) {
+        const auto base=index(x,y);
+        out[base]=v.terrain().buildable(x,y)?1.f:0.f;
+        out[base+state+6]=v.fog().at(x,y)==rts::Vis::Visible?1.f:0.f;
+        out[base+state+7]=v.fog().at(x,y)!=rts::Vis::Unseen?1.f:0.f;
+    }
+    for(std::size_t i=0;i<v.obstacle_alive().size();++i) if(v.obstacle_alive()[i]) {
+        const auto p=v.obstacle_pos()[i];out[index(p.i,p.j)+1]=1.f;
+    }
+    for(const auto& site:v.resources()) {
+        const int kind=site.kind==rts::Resource::Stone?0:site.kind==rts::Resource::Wood?1:2;
+        out[index(site.pos.i,site.pos.j)+2+kind]=1.f;
+    }
+    for(std::size_t i=0;i<v.bld_alive().size();++i) if(v.bld_alive()[i]) {
+        const auto p=v.bld_pos()[i];const auto base=index(p.i,p.j);
+        out[base+5+static_cast<int>(v.bld_type()[i])]=1.f;
+        out[base+state]=static_cast<float>(v.bld_hp()[i])/static_cast<float>(std::max<std::int64_t>(1,v.bld_max_hp()[i]));
+        out[base+state+1]=static_cast<float>(v.bld_level()[i])/32.f;
+        out[base+state+2]=v.bld_built()[i]?1.f:0.f;
+        out[base+state+3]=v.bld_upgrade_left()[i]>0?1.f:0.f;
+        out[base+state+4]=v.bld_work_left()[i]>0?1.f:0.f;
+        out[base+state+5]=v.bld_train_left()[i]>0?1.f:0.f;
+    }
+    return out;
+}
 std::vector<rts::Command> macro_candidates(const rts::WorldView& v,bool summon_allowed) {
     if(v.side()!=rts::Side::Defender) throw rts::ContractError("Macro candidates require defender view");
     if(v.width()*v.height()>rts::kNoSlot) throw rts::ContractError("Map exceeds command slot encoding");

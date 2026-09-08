@@ -27,6 +27,11 @@ class CampaignBindingTests(unittest.TestCase):
         np.testing.assert_array_equal(cells, snapshot)
         cells.fill(-999)
         self.assertTrue((self.campaign.defender_observation()[0] >= 0).all())
+        detail=self.campaign.defender_detail()
+        self.assertEqual(detail.shape,(*self.campaign.map_shape,len(native.macro_obs.DETAIL_NAMES)))
+        self.assertTrue(np.isfinite(detail).all())
+        detail.fill(-999)
+        self.assertTrue((self.campaign.defender_detail()>=0).all())
 
     def test_mask_is_read_only_and_summon_changes_phase(self):
         names = native.COMMAND_KIND_NAMES

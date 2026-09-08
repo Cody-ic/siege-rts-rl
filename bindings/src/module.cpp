@@ -138,6 +138,7 @@ PYBIND11_MODULE(rts_native, m) {
     macro_obs.attr("GRID")=game::kMacroGrid;
     macro_obs.attr("CELL_NAMES")=game::macro_cell_names();
     macro_obs.attr("GLOBAL_NAMES")=game::macro_global_names();
+    macro_obs.attr("DETAIL_NAMES")=game::macro_detail_names();
     // This is a full game, not a WorldInit approximation. Returned hashes are
     // diagnostics, never policy observations. Macro observation packing follows
     // the defender's own information boundary separately.
@@ -163,6 +164,13 @@ PYBIND11_MODULE(rts_native, m) {
                 game::StatsLoader::from_file(stats),seed);
         }),py::arg("map_path"),py::arg("stats_path"),py::arg("seed")=1)
         .def("fork",&game::TrainingCampaign::fork)
+        .def("defender_detail",[](const game::TrainingCampaign& c) {
+            const auto view=c.world().view(rts::Side::Defender);
+            const auto packed=game::pack_macro_detail(view);
+            py::array_t<float> result({view.height(),view.width(),game::kMacroDetailChannels});
+            std::copy(packed.begin(),packed.end(),result.mutable_data());
+            return result;
+        })
         .def("teacher_command",[](const game::TrainingCampaign& c) {
             const auto command=c.teacher_command();
             return py::make_tuple(static_cast<int>(command.kind),command.slot,command.what,command.level);

@@ -54,6 +54,8 @@ TEST_CASE("Macro observation excludes hidden enemies including their counts and 
     const auto x=game::pack_macro_observation(a.view(rts::Side::Defender));
     const auto y=game::pack_macro_observation(b.view(rts::Side::Defender));
     REQUIRE(x.cells==y.cells);REQUIRE(x.global==y.global);
+    REQUIRE(game::pack_macro_detail(a.view(rts::Side::Defender))==game::pack_macro_detail(b.view(rts::Side::Defender)));
+    REQUIRE(game::macro_detail_names().size()==game::kMacroDetailChannels);
     REQUIRE(x.cells.size()==game::kMacroGrid*game::kMacroGrid*game::kMacroChannels);
     REQUIRE(game::macro_cell_names().size()==game::kMacroChannels);
     REQUIRE(game::macro_global_names().size()==game::kMacroGlobals);
@@ -61,6 +63,20 @@ TEST_CASE("Macro observation excludes hidden enemies including their counts and 
     b.advance(1);
     REQUIRE(game::pack_macro_observation(b.view(rts::Side::Defender)).cells!=x.cells);
     REQUIRE_THROWS(game::pack_macro_observation(a.view(rts::Side::Attacker)));
+    REQUIRE_THROWS(game::pack_macro_detail(a.view(rts::Side::Attacker)));
+}
+TEST_CASE("Fine macro detail distinguishes adjacent buildings within one coarse region", "[macroobs]") {
+    auto left=arena(),right=arena();
+    left.buildings.push_back({rts::BldType::Wall,{10,10},100,100});
+    right.buildings.push_back({rts::BldType::Wall,{11,10},100,100});
+    rts::World a(left),b(right);
+    const auto av=a.view(rts::Side::Defender),bv=b.view(rts::Side::Defender);
+    REQUIRE(game::pack_macro_observation(av).cells==game::pack_macro_observation(bv).cells);
+    const auto x=game::pack_macro_detail(av),y=game::pack_macro_detail(bv);
+    REQUIRE(x.size()==40*40*game::kMacroDetailChannels);
+    REQUIRE(x!=y);
+    const auto offset=static_cast<std::size_t>((10*40+10)*game::kMacroDetailChannels+5+static_cast<int>(rts::BldType::Wall));
+    REQUIRE(x[offset]==1.f);REQUIRE(y[offset]==0.f);
 }
 TEST_CASE("Macro command mask rejects unaffordable, occupied and wrong-side choices", "[macroobs]") {
     rts::World w(arena());

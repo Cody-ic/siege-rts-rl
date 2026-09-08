@@ -23,13 +23,14 @@ class Decision:
 
 
 class MacroPolicy(nn.Module):
-    VERSION = 1
+    VERSION = 2
     ORDER = (0, 2, 3, 1)
 
-    def __init__(self, cell_channels, global_count, command_count, hidden=64):
+    def __init__(self, cell_channels, global_count, command_count, hidden=64, detail_channels=0):
         super().__init__()
         self.contract = dict(version=self.VERSION, cell_channels=cell_channels,
-                             global_count=global_count, command_count=command_count, hidden=hidden)
+                             global_count=global_count, command_count=command_count, hidden=hidden,
+                             detail_channels=detail_channels)
         self.encoder = nn.Sequential(nn.Conv2d(cell_channels, hidden, 3, padding=1), nn.SiLU(),
                                      nn.Conv2d(hidden, hidden, 3, padding=1), nn.SiLU())
         self.context = nn.Sequential(nn.Linear(hidden + global_count, hidden), nn.Tanh())
@@ -39,6 +40,11 @@ class MacroPolicy(nn.Module):
         self.heads = nn.ModuleList(nn.Linear(hidden, n) for n in (command_count, 256, 256))
         self.position_query = nn.Linear(hidden, hidden)
         self.position_coords = nn.Linear(3, hidden, bias=False)
+        if detail_channels:
+            self.detail_encoder=nn.Sequential(nn.Conv2d(detail_channels,8,3,padding=1),nn.SiLU(),
+                                               nn.Conv2d(8,8,3,padding=1),nn.SiLU())
+            self.detail_context=nn.Linear(16,hidden)
+            self.detail_position=nn.Linear(8,hidden,bias=False)
         self.critic = nn.Linear(hidden, 1)
 
     def encode(self, cells, global_values):
@@ -53,7 +59,20 @@ class MacroPolicy(nn.Module):
         context = self.context(torch.cat((spatial.mean(dim=(1, 2)), global_values)))
         return spatial, context
 
-    def _position_logits(self, spatial, context, values, map_shape):
+    def encode_state(self,cells,global_values,detail=None):
+        spatial,context=self.encode(cells,global_values)
+        fine=None
+        if self.contract['detail_channels']:
+            if detail is None:
+                raise ValueError('Full-resolution macro detail is required')
+            detail=torch.as_tensor(detail,dtype=torch.float32,device=context.device)
+            if detail.ndim!=3 or detail.shape[-1]!=self.contract['detail_channels']:
+                raise ValueError('Macro detail must have HWC shape matching its contract')
+            fine=self.detail_encoder(detail.permute(2,0,1).unsqueeze(0))[0]
+            context=torch.tanh(context+self.detail_context(torch.cat((fine.mean((1,2)),fine.amax((1,2))))))
+        return spatial,context,fine
+
+    def _position_logits(self, spatial, context, values, map_shape, fine=None):
         height, width = map_shape
         if height < 1 or width < 1 or height * width > 65535:
             raise ValueError('invalid command map dimensions')
@@ -70,9 +89,13 @@ class MacroPolicy(nn.Module):
                               (y.float() + .5) / height, no_slot.float()), dim=1)
         coords[:, :2] *= (~no_slot).unsqueeze(1)
         keys = local + self.position_coords(coords)
+        if fine is not None:
+            if fine.shape[1:]!=(height,width):
+                raise ValueError('Macro detail resolution differs from command map')
+            keys=keys+self.detail_position(fine[:,y,x].T)*(~no_slot).unsqueeze(1)
         return keys @ self.position_query(context) / context.numel() ** .5
 
-    def decide(self, cells, global_values, candidates, map_shape, *, command=None, greedy=False):
+    def decide(self, cells, global_values, candidates, map_shape, *, command=None, greedy=False, detail=None):
         """Sample or score one command. Score with the ORIGINAL state's candidates.
 
         Recomputing candidates after advancing the world changes the distribution
@@ -96,9 +119,9 @@ class MacroPolicy(nn.Module):
             for previous in self.ORDER[:stage]:
                 subset = subset[subset[:, previous] == selected[previous]]
             return np.unique(subset[:, self.ORDER[stage]])
-        return self._walk(cells, global_values, map_shape, legal_values, command, greedy)
+        return self._walk(cells, global_values, map_shape, legal_values, command, greedy,detail)
 
-    def rescore(self, cells, global_values, command, domains, map_shape):
+    def rescore(self, cells, global_values, command, domains, map_shape, *, detail=None):
         """PPO evaluation from the four saved original conditional masks.
 
         Store these arrays, not the complete (potentially 170k-row) command set.
@@ -116,10 +139,10 @@ class MacroPolicy(nn.Module):
             if (values < (1 if stage == 2 else 0)).any() or (values >= limit).any():
                 raise ValueError('saved conditional domain is out of range')
             return values
-        return self._walk(cells, global_values, map_shape, legal_values, command, False)
+        return self._walk(cells, global_values, map_shape, legal_values, command, False,detail)
 
-    def _walk(self, cells, global_values, map_shape, legal_values, command, greedy):
-        spatial, context = self.encode(cells, global_values)
+    def _walk(self, cells, global_values, map_shape, legal_values, command, greedy,detail):
+        spatial, context,fine = self.encode_state(cells, global_values,detail)
         value = self.critic(context).squeeze(-1)
         log_prob = context.new_zeros(())
         entropy = context.new_zeros(())
@@ -131,7 +154,7 @@ class MacroPolicy(nn.Module):
             domains.append(values.copy())
             indices = torch.as_tensor(values, dtype=torch.long, device=context.device)
             logits = (self.heads[stage](context)[indices] if stage < 3 else
-                      self._position_logits(spatial, context, values, map_shape))
+                      self._position_logits(spatial, context, values, map_shape,fine))
             distribution = Categorical(logits=logits)
             if command is not None:
                 choice = torch.tensor(int(np.searchsorted(values, command[column])), device=context.device)

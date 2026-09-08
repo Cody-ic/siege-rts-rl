@@ -38,6 +38,7 @@ def contract(cfg):
     return dict(kind='defender-macro-ppo-v1', simulation=native.SIMULATION_FINGERPRINT,
                 build=native.BUILD_MODE, obs_version=native.macro_obs.VERSION,
                 cells=list(native.macro_obs.CELL_NAMES), globals=list(native.macro_obs.GLOBAL_NAMES),
+                detail=list(native.macro_obs.DETAIL_NAMES),detail_storage='float16-before-inference',
                 commands=list(native.COMMAND_KIND_NAMES), maps=[sha256(p) for p in cfg.maps],
                 stats=sha256(cfg.stats), sources={name:sha256(ROOT/'train'/name) for name in
                     ('macro_train.py','macro_policy.py','checkpointing.py')})
@@ -47,9 +48,9 @@ def campaign(cfg, episode):
     return native.TrainingCampaign(cfg.maps[episode % len(cfg.maps)], cfg.stats, cfg.seed + episode)
 
 
-def bootstrap(policy, obs):
+def bootstrap(policy, obs,detail):
     with torch.no_grad():
-        _, context = policy.encode(*obs)
+        _, context,_ = policy.encode_state(*obs,detail)
         return float(policy.critic(context).squeeze())
 
 
@@ -83,7 +84,7 @@ def train(cfg, folder, updates):
     with run_lock(folder):
         saved,_ = load_auto(folder)
         policy = MacroPolicy(len(native.macro_obs.CELL_NAMES),len(native.macro_obs.GLOBAL_NAMES),
-                             len(native.COMMAND_KIND_NAMES),cfg.hidden)
+                             len(native.COMMAND_KIND_NAMES),cfg.hidden,len(native.macro_obs.DETAIL_NAMES))
         optimizer = torch.optim.Adam(policy.parameters(),lr=cfg.learning_rate)
         progress = dict(updates=0,env_steps=0,episode=0,waves_survived=0,defeats=0,history=[])
         commands = []
@@ -114,17 +115,18 @@ def train(cfg, folder, updates):
             rows=[]
             for _ in range(cfg.rollout):
                 obs=world.defender_observation()
+                detail=world.defender_detail().astype(np.float16)
                 with torch.no_grad():
-                    decision=policy.decide(*obs,world.candidates(),world.map_shape)
+                    decision=policy.decide(*obs,world.candidates(),world.map_shape,detail=detail)
                 transition=world.advance(cfg.period,[decision.command])
                 commands.append(decision.command)
                 terminal=transition['wave_advanced'] or transition['defeated']
                 # Sparse outcome only: no repeated reward for building/demolishing or waiting.
                 reward=float(transition['wave_advanced'])-float(transition['defeated'])
-                rows.append(dict(obs=obs,command=decision.command,domains=decision.domains,
+                rows.append(dict(obs=obs,detail=detail,command=decision.command,domains=decision.domains,
                     shape=world.map_shape,log_prob=float(decision.log_prob),value=float(decision.value),
                     reward=reward,terminal=terminal,ticks=transition['ticks'],
-                    next_value=0. if terminal else bootstrap(policy,world.defender_observation())))
+                    next_value=0. if terminal else bootstrap(policy,world.defender_observation(),world.defender_detail().astype(np.float16))))
                 progress['waves_survived']+=int(transition['wave_advanced'])
                 progress['defeats']+=int(transition['defeated'])
                 if transition['defeated'] or world.wave>cfg.max_wave:
@@ -136,7 +138,7 @@ def train(cfg, folder, updates):
                 optimizer.zero_grad()
                 # Accumulate one rollout gradient; don't retain all spatial graphs in memory.
                 for index,row in enumerate(rows):
-                    d=policy.rescore(*row['obs'],row['command'],row['domains'],row['shape'])
+                    d=policy.rescore(*row['obs'],row['command'],row['domains'],row['shape'],detail=row['detail'])
                     ratio=(d.log_prob-row['log_prob']).exp()
                     surrogate=torch.minimum(ratio*advantages[index],
                         ratio.clamp(1-cfg.clip,1+cfg.clip)*advantages[index])

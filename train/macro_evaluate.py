@@ -4,6 +4,7 @@ from collections import Counter
 from pathlib import Path
 
 import torch
+import numpy as np
 import rts_native as native
 
 from checkpointing import atomic_json, load_training, sha256
@@ -16,6 +17,7 @@ def load_policy(path, stats):
     expected=dict(kind='defender-macro-ppo-v1',simulation=native.SIMULATION_FINGERPRINT,
         build=native.BUILD_MODE,obs_version=native.macro_obs.VERSION,
         cells=list(native.macro_obs.CELL_NAMES),globals=list(native.macro_obs.GLOBAL_NAMES),
+        detail=list(native.macro_obs.DETAIL_NAMES),detail_storage='float16-before-inference',
         commands=list(native.COMMAND_KIND_NAMES),stats=sha256(stats))
     for key,value in expected.items():
         if identity.get(key)!=value:
@@ -25,9 +27,9 @@ def load_policy(path, stats):
     cfg=data['config']
     torch.manual_seed(cfg['seed'])
     initial=MacroPolicy(len(native.macro_obs.CELL_NAMES),len(native.macro_obs.GLOBAL_NAMES),
-                        len(native.COMMAND_KIND_NAMES),cfg['hidden']).eval()
+                        len(native.COMMAND_KIND_NAMES),cfg['hidden'],len(native.macro_obs.DETAIL_NAMES)).eval()
     learned=MacroPolicy(len(native.macro_obs.CELL_NAMES),len(native.macro_obs.GLOBAL_NAMES),
-                        len(native.COMMAND_KIND_NAMES),cfg['hidden']).eval()
+                        len(native.COMMAND_KIND_NAMES),cfg['hidden'],len(native.macro_obs.DETAIL_NAMES)).eval()
     learned.load_state_dict(data['model'])
     return learned,initial,cfg
 
@@ -52,7 +54,7 @@ def evaluate_case(map_path,stats,seed,policy,period,max_wave,max_ticks,greedy=Fa
         else:
             with torch.no_grad():
                 decision=policy.decide(*world.defender_observation(),world.candidates(),
-                                       world.map_shape,greedy=greedy)
+                                       world.map_shape,greedy=greedy,detail=world.defender_detail().astype(np.float16))
             if not world.command_mask([decision.command])[0]:
                 raise ValueError('Policy selected an illegal command')
             commands[native.COMMAND_KIND_NAMES[decision.command[0]]]+=1

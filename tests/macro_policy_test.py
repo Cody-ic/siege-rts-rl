@@ -13,6 +13,27 @@ from macro_policy import MacroPolicy
 
 
 class MacroPolicyTests(unittest.TestCase):
+    def test_fine_position_head_can_prefer_an_interior_cell_in_one_coarse_region(self):
+        policy=MacroPolicy(3,2,11,hidden=16,detail_channels=1)
+        with torch.no_grad():
+            for p in policy.parameters():
+                p.zero_()
+            policy.detail_encoder[0].weight[0,0,1,1]=1
+            policy.detail_encoder[2].weight[0,0,1,1]=1
+            policy.detail_position.weight[:,0]=1
+            policy.position_query.bias.fill_(1)
+            coarse=np.zeros((1,1,3),np.float32)
+            detail=np.zeros((5,5,1),np.float16);detail[2,2,0]=1
+            candidates=np.array([(1,11,0,1),(1,12,0,1),(1,13,0,1)])
+            decision=policy.decide(coarse,np.zeros(2),candidates,(5,5),detail=detail,greedy=True)
+            self.assertEqual(decision.command[1],12)
+            replay=policy.rescore(coarse,np.zeros(2),decision.command,decision.domains,(5,5),detail=detail)
+            torch.testing.assert_close(decision.log_prob,replay.log_prob)
+            detail[2,2,0]=0;detail[2,3,0]=1
+            self.assertEqual(policy.decide(coarse,np.zeros(2),candidates,(5,5),detail=detail,greedy=True).command[1],13)
+        with self.assertRaisesRegex(ValueError,'required'):
+            policy.decide(coarse,np.zeros(2),candidates,(5,5))
+
     def setUp(self):
         torch.set_num_threads(1)
         torch.manual_seed(17)
