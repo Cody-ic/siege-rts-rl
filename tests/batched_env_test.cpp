@@ -618,6 +618,10 @@ TEST_CASE("Native macro goals are isolated, deterministic and reset safely", "[b
     REQUIRE(b.cells==c.cells);REQUIRE(b.self==c.self);REQUIRE(b.glob==c.glob);
     REQUIRE(a.cells==d.cells);REQUIRE(a.self==d.self);REQUIRE(a.glob==d.glob);
     REQUIRE(a.self==b.self);REQUIRE(a.glob==b.glob);
+    REQUIRE(legacy->potentials()==std::vector<double>{-21,-33});
+    REQUIRE(serial->potentials()==std::vector<double>{-19,-31});
+    REQUIRE(serial->potentials()==parallel->potentials());
+    REQUIRE(fallback->potentials()==legacy->potentials());
     const auto center=static_cast<std::size_t>((rts::kObsK/2*rts::kObsK+rts::kObsK/2)*rts::kObsChannelCount);
     const auto di=static_cast<std::size_t>(rts::ObsChannel::FlowDi);
     REQUIRE(a.cells[center+di]==b.cells[center+di]);
@@ -631,9 +635,11 @@ TEST_CASE("Native macro goals are isolated, deterministic and reset safely", "[b
     serial->reset_one(0,one(0,2));
     serial->observe(d.cells,d.self,d.glob);
     REQUIRE(d.cells==b.cells);
+    REQUIRE(serial->potentials()==std::vector<double>{-19,-31});
     for(int mode:{3,4}) {
         auto invalid=build(2,mode);
         REQUIRE_THROWS_AS(invalid->observe(d.cells,d.self,d.glob),rts::ContractError);
+        REQUIRE_THROWS_AS(invalid->potentials(),rts::ContractError);
     }
 }
 

@@ -84,6 +84,19 @@ struct BatchedEnv::Impl {
         return dx > dy ? dx : dy;
     }
 
+    BatchedGoals intent_for(std::size_t i) const {
+        const auto& w=*worlds[i];
+        auto intent=goal_hook ? goal_hook(w.view(side),leaders[i],static_cast<int>(i)) : BatchedGoals{};
+        if(!intent.groups.empty() && intent.groups.size()!=leaders[i].size())
+            throw ContractError("BatchedEnv: goal groups must match squad leaders");
+        for(auto group:intent.groups)
+            if(group>1) throw ContractError("BatchedEnv: invalid goal group");
+        for(auto cell:intent.economy)
+            if(cell.i<0 || cell.j<0 || cell.i>=w.width() || cell.j>=w.height())
+                throw ContractError("BatchedEnv: economy goal outside map");
+        return intent;
+    }
+
     // 把 `[lo, hi)` 这段环境分给若干线程跑同一个函数体。
     //
     // **刻意不用任何「任务队列 / 工作窃取」**：那类调度让「哪个线程处理哪一局」
@@ -256,14 +269,7 @@ void BatchedEnv::observe(std::span<float> cells, std::span<float> self_vec,
         // 「group action 是共享子目标」那条形状要求的（见 `kMaxUnitsPerEnv`）。
         const std::vector<UnitId>& ids = p_->leaders[ui];
         const int m = std::min(static_cast<int>(ids.size()), kMaxUnitsPerEnv);
-        const auto intent = p_->goal_hook ? p_->goal_hook(v, ids, i) : BatchedGoals{};
-        if (!intent.groups.empty() && intent.groups.size() != ids.size())
-            throw ContractError("BatchedEnv: goal groups must match squad leaders");
-        for (auto group : intent.groups)
-            if (group > 1) throw ContractError("BatchedEnv: invalid goal group");
-        for (auto cell : intent.economy)
-            if (cell.i < 0 || cell.j < 0 || cell.i >= w.width() || cell.j >= w.height())
-                throw ContractError("BatchedEnv: economy goal outside map");
+        const auto intent = p_->intent_for(ui);
         // 本局的 field 全部作废重算（墙血变了破坏代价就变）。
         for (auto& f : p_->flows[ui]) f.reset();
         const GridPos goal[1] = {w.keep_pos()};
@@ -487,8 +493,27 @@ void BatchedEnv::take_tally(std::span<float> out) {
 std::vector<double> BatchedEnv::potentials() const {
     std::vector<double> result(p_->worlds.size(), 0.0);
     for (std::size_t i = 0; i < p_->worlds.size(); ++i) {
+        const auto& w=*p_->worlds[i];
+        const auto intent=p_->intent_for(i);
         for (const UnitId id : p_->ids[i]) {
-            result[i] -= Impl::dist_to_keep(*p_->worlds[i], id);
+            bool economy=false;
+            if(!intent.groups.empty() && !intent.economy.empty()) {
+                const auto squad=w.unit_squad(id);
+                for(std::size_t q=0;q<p_->leaders[i].size();++q) {
+                    const auto leader=p_->leaders[i][q];
+                    if(id==leader || (squad!=kNoSquad && squad==w.unit_squad(leader))) {
+                        economy=intent.groups[q]==1;break;
+                    }
+                }
+            }
+            int distance=Impl::dist_to_keep(w,id);
+            if(economy) {
+                distance=std::max(w.width(),w.height());
+                const auto pos=grid_of(w.unit_pos(id));
+                for(auto goal:intent.economy)
+                    distance=std::min(distance,std::max(std::abs(int(pos.i)-goal.i),std::abs(int(pos.j)-goal.j)));
+            }
+            result[i] -= distance;
         }
     }
     return result;

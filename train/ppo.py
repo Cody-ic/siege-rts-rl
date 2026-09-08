@@ -145,6 +145,7 @@ class Cfg:
     map_path: str = "game/data/maps/pool/gen_01001000.json"
     map_pool: tuple = ()  # Optional ordered training pool; world seed selects map.
     roster: str = "ghouls"  # ghouls (legacy control) or mixed combat squads
+    tactical_goals: str = "keep"  # known-economy uses only fog-remembered harvesting buildings
     levels: tuple = (1,)
     # ——**接不接真正的守方**（2026-09-07）——
     #
@@ -261,6 +262,8 @@ def make_worlds(cfg: Cfg, n: int, frac: float = 1.0, start: int = 0) -> list:
 
 
 def validate(cfg):
+    if cfg.tactical_goals not in ('keep','known-economy'):
+        raise ValueError('tactical_goals must be keep or known-economy')
     if not 0 <= cfg.defender_prepare_ticks <= 2400 or (cfg.defender_prepare_ticks and not cfg.defender):
         raise ValueError('defender_prepare_ticks requires a defender and must be in [0,2400]')
     if cfg.roster not in ('ghouls','mixed'):
@@ -290,9 +293,13 @@ def validate(cfg):
     task_reward(0, False, cfg.reward_mode, cfg.win_reward)
 
 
-def make_env(cfg, n, frac, start=0):
+def make_env(cfg, n, frac, start=0, episode_indices=None):
     maps={'defender_maps':list(cfg.map_pool)} if cfg.defender and cfg.map_pool else {}
-    return R.BatchedEnv(make_worlds(cfg, n, frac, start), side=R.Side.Attacker,
+    if cfg.tactical_goals != 'keep': maps['tactical_goals']=cfg.tactical_goals
+    worlds=(make_worlds(cfg,n,frac,start) if episode_indices is None else
+            [make_worlds(cfg,1,frac,index)[0] for index in episode_indices])
+    if len(worlds)!=n: raise ValueError('Episode index count must match environments')
+    return R.BatchedEnv(worlds, side=R.Side.Attacker,
                         defender_map=cfg.map_path if cfg.defender and not cfg.map_pool else '',
                         defender_seed=cfg.seed * 31 + 7,
                         defender_macro_period=cfg.defender_macro_period,
@@ -420,8 +427,17 @@ def train(cfg, args, saved):
 
     frac = cfg.curriculum[stage]
     world_factory.cache_clear()
-    env = make_env(cfg, cfg.envs, frac, next_episode)
-    next_episode += cfg.envs
+    fresh=saved['progress'].get('fresh_episode_indices',[None]*cfg.envs) if saved else [None]*cfg.envs
+    if len(fresh)!=cfg.envs: raise ValueError('Checkpoint episode index count mismatch')
+    episode_indices=[]
+    for index in fresh:
+        if index is None:
+            index=next_episode
+            next_episode+=1
+        elif not isinstance(index,int) or isinstance(index,bool) or not 0<=index<next_episode:
+            raise ValueError('Invalid checkpoint fresh episode index')
+        episode_indices.append(index)
+    env = make_env(cfg, cfg.envs, frac, episode_indices=episode_indices)
     obs = Observer(env)
     mu, n, T = obs.mu, cfg.envs * obs.mu, cfg.rollout
     capacity = sum(env.unit_counts)
@@ -468,6 +484,7 @@ def train(cfg, args, saved):
                     curriculum_resets=curriculum_resets, resume_resets=resume_resets,
                     active_partial_episodes=int(np.count_nonzero(ep_steps)),
                     next_episode=next_episode, stage_episodes=stage_episodes,
+                    fresh_episode_indices=[index if ep_steps[i]==0 else None for i,index in enumerate(episode_indices)],
                     recent_returns=list(stage_ret), stage_hits=stage_hits.state_dict(),
                     stage_wins=stage_wins.state_dict(),
                     stage_outcomes=stage_outcomes.state_dict(),
@@ -536,6 +553,7 @@ def train(cfg, args, saved):
                     ep_ret[i] = ep_hit[i] = ep_steps[i] = 0
                     ep_value[i] = 0
                     env.reset_one(int(i), make_worlds(cfg, 1, frac, next_episode)[0])
+                    episode_indices[int(i)]=next_episode
                     next_episode += 1
                 phi = np.asarray(env.potentials)
             with torch.no_grad():
@@ -631,6 +649,7 @@ def train(cfg, args, saved):
                 stage_outcomes.clear()
                 stage_episodes = 0
                 for i, world in enumerate(make_worlds(cfg, cfg.envs, frac, next_episode)):
+                    episode_indices[i]=next_episode+i
                     env.reset_one(i, world)
                 next_episode += cfg.envs
                 ep_steps.fill(0)

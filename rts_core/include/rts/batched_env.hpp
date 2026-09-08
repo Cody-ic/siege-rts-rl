@@ -119,7 +119,8 @@ struct BatchedEnvInit {
     // Optional read-only, native-only target provider. Called once per world
     // during observe, on worker threads; no Python callbacks or shared mutation.
     // The fog-filtered view prevents granting this hook extra world access.
-    // This changes flow inputs only; episode and reward semantics are unchanged.
+    // Also conditions potentials() on the same targets. Episode/attrition tally
+    // semantics are unchanged; progress remains a keep-distance diagnostic.
     std::function<BatchedGoals(const WorldView&, std::span<const UnitId>, int)> goal_hook;
     // 线程数。0 = 由实现挑（硬件并发数，上限批大小）。
     // **它不影响结果**，只影响墙钟时间——见文件头。
@@ -196,7 +197,7 @@ public:
     void agent_keys(std::span<std::int64_t> out) const;
 
     // progress 只作位移诊断：仅累计两端都活着的单位，不作为奖励。
-    // 真正的势函数是所有当前存活单位到堡垒的负距离和。
+    // 势函数是所有当前存活单位到所分配目标的最近负距离和；默认目标为堡垒。
     // train/ 用同一个 gamma 算 gamma*Phi(next)-Phi(now)，终局势置零。
     std::vector<double> potentials() const;
 
