@@ -68,6 +68,17 @@ class MacroTrainTests(unittest.TestCase):
         self.assertAlmostEqual(float(targets[0]),1,places=6)
         self.assertAlmostEqual(float(targets[1]),cfg.gamma*.4,places=6)
 
+    def test_long_horizon_preserves_delayed_credit_without_crossing_wave_boundary(self):
+        cfg=self.config();cfg.gamma=.999;cfg.gae_lambda=.99
+        rows=[dict(ticks=20,terminal=False,reward=0,value=0,next_value=0) for _ in range(120)]
+        rows[-1].update(terminal=True,reward=1)
+        _,targets=returns(rows,cfg)
+        self.assertAlmostEqual(float(targets[0]),(.999*.99)**119,places=6)
+        self.assertGreater(float(targets[0]),.25)
+        rows[60]['terminal']=True
+        _,cut=returns(rows,cfg)
+        self.assertEqual(float(cut[0]),0)
+
 
 if __name__=='__main__':
     unittest.main()

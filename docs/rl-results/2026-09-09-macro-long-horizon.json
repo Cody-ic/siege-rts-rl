@@ -1,0 +1,1031 @@
+{
+  "plan": {
+    "target_updates": 24,
+    "training_rollout": 256,
+    "training_gamma": 0.999,
+    "training_gae_lambda": 0.99,
+    "evaluation_maps": [
+      "gen_01007000.json",
+      "gen_01009000.json"
+    ],
+    "seeds": [
+      101,
+      102
+    ],
+    "max_wave": 6,
+    "mode": "sample",
+    "period": 20,
+    "baseline": "runs/macro-detail-v2-20260909/heldout.json",
+    "purpose": "development diagnostic; map coverage, horizon and budget change together"
+  },
+  "training": {
+    "format": 1,
+    "config": {
+      "maps": [
+        "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01001000.json",
+        "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01004000.json",
+        "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01005000.json",
+        "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01006001.json"
+      ],
+      "stats": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\stats_placeholder.json",
+      "seed": 1,
+      "rollout": 256,
+      "period": 20,
+      "epochs": 2,
+      "hidden": 64,
+      "learning_rate": 0.0003,
+      "gamma": 0.999,
+      "gae_lambda": 0.99,
+      "clip": 0.2,
+      "max_wave": 70,
+      "anchor_weight": 1.0
+    },
+    "contract": {
+      "kind": "defender-macro-ppo-v1",
+      "simulation": "fa4766df2100f9fd42293709841e60781020485c7c5a84db1d53abcc2f6fc3fe",
+      "build": "Release",
+      "obs_version": 2,
+      "cells": [
+        "unit_Archer_count",
+        "unit_Archer_hp_fraction_sum",
+        "unit_Archer_level_sum",
+        "unit_Spear_count",
+        "unit_Spear_hp_fraction_sum",
+        "unit_Spear_level_sum",
+        "unit_Ranger_count",
+        "unit_Ranger_hp_fraction_sum",
+        "unit_Ranger_level_sum",
+        "unit_Scout_count",
+        "unit_Scout_hp_fraction_sum",
+        "unit_Scout_level_sum",
+        "unit_Mason_count",
+        "unit_Mason_hp_fraction_sum",
+        "unit_Mason_level_sum",
+        "unit_Ghoul_count",
+        "unit_Ghoul_hp_fraction_sum",
+        "unit_Ghoul_level_sum",
+        "unit_Shade_count",
+        "unit_Shade_hp_fraction_sum",
+        "unit_Shade_level_sum",
+        "unit_Knight_count",
+        "unit_Knight_hp_fraction_sum",
+        "unit_Knight_level_sum",
+        "unit_Phoenix_count",
+        "unit_Phoenix_hp_fraction_sum",
+        "unit_Phoenix_level_sum",
+        "unit_Wraith_count",
+        "unit_Wraith_hp_fraction_sum",
+        "unit_Wraith_level_sum",
+        "unit_Ram_count",
+        "unit_Ram_hp_fraction_sum",
+        "unit_Ram_level_sum",
+        "building_Keep_count",
+        "building_Keep_hp_fraction_sum",
+        "building_Keep_level_sum",
+        "building_Wall_count",
+        "building_Wall_hp_fraction_sum",
+        "building_Wall_level_sum",
+        "building_Gate_count",
+        "building_Gate_hp_fraction_sum",
+        "building_Gate_level_sum",
+        "building_Tower_count",
+        "building_Tower_hp_fraction_sum",
+        "building_Tower_level_sum",
+        "building_Flak_count",
+        "building_Flak_hp_fraction_sum",
+        "building_Flak_level_sum",
+        "building_Watch_count",
+        "building_Watch_hp_fraction_sum",
+        "building_Watch_level_sum",
+        "building_Barrack_count",
+        "building_Barrack_hp_fraction_sum",
+        "building_Barrack_level_sum",
+        "building_Fence_count",
+        "building_Fence_hp_fraction_sum",
+        "building_Fence_level_sum",
+        "building_Quarry_count",
+        "building_Quarry_hp_fraction_sum",
+        "building_Quarry_level_sum",
+        "building_Lumber_count",
+        "building_Lumber_hp_fraction_sum",
+        "building_Lumber_level_sum",
+        "building_Mine_count",
+        "building_Mine_hp_fraction_sum",
+        "building_Mine_level_sum",
+        "visible_fraction",
+        "explored_fraction",
+        "stone_sites",
+        "wood_sites",
+        "gold_sites"
+      ],
+      "globals": [
+        "stone",
+        "wood",
+        "gold",
+        "wave",
+        "assault",
+        "keep_hp_fraction",
+        "keep_level",
+        "unit_level_cap",
+        "population",
+        "population_cap"
+      ],
+      "detail": [
+        "buildable",
+        "obstacle",
+        "stone_site",
+        "wood_site",
+        "gold_site",
+        "building_Keep",
+        "building_Wall",
+        "building_Gate",
+        "building_Tower",
+        "building_Flak",
+        "building_Watch",
+        "building_Barrack",
+        "building_Fence",
+        "building_Quarry",
+        "building_Lumber",
+        "building_Mine",
+        "hp_fraction",
+        "level",
+        "built",
+        "upgrade_active",
+        "work_active",
+        "train_active",
+        "visible",
+        "explored"
+      ],
+      "detail_storage": "float16-before-inference",
+      "commands": [
+        "None",
+        "Build",
+        "Repair",
+        "Cancel",
+        "Train",
+        "Summon",
+        "Composition",
+        "PickSpawn",
+        "Clear",
+        "Upgrade",
+        "Demolish"
+      ],
+      "maps": [
+        "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+        "d11740be256d2666dc66318255efa4a7912744f47917f745ab920c572f56df45",
+        "7c43e2030fde2389cfc0784fd25410f21969e4b3f27911de798857e109f9a18d",
+        "7f32afd88e5dfdaea06cae08a9df2bf53d0169f7d9f3fbf89c909214b6fdd160"
+      ],
+      "stats": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+      "sources": {
+        "macro_train.py": "74ddd1ecd0713e018b74d162de8e87510d9d8ee89edac0d3cb6f29b236a8b6b4",
+        "macro_policy.py": "a2f28829e9b8b2043c7f5426681bcf6368bac2565f8120d23a97f726d1b3d777",
+        "checkpointing.py": "e52000af6ac46c222628c957384cb49e09b5402edf4369c24017c0bc9536fa04"
+      }
+    },
+    "progress": {
+      "updates": 24,
+      "env_steps": 6144,
+      "episode": 27,
+      "waves_survived": 22,
+      "defeats": 27,
+      "history": [
+        {
+          "update": 1,
+          "loss": 0.08836446971190526,
+          "reward": -1.0,
+          "tick": 2000,
+          "wave": 1,
+          "episode": 1,
+          "reference_kl_estimate": 4.5288366147661335e-05
+        },
+        {
+          "update": 2,
+          "loss": 0.12204302361351438,
+          "reward": 0.0,
+          "tick": 4761,
+          "wave": 2,
+          "episode": 2,
+          "reference_kl_estimate": 0.00025271453759954606
+        },
+        {
+          "update": 3,
+          "loss": 0.11571610173226077,
+          "reward": 2.0,
+          "tick": 9873,
+          "wave": 4,
+          "episode": 2,
+          "reference_kl_estimate": 0.00014255055347232843
+        },
+        {
+          "update": 4,
+          "loss": 0.12319701729575172,
+          "reward": -2.0,
+          "tick": 2000,
+          "wave": 1,
+          "episode": 4,
+          "reference_kl_estimate": 0.0002614388772607607
+        },
+        {
+          "update": 5,
+          "loss": 0.14856154389235599,
+          "reward": -2.0,
+          "tick": 1200,
+          "wave": 1,
+          "episode": 6,
+          "reference_kl_estimate": 0.0020817579208539535
+        },
+        {
+          "update": 6,
+          "loss": 0.13131884392350912,
+          "reward": 2.0,
+          "tick": 6299,
+          "wave": 3,
+          "episode": 6,
+          "reference_kl_estimate": 0.003109288220657924
+        },
+        {
+          "update": 7,
+          "loss": 0.09949325812431198,
+          "reward": -2.0,
+          "tick": 2160,
+          "wave": 1,
+          "episode": 8,
+          "reference_kl_estimate": 0.0010744924988050466
+        },
+        {
+          "update": 8,
+          "loss": 0.14918316988041624,
+          "reward": 0.0,
+          "tick": 1200,
+          "wave": 1,
+          "episode": 9,
+          "reference_kl_estimate": 0.00219897411585019
+        },
+        {
+          "update": 9,
+          "loss": 0.15870085646747611,
+          "reward": 0.0,
+          "tick": 3744,
+          "wave": 2,
+          "episode": 10,
+          "reference_kl_estimate": 0.000754382014605412
+        },
+        {
+          "update": 10,
+          "loss": 0.10694452380835173,
+          "reward": -2.0,
+          "tick": 2140,
+          "wave": 1,
+          "episode": 12,
+          "reference_kl_estimate": 0.0006805397718664306
+        },
+        {
+          "update": 11,
+          "loss": 0.09673316945554689,
+          "reward": 0.0,
+          "tick": 1960,
+          "wave": 1,
+          "episode": 13,
+          "reference_kl_estimate": 0.0008291085739408248
+        },
+        {
+          "update": 12,
+          "loss": 0.22661590617309457,
+          "reward": 1.0,
+          "tick": 4655,
+          "wave": 3,
+          "episode": 14,
+          "reference_kl_estimate": 0.0007473200582056346
+        },
+        {
+          "update": 13,
+          "loss": 0.1716014484554762,
+          "reward": 0.0,
+          "tick": 3260,
+          "wave": 2,
+          "episode": 15,
+          "reference_kl_estimate": 0.001810333996646131
+        },
+        {
+          "update": 14,
+          "loss": 0.16420144508629164,
+          "reward": 2.0,
+          "tick": 8373,
+          "wave": 4,
+          "episode": 15,
+          "reference_kl_estimate": 0.00690729665242529
+        },
+        {
+          "update": 15,
+          "loss": 0.12334703013607395,
+          "reward": -2.0,
+          "tick": 520,
+          "wave": 1,
+          "episode": 17,
+          "reference_kl_estimate": 0.001008309674547798
+        },
+        {
+          "update": 16,
+          "loss": 0.1634023537117173,
+          "reward": 0.0,
+          "tick": 3067,
+          "wave": 2,
+          "episode": 18,
+          "reference_kl_estimate": 0.0009361754087723811
+        },
+        {
+          "update": 17,
+          "loss": 0.1309153189358767,
+          "reward": 0.0,
+          "tick": 1520,
+          "wave": 1,
+          "episode": 19,
+          "reference_kl_estimate": 0.0014409302871924781
+        },
+        {
+          "update": 18,
+          "loss": 0.12069895133754471,
+          "reward": -2.0,
+          "tick": 1060,
+          "wave": 1,
+          "episode": 21,
+          "reference_kl_estimate": 0.000877424506761551
+        },
+        {
+          "update": 19,
+          "loss": 0.24943878964404576,
+          "reward": 1.0,
+          "tick": 3687,
+          "wave": 3,
+          "episode": 22,
+          "reference_kl_estimate": 0.0003321866477984833
+        },
+        {
+          "update": 20,
+          "loss": 0.11980487234814063,
+          "reward": 1.0,
+          "tick": 8807,
+          "wave": 4,
+          "episode": 22,
+          "reference_kl_estimate": 0.010897803257157498
+        },
+        {
+          "update": 21,
+          "loss": 0.11013801287769809,
+          "reward": -2.0,
+          "tick": 1800,
+          "wave": 1,
+          "episode": 24,
+          "reference_kl_estimate": 0.0014142592932064552
+        },
+        {
+          "update": 22,
+          "loss": 0.11722220147839835,
+          "reward": -2.0,
+          "tick": 1820,
+          "wave": 1,
+          "episode": 26,
+          "reference_kl_estimate": 0.000917395686767436
+        },
+        {
+          "update": 23,
+          "loss": 0.17720379593083635,
+          "reward": 1.0,
+          "tick": 260,
+          "wave": 1,
+          "episode": 27,
+          "reference_kl_estimate": 0.0028734573119494305
+        },
+        {
+          "update": 24,
+          "loss": 0.190918752208745,
+          "reward": 2.0,
+          "tick": 5357,
+          "wave": 3,
+          "episode": 27,
+          "reference_kl_estimate": 0.000757407888349907
+        }
+      ],
+      "simulation_ticks": 122410,
+      "finished_campaigns": [
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01001000.json",
+          "seed": 1,
+          "ticks": 3105,
+          "waves_survived": 0,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01004000.json",
+          "seed": 2,
+          "ticks": 2328,
+          "waves_survived": 0,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01005000.json",
+          "seed": 3,
+          "ticks": 10489,
+          "waves_survived": 3,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01006001.json",
+          "seed": 4,
+          "ticks": 2485,
+          "waves_survived": 0,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01001000.json",
+          "seed": 5,
+          "ticks": 3045,
+          "waves_survived": 0,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01004000.json",
+          "seed": 6,
+          "ticks": 2851,
+          "waves_survived": 0,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01005000.json",
+          "seed": 7,
+          "ticks": 6520,
+          "waves_survived": 2,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01006001.json",
+          "seed": 8,
+          "ticks": 2720,
+          "waves_survived": 0,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01001000.json",
+          "seed": 9,
+          "ticks": 6078,
+          "waves_survived": 1,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01004000.json",
+          "seed": 10,
+          "ticks": 2550,
+          "waves_survived": 0,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01005000.json",
+          "seed": 11,
+          "ticks": 4287,
+          "waves_survived": 1,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01006001.json",
+          "seed": 12,
+          "ticks": 2418,
+          "waves_survived": 0,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01001000.json",
+          "seed": 13,
+          "ticks": 5283,
+          "waves_survived": 1,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01004000.json",
+          "seed": 14,
+          "ticks": 2382,
+          "waves_survived": 0,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01005000.json",
+          "seed": 15,
+          "ticks": 6514,
+          "waves_survived": 2,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01006001.json",
+          "seed": 16,
+          "ticks": 9854,
+          "waves_survived": 3,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01001000.json",
+          "seed": 17,
+          "ticks": 3095,
+          "waves_survived": 0,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01004000.json",
+          "seed": 18,
+          "ticks": 2554,
+          "waves_survived": 0,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01005000.json",
+          "seed": 19,
+          "ticks": 6641,
+          "waves_survived": 2,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01006001.json",
+          "seed": 20,
+          "ticks": 2585,
+          "waves_survived": 0,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01001000.json",
+          "seed": 21,
+          "ticks": 2979,
+          "waves_survived": 0,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01004000.json",
+          "seed": 22,
+          "ticks": 2452,
+          "waves_survived": 0,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01005000.json",
+          "seed": 23,
+          "ticks": 9565,
+          "waves_survived": 3,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01006001.json",
+          "seed": 24,
+          "ticks": 2555,
+          "waves_survived": 0,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01001000.json",
+          "seed": 25,
+          "ticks": 2604,
+          "waves_survived": 0,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01004000.json",
+          "seed": 26,
+          "ticks": 2471,
+          "waves_survived": 0,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01005000.json",
+          "seed": 27,
+          "ticks": 6643,
+          "waves_survived": 2,
+          "defeated": true
+        }
+      ]
+    },
+    "status": "ready",
+    "initialization": {
+      "kind": "macro-weights-warm-start",
+      "checkpoint_sha256": "b754815b882b09023c3e2b4a6f76a723dd6603eb06599ed49abe3a6620847d75"
+    }
+  },
+  "baseline": {
+    "checkpoint_sha256": "b754815b882b09023c3e2b4a6f76a723dd6603eb06599ed49abe3a6620847d75",
+    "simulation": "fa4766df2100f9fd42293709841e60781020485c7c5a84db1d53abcc2f6fc3fe",
+    "evaluator_sha256": "fa2db5e5dd4123d502e40d30f8302cca616cabd7a82f470a5f4b4b89d0138d6f",
+    "stats_sha256": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+    "maps": {
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json": "65f8ed3f8102fba260e8bc2b9a0b386bb3b2d0ae66081e4008f520e10f0463fd",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json": "09a441043b8e1bfdfe9b6405fdd60c0bb1cef5f943049fd4f03ccc8bde680ebf"
+    },
+    "seeds": [
+      101,
+      102
+    ],
+    "max_wave": 6,
+    "max_ticks": 100000,
+    "mode": "sample",
+    "policy_period": 20,
+    "training_period": 20,
+    "script_internal_period": 20,
+    "training_maps": [
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01001000.json",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01008000.json"
+    ],
+    "complete": true,
+    "cases": [
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+        "seed": 101,
+        "tick": 5360,
+        "wave": 2,
+        "waves_survived": 1,
+        "defeated": true,
+        "completed": false,
+        "timeout": false,
+        "keep_hp_fraction": 0.0,
+        "commands": {},
+        "state_hash": 6749535183174538630,
+        "arm": "script"
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+        "seed": 101,
+        "tick": 2477,
+        "wave": 1,
+        "waves_survived": 0,
+        "defeated": true,
+        "completed": false,
+        "timeout": false,
+        "keep_hp_fraction": 0.0,
+        "commands": {
+          "Demolish": 32,
+          "Build": 21,
+          "Cancel": 17,
+          "Clear": 21,
+          "None": 21,
+          "Summon": 1,
+          "Train": 8,
+          "Upgrade": 1,
+          "Repair": 2
+        },
+        "state_hash": 66256169149869395,
+        "arm": "initial"
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+        "seed": 101,
+        "tick": 2580,
+        "wave": 1,
+        "waves_survived": 0,
+        "defeated": true,
+        "completed": false,
+        "timeout": false,
+        "keep_hp_fraction": 0.0,
+        "commands": {
+          "Build": 2,
+          "None": 122,
+          "Train": 4,
+          "Upgrade": 1
+        },
+        "state_hash": 7393592858433778546,
+        "arm": "learned"
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+        "seed": 102,
+        "tick": 5360,
+        "wave": 2,
+        "waves_survived": 1,
+        "defeated": true,
+        "completed": false,
+        "timeout": false,
+        "keep_hp_fraction": 0.0,
+        "commands": {},
+        "state_hash": 4201384286424164074,
+        "arm": "script"
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+        "seed": 102,
+        "tick": 1559,
+        "wave": 1,
+        "waves_survived": 0,
+        "defeated": true,
+        "completed": false,
+        "timeout": false,
+        "keep_hp_fraction": 0.0,
+        "commands": {
+          "None": 20,
+          "Build": 14,
+          "Clear": 16,
+          "Summon": 1,
+          "Demolish": 12,
+          "Cancel": 11,
+          "Train": 3,
+          "Repair": 1
+        },
+        "state_hash": 673697211679516995,
+        "arm": "initial"
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+        "seed": 102,
+        "tick": 2685,
+        "wave": 1,
+        "waves_survived": 0,
+        "defeated": true,
+        "completed": false,
+        "timeout": false,
+        "keep_hp_fraction": 0.0,
+        "commands": {
+          "Build": 1,
+          "None": 125,
+          "Clear": 2,
+          "Train": 5,
+          "Upgrade": 1,
+          "Repair": 1
+        },
+        "state_hash": 6153101591697871350,
+        "arm": "learned"
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+        "seed": 101,
+        "tick": 16006,
+        "wave": 7,
+        "waves_survived": 6,
+        "defeated": false,
+        "completed": true,
+        "timeout": false,
+        "keep_hp_fraction": 1.0,
+        "commands": {},
+        "state_hash": 10620523852270643852,
+        "arm": "script"
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+        "seed": 101,
+        "tick": 1580,
+        "wave": 1,
+        "waves_survived": 0,
+        "defeated": true,
+        "completed": false,
+        "timeout": false,
+        "keep_hp_fraction": 0.0,
+        "commands": {
+          "Demolish": 26,
+          "Summon": 1,
+          "None": 10,
+          "Build": 11,
+          "Clear": 12,
+          "Cancel": 11,
+          "Train": 6,
+          "Upgrade": 1,
+          "Repair": 1
+        },
+        "state_hash": 3938287823549852796,
+        "arm": "initial"
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+        "seed": 101,
+        "tick": 16558,
+        "wave": 6,
+        "waves_survived": 5,
+        "defeated": true,
+        "completed": false,
+        "timeout": false,
+        "keep_hp_fraction": 0.0,
+        "commands": {
+          "Build": 9,
+          "None": 694,
+          "Train": 26,
+          "Clear": 1,
+          "Upgrade": 77,
+          "Repair": 23
+        },
+        "state_hash": 11798101031881989498,
+        "arm": "learned"
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+        "seed": 102,
+        "tick": 16006,
+        "wave": 7,
+        "waves_survived": 6,
+        "defeated": false,
+        "completed": true,
+        "timeout": false,
+        "keep_hp_fraction": 1.0,
+        "commands": {},
+        "state_hash": 1412132004113131159,
+        "arm": "script"
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+        "seed": 102,
+        "tick": 1631,
+        "wave": 1,
+        "waves_survived": 0,
+        "defeated": true,
+        "completed": false,
+        "timeout": false,
+        "keep_hp_fraction": 0.0,
+        "commands": {
+          "None": 9,
+          "Build": 19,
+          "Clear": 17,
+          "Demolish": 17,
+          "Summon": 1,
+          "Cancel": 16,
+          "Train": 2,
+          "Upgrade": 1
+        },
+        "state_hash": 8310401616079331239,
+        "arm": "initial"
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+        "seed": 102,
+        "tick": 8166,
+        "wave": 3,
+        "waves_survived": 2,
+        "defeated": true,
+        "completed": false,
+        "timeout": false,
+        "keep_hp_fraction": 0.0,
+        "commands": {
+          "Build": 7,
+          "None": 365,
+          "Clear": 3,
+          "Train": 4,
+          "Upgrade": 20,
+          "Repair": 11
+        },
+        "state_hash": 8362621209050257119,
+        "arm": "learned"
+      }
+    ]
+  },
+  "evaluation": {
+    "checkpoint_sha256": "b15de6f6abcf89ad4adc6c5559b51a0c8f812562e9f0e2e9d0589002809fee98",
+    "simulation": "fa4766df2100f9fd42293709841e60781020485c7c5a84db1d53abcc2f6fc3fe",
+    "evaluator_sha256": "bd5040f857dc029f897fc97dcbccf54e9fe7ebb42d6a24382032ed210f3d43ee",
+    "stats_sha256": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+    "maps": {
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json": "65f8ed3f8102fba260e8bc2b9a0b386bb3b2d0ae66081e4008f520e10f0463fd",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json": "09a441043b8e1bfdfe9b6405fdd60c0bb1cef5f943049fd4f03ccc8bde680ebf"
+    },
+    "seeds": [
+      101,
+      102
+    ],
+    "max_wave": 6,
+    "max_ticks": 100000,
+    "mode": "sample",
+    "policy_period": 20,
+    "training_period": 20,
+    "script_internal_period": 20,
+    "training_maps": [
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01001000.json",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01004000.json",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01005000.json",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01006001.json"
+    ],
+    "arms": [
+      "learned"
+    ],
+    "complete": true,
+    "cases": [
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+        "seed": 101,
+        "tick": 2580,
+        "wave": 1,
+        "waves_survived": 0,
+        "defeated": true,
+        "completed": false,
+        "timeout": false,
+        "keep_hp_fraction": 0.0,
+        "commands": {
+          "Build": 2,
+          "None": 122,
+          "Train": 4,
+          "Upgrade": 1
+        },
+        "state_hash": 7393592858433778546,
+        "arm": "learned"
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+        "seed": 102,
+        "tick": 2685,
+        "wave": 1,
+        "waves_survived": 0,
+        "defeated": true,
+        "completed": false,
+        "timeout": false,
+        "keep_hp_fraction": 0.0,
+        "commands": {
+          "Build": 1,
+          "None": 125,
+          "Clear": 2,
+          "Train": 5,
+          "Upgrade": 1,
+          "Repair": 1
+        },
+        "state_hash": 6153101591697871350,
+        "arm": "learned"
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+        "seed": 101,
+        "tick": 7216,
+        "wave": 3,
+        "waves_survived": 2,
+        "defeated": true,
+        "completed": false,
+        "timeout": false,
+        "keep_hp_fraction": 0.0,
+        "commands": {
+          "Build": 7,
+          "None": 319,
+          "Train": 10,
+          "Clear": 1,
+          "Upgrade": 18,
+          "Repair": 8
+        },
+        "state_hash": 13467133153583658836,
+        "arm": "learned"
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+        "seed": 102,
+        "tick": 8162,
+        "wave": 3,
+        "waves_survived": 2,
+        "defeated": true,
+        "completed": false,
+        "timeout": false,
+        "keep_hp_fraction": 0.0,
+        "commands": {
+          "Build": 8,
+          "None": 362,
+          "Clear": 3,
+          "Train": 6,
+          "Upgrade": 20,
+          "Repair": 10
+        },
+        "state_hash": 8100290129417404773,
+        "arm": "learned"
+      }
+    ]
+  },
+  "comparison": {
+    "cases": 4,
+    "before_checkpoint": "b754815b882b09023c3e2b4a6f76a723dd6603eb06599ed49abe3a6620847d75",
+    "after_checkpoint": "b15de6f6abcf89ad4adc6c5559b51a0c8f812562e9f0e2e9d0589002809fee98",
+    "before_completed": 0,
+    "after_completed": 0,
+    "before_mean_waves": 1.75,
+    "after_mean_waves": 1.0,
+    "improved": 0,
+    "worsened": 1,
+    "pairs": [
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+        "seed": 101,
+        "before_waves": 0,
+        "after_waves": 0,
+        "delta": 0,
+        "before_completed": false,
+        "after_completed": false
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+        "seed": 102,
+        "before_waves": 0,
+        "after_waves": 0,
+        "delta": 0,
+        "before_completed": false,
+        "after_completed": false
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+        "seed": 101,
+        "before_waves": 5,
+        "after_waves": 2,
+        "delta": -3,
+        "before_completed": false,
+        "after_completed": false
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+        "seed": 102,
+        "before_waves": 2,
+        "after_waves": 2,
+        "delta": 0,
+        "before_completed": false,
+        "after_completed": false
+      }
+    ]
+  }
+}

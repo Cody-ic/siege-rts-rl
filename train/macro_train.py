@@ -129,6 +129,8 @@ def train(cfg, folder, updates,init_checkpoint=None):
                     raise ValueError('Anchored checkpoint has no fixed reference model')
                 reference.load_state_dict(saved['reference_model'])
             reference.requires_grad_(False)
+        progress.setdefault('simulation_ticks',0)
+        progress.setdefault('finished_campaigns',[])
         # Model construction for warm-start validation must not shift rollout RNG.
         if not saved:
             random.seed(cfg.seed);np.random.seed(cfg.seed);torch.manual_seed(cfg.seed)
@@ -169,7 +171,11 @@ def train(cfg, folder, updates,init_checkpoint=None):
                     next_value=0. if terminal else bootstrap(policy,world.defender_observation(),world.defender_detail().astype(np.float16))))
                 progress['waves_survived']+=int(transition['wave_advanced'])
                 progress['defeats']+=int(transition['defeated'])
+                progress['simulation_ticks']+=transition['ticks']
                 if transition['defeated'] or world.wave>cfg.max_wave:
+                    progress['finished_campaigns'].append(dict(
+                        map=cfg.maps[progress['episode']%len(cfg.maps)],seed=cfg.seed+progress['episode'],
+                        ticks=world.tick,waves_survived=world.wave-1,defeated=transition['defeated']))
                     progress['episode']+=1
                     world=campaign(cfg,progress['episode']);commands=[]
             advantages,targets=returns(rows,cfg)
@@ -211,7 +217,10 @@ if __name__=='__main__':
     parser.add_argument('--period',type=int,default=100)
     parser.add_argument('--init-checkpoint')
     parser.add_argument('--anchor-weight',type=float,default=0.)
+    parser.add_argument('--gamma',type=float,default=.995)
+    parser.add_argument('--gae-lambda',type=float,default=.95)
     args=parser.parse_args()
     train(Config(tuple(str(Path(p).resolve()) for p in args.maps),str(Path(args.stats).resolve()),
-                 seed=args.seed,rollout=args.rollout,period=args.period,anchor_weight=args.anchor_weight),
+                 seed=args.seed,rollout=args.rollout,period=args.period,anchor_weight=args.anchor_weight,
+                 gamma=args.gamma,gae_lambda=args.gae_lambda),
           args.run_dir,args.updates,args.init_checkpoint)
