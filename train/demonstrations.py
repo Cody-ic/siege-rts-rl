@@ -20,7 +20,7 @@ import torch
 import torch.nn.functional as F
 import rts_native as R
 from checkpointing import atomic_json, atomic_write, contract, run_lock, sha256
-from evaluate import flow_actions
+from evaluate import flow_actions, breach_actions
 from ppo import Cfg, Observer, Policy, make_env, make_worlds
 
 FORMAT = 'rts-demonstrations-1'
@@ -70,7 +70,7 @@ def collect(args):
               map_path=args.map_path,stats_path=args.stats_path)
     # JSON normalization makes tuple/list config fields identical after a restart.
     plan = json.loads(json.dumps(dict(config=asdict(cfg),signature=signature(cfg),
-                    steps=args.steps,stride=args.stride,fractions=fractions)))
+                    steps=args.steps,stride=args.stride,fractions=fractions,teacher=args.teacher)))
     folder = Path(args.out_dir)
     with run_lock(folder):
         plan_path, destination = folder/'plan.json', folder/'demonstrations.npz'
@@ -104,7 +104,7 @@ def collect(args):
                 for step in range(args.steps):
                     observation = obs.read()
                     rows,c,own,glob,legal = observation
-                    labels = flow_actions(observation)
+                    labels = (breach_actions if args.teacher == 'flow_breach' else flow_actions)(observation)
                     if step % args.stride == 0 and len(rows):
                         samples.append(tuple(a.copy() for a in (c,own,glob,legal,labels)))
                     actions.fill(0)
@@ -241,7 +241,7 @@ def fit(args):
             for sig, handler in handlers.items():
                 signal.signal(sig,handler)
         atomic_write(folder/'policy.pt',lambda stream:torch.save(net.state_dict(),stream))
-        atomic_json(folder/'initialization.json',dict(kind='flow_demonstrations',plan=plan,
+        atomic_json(folder/'initialization.json',dict(kind='flow_demonstrations',teacher=metadata['teacher'],plan=plan,
                     epochs=epoch_done,examples=len(labels),teacher_env_steps=metadata['steps']*metadata['config']['envs']*len(metadata['fractions']),
                     history=history,policy_sha256=sha256(folder/'policy.pt'),
                     status='complete' if epoch_done >= args.epochs else 'paused'))
@@ -257,6 +257,8 @@ def main(argv=None):
     for name,default in (('envs',4),('threads',2),('steps',300),('stride',4),('seed',1)):
         collect_ap.add_argument('--'+name,type=int,default=default)
     collect_ap.add_argument('--fractions',default='0.15,0.3,0.5,0.75,1')
+    collect_ap.add_argument('--teacher',choices=('flow','flow_breach'),default='flow',
+                            help='Explicit teacher choice; flow preserves the original attack-first baseline')
     collect_ap.add_argument('--map-path',default=Cfg().map_path)
     collect_ap.add_argument('--stats-path',default=Cfg().stats_path)
     fit_ap = commands.add_parser('fit',help='Fit on CPU; restore optimizer and epoch checkpoints with --resume')

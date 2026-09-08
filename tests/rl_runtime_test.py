@@ -21,7 +21,7 @@ import ppo
 import demonstrations as demos
 from checkpointing import (atomic_write, load_auto, load_training, restore_rng,
                            repair_metrics, rng_state, run_lock, save_run, sha256)
-from evaluate import evaluate, flow_actions
+from evaluate import evaluate, flow_actions, breach_actions
 from diagnostics import EpisodeDiagnostics, episode_rng, sample_actions
 from rollout import advantages, RolloutStorage
 
@@ -43,10 +43,10 @@ class RuntimeTests(unittest.TestCase):
         with patch.object(sys,'argv',args), contextlib.redirect_stdout(io.StringIO()):
             return ppo.main()
 
-    def collect_demo(self, folder):
+    def collect_demo(self, folder, *extra):
         with contextlib.redirect_stdout(io.StringIO()):
             demos.main(['collect','--out-dir',str(folder),'--envs','2','--threads','1',
-                        '--steps','3','--stride','1','--fractions','0.15,0.3'])
+                        '--steps','3','--stride','1','--fractions','0.15,0.3',*extra])
         return Path(folder)/'demonstrations.npz'
 
     def fit_demo(self, data, folder, *extra):
@@ -133,6 +133,58 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(json.loads((folder/'fit/initialization.json').read_text())['status'],'paused')
             self.fit_demo(data,folder/'fit','--resume')
             self.assertEqual(demos.read_fit(folder/'fit/latest.pt')['epoch'],2)
+
+    def test_breach_teacher_keeps_open_route_and_has_legal_fallbacks(self):
+        cells = np.zeros((5,R.obs.K,R.obs.K,R.obs.CHANNEL_COUNT),np.float32)
+        names = R.obs.ACTION_NAMES
+        channel = [c[0] for c in R.obs.CHANNELS].index('flow_di')
+        cells[:,R.obs.K//2,R.obs.K//2,channel] = 1
+        cells[2] = 0  # No flow: retain an available attack, rather than stall.
+        legal = np.zeros((5,R.obs.ACTION_COUNT),bool)
+        stop, move, wall, bld, near = [names.index(n) for n in
+                                     ('Stop','MoveSE','AtkWall','AtkBld','AtkNear')]
+        legal[:,stop] = True
+        legal[:3,move] = True
+        legal[:3,wall] = True
+        legal[1,bld] = True
+        legal[3,near] = True  # Flow present but no legal movement.
+        observation = (np.arange(5),cells,np.zeros((5,R.obs.SELF_COUNT),np.float32),
+                       np.zeros((5,R.obs.GLOBAL_COUNT),np.float32),legal)
+        before = tuple(a.copy() for a in observation)
+        np.testing.assert_array_equal(flow_actions(observation),[wall,bld,wall,near,stop])
+        chosen = breach_actions(observation)
+        np.testing.assert_array_equal(chosen,[move,bld,wall,near,stop])
+        self.assertEqual(chosen.dtype,np.uint8)
+        self.assertTrue(np.all(legal[np.arange(5),chosen]))
+        for old,new in zip(before,observation):
+            np.testing.assert_array_equal(old,new)
+        self.assertEqual(breach_actions(tuple(a[:0] for a in observation)).shape,(0,))
+
+    def test_breach_demonstrations_record_teacher_and_reject_switch_on_resume(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            data = self.collect_demo(folder/'data','--teacher','flow_breach')
+            arrays,metadata = demos.load_dataset(data)
+            self.assertEqual(metadata['teacher'],'flow_breach')
+            self.assertTrue(np.all(arrays[3][np.arange(len(arrays[4])),arrays[4]]))
+            with self.assertRaisesRegex(ValueError,'plan changed'):
+                self.collect_demo(folder/'data')
+            self.fit_demo(data,folder/'fit','--epochs','1')
+            self.fit_demo(data,folder/'fit','--resume')
+            exported = json.loads((folder/'fit/initialization.json').read_text())
+            self.assertEqual(exported['teacher'],'flow_breach')
+            self.assertEqual(exported['epochs'],2)
+            # Frozen rules are selectable without a model; learned actions must
+            # never be silently replaced by either teacher.
+            cfg = self.cfg(max_ticks=12)
+            report = evaluate(None,cfg,2,.15,'flow_breach')
+            self.assertEqual(report['policy'],'flow_breach')
+            self.assertEqual(report['episodes'],2)
+            with patch('evaluate.breach_actions',side_effect=AssertionError('teacher in inference')), \
+                 patch('evaluate.flow_actions',side_effect=AssertionError('teacher in inference')):
+                for mode in ('frozen_argmax','frozen_sample'):
+                    learned = evaluate(folder/'fit/policy.pt',cfg,2,.15,mode)
+                    self.assertEqual(learned['policy'],mode)
 
     def test_cuda_alias_resolves_current_device_and_preserves_explicit_index(self):
         class DeviceSelected(Exception):

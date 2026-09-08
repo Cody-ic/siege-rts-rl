@@ -51,10 +51,30 @@ def flow_actions(observation):
     return result
 
 
+def breach_actions(observation):
+    """Keep moving through a breach instead of attacking every nearby wall.
+
+    Only public observations/masks are read. The existing native movement action
+    handles structures actually blocking the destination (try_bump_attack).
+    This is a separate diagnostic/teacher, not an override for learned actions.
+    """
+    rows, cells, own, glob, legal = observation
+    move_mask = legal.copy()
+    for i, name in enumerate(R.obs.ACTION_NAMES):
+        if name.startswith('Atk'):
+            move_mask[:, i] = False
+    walk = flow_actions((rows, cells, own, glob, move_mask))
+    fallback = flow_actions(observation)
+    bld = R.obs.ACTION_NAMES.index('AtkBld')
+    stop = R.obs.ACTION_NAMES.index('Stop')
+    return np.where(legal[:, bld], bld,
+                    np.where(walk != stop, walk, fallback)).astype(np.uint8)
+
+
 def evaluate(checkpoint, cfg, episodes, frac, policy='frozen_argmax', *, diagnostics=False, trace_every=25):
     if episodes < 1 or cfg.envs < 1 or not 0 < frac <= 1 or cfg.max_ticks < 1:
         raise ValueError('positive episodes/envs/max_ticks and 0 < frac <= 1 required')
-    if policy not in ('frozen_argmax', 'frozen_sample', 'flow'):
+    if policy not in ('frozen_argmax', 'frozen_sample', 'flow', 'flow_breach'):
         raise ValueError('unknown evaluation policy')
     if trace_every < 1:
         raise ValueError('trace_every must be positive')
@@ -63,7 +83,7 @@ def evaluate(checkpoint, cfg, episodes, frac, policy='frozen_argmax', *, diagnos
     env = make_env(cfg, n, frac)
     obs = Observer(env)
     net = None
-    if policy != 'flow':
+    if policy in ('frozen_argmax', 'frozen_sample'):
         if not checkpoint:
             raise ValueError('--checkpoint required for frozen policy')
         net = Policy(R.obs.K, R.obs.CHANNEL_COUNT, R.obs.SELF_COUNT,
@@ -98,7 +118,7 @@ def evaluate(checkpoint, cfg, episodes, frac, policy='frozen_argmax', *, diagnos
                     else:
                         selected = dist.logits.argmax(-1).cpu().numpy().astype(np.uint8)
             else:
-                selected = flow_actions(observation)
+                selected = (breach_actions if policy == 'flow_breach' else flow_actions)(observation)
             actions.reshape(-1)[observation[0]] = selected
             if probes is not None:
                 for i, probe in enumerate(probes):
@@ -163,7 +183,7 @@ def evaluate(checkpoint, cfg, episodes, frac, policy='frozen_argmax', *, diagnos
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--checkpoint')
-    ap.add_argument('--policy', choices=('frozen_argmax','frozen_sample','flow'), default='frozen_argmax')
+    ap.add_argument('--policy', choices=('frozen_argmax','frozen_sample','flow','flow_breach'), default='frozen_argmax')
     ap.add_argument('--diagnostics', action='store_true')
     ap.add_argument('--trace-every', type=int, default=25)
     ap.add_argument('--episodes', type=int, default=32)

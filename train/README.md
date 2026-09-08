@@ -89,6 +89,22 @@ $PY train/demonstrations.py fit --data runs/navigation-data/demonstrations.npz \
 
 本轮同图与另一张地图的结果、成本及限制见 [示范初始化试验](../docs/rl-demonstration-pilot.md)。这仍是单训练种子的初筛，没有达到完整游戏 AI 的交付条件。
 
+### 可选：学习通过破口继续推进
+
+`flow` 老师优先攻击射程内的建筑、墙和敌军，可能在已有通路时继续拆邻墙。新增显式选项 `flow_breach`：优先攻击射程内的非墙建筑，否则沿局部方向场前进，由游戏原有的碰撞破坏机制处理实际挡路的建筑；没有可选行进方向时才回退到原攻击规则。它会放过部分旁侧城墙和近身敌军，不是适用于所有兵种的最优战术，也不取消经济消耗战的价值。
+
+```bash
+$PY train/evaluate.py --policy flow_breach --episodes 32 --frac 1 \
+    --output runs/breach-baseline.json
+$PY train/demonstrations.py collect --out-dir runs/breach-data --teacher flow_breach
+$PY train/demonstrations.py fit --data runs/breach-data/demonstrations.npz \
+    --run-dir runs/breach-fit --epochs 12
+```
+
+后续仍用导出的 `policy.pt` 显式初始化新的 PPO 目录。老师选择写入收集计划与初始化说明；同一目录改换老师会拒绝执行。`flow` 仍是默认值和原对照，网络推理不调用任何老师。新版本更改了示范/评估源码指纹，旧示范目录应保留原版本恢复，或在新目录重新收集；已有 PPO 检查点合约未改，仍可按原方式续训。结果、对照与局限见 [破口推进试验](../docs/rl-breach-pilot.md)。
+
+**示范后接 PPO 也可能退步。** 将初始化权重和冻结评估报告单独保留，在短预算后用相同地图、入口、种子与执行方式复测，胜局、拆毁价值和接触率一起比较。`latest.pt` 只表示最近一次可恢复状态，不代表最佳部署模型。本轮新老师初始化的突破成绩在默认学习率短训后下降，因此不能未经复测就扩大到百万步，或用最新权重覆盖已经验证的初始化产物。
+
 ## 先短实验，再增加预算
 
 ```bash
