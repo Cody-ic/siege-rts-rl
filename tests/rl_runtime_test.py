@@ -373,6 +373,34 @@ class RuntimeTests(unittest.TestCase):
             self.run_train(folder,['--resume','auto'])
             self.assertEqual(checksum,sha256(Path(folder)/'latest.pt'))
 
+    def test_fresh_episode_restart_matches_uninterrupted_training(self):
+        def equal(a,b):
+            if isinstance(a,torch.Tensor):
+                torch.testing.assert_close(a,b,rtol=0,atol=0)
+            elif isinstance(a,dict):
+                self.assertEqual(a.keys(),b.keys())
+                for key in a:equal(a[key],b[key])
+            elif isinstance(a,(list,tuple)):
+                self.assertEqual(type(a),type(b));self.assertEqual(len(a),len(b))
+                for x,y in zip(a,b):equal(x,y)
+            else:self.assertEqual(a,b)
+        for mode in ('keep','known-economy'):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as folder:
+                root=Path(folder)
+                config=['--total-steps','24','--max-ticks','18','--curriculum','1.0',
+                        '--tactical-goals',mode,'--roster','mixed','--levels','1,4',
+                        '--map-pool','game/data/maps/pool/gen_01001000.json,game/data/maps/pool/gen_01004000.json']
+                self.run_train(root/'control',config)
+                self.run_train(root/'resume',[*config,'--stop-after-updates','2'])
+                before=load_training(root/'resume/latest.pt')
+                self.assertEqual(before['progress']['active_partial_episodes'],0)
+                self.assertTrue(all(i is not None for i in before['progress']['fresh_episode_indices']))
+                self.run_train(root/'resume',['--resume','auto','--total-steps','24'])
+                a=load_training(root/'control/latest.pt');b=load_training(root/'resume/latest.pt')
+                for key in ('model','optimizer','rng','config','contract'):equal(a[key],b[key])
+                for value in (a,b):value['progress'].pop('elapsed_seconds')
+                equal(a['progress'],b['progress'])
+
     def test_atomic_save_and_corrupt_latest_fallback(self):
         with tempfile.TemporaryDirectory() as folder:
             self.run_train(folder,['--stop-after-updates','1'])

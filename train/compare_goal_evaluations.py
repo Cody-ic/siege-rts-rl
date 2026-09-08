@@ -29,8 +29,9 @@ def compare(plan_path, directory):
             require(cfg['defender_prepare_ticks']==plan['prepare_ticks'] and cfg['max_ticks']==plan['max_ticks'],
                     'Wrong preparation or battle time')
             require(cfg['tactical_goals']=='known-economy','Wrong goal mode')
-            model=('runs/prepared-final-20260909/candidate.pt' if name=='baseline' else
-                   'runs/economy-goal-pilot-20260909/frozen-update16.pt')
+            default_models={'baseline':'runs/prepared-final-20260909/candidate.pt',
+                            'candidate':'runs/economy-goal-pilot-20260909/frozen-update16.pt'}
+            model=plan.get('models',default_models)[name]
             require(report['checkpoint_sha256']==plan['files'][model],'Wrong checkpoint')
             require([r['environment'] for r in report['rows']]==list(range(plan['envs'])),'Duplicate or reordered cases')
             for i,row in enumerate(report['rows']):
