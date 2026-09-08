@@ -10,7 +10,7 @@
     "ticks_per_step": 6,
     "rollout": 64,
     "total_steps": 32768,
-    "lr": 1e-05,
+    "lr": 1E-05,
     "gamma": 0.995,
     "gae_lambda": 0.95,
     "clip": 0.2,
@@ -89,7 +89,7 @@
     "environments_per_level": 8,
     "max_ticks": 2400,
     "prepare_ticks": 900,
-    "selection": "Final update128 only; do not select checkpoint by holdout scores",
+    "selection": "Final update64 only; do not select checkpoint by evaluation scores",
     "interpretation": "Reused development cases; fresh independent validation is required before promotion"
   },
   "selection": "Final update64 only, compare original baseline and both arms under identical split-economy conditions",
