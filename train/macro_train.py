@@ -17,6 +17,7 @@ import rts_native as native
 from checkpointing import load_auto, restore_rng, rng_state, run_lock, save_run, sha256
 from macro_policy import MacroPolicy
 from macro_evaluate import load_policy
+from macro_opponent import load_opponent, check_opponent
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -37,20 +38,23 @@ class Config:
     max_wave: int = 70
     anchor_weight: float = 0.
     detach_critic_features: bool = False
+    attacker_model: str = ''
 
 
-def contract(cfg):
+def contract(cfg, opponent=None):
     return dict(kind='defender-macro-ppo-v1', simulation=native.SIMULATION_FINGERPRINT,
                 build=native.BUILD_MODE, obs_version=native.macro_obs.VERSION,
                 cells=list(native.macro_obs.CELL_NAMES), globals=list(native.macro_obs.GLOBAL_NAMES),
                 detail=list(native.macro_obs.DETAIL_NAMES),detail_storage='float16-before-inference',
                 commands=list(native.COMMAND_KIND_NAMES), maps=[sha256(p) for p in cfg.maps],
-                stats=sha256(cfg.stats), sources={name:sha256(ROOT/'train'/name) for name in
-                    ('macro_train.py','macro_policy.py','checkpointing.py')})
+                stats=sha256(cfg.stats), opponent=opponent or dict(kind='script'),
+                sources={name:sha256(ROOT/'train'/name) for name in
+                    ('macro_train.py','macro_policy.py','macro_opponent.py','checkpointing.py')})
 
 
-def campaign(cfg, episode):
-    return native.TrainingCampaign(cfg.maps[episode % len(cfg.maps)], cfg.stats, cfg.seed + episode)
+def campaign(cfg, episode, opponent=None):
+    return native.TrainingCampaign(cfg.maps[episode % len(cfg.maps)], cfg.stats, cfg.seed + episode,
+                                  attacker=opponent)
 
 
 def bootstrap(policy, obs,detail):
@@ -108,7 +112,8 @@ def train(cfg, folder, updates,init_checkpoint=None):
         raise ValueError('anchor weight must be finite and nonnegative')
     torch.set_num_threads(1)
     random.seed(cfg.seed);np.random.seed(cfg.seed);torch.manual_seed(cfg.seed)
-    identity = contract(cfg)
+    opponent,opponent_identity=load_opponent(cfg.attacker_model,cfg.stats)
+    identity = contract(cfg,opponent_identity)
     with run_lock(folder):
         saved,_ = load_auto(folder)
         policy = MacroPolicy(len(native.macro_obs.CELL_NAMES),len(native.macro_obs.GLOBAL_NAMES),
@@ -147,7 +152,7 @@ def train(cfg, folder, updates,init_checkpoint=None):
         # Model construction for warm-start validation must not shift rollout RNG.
         if not saved:
             random.seed(cfg.seed);np.random.seed(cfg.seed);torch.manual_seed(cfg.seed)
-        world=campaign(cfg,progress['episode'])
+        world=campaign(cfg,progress['episode'],opponent)
         for command in commands:
             world.advance(cfg.period,[tuple(command)])
         if saved:
@@ -156,6 +161,7 @@ def train(cfg, folder, updates,init_checkpoint=None):
             restore_rng(saved['rng'])
 
         def commit():
+            check_opponent(cfg.attacker_model,opponent_identity)
             save_run(folder,dict(format=1,config=asdict(cfg),contract=identity,
                 progress=progress,status='ready',initialization=initialization,
                 model=policy.state_dict(),optimizer=optimizer.state_dict(),rng=rng_state(),
@@ -190,7 +196,7 @@ def train(cfg, folder, updates,init_checkpoint=None):
                         map=cfg.maps[progress['episode']%len(cfg.maps)],seed=cfg.seed+progress['episode'],
                         ticks=world.tick,waves_survived=world.wave-1,defeated=transition['defeated']))
                     progress['episode']+=1
-                    world=campaign(cfg,progress['episode']);commands=[]
+                    world=campaign(cfg,progress['episode'],opponent);commands=[]
             advantages,targets=returns(rows,cfg)
             losses=[]
             penalties=[]
@@ -233,8 +239,10 @@ if __name__=='__main__':
     parser.add_argument('--gamma',type=float,default=.995)
     parser.add_argument('--gae-lambda',type=float,default=.95)
     parser.add_argument('--detach-critic-features',action='store_true')
+    parser.add_argument('--attacker-model',default='',help='Frozen tactical ONNX opponent; default is script')
     args=parser.parse_args()
     train(Config(tuple(str(Path(p).resolve()) for p in args.maps),str(Path(args.stats).resolve()),
                  seed=args.seed,rollout=args.rollout,period=args.period,anchor_weight=args.anchor_weight,
-                 gamma=args.gamma,gae_lambda=args.gae_lambda,detach_critic_features=args.detach_critic_features),
+                 gamma=args.gamma,gae_lambda=args.gae_lambda,detach_critic_features=args.detach_critic_features,
+                 attacker_model=str(Path(args.attacker_model).resolve()) if args.attacker_model else ''),
           args.run_dir,args.updates,args.init_checkpoint)

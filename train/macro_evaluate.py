@@ -9,6 +9,7 @@ import rts_native as native
 
 from checkpointing import atomic_json, load_training, sha256
 from macro_policy import MacroPolicy
+from macro_opponent import load_opponent, check_opponent
 
 
 def load_policy(path, stats):
@@ -34,10 +35,10 @@ def load_policy(path, stats):
     return learned,initial,cfg
 
 
-def evaluate_case(map_path,stats,seed,policy,period,max_wave,max_ticks,greedy=False):
+def evaluate_case(map_path,stats,seed,policy,period,max_wave,max_ticks,greedy=False,opponent=None):
     if min(period,max_wave,max_ticks)<1:
         raise ValueError('positive evaluation limits required')
-    world=native.TrainingCampaign(str(map_path),str(stats),seed)
+    world=native.TrainingCampaign(str(map_path),str(stats),seed,attacker=opponent)
     torch.manual_seed(seed)
     commands=Counter()
     defeated=False
@@ -69,7 +70,7 @@ def evaluate_case(map_path,stats,seed,policy,period,max_wave,max_ticks,greedy=Fa
 
 
 def evaluate(checkpoint,maps,stats,seeds,output,max_wave=6,max_ticks=100000,greedy=False,period=None,
-             arms=('script','initial','learned')):
+             arms=('script','initial','learned'),attacker_model=None):
     output=Path(output)
     if output.exists():
         raise ValueError('Evaluation output already exists; use a new file')
@@ -77,6 +78,12 @@ def evaluate(checkpoint,maps,stats,seeds,output,max_wave=6,max_ticks=100000,gree
         raise ValueError('Evaluation arms must be nonempty, unique and known')
     torch.set_num_threads(1)
     learned,initial,cfg=load_policy(checkpoint,stats)
+    opponent_path=cfg.get('attacker_model','') if attacker_model is None else attacker_model
+    opponent,opponent_identity=load_opponent(opponent_path,stats)
+    if attacker_model is None:
+        trained_opponent=load_training(checkpoint)['contract'].get('opponent',dict(kind='script'))
+        if opponent_identity!=trained_opponent:
+            raise ValueError('Default evaluation opponent differs from training; use explicit override')
     selected_period=cfg['period'] if period is None else period
     if selected_period<1:
         raise ValueError('positive evaluation period required')
@@ -84,7 +91,7 @@ def evaluate(checkpoint,maps,stats,seeds,output,max_wave=6,max_ticks=100000,gree
         evaluator_sha256=sha256(__file__),stats_sha256=sha256(stats),
         maps={str(p):sha256(p) for p in maps},seeds=list(seeds),max_wave=max_wave,max_ticks=max_ticks,
         mode='conditional-greedy' if greedy else 'sample',policy_period=selected_period,
-        training_period=cfg['period'],
+        training_period=cfg['period'],opponent=opponent_identity,
         script_internal_period=20,training_maps=cfg['maps'],arms=list(arms),complete=False,cases=[])
     # Script is the deployed macro baseline with its normal 20-tick cadence.
     # Initial and learned networks use identical architecture and decision cadence.
@@ -93,13 +100,14 @@ def evaluate(checkpoint,maps,stats,seeds,output,max_wave=6,max_ticks=100000,gree
             for name,policy in (('script',None),('initial',initial),('learned',learned)):
                 if name not in arms:
                     continue
-                row=evaluate_case(path,stats,seed,policy,selected_period,max_wave,max_ticks,greedy)
+                row=evaluate_case(path,stats,seed,policy,selected_period,max_wave,max_ticks,greedy,opponent)
                 row['arm']=name
                 report['cases'].append(row)
                 atomic_json(output,report)
                 print(row,flush=True)
     if sha256(checkpoint)!=report['checkpoint_sha256']:
         raise ValueError('Checkpoint changed during evaluation; results are not a frozen comparison')
+    check_opponent(opponent_path,opponent_identity)
     report['complete']=True
     atomic_json(output,report)
     return report
@@ -117,6 +125,7 @@ if __name__=='__main__':
     parser.add_argument('--greedy',action='store_true')
     parser.add_argument('--period',type=int,help='Explicit cadence diagnostic; defaults to checkpoint training period')
     parser.add_argument('--arms',nargs='+',choices=['script','initial','learned'],default=['script','initial','learned'])
+    parser.add_argument('--attacker-model',help='Override opponent; empty string selects script')
     args=parser.parse_args()
     evaluate(args.checkpoint,[str(Path(p).resolve()) for p in args.maps],args.stats,args.seeds,
-             args.output,args.max_wave,args.max_ticks,args.greedy,args.period,args.arms)
+             args.output,args.max_wave,args.max_ticks,args.greedy,args.period,args.arms,args.attacker_model)

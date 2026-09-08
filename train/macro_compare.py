@@ -7,6 +7,8 @@ from pathlib import Path
 def compare(before,after):
     if not before.get('complete') or not after.get('complete'):
         raise ValueError('Both evaluation reports must be complete')
+    if before.get('opponent',dict(kind='script'))!=after.get('opponent',dict(kind='script')):
+        raise ValueError('Evaluation protocol mismatch: opponent')
     for key in ('simulation','stats_sha256','maps','seeds','max_wave','max_ticks','mode','policy_period'):
         if key not in before or before[key]!=after.get(key):
             raise ValueError(f'Evaluation protocol mismatch: {key}')

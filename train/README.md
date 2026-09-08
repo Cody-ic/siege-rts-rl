@@ -1,5 +1,29 @@
 # 攻方 RL 训练与恢复
 
+## 守方与冻结攻方联合训练
+
+`macro_train.py --attacker-model path/to/attacker.onnx` 使用已有攻方战术模型陪练。
+绑定需同时开启 `RTS_BUILD_BINDINGS=ON`、`RTS_WITH_ONNX=ON`；Windows 构建会把
+ONNX Runtime DLL 和许可证复制到绑定旁。默认不指定模型时仍为脚本对手。
+每次训练只加载一次模型，跨地图、重置和状态分支共享推理实例，世界状态各自独立。
+模型 SHA256 与原生模型身份进入检查点；更换对手或原地替换模型必须新建训练目录。
+
+`macro_evaluate.py` 默认使用检查点记录的对手并核对身份，也可显式
+`--attacker-model path/to/other.onnx` 做交叉评估。报告记录实际对手，
+`macro_compare.py` 拒绝把不同对手的结果当作同条件提升。
+旧宏观权重的原生指纹与新绑定不同，当前仍严格拒绝直接加载；保留旧绑定与旧训练目录，
+不要修改检查点指纹绕过校验。跨版本权重迁移尚待显式验证。
+
+真实模型集成检查（单独运行，不能以空模型代替）：
+
+```text
+python tests/macro_opponent_check.py --model path/to/attacker.onnx --output fresh-evidence.json
+```
+
+2026-09-09 本地 CPU 验证：攻方模型确实改变战斗，分支推进到 1800 tick 一致，
+守方两次小更新到 2000 tick 的连续训练与恢复训练，模型参数、随机状态和对局状态完全一致；
+换回脚本对手续训被拒绝。这是联合训练接口与恢复验证，尚不是协同演化胜率提升证据。
+
 当前是 **IPPO 风格的共享编队策略**：13 个离散动作、带迷雾的局部观测，默认连接 `DefenderScript + DefenderMacro`。训练与游戏共用原生仿真，热路径不回调 Python，也不加载渲染器。
 
 这仍是战术层训练。默认保留 9 支一级亡灵步兵的对照设置；可选多地图、五种战斗兵种和多等级采样，并能导出 ONNX 在游戏内推理。多地图混兵结果仍在验证，宏观编成学习尚未完成，不能把这轮结果称为完整攻方 AI。已验证的稳定性与部署边界见 [实验记录](../docs/rl-stability-and-deployment.md)。

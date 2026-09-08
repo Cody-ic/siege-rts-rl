@@ -43,6 +43,7 @@
 #include "game/world_builder.hpp"
 #include "game/attacker_macro.hpp"
 #include "game/training_campaign.hpp"
+#include "game/rl_policy.hpp"
 #include "game/macro_observation.hpp"
 #include "scripted_defender.hpp"
 #include "rts/action.hpp"
@@ -158,11 +159,20 @@ PYBIND11_MODULE(rts_native, m) {
         out["defender_tally"]=tally(value.defender);
         return out;
     };
+    py::class_<game::TacticalPolicy,std::shared_ptr<game::TacticalPolicy>>(m,"FrozenAttacker")
+        .def(py::init([](const std::string& model,const std::string& stats) {
+            return std::make_shared<game::TacticalPolicy>(model,
+                game::StatsLoader::from_file(stats).fingerprint());
+        }),py::arg("model_path"),py::arg("stats_path"))
+        .def_static("runtime_available",&game::TacticalPolicy::runtime_available)
+        .def_property_readonly("identity",&game::TacticalPolicy::identity);
     py::class_<game::TrainingCampaign>(m,"TrainingCampaign")
-        .def(py::init([](const std::string& map,const std::string& stats,std::uint64_t seed) {
+        .def(py::init([](const std::string& map,const std::string& stats,std::uint64_t seed,
+                         std::shared_ptr<game::TacticalPolicy> attacker) {
             return std::make_unique<game::TrainingCampaign>(game::MapLoader::from_file(map),
-                game::StatsLoader::from_file(stats),seed);
-        }),py::arg("map_path"),py::arg("stats_path"),py::arg("seed")=1)
+                game::StatsLoader::from_file(stats),seed,20,game::MacroParams{},std::move(attacker));
+        }),py::arg("map_path"),py::arg("stats_path"),py::arg("seed")=1,
+           py::arg("attacker")=nullptr)
         .def("fork",&game::TrainingCampaign::fork)
         .def("defender_detail",[](const game::TrainingCampaign& c) {
             const auto view=c.world().view(rts::Side::Defender);

@@ -20,6 +20,7 @@ class MacroCompareTests(unittest.TestCase):
         self.assertEqual(result['improved'],1)
         self.assertEqual(result['after_mean_waves'],3)
         for mutate in (lambda r:r.update(complete=False),lambda r:r.update(policy_period=500),
+                       lambda r:r.update(opponent=dict(kind='frozen-tactical',sha256='other')),
                        lambda r:r['cases'].append(r['cases'][0]),lambda r:r.update(cases=[])):
             broken=copy.deepcopy(after);mutate(broken)
             with self.assertRaises(ValueError):
