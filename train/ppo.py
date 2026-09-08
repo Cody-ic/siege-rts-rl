@@ -210,6 +210,16 @@ def episode_map(cfg, episode):
     return paths[(cfg.seed*1000+episode)%len(paths)]
 
 
+def episode_spec(cfg, episode):
+    """The same deterministic assignment for construction and coverage records."""
+    path=episode_map(cfg,episode)
+    _,sites=world_factory(path,cfg.stats_path)
+    spawns=list(sites['spawns'])
+    if not spawns:raise ValueError(f'{path}: no attacker spawns')
+    episode_round=episode//max(1,len(cfg.map_pool))
+    return path,cfg.levels[(episode_round//len(spawns))%len(cfg.levels)],(cfg.seed+episode_round)%len(spawns)
+
+
 def make_worlds(cfg: Cfg, n: int, frac: float = 1.0, start: int = 0) -> list:
     """造 n 个局面。
 
@@ -230,17 +240,15 @@ def make_worlds(cfg: Cfg, n: int, frac: float = 1.0, start: int = 0) -> list:
     types=[R.obs.UNIT_TYPE_NAMES.index(name) for name in names]
     out = []
     for i in range(start, start + n):
-        path=episode_map(cfg,i)
+        path,level,spawn_index=episode_spec(cfg,i)
         factory,sites=world_factory(path,cfg.stats_path)
         spawns=list(sites['spawns'])
         if not spawns:raise ValueError(f'{path}: no attacker spawns')
         # Traverse maps, then entrances, then levels. Using i % count for all
         # three would permanently pair a map with one entrance/level.
-        episode_round=i//max(1,len(cfg.map_pool))
-        level=cfg.levels[(episode_round//len(spawns))%len(cfg.levels)]
         # 每局挑一个集结点（轮换）。**宏观层还没上**，所以这里是轮换而不是
         # 决策——CLAUDE.md「战术层必须先跑通，不要两层同时上」。
-        sx, sy = spawns[(cfg.seed + episode_round) % len(spawns)]
+        sx, sy = spawns[spawn_index]
         # **课程**：把出生点沿「集结点 → keep」的直线拉近 `frac` 倍。
         # frac = 1.0 是真实距离；小 frac 让随机策略也能撞到目标、拿到
         # 第一次奖励。行军距离是训练侧的课程旋钮，不是设计改动——
@@ -380,6 +388,7 @@ def train(cfg, args, saved, *, gradient_observer=None):
     step_count = updates = wins = timeouts = eliminated = completed = completed_steps = 0
     curriculum_resets = resume_resets = stage_episodes = 0
     next_episode = 0
+    completed_coverage = {}
     elapsed_before = 0.0
     stage_ret = deque(maxlen=50)
     stage_hits = CompletionWindow(cfg.promote_window)
@@ -396,6 +405,7 @@ def train(cfg, args, saved, *, gradient_observer=None):
         resume_resets = p['resume_resets']
         elapsed_before = p['elapsed_seconds']
         next_episode = p['next_episode']
+        completed_coverage = p['completed_coverage']
         stage_episodes = p['stage_episodes']
         stage_ret.extend(p['recent_returns'])
         stage_hits.load_state_dict(p['stage_hits'])
@@ -482,6 +492,7 @@ def train(cfg, args, saved, *, gradient_observer=None):
         return dict(env_steps=step_count, updates=updates, stage=stage, frac=frac,
                     wins=wins, timeouts=timeouts, eliminated=eliminated,
                     completed=completed, completed_steps=completed_steps,
+                    completed_coverage=completed_coverage,
                     curriculum_resets=curriculum_resets, resume_resets=resume_resets,
                     active_partial_episodes=int(np.count_nonzero(ep_steps)),
                     next_episode=next_episode, stage_episodes=stage_episodes,
@@ -550,6 +561,17 @@ def train(cfg, args, saved, *, gradient_observer=None):
                 stage_wins.add(won[finished])
                 stage_outcomes.add(won[finished] | (ep_value[finished] > 0))
                 for i in finished:
+                    path,level,spawn_index=episode_spec(cfg,episode_indices[int(i)])
+                    key=json.dumps([path,level,spawn_index,stage],separators=(',',':'))
+                    coverage=completed_coverage.setdefault(key,dict(map=path,level=level,
+                        spawn_index=spawn_index,stage=stage,frac=frac,completed=0,wins=0,
+                        timeouts=0,eliminated=0,decisions=0,building_value=0.0))
+                    coverage['completed']+=1
+                    coverage['wins']+=int(won[i])
+                    coverage['timeouts']+=int(ends[i]==R.EpisodeEnd.Timeout)
+                    coverage['eliminated']+=int(ends[i]==R.EpisodeEnd.AttackersEliminated)
+                    coverage['decisions']+=int(ep_steps[i])
+                    coverage['building_value']+=float(ep_value[i])
                     wins += int(won[i])
                     timeouts += int(ends[i] == R.EpisodeEnd.Timeout)
                     eliminated += int(ends[i] == R.EpisodeEnd.AttackersEliminated)
@@ -691,6 +713,7 @@ def train(cfg, args, saved, *, gradient_observer=None):
                        kl_early_stop=stopped_kl, wins=wins, timeouts=timeouts,
                        optimizer_minibatches=len(losses),
                        eliminated=eliminated, completed=completed,
+                       completed_coverage=completed_coverage,
                        hit_rate=stage_hits.rate, window_win_rate=stage_wins.rate,
                        outcome_rate=stage_outcomes.rate,
                        window_count=stage_hits.count,

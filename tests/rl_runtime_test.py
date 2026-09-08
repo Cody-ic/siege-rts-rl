@@ -400,6 +400,30 @@ class RuntimeTests(unittest.TestCase):
                 for key in ('model','optimizer','rng','config','contract'):equal(a[key],b[key])
                 for value in (a,b):value['progress'].pop('elapsed_seconds')
                 equal(a['progress'],b['progress'])
+                coverage=list(a['progress']['completed_coverage'].values())
+                self.assertEqual(sum(x['completed'] for x in coverage),a['progress']['completed'])
+                self.assertEqual(sum(x['decisions'] for x in coverage),a['progress']['completed_steps'])
+
+    def test_completed_coverage_records_actual_levels_and_entrances(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.run_train(folder,['--total-steps','32','--max-ticks','6','--curriculum','1.0',
+                '--roster','mixed','--levels','1,4',
+                '--map-pool','game/data/maps/pool/gen_01001000.json,game/data/maps/pool/gen_01004000.json'])
+            p=load_training(Path(folder)/'latest.pt')['progress']
+            rows=list(p['completed_coverage'].values())
+            self.assertEqual(p['completed'],32)
+            self.assertEqual(len(rows),14) # maps have four and three entrances
+            self.assertEqual({x['level'] for x in rows},{1,4})
+            self.assertTrue(all(x['completed']>0 and x['decisions']==x['completed'] for x in rows))
+            for path in {x['map'] for x in rows}:
+                selected=[x for x in rows if x['map']==path]
+                expected={(level,spawn) for level in (1,4) for spawn in range(len(R.map_sites(path)['spawns']))}
+                self.assertEqual({(x['level'],x['spawn_index']) for x in selected},expected)
+                self.assertEqual(sum(x['completed'] for x in selected),16)
+            for name in ('completed','wins','timeouts','eliminated'):
+                self.assertEqual(sum(x[name] for x in rows),p[name])
+            metrics=[json.loads(line) for line in (Path(folder)/'metrics.jsonl').read_text().splitlines()]
+            self.assertEqual(metrics[-1]['completed_coverage'],p['completed_coverage'])
 
     def test_atomic_save_and_corrupt_latest_fallback(self):
         with tempfile.TemporaryDirectory() as folder:
