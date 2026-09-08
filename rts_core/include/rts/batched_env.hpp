@@ -203,6 +203,8 @@ public:
     // Read-only coverage diagnostics per world: known economic targets and
     // live squad leaders actually assigned to them. Never a policy input.
     std::vector<std::array<int,2>> goal_diagnostics() const;
+    // Effective targets in observe() leader order; missing economy falls back to 0.
+    std::vector<std::vector<std::uint8_t>> goal_groups() const;
 
     // Latched until reset. Keep destruction wins ties with the time limit.
     enum class EpisodeEnd : std::uint8_t { Running, KeepDestroyed, Timeout, AttackersEliminated };

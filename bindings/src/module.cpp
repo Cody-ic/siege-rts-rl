@@ -585,6 +585,7 @@ PYBIND11_MODULE(rts_native, m) {
             "这一层只给「发生了什么」。")
         .def_property_readonly("potentials", &rts::BatchedEnv::potentials)
         .def_property_readonly("goal_diagnostics", &rts::BatchedEnv::goal_diagnostics)
+        .def_property_readonly("goal_groups", &rts::BatchedEnv::goal_groups)
         .def_property_readonly("episode_ends", [](const rts::BatchedEnv& e) {
             const auto ends = e.episode_ends();
             return std::vector<rts::BatchedEnv::EpisodeEnd>(ends.begin(), ends.end());

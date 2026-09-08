@@ -33,7 +33,7 @@ def export(args):
     source_contract={}
     source_config=source.get('config',{}) if isinstance(source,dict) else {}
     goal_mode=source_config.get('tactical_goals','keep')
-    if goal_mode not in ('keep','known-economy'):
+    if goal_mode not in ('keep','known-economy','split-economy'):
         raise ValueError('Unknown checkpoint tactical goal semantics')
     if isinstance(source,dict) and 'format' in source:
         source_contract=source.get('contract',source.get('plan',{}).get('signature',{}).get('contract',{}))
@@ -72,10 +72,12 @@ def export(args):
                 if step%50==0:
                     samples.append((c.copy(),s.copy(),g.copy(),m.copy()))
                     if goal_mode!='keep':
-                        assigned=env.goal_diagnostics[0][1]
+                        groups=env.goal_groups[0]
+                        economic_rows=[i for i,row in enumerate(rows) if groups[int(row)%obs.mu]==1]
+                        assigned=len(economic_rows)
                         goal_validation_rows+=assigned
                         if assigned and first_goal_row is None:
-                            first_goal_row=sum(len(sample[0]) for sample in samples[:-1])
+                            first_goal_row=sum(len(sample[0]) for sample in samples[:-1])+economic_rows[0]
                 logits=actor(*(torch.from_numpy(x) for x in (c,s,g))).numpy()
                 actions=np.zeros((1,obs.mu),np.uint8)
                 actions.reshape(-1)[rows]=np.where(m,logits,-np.inf).argmax(-1)

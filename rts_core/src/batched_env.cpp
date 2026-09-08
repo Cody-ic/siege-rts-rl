@@ -501,6 +501,16 @@ std::vector<std::array<int,2>> BatchedEnv::goal_diagnostics() const {
     return out;
 }
 
+std::vector<std::vector<std::uint8_t>> BatchedEnv::goal_groups() const {
+    std::vector<std::vector<std::uint8_t>> out(p_->worlds.size());
+    for(std::size_t i=0;i<out.size();++i) {
+        auto intent=p_->intent_for(i);
+        if(intent.groups.empty() || intent.economy.empty()) out[i].assign(p_->leaders[i].size(),0);
+        else out[i]=std::move(intent.groups);
+    }
+    return out;
+}
+
 std::vector<double> BatchedEnv::potentials() const {
     std::vector<double> result(p_->worlds.size(), 0.0);
     for (std::size_t i = 0; i < p_->worlds.size(); ++i) {
