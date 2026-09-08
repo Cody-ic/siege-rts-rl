@@ -36,6 +36,7 @@ class Config:
     clip: float = .2
     max_wave: int = 70
     anchor_weight: float = 0.
+    detach_critic_features: bool = False
 
 
 def contract(cfg):
@@ -88,6 +89,16 @@ def reference_penalty(current_logp,old_logp,reference_logp):
     return (current_logp-old_logp).exp()*(torch.expm1(delta)-delta)
 
 
+def isolate_critic(policy):
+    """Keep value-head learning from rewriting the actor's pretrained features.
+
+    The actor can still update its encoder through the policy objective. Values
+    and inference graphs are unchanged; this only changes gradient routing.
+    Re-register on resume, since hooks are intentionally not in state_dict.
+    """
+    return policy.critic.register_forward_pre_hook(lambda module,args:tuple(x.detach() for x in args))
+
+
 def train(cfg, folder, updates,init_checkpoint=None):
     if not cfg.maps or min(cfg.rollout,cfg.period,cfg.epochs,cfg.hidden,cfg.max_wave)<1 or updates<0:
         raise ValueError('positive training dimensions and a nonempty map pool required')
@@ -129,6 +140,8 @@ def train(cfg, folder, updates,init_checkpoint=None):
                     raise ValueError('Anchored checkpoint has no fixed reference model')
                 reference.load_state_dict(saved['reference_model'])
             reference.requires_grad_(False)
+        if cfg.detach_critic_features:
+            isolate_critic(policy)
         progress.setdefault('simulation_ticks',0)
         progress.setdefault('finished_campaigns',[])
         # Model construction for warm-start validation must not shift rollout RNG.
@@ -219,8 +232,9 @@ if __name__=='__main__':
     parser.add_argument('--anchor-weight',type=float,default=0.)
     parser.add_argument('--gamma',type=float,default=.995)
     parser.add_argument('--gae-lambda',type=float,default=.95)
+    parser.add_argument('--detach-critic-features',action='store_true')
     args=parser.parse_args()
     train(Config(tuple(str(Path(p).resolve()) for p in args.maps),str(Path(args.stats).resolve()),
                  seed=args.seed,rollout=args.rollout,period=args.period,anchor_weight=args.anchor_weight,
-                 gamma=args.gamma,gae_lambda=args.gae_lambda),
+                 gamma=args.gamma,gae_lambda=args.gae_lambda,detach_critic_features=args.detach_critic_features),
           args.run_dir,args.updates,args.init_checkpoint)
