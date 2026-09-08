@@ -4,6 +4,8 @@ Checkpoints commit whole updates. A interrupted rollout is replayed from the las
 commit, never counted twice. Wave boundaries terminate RL returns but keep the city.
 """
 import argparse
+import copy
+import math
 from dataclasses import asdict, dataclass
 from pathlib import Path
 import random
@@ -14,6 +16,7 @@ import rts_native as native
 
 from checkpointing import load_auto, restore_rng, rng_state, run_lock, save_run, sha256
 from macro_policy import MacroPolicy
+from macro_evaluate import load_policy
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -32,6 +35,7 @@ class Config:
     gae_lambda: float = .95
     clip: float = .2
     max_wave: int = 70
+    anchor_weight: float = 0.
 
 
 def contract(cfg):
@@ -73,11 +77,24 @@ def returns(rows, cfg):
     return adv, targets
 
 
-def train(cfg, folder, updates):
+def reference_penalty(current_logp,old_logp,reference_logp):
+    """Importance-corrected nonnegative KL estimator for a sampled full command.
+
+    Under old-policy samples, E[p/q * (r/p - 1 - log(r/p))] = KL(p || r).
+    Keep gradients through p/q; detaching it changes the objective's gradient.
+    All three probabilities must use the same state's full-command legal support.
+    """
+    delta=reference_logp-current_logp
+    return (current_logp-old_logp).exp()*(torch.expm1(delta)-delta)
+
+
+def train(cfg, folder, updates,init_checkpoint=None):
     if not cfg.maps or min(cfg.rollout,cfg.period,cfg.epochs,cfg.hidden,cfg.max_wave)<1 or updates<0:
         raise ValueError('positive training dimensions and a nonempty map pool required')
     if not 0<cfg.gamma<=1 or not 0<cfg.gae_lambda<=1 or not 0<cfg.clip<1 or cfg.learning_rate<=0:
         raise ValueError('invalid PPO hyperparameters')
+    if not math.isfinite(cfg.anchor_weight) or cfg.anchor_weight<0:
+        raise ValueError('anchor weight must be finite and nonnegative')
     torch.set_num_threads(1)
     random.seed(cfg.seed);np.random.seed(cfg.seed);torch.manual_seed(cfg.seed)
     identity = contract(cfg)
@@ -89,12 +106,32 @@ def train(cfg, folder, updates):
         progress = dict(updates=0,env_steps=0,episode=0,waves_survived=0,defeats=0,history=[])
         commands = []
         initialization='random-defender'
+        reference=None
         if saved:
             if saved['config']!=asdict(cfg) or saved['contract']!=identity:
                 raise ValueError('Macro run inputs changed; use a new directory')
             policy.load_state_dict(saved['model']);optimizer.load_state_dict(saved['optimizer'])
             progress=saved['progress'];commands=saved['campaign']['commands']
             initialization=saved['initialization']
+            if init_checkpoint and (not isinstance(initialization,dict) or
+                    initialization.get('checkpoint_sha256')!=sha256(init_checkpoint)):
+                raise ValueError('Resume initialization differs from the committed run')
+        elif init_checkpoint:
+            initialized,_,_=load_policy(init_checkpoint,cfg.stats)
+            policy.load_state_dict(initialized.state_dict())
+            initialization=dict(kind='macro-weights-warm-start',checkpoint_sha256=sha256(init_checkpoint))
+        if cfg.anchor_weight:
+            if not saved and not init_checkpoint:
+                raise ValueError('Anchored training requires an initialization checkpoint')
+            reference=copy.deepcopy(policy).eval()
+            if saved:
+                if saved.get('reference_model') is None:
+                    raise ValueError('Anchored checkpoint has no fixed reference model')
+                reference.load_state_dict(saved['reference_model'])
+            reference.requires_grad_(False)
+        # Model construction for warm-start validation must not shift rollout RNG.
+        if not saved:
+            random.seed(cfg.seed);np.random.seed(cfg.seed);torch.manual_seed(cfg.seed)
         world=campaign(cfg,progress['episode'])
         for command in commands:
             world.advance(cfg.period,[tuple(command)])
@@ -107,6 +144,7 @@ def train(cfg, folder, updates):
             save_run(folder,dict(format=1,config=asdict(cfg),contract=identity,
                 progress=progress,status='ready',initialization=initialization,
                 model=policy.state_dict(),optimizer=optimizer.state_dict(),rng=rng_state(),
+                reference_model=reference.state_dict() if reference is not None else None,
                 campaign=dict(commands=commands,hash=world.diagnostic_state_hash,
                               tick=world.tick,wave=world.wave)))
         if not saved:
@@ -118,13 +156,15 @@ def train(cfg, folder, updates):
                 detail=world.defender_detail().astype(np.float16)
                 with torch.no_grad():
                     decision=policy.decide(*obs,world.candidates(),world.map_shape,detail=detail)
+                    reference_logp=(float(reference.rescore(*obs,decision.command,decision.domains,
+                        world.map_shape,detail=detail).log_prob) if reference is not None else 0.)
                 transition=world.advance(cfg.period,[decision.command])
                 commands.append(decision.command)
                 terminal=transition['wave_advanced'] or transition['defeated']
                 # Sparse outcome only: no repeated reward for building/demolishing or waiting.
                 reward=float(transition['wave_advanced'])-float(transition['defeated'])
                 rows.append(dict(obs=obs,detail=detail,command=decision.command,domains=decision.domains,
-                    shape=world.map_shape,log_prob=float(decision.log_prob),value=float(decision.value),
+                    shape=world.map_shape,log_prob=float(decision.log_prob),reference_logp=reference_logp,value=float(decision.value),
                     reward=reward,terminal=terminal,ticks=transition['ticks'],
                     next_value=0. if terminal else bootstrap(policy,world.defender_observation(),world.defender_detail().astype(np.float16))))
                 progress['waves_survived']+=int(transition['wave_advanced'])
@@ -134,6 +174,7 @@ def train(cfg, folder, updates):
                     world=campaign(cfg,progress['episode']);commands=[]
             advantages,targets=returns(rows,cfg)
             losses=[]
+            penalties=[]
             for _ in range(cfg.epochs):
                 optimizer.zero_grad()
                 # Accumulate one rollout gradient; don't retain all spatial graphs in memory.
@@ -142,16 +183,18 @@ def train(cfg, folder, updates):
                     ratio=(d.log_prob-row['log_prob']).exp()
                     surrogate=torch.minimum(ratio*advantages[index],
                         ratio.clamp(1-cfg.clip,1+cfg.clip)*advantages[index])
-                    loss=(-surrogate+.5*(d.value-targets[index]).square())/len(rows)
+                    penalty=(reference_penalty(d.log_prob,row['log_prob'],row['reference_logp'])
+                             if reference is not None else d.log_prob.new_zeros(()))
+                    loss=(-surrogate+.5*(d.value-targets[index]).square()+cfg.anchor_weight*penalty)/len(rows)
                     if not torch.isfinite(loss):
                         raise ValueError('Non-finite macro PPO loss; last committed checkpoint preserved')
-                    loss.backward();losses.append(float(loss.detach()))
+                    loss.backward();losses.append(float(loss.detach()));penalties.append(float(penalty.detach()))
                 torch.nn.utils.clip_grad_norm_(policy.parameters(),.5,error_if_nonfinite=True)
                 optimizer.step()
             progress['updates']+=1;progress['env_steps']+=len(rows)
             progress['history'].append(dict(update=progress['updates'],loss=sum(losses)/cfg.epochs,
                 reward=sum(r['reward'] for r in rows),tick=world.tick,wave=world.wave,
-                episode=progress['episode']))
+                episode=progress['episode'],reference_kl_estimate=sum(penalties)/len(penalties)))
             commit()
             print(progress['history'][-1],flush=True)
         return progress
@@ -166,6 +209,9 @@ if __name__=='__main__':
     parser.add_argument('--seed',type=int,default=1)
     parser.add_argument('--rollout',type=int,default=64)
     parser.add_argument('--period',type=int,default=100)
+    parser.add_argument('--init-checkpoint')
+    parser.add_argument('--anchor-weight',type=float,default=0.)
     args=parser.parse_args()
     train(Config(tuple(str(Path(p).resolve()) for p in args.maps),str(Path(args.stats).resolve()),
-                 seed=args.seed,rollout=args.rollout,period=args.period),args.run_dir,args.updates)
+                 seed=args.seed,rollout=args.rollout,period=args.period,anchor_weight=args.anchor_weight),
+          args.run_dir,args.updates,args.init_checkpoint)
