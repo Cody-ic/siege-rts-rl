@@ -23,5 +23,8 @@ MacroObservation pack_macro_observation(const rts::WorldView& defender);
 // Evaluate again after each selected command; masks do not reserve resources.
 bool macro_command_legal(const rts::WorldView& defender,const rts::Command& command,
                          bool summon_allowed);
+// Complete legal command set, in canonical order; no tactical ranking or cap.
+// Includes every buildable cell and every affordable recruitment level.
+std::vector<rts::Command> macro_candidates(const rts::WorldView& defender,bool summon_allowed);
 }
 #endif

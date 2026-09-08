@@ -2,6 +2,8 @@
 #include "game/macro_observation.hpp"
 #include "game/player_input.hpp"
 #include "game/stats_loader.hpp"
+#include <set>
+#include <tuple>
 
 namespace {
 rts::WorldInit arena() {
@@ -12,6 +14,37 @@ rts::WorldInit arena() {
     init.seed=3;init.nominal_level=1;init.map_id="macro-observation";
     init.units.push_back({rts::UnitType::Archer,{3.5f,3.5f},1,240,240});
     return init;
+}
+TEST_CASE("Macro candidates cover all legal cells and recruitment levels", "[macroobs]") {
+    rts::World w(arena());
+    w.set_stock(rts::Resource::Stone,10000);w.set_stock(rts::Resource::Wood,10000);
+    w.set_stock(rts::Resource::Gold,10000);
+    const auto v=w.view(rts::Side::Defender);
+    using Key=std::tuple<int,int,int,int>;
+    std::set<Key> actual,expected;
+    for(const auto& c:game::macro_candidates(v,true)) {
+        REQUIRE(game::macro_command_legal(v,c,true));
+        REQUIRE(actual.emplace(static_cast<int>(c.kind),c.slot,c.what,c.level).second);
+    }
+    const auto consider=[&](rts::Command c) {
+        if(game::macro_command_legal(v,c,true)) expected.emplace(static_cast<int>(c.kind),c.slot,c.what,c.level);
+    };
+    consider({});
+    rts::Command summon;summon.kind=rts::CommandKind::Summon;consider(summon);
+    for(int slot=0;slot<1600;++slot) {
+        rts::Command c;c.slot=static_cast<std::uint16_t>(slot);
+        for(const auto kind:{rts::CommandKind::Repair,rts::CommandKind::Upgrade,rts::CommandKind::Cancel,
+                             rts::CommandKind::Demolish,rts::CommandKind::Clear}) {
+            c.kind=kind;consider(c);
+        }
+        c.kind=rts::CommandKind::Build;
+        for(int type=0;type<rts::kBldTypeCount;++type) {c.what=static_cast<std::uint8_t>(type);consider(c);}
+        c.kind=rts::CommandKind::Train;
+        for(int type=0;type<rts::kUnitTypeCount;++type) for(int level=1;level<=3;++level) {
+            c.what=static_cast<std::uint8_t>(type);c.level=static_cast<std::uint8_t>(level);consider(c);
+        }
+    }
+    REQUIRE(actual==expected);
 }
 }
 TEST_CASE("Macro observation excludes hidden enemies including their counts and levels", "[macroobs]") {

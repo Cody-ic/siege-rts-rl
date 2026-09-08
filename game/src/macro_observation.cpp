@@ -1,9 +1,45 @@
 #include "game/macro_observation.hpp"
 #include <algorithm>
 #include <cmath>
+#include <tuple>
 #include "game/player_input.hpp"
 
 namespace game {
+std::vector<rts::Command> macro_candidates(const rts::WorldView& v,bool summon_allowed) {
+    if(v.side()!=rts::Side::Defender) throw rts::ContractError("Macro candidates require defender view");
+    if(v.width()*v.height()>rts::kNoSlot) throw rts::ContractError("Map exceeds command slot encoding");
+    std::vector<rts::Command> out(1); // Waiting is always available.
+    const auto append=[&](rts::Command c) {
+        if(macro_command_legal(v,c,summon_allowed)) out.push_back(c);
+    };
+    rts::Command summon;summon.kind=rts::CommandKind::Summon;append(summon);
+    for(const auto type:buildable_types()) {
+        if(!can_afford_build(v,type)) continue;
+        for(int y=0;y<v.height();++y) for(int x=0;x<v.width();++x) {
+            const rts::GridPos pos{static_cast<std::int16_t>(x),static_cast<std::int16_t>(y)};
+            if(can_place_hint(v,type,pos)) out.push_back(build_command(type,pos,v.width()));
+        }
+    }
+    for(std::size_t i=0;i<v.bld_alive().size();++i) {
+        if(!v.bld_alive()[i]) continue;
+        const auto pos=v.bld_pos()[i];
+        rts::Command c;c.slot=static_cast<std::uint16_t>(pos.j*v.width()+pos.i);
+        for(const auto kind:{rts::CommandKind::Repair,rts::CommandKind::Upgrade,
+                             rts::CommandKind::Cancel,rts::CommandKind::Demolish}) {
+            c.kind=kind;append(c);
+        }
+        if(!can_train_hint(v,pos) || train_pop_full(v)) continue;
+        for(const auto type:trainable_types())
+            for(int level=1;level<=std::min(255,v.unit_level_cap());++level)
+                if(can_afford_train(v,type,level)) out.push_back(train_command(type,level,pos,v.width()));
+    }
+    for(std::size_t i=0;i<v.obstacle_alive().size();++i)
+        if(v.obstacle_alive()[i]) append(clear_command(v.obstacle_pos()[i],v.width()));
+    std::sort(out.begin(),out.end(),[](const auto& a,const auto& b) {
+        return std::tie(a.kind,a.slot,a.what,a.level)<std::tie(b.kind,b.slot,b.what,b.level);
+    });
+    return out;
+}
 bool macro_command_legal(const rts::WorldView& v,const rts::Command& c,bool summon_allowed) {
     if(v.side()!=rts::Side::Defender || c.side!=rts::Side::Defender) return false;
     if(c.kind==rts::CommandKind::None) return true;

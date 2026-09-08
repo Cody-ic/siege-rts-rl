@@ -49,6 +49,19 @@ class CampaignBindingTests(unittest.TestCase):
             branch.command_mask([(999, 0, 0, 1)])
         self.assertEqual(before, branch.diagnostic_state_hash)
 
+    def test_candidates_are_unique_legal_and_stable(self):
+        before = self.campaign.diagnostic_state_hash
+        candidates = self.campaign.candidates()
+        self.assertEqual(candidates.shape[1], 4)
+        self.assertGreater(len(candidates), 1)
+        rows = [tuple(row) for row in candidates.tolist()]
+        self.assertEqual(rows, sorted(set(rows)))
+        self.assertTrue(self.campaign.command_mask(rows).all())
+        np.testing.assert_array_equal(candidates, self.campaign.fork().candidates())
+        self.assertEqual(before, self.campaign.diagnostic_state_hash)
+        height, width = self.campaign.map_shape
+        self.assertGreater(height * width, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

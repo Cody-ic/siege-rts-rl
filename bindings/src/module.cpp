@@ -163,6 +163,22 @@ PYBIND11_MODULE(rts_native, m) {
                 game::StatsLoader::from_file(stats),seed);
         }),py::arg("map_path"),py::arg("stats_path"),py::arg("seed")=1)
         .def("fork",&game::TrainingCampaign::fork)
+        .def_property_readonly("map_shape",[](const game::TrainingCampaign& c) {
+            const auto v=c.world().view(rts::Side::Defender);
+            return py::make_tuple(v.height(),v.width());
+        })
+        .def("candidates",[](const game::TrainingCampaign& c) {
+            std::vector<rts::Command> commands;
+            {py::gil_scoped_release nogil;
+             commands=game::macro_candidates(c.world().view(rts::Side::Defender),c.summon_allowed());}
+            py::array_t<int> result({static_cast<py::ssize_t>(commands.size()),py::ssize_t{4}});
+            auto* data=result.mutable_data();
+            for(const auto& command:commands) {
+                *data++=static_cast<int>(command.kind);*data++=command.slot;
+                *data++=command.what;*data++=command.level;
+            }
+            return result;
+        })
         .def("defender_observation",[](const game::TrainingCampaign& c) {
             const auto packed=game::pack_macro_observation(c.world().view(rts::Side::Defender));
             py::array_t<float> cells({game::kMacroGrid,game::kMacroGrid,game::kMacroChannels});
