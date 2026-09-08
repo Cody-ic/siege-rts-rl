@@ -265,6 +265,11 @@ python train/macro_evaluate.py --checkpoint runs/my-defender-macro/latest.pt --m
 默认沿用模型训练决策间隔，`--period 20` 可另做频率诊断；现有脚本仍保持每 20 tick
 批量决策和辅助驻墙指令，因此脚本对照是产品基线，不是控制能力完全一致的算法消融。
 
+可用 `--arms script learned` 评估基线与模型，再对后续检查点仅用 `--arms learned`，
+避免重复运行和重复统计同一脚本案例。`macro_compare.py BEFORE.json AFTER.json` 按地图/种子
+配对两个完整报告，核对原生模块、数值表、地图、种子、波次、时间上限和动作模式/频率一致；
+缺局、重复案例或协议不同会拒绝汇总。它报告实际差值，不自动将较新的检查点视为更优模型。
+
 `macro_imitation.py` 采集单命令脚本示范并训练相同宏观网络。`teacher_command()` 查询只读，
 每次只选现有宏观脚本提议中的第一条合法命令，不额外下驻墙/调兵指令；没有合法提议时等待。
 教师内部仍是现有脚本的局势读取方式，是离线特权教师；学生只接收过滤迷雾后的观测。

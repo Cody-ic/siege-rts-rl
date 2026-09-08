@@ -28,6 +28,11 @@ class MacroEvaluateTests(unittest.TestCase):
                 self.assertFalse(row['completed'])
                 self.assertFalse(row['defeated'])
             self.assertEqual(before,sha256(model))
+            selected=evaluate(model,[map_path],stats,[103],Path(folder)/'learned-only.json',
+                              max_wave=1,max_ticks=1,arms=['learned'])
+            self.assertEqual([row['arm'] for row in selected['cases']],['learned'])
+            with self.assertRaisesRegex(ValueError,'arms'):
+                evaluate(model,[map_path],stats,[103],Path(folder)/'invalid.json',arms=[])
             with self.assertRaisesRegex(ValueError,'already exists'):
                 evaluate(model,[map_path],stats,[103],output,max_wave=1,max_ticks=1)
 

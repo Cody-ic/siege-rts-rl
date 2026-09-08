@@ -68,10 +68,13 @@ def evaluate_case(map_path,stats,seed,policy,period,max_wave,max_ticks,greedy=Fa
         commands=dict(commands),state_hash=world.diagnostic_state_hash)
 
 
-def evaluate(checkpoint,maps,stats,seeds,output,max_wave=6,max_ticks=100000,greedy=False,period=None):
+def evaluate(checkpoint,maps,stats,seeds,output,max_wave=6,max_ticks=100000,greedy=False,period=None,
+             arms=('script','initial','learned')):
     output=Path(output)
     if output.exists():
         raise ValueError('Evaluation output already exists; use a new file')
+    if not arms or len(set(arms))!=len(arms) or not set(arms)<= {'script','initial','learned'}:
+        raise ValueError('Evaluation arms must be nonempty, unique and known')
     torch.set_num_threads(1)
     learned,initial,cfg=load_policy(checkpoint,stats)
     selected_period=cfg['period'] if period is None else period
@@ -82,12 +85,14 @@ def evaluate(checkpoint,maps,stats,seeds,output,max_wave=6,max_ticks=100000,gree
         maps={str(p):sha256(p) for p in maps},seeds=list(seeds),max_wave=max_wave,max_ticks=max_ticks,
         mode='conditional-greedy' if greedy else 'sample',policy_period=selected_period,
         training_period=cfg['period'],
-        script_internal_period=20,training_maps=cfg['maps'],complete=False,cases=[])
+        script_internal_period=20,training_maps=cfg['maps'],arms=list(arms),complete=False,cases=[])
     # Script is the deployed macro baseline with its normal 20-tick cadence.
     # Initial and learned networks use identical architecture and decision cadence.
     for path in maps:
         for seed in seeds:
             for name,policy in (('script',None),('initial',initial),('learned',learned)):
+                if name not in arms:
+                    continue
                 row=evaluate_case(path,stats,seed,policy,selected_period,max_wave,max_ticks,greedy)
                 row['arm']=name
                 report['cases'].append(row)
@@ -111,6 +116,7 @@ if __name__=='__main__':
     parser.add_argument('--max-ticks',type=int,default=100000)
     parser.add_argument('--greedy',action='store_true')
     parser.add_argument('--period',type=int,help='Explicit cadence diagnostic; defaults to checkpoint training period')
+    parser.add_argument('--arms',nargs='+',choices=['script','initial','learned'],default=['script','initial','learned'])
     args=parser.parse_args()
     evaluate(args.checkpoint,[str(Path(p).resolve()) for p in args.maps],args.stats,args.seeds,
-             args.output,args.max_wave,args.max_ticks,args.greedy,args.period)
+             args.output,args.max_wave,args.max_ticks,args.greedy,args.period,args.arms)
