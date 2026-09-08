@@ -28,6 +28,9 @@ public:
     const rts::World& world() const noexcept { return battle_.world(); }
     bool defeated() const noexcept { return battle_.defeated(); }
     bool summon_allowed() const noexcept { return battle_.summon_accepted_now(); }
+    // Offline script label with the same single-command interface as the learner.
+    // Copies the teacher; querying never mutates campaign or script history.
+    rts::Command teacher_command() const;
 
     // Deep-copy game and opponent state for paired decisions. No reseeding or
     // reconstruction from visible summaries; any frozen inference model is shared.

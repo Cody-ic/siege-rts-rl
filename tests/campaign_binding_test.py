@@ -62,6 +62,16 @@ class CampaignBindingTests(unittest.TestCase):
         height, width = self.campaign.map_shape
         self.assertGreater(height * width, 1)
 
+    def test_single_command_teacher_is_read_only_and_executable(self):
+        for _ in range(8):
+            before=self.campaign.diagnostic_state_hash
+            command=self.campaign.teacher_command()
+            self.assertEqual(command,self.campaign.teacher_command())
+            self.assertEqual(before,self.campaign.diagnostic_state_hash)
+            self.assertTrue(self.campaign.command_mask([command])[0])
+            self.campaign.advance(20,[command])
+        self.assertEqual(self.campaign.tick,160)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -87,11 +87,13 @@ def train(cfg, folder, updates):
         optimizer = torch.optim.Adam(policy.parameters(),lr=cfg.learning_rate)
         progress = dict(updates=0,env_steps=0,episode=0,waves_survived=0,defeats=0,history=[])
         commands = []
+        initialization='random-defender'
         if saved:
             if saved['config']!=asdict(cfg) or saved['contract']!=identity:
                 raise ValueError('Macro run inputs changed; use a new directory')
             policy.load_state_dict(saved['model']);optimizer.load_state_dict(saved['optimizer'])
             progress=saved['progress'];commands=saved['campaign']['commands']
+            initialization=saved['initialization']
         world=campaign(cfg,progress['episode'])
         for command in commands:
             world.advance(cfg.period,[tuple(command)])
@@ -102,7 +104,7 @@ def train(cfg, folder, updates):
 
         def commit():
             save_run(folder,dict(format=1,config=asdict(cfg),contract=identity,
-                progress=progress,status='ready',initialization='random-defender',
+                progress=progress,status='ready',initialization=initialization,
                 model=policy.state_dict(),optimizer=optimizer.state_dict(),rng=rng_state(),
                 campaign=dict(commands=commands,hash=world.diagnostic_state_hash,
                               tick=world.tick,wave=world.wave)))

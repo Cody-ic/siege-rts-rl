@@ -163,6 +163,10 @@ PYBIND11_MODULE(rts_native, m) {
                 game::StatsLoader::from_file(stats),seed);
         }),py::arg("map_path"),py::arg("stats_path"),py::arg("seed")=1)
         .def("fork",&game::TrainingCampaign::fork)
+        .def("teacher_command",[](const game::TrainingCampaign& c) {
+            const auto command=c.teacher_command();
+            return py::make_tuple(static_cast<int>(command.kind),command.slot,command.what,command.level);
+        })
         .def_property_readonly("map_shape",[](const game::TrainingCampaign& c) {
             const auto v=c.world().view(rts::Side::Defender);
             return py::make_tuple(v.height(),v.width());

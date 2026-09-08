@@ -256,7 +256,21 @@ python train/macro_evaluate.py --checkpoint runs/my-defender-macro/latest.pt --m
 默认沿用模型训练决策间隔，`--period 20` 可另做频率诊断；现有脚本仍保持每 20 tick
 批量决策和辅助驻墙指令，因此脚本对照是产品基线，不是控制能力完全一致的算法消融。
 
-当前仍需改善基础策略、更多局面训练和与攻方模型联合陪练。可恢复训练循环不代表守方
+`macro_imitation.py` 采集单命令脚本示范并训练相同宏观网络。`teacher_command()` 查询只读，
+每次只选现有宏观脚本提议中的第一条合法命令，不额外下驻墙/调兵指令；没有合法提议时等待。
+教师内部仍是现有脚本的局势读取方式，是离线特权教师；学生只接收过滤迷雾后的观测。
+
+```powershell
+python train/macro_imitation.py --maps game/data/maps/pool/gen_01001000.json game/data/maps/pool/gen_01008000.json --run-dir runs/my-macro-imitation --decisions 200 --epochs 8
+```
+
+示范数据原子写入 `demonstrations.pt`，训练每轮保存 `fit.pt`（优化器和随机状态齐全）。
+采集被中断时会重新采集；训练被中断时从上一完整轮恢复。最终 `latest.pt` 是可供宏观 PPO
+读取的初始化，PPO 优化器特意重新初始化，不沿用模仿学习的 Adam 动量；来源信息持续保留。
+已进入 PPO 的目录拒绝再次运行模仿学习，防止覆盖后续成果。配置与源码身份不匹配同样拒绝。
+首次试跑的未修订采集源码另保留在对应运行目录，用于复现已有冻结结果。
+
+当前仍需改善示范中等待样本占比过高、空间信息与基础策略、更多局面训练和与攻方模型联合陪练。可恢复训练循环不代表守方
 已学会守城。按新版守方设计，宏观模型不再承担
 调兵，单位微操由现有脚本负责。不能把跑通这个环境称为宏观 RL 已完成。
 

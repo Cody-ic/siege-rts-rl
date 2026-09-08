@@ -1,4 +1,5 @@
 #include "game/training_campaign.hpp"
+#include "game/macro_observation.hpp"
 
 namespace game {
 namespace {
@@ -18,6 +19,15 @@ TrainingCampaign::TrainingCampaign(const MapData& map,const rts::StatsTable& sta
 
 CampaignTransition TrainingCampaign::advance_scripted(int max_ticks) {
     return run(max_ticks,true,{},{});
+}
+rts::Command TrainingCampaign::teacher_command() const {
+    auto teacher=macro_;
+    std::vector<rts::Command> proposed;
+    std::vector<UnitOrder> ignored_orders;
+    teacher.decide(world(),proposed,ignored_orders);
+    for(const auto& command:proposed)
+        if(macro_command_legal(world().view(rts::Side::Defender),command,summon_allowed())) return command;
+    return {};
 }
 CampaignTransition TrainingCampaign::advance(int max_ticks,
     std::span<const rts::Command> commands,std::span<const UnitOrder> orders) {
