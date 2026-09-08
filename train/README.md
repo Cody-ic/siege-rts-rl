@@ -177,6 +177,28 @@ $PY train/evaluate.py --checkpoint runs/example/latest.pt --device cpu \
 
 ## 性能与验证
 
+### 一条命令运行完整实验
+
+在已经构建原生绑定、配置好 `PYTHONPATH` 的仓库根目录运行：
+
+```bash
+python train/pipeline.py --run-dir runs/prepared-mixed \
+  --map-pool game/data/maps/pool/gen_01001000.json,game/data/maps/pool/gen_01004000.json,game/data/maps/pool/gen_01005000.json,game/data/maps/pool/gen_01006001.json \
+  --eval-maps game/data/maps/pool/gen_01007000.json,game/data/maps/pool/gen_01008000.json,game/data/maps/pool/gen_01009000.json \
+  --levels 1,4,8,16 --prepare-ticks 900 --total-steps 65536
+```
+
+默认使用 CPU；有可用且获准使用的 GPU 时才显式加 `--device cuda`。
+先采集完整距离的破口示范，再做行为克隆和带参考约束的 PPO，最后逐图逐等级
+分别测试最大概率动作和按概率采样。`summary.json` 汇总结果，各阶段保留独立日志。
+运行目录保存数值表、地图、原生模块、源码和参数合约；换电脑需保留对应源码与构建环境。
+
+重启后重复同一命令：采集复用已完成分片，初始化和 PPO 恢复检查点，已完成的评估
+只在模型哈希相同时复用。输入或源码改变会明确拒绝复用，避免把不同实验拼成一次运行。
+原生对局在检查点恢复时仍会重新开局，并记录重置数，不声称逐 tick 无损续局。
+这个入口完成的是攻方战术训练实验，不会自动部署模型或宣称胜过脚本；真实多波对照
+与当前已知薄弱地图见 [稳定性与交付记录](../docs/rl-stability-and-deployment.md)。
+
 ```bash
 $PY train/benchmark.py --device cuda --envs 16 --output runs/benchmark.json
 ```

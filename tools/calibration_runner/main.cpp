@@ -186,8 +186,8 @@ void print_help() {
         "  --phoenix-per-waves <n> --phoenix-cap <n>  空军放开节奏与上限\n"
         "  --build-ticks <n> --first-build-ticks <n>  建造阶段时长\n"
         "\n"
-        "注：--seeds 1,2,3 目前等于同一局跑三遍——攻方一条随机分支都没有\n"
-        "（编成按曲线、方向按取余），实测 36/36 局同图同结果。见本工具 README。\n";
+        "注：旧版本曾同图多种子结果相同；当前守方拉扯与侦查会使用种子，\n"
+        "请同时覆盖地图和种子，勿将旧校准结论当成当前行为。见本工具 README。\n";
 }
 
 bool parse_args(const std::vector<std::string>& args, Options& out) {
