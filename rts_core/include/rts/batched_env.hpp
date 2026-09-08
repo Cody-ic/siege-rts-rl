@@ -200,6 +200,9 @@ public:
     // 势函数是所有当前存活单位到所分配目标的最近负距离和；默认目标为堡垒。
     // train/ 用同一个 gamma 算 gamma*Phi(next)-Phi(now)，终局势置零。
     std::vector<double> potentials() const;
+    // Read-only coverage diagnostics per world: known economic targets and
+    // live squad leaders actually assigned to them. Never a policy input.
+    std::vector<std::array<int,2>> goal_diagnostics() const;
 
     // Latched until reset. Keep destruction wins ties with the time limit.
     enum class EpisodeEnd : std::uint8_t { Running, KeepDestroyed, Timeout, AttackersEliminated };

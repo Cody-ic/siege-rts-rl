@@ -622,6 +622,9 @@ TEST_CASE("Native macro goals are isolated, deterministic and reset safely", "[b
     REQUIRE(serial->potentials()==std::vector<double>{-19,-31});
     REQUIRE(serial->potentials()==parallel->potentials());
     REQUIRE(fallback->potentials()==legacy->potentials());
+    REQUIRE(serial->goal_diagnostics()==std::vector<std::array<int,2>>{{1,1},{1,1}});
+    REQUIRE(parallel->goal_diagnostics()==serial->goal_diagnostics());
+    REQUIRE(fallback->goal_diagnostics()==std::vector<std::array<int,2>>{{0,0},{0,0}});
     const auto center=static_cast<std::size_t>((rts::kObsK/2*rts::kObsK+rts::kObsK/2)*rts::kObsChannelCount);
     const auto di=static_cast<std::size_t>(rts::ObsChannel::FlowDi);
     REQUIRE(a.cells[center+di]==b.cells[center+di]);

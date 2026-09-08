@@ -490,6 +490,17 @@ void BatchedEnv::take_tally(std::span<float> out) {
     }
 }
 
+std::vector<std::array<int,2>> BatchedEnv::goal_diagnostics() const {
+    std::vector<std::array<int,2>> out(p_->worlds.size());
+    for(std::size_t i=0;i<out.size();++i) {
+        const auto intent=p_->intent_for(i);
+        out[i][0]=static_cast<int>(intent.economy.size());
+        if(!intent.economy.empty())
+            out[i][1]=static_cast<int>(std::count(intent.groups.begin(),intent.groups.end(),std::uint8_t{1}));
+    }
+    return out;
+}
+
 std::vector<double> BatchedEnv::potentials() const {
     std::vector<double> result(p_->worlds.size(), 0.0);
     for (std::size_t i = 0; i < p_->worlds.size(); ++i) {

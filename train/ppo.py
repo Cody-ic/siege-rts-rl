@@ -505,12 +505,18 @@ def train(cfg, args, saved):
         while step_count < cfg.total_steps and not stop[0]:
             sample_start = time.perf_counter()
             roll_tally = np.zeros(R.obs.TALLY_FIELDS, np.float64)
+            goal_exposure = 0
+            goal_squads = 0
             buf_v.zero_()
             # The final update uses only collected samples, with no uninitialized tail.
             horizon = min(T, max(1, (cfg.total_steps - step_count + cfg.envs - 1) // cfg.envs))
             for t in range(horizon):
                 observation = obs.read()
                 rows = observation[0]
+                if cfg.tactical_goals != 'keep':
+                    goal_counts=np.asarray(env.goal_diagnostics)
+                    goal_exposure+=int(np.count_nonzero(goal_counts[:,1]))
+                    goal_squads+=int(goal_counts[:,1].sum())
                 keys[t] = obs.keys
                 storage.store(t, *observation)
                 with torch.no_grad():
@@ -673,6 +679,8 @@ def train(cfg, args, saved):
                        value_loss=float(np.mean(value_losses)) if value_losses else None,
                        reference_kl=float(np.mean(reference_kls)) if reference_kls else None,
                        reference_coef=cfg.reference_coef,
+                       economy_goal_environment_steps=goal_exposure,
+                       economy_goal_squad_steps=goal_squads,
                        approx_kl=float(np.mean(kls)) if kls else None,
                        clip_fraction=float(np.mean(clips)) if clips else None,
                        entropy=float(np.mean(entropies)) if entropies else None,

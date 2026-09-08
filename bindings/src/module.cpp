@@ -572,6 +572,7 @@ PYBIND11_MODULE(rts_native, m) {
             "列的顺序 = obs.TALLY_NAMES。权重不在 C++ 侧——那是训练超参，"
             "这一层只给「发生了什么」。")
         .def_property_readonly("potentials", &rts::BatchedEnv::potentials)
+        .def_property_readonly("goal_diagnostics", &rts::BatchedEnv::goal_diagnostics)
         .def_property_readonly("episode_ends", [](const rts::BatchedEnv& e) {
             const auto ends = e.episode_ends();
             return std::vector<rts::BatchedEnv::EpisodeEnd>(ends.begin(), ends.end());
