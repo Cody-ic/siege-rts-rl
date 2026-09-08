@@ -222,6 +222,35 @@ class RuntimeTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'illegal action'):
                 demos.load_dataset(invalid)
 
+    def test_student_collection_uses_student_actions_and_teacher_labels(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary)
+            net=ppo.Policy(R.obs.K,R.obs.CHANNEL_COUNT,R.obs.SELF_COUNT,R.obs.GLOBAL_COUNT,R.obs.ACTION_COUNT)
+            with torch.no_grad():
+                net.actor.weight.zero_();net.actor.bias.zero_();net.actor.bias[0]=100
+            model=root/'student.pt';torch.save(net.state_dict(),model)
+            captured=[];original=demos.make_env
+            class Recorded:
+                def __init__(self,env):self.env=env
+                def __getattr__(self,name):return getattr(self.env,name)
+                def step(self,actions,done):
+                    captured.append(actions.copy());return self.env.step(actions,done)
+            with patch.object(demos,'make_env',side_effect=lambda *a,**k:Recorded(original(*a,**k))):
+                data=self.collect_demo(root/'data','--behavior-checkpoint',str(model),'--tactical-goals','split-economy')
+            arrays,meta=demos.load_dataset(data)
+            self.assertTrue(all(np.all(a==0) for a in captured))
+            self.assertTrue(np.any(arrays[-1]!=0))
+            self.assertEqual(meta['behavior_sha256'],sha256(model))
+            self.fit_demo(data,root/'fit','--epochs','1','--init-weights',str(model))
+            saved=demos.read_fit(root/'fit/latest.pt')
+            torch.testing.assert_close(saved['model']['critic.weight'],net.state_dict()['critic.weight'],rtol=0,atol=0)
+            self.fit_demo(data,root/'fit','--resume')
+            self.assertEqual(demos.read_fit(root/'fit/latest.pt')['plan']['initialization_sha256'],sha256(model))
+            with torch.no_grad():net.actor.bias[0]=99
+            torch.save(net.state_dict(),model)
+            with self.assertRaisesRegex(ValueError,'plan changed'):
+                self.collect_demo(root/'data','--behavior-checkpoint',str(model),'--tactical-goals','split-economy')
+
     def test_demonstration_fit_resume_matches_uninterrupted_model_and_optimizer(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)

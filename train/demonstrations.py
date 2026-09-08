@@ -19,9 +19,9 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import rts_native as R
-from checkpointing import atomic_json, atomic_write, contract, run_lock, sha256
+from checkpointing import atomic_json, atomic_write, contract, load_weights, run_lock, sha256
 from evaluate import flow_actions, breach_actions
-from ppo import Cfg, Observer, Policy, make_env, make_worlds
+from ppo import Cfg, Observer, Policy, make_env, make_worlds, policy_forward
 
 FORMAT = 'rts-demonstrations-1'
 ARRAYS = ('cells', 'own', 'glob', 'legal', 'labels')
@@ -69,12 +69,19 @@ def collect(args):
     cfg = Cfg(envs=args.envs,threads=args.threads,torch_threads=1,device='cpu',seed=args.seed,
               map_path=args.map_path,stats_path=args.stats_path,map_pool=tuple(args.map_pool.split(',')) if args.map_pool else (),
               roster=args.roster,levels=tuple(int(x) for x in args.levels.split(',')),
-              defender_prepare_ticks=args.defender_prepare_ticks)
+              defender_prepare_ticks=args.defender_prepare_ticks,tactical_goals=args.tactical_goals)
     from ppo import validate
     validate(cfg)
     # JSON normalization makes tuple/list config fields identical after a restart.
     plan = json.loads(json.dumps(dict(config=asdict(cfg),signature=signature(cfg),
-                    steps=args.steps,stride=args.stride,fractions=fractions,teacher=args.teacher)))
+                    steps=args.steps,stride=args.stride,fractions=fractions,teacher=args.teacher,
+                    behavior_sha256=sha256(args.behavior_checkpoint) if args.behavior_checkpoint else None)))
+    behavior=None
+    if args.behavior_checkpoint:
+        torch.set_num_threads(1)
+        behavior=Policy(R.obs.K,R.obs.CHANNEL_COUNT,R.obs.SELF_COUNT,R.obs.GLOBAL_COUNT,R.obs.ACTION_COUNT)
+        behavior.load_state_dict(load_weights(args.behavior_checkpoint))
+        behavior.eval().requires_grad_(False)
     folder = Path(args.out_dir)
     with run_lock(folder):
         plan_path, destination = folder/'plan.json', folder/'demonstrations.npz'
@@ -112,7 +119,11 @@ def collect(args):
                     if step % args.stride == 0 and len(rows):
                         samples.append(tuple(a.copy() for a in (c,own,glob,legal,labels)))
                     actions.fill(0)
-                    actions.reshape(-1)[rows] = labels
+                    chosen=labels
+                    if behavior is not None:
+                        with torch.inference_mode():dist,_=policy_forward(behavior,observation,'cpu')
+                        if dist is not None:chosen=dist.logits.argmax(-1).numpy().astype(np.uint8)
+                    actions.reshape(-1)[rows] = chosen
                     env.step(actions,done)
                     for slot in np.flatnonzero(done):
                         env.reset_one(int(slot),make_worlds(cfg,1,frac,episode)[0])
@@ -123,7 +134,7 @@ def collect(args):
             print(f'Collected frac={frac:g}: {len(data[-1])} examples',flush=True)
         joined = tuple(np.concatenate([part[k] for part in parts]) for k in range(5))
         save_dataset(destination,joined,plan)
-        print(f'Saved {len(joined[-1])} examples; {len(fractions)*args.steps*args.envs} teacher env-steps',flush=True)
+        print(f'Saved {len(joined[-1])} examples; {len(fractions)*args.steps*args.envs} collection env-steps',flush=True)
         return destination
 
 
@@ -183,10 +194,12 @@ def fit(args):
         if 'part' in metadata:
             raise ValueError('Fit the final demonstrations.npz, not an incomplete collection part')
         c,own,glob,legal,labels = data
+        initialization=sha256(args.init_weights) if args.init_weights else None
         plan = dict(dataset_sha256=sha256(args.data),signature=metadata['signature'],
-                    seed=args.seed,batch_size=args.batch_size,lr=args.lr)
+                    seed=args.seed,batch_size=args.batch_size,lr=args.lr,initialization_sha256=initialization)
         if args.resume:
             saved = load_fit(folder)
+            if not args.init_weights:plan['initialization_sha256']=saved['plan'].get('initialization_sha256')
             if saved['plan'] != plan:
                 raise ValueError('Fitting data/config/source changed; use a new run directory')
         else:
@@ -204,6 +217,8 @@ def fit(args):
             start, history = saved['epoch'], saved['history']
             torch.set_rng_state(saved['cpu_rng'])
             rng.bit_generator.state = saved['numpy_rng']
+        elif args.init_weights:
+            net.load_state_dict(load_weights(args.init_weights))
         def checkpoint(epoch):
             save_fit(folder,dict(format=FORMAT,plan=plan,model=net.state_dict(),optimizer=opt.state_dict(),
                                  epoch=epoch,history=history,cpu_rng=torch.get_rng_state(),numpy_rng=rng.bit_generator.state))
@@ -246,7 +261,8 @@ def fit(args):
                 signal.signal(sig,handler)
         atomic_write(folder/'policy.pt',lambda stream:torch.save(net.state_dict(),stream))
         atomic_json(folder/'initialization.json',dict(kind='flow_demonstrations',teacher=metadata['teacher'],plan=plan,
-                    epochs=epoch_done,examples=len(labels),teacher_env_steps=metadata['steps']*metadata['config']['envs']*len(metadata['fractions']),
+                    epochs=epoch_done,examples=len(labels),collection_env_steps=metadata['steps']*metadata['config']['envs']*len(metadata['fractions']),
+                    behavior_sha256=metadata['behavior_sha256'],
                     history=history,policy_sha256=sha256(folder/'policy.pt'),
                     status='complete' if epoch_done >= args.epochs else 'paused'))
         print('Exported',folder/'policy.pt','for a NEW PPO run with --init-weights',flush=True)
@@ -269,10 +285,13 @@ def main(argv=None):
     collect_ap.add_argument('--roster',choices=('ghouls','mixed'),default='ghouls')
     collect_ap.add_argument('--levels',default='1')
     collect_ap.add_argument('--defender-prepare-ticks',type=int,default=0)
+    collect_ap.add_argument('--tactical-goals',choices=('keep','known-economy','split-economy'),default='keep')
+    collect_ap.add_argument('--behavior-checkpoint',help='Frozen policy controls collection; teacher supplies labels only')
     fit_ap = commands.add_parser('fit',help='Fit on CPU; restore optimizer and epoch checkpoints with --resume')
     fit_ap.add_argument('--data',required=True)
     fit_ap.add_argument('--run-dir',required=True)
     fit_ap.add_argument('--resume',action='store_true')
+    fit_ap.add_argument('--init-weights',help='Explicit actor warm start in a new fitting directory')
     for name,default in (('epochs',12),('batch-size',256),('torch-threads',2),('seed',1)):
         fit_ap.add_argument('--'+name,type=int,default=default)
     fit_ap.add_argument('--lr',type=float,default=3e-4)
