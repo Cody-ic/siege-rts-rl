@@ -39,6 +39,7 @@ class Config:
     anchor_weight: float = 0.
     detach_critic_features: bool = False
     attacker_model: str = ''
+    init_from_simulation: str = ''
 
 
 def contract(cfg, opponent=None):
@@ -110,6 +111,9 @@ def train(cfg, folder, updates,init_checkpoint=None):
         raise ValueError('invalid PPO hyperparameters')
     if not math.isfinite(cfg.anchor_weight) or cfg.anchor_weight<0:
         raise ValueError('anchor weight must be finite and nonnegative')
+    if cfg.init_from_simulation and (len(cfg.init_from_simulation)!=64 or
+            any(c not in '0123456789abcdef' for c in cfg.init_from_simulation)):
+        raise ValueError('Expected exact source simulation SHA256 for weight transfer')
     torch.set_num_threads(1)
     random.seed(cfg.seed);np.random.seed(cfg.seed);torch.manual_seed(cfg.seed)
     opponent,opponent_identity=load_opponent(cfg.attacker_model,cfg.stats)
@@ -133,9 +137,13 @@ def train(cfg, folder, updates,init_checkpoint=None):
                     initialization.get('checkpoint_sha256')!=sha256(init_checkpoint)):
                 raise ValueError('Resume initialization differs from the committed run')
         elif init_checkpoint:
-            initialized,_,_=load_policy(init_checkpoint,cfg.stats)
+            initialized,_,_=load_policy(init_checkpoint,cfg.stats,cfg.init_from_simulation or None)
             policy.load_state_dict(initialized.state_dict())
-            initialization=dict(kind='macro-weights-warm-start',checkpoint_sha256=sha256(init_checkpoint))
+            initialization=dict(kind='macro-weights-warm-start',checkpoint_sha256=sha256(init_checkpoint),
+                                source_simulation=cfg.init_from_simulation or native.SIMULATION_FINGERPRINT,
+                                target_simulation=native.SIMULATION_FINGERPRINT)
+        elif cfg.init_from_simulation:
+            raise ValueError('Cross-simulation weight transfer requires an initialization checkpoint')
         if cfg.anchor_weight:
             if not saved and not init_checkpoint:
                 raise ValueError('Anchored training requires an initialization checkpoint')
@@ -240,9 +248,12 @@ if __name__=='__main__':
     parser.add_argument('--gae-lambda',type=float,default=.95)
     parser.add_argument('--detach-critic-features',action='store_true')
     parser.add_argument('--attacker-model',default='',help='Frozen tactical ONNX opponent; default is script')
+    parser.add_argument('--init-from-simulation',default='',
+                        help='Explicit source fingerprint for weights-only transfer into a NEW run')
     args=parser.parse_args()
     train(Config(tuple(str(Path(p).resolve()) for p in args.maps),str(Path(args.stats).resolve()),
                  seed=args.seed,rollout=args.rollout,period=args.period,anchor_weight=args.anchor_weight,
                  gamma=args.gamma,gae_lambda=args.gae_lambda,detach_critic_features=args.detach_critic_features,
-                 attacker_model=str(Path(args.attacker_model).resolve()) if args.attacker_model else ''),
+                 attacker_model=str(Path(args.attacker_model).resolve()) if args.attacker_model else '',
+                 init_from_simulation=args.init_from_simulation),
           args.run_dir,args.updates,args.init_checkpoint)

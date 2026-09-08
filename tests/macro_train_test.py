@@ -14,6 +14,32 @@ from checkpointing import load_auto
 
 
 class MacroTrainTests(unittest.TestCase):
+    def test_explicit_cross_simulation_transfer_is_weights_only(self):
+        from macro_evaluate import load_policy
+        cfg=self.config()
+        with tempfile.TemporaryDirectory() as folder:
+            origin=Path(folder)/'origin';target=Path(folder)/'target'
+            train(cfg,origin,1)
+            old,_=load_auto(origin)
+            old['contract']['simulation']='a'*64
+            source=Path(folder)/'other-simulation.pt'
+            torch.save(old,source)
+            with self.assertRaisesRegex(ValueError,'simulation'):
+                load_policy(source,cfg.stats)
+            cfg.init_from_simulation='b'*64
+            with self.assertRaisesRegex(ValueError,'simulation'):
+                train(cfg,target,0,source)
+            cfg.init_from_simulation='a'*64
+            train(cfg,target,0,source)
+            new,_=load_auto(target)
+            self.assertEqual(new['progress']['updates'],0)
+            self.assertEqual(new['campaign']['tick'],0)
+            self.assertFalse(new['optimizer']['state'])
+            self.assertEqual(new['initialization']['source_simulation'],'a'*64)
+            self.assertNotEqual(new['contract']['simulation'],'a'*64)
+            for name,value in old['model'].items():
+                torch.testing.assert_close(value,new['model'][name],rtol=0,atol=0)
+
     def test_value_only_update_does_not_change_actor_when_isolated(self):
         torch.manual_seed(8)
         policy=MacroPolicy(3,2,11,hidden=16)

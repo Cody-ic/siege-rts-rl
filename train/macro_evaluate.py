@@ -12,10 +12,10 @@ from macro_policy import MacroPolicy
 from macro_opponent import load_opponent, check_opponent
 
 
-def load_policy(path, stats):
+def load_policy(path, stats, source_simulation=None):
     data=load_training(path)
     identity=data['contract']
-    expected=dict(kind='defender-macro-ppo-v1',simulation=native.SIMULATION_FINGERPRINT,
+    expected=dict(kind='defender-macro-ppo-v1',simulation=source_simulation or native.SIMULATION_FINGERPRINT,
         build=native.BUILD_MODE,obs_version=native.macro_obs.VERSION,
         cells=list(native.macro_obs.CELL_NAMES),globals=list(native.macro_obs.GLOBAL_NAMES),
         detail=list(native.macro_obs.DETAIL_NAMES),detail_storage='float16-before-inference',

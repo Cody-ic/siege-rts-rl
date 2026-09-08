@@ -1,0 +1,19 @@
+{
+  "source_simulation": "fa4766df2100f9fd42293709841e60781020485c7c5a84db1d53abcc2f6fc3fe",
+  "target_simulation": "3fba3e619cadd7e3f661007be46b46dd51cd5d210169693e6f37b38f87f36e55",
+  "checkpoint_sha256": "b754815b882b09023c3e2b4a6f76a723dd6603eb06599ed49abe3a6620847d75",
+  "probe_sha256": "bbe6efe4f97b0d8e399fc6674799b462f6a0f677840582225ae47e039bc5f8ee",
+  "maps": {
+    "game/data/maps/pool/gen_01001000.json": "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+    "game/data/maps/pool/gen_01008000.json": "7cd3ef88926ad5089df91b020743c8472fbf03dff311d1db00e06c596e231aeb"
+  },
+  "seeds": [
+    31,
+    32
+  ],
+  "states": 36,
+  "all_recorded_outputs_exact": true,
+  "source_report_sha256": "305ffbe173e191ea38d086133ed70c26cc58ae5e0bbb4256989333a96f0d54ab",
+  "target_report_sha256": "60c5214da01ce64bb31643f12c607d402b9eaed63d945f9ece02158d01301843",
+  "scope": "36 scripted-campaign states, ticks 0..2000; not universal equivalence"
+}
