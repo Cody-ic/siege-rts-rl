@@ -600,7 +600,7 @@ def train(cfg, args, saved, *, gradient_observer=None):
                     profile=None
                     if cfg.defender_profiles:
                         world_seed=cfg.seed*1000+episode_indices[int(i)]
-                        profile=cfg.defender_profiles[(world_seed//max(1,len(cfg.map_pool)))%len(cfg.defender_profiles)]
+                        profile=cfg.defender_profiles[R.defender_profile_index(world_seed,max(1,len(cfg.map_pool)),len(cfg.defender_profiles))]
                         key=json.dumps([path,level,spawn_index,stage,profile],separators=(',',':'))
                     coverage=completed_coverage.setdefault(key,dict(map=path,level=level,
                         spawn_index=spawn_index,stage=stage,frac=frac,completed=0,wins=0,

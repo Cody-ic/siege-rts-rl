@@ -40,6 +40,7 @@
 #include <vector>
 
 #include "game/defender_macro.hpp"
+#include "defender_profiles.hpp"
 #include "game/defender_script.hpp"
 #include "game/map_data.hpp"
 #include "rts/types.hpp"
@@ -115,7 +116,7 @@ public:
         // The same rule applies after reset_one, independent of batch slot.
         if (w.now() == 0) {
             // Whole map cycle per profile; independent of worker/batch slot.
-            const auto& params=profiles_.empty()?mp_:profiles_[(w.seed()/maps_.size())%profiles_.size()];
+            const auto& params=profiles_.empty()?mp_:profiles_[defender_profile_index(w.seed(),maps_.size(),profiles_.size())];
             reset(i, maps_[w.seed()%maps_.size()], seed_ ^ w.seed(), params, sp_);
         }
         Per& s = *per_[static_cast<std::size_t>(i)];

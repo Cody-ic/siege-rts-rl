@@ -504,7 +504,8 @@ python train/ppo.py --run-dir runs/my-independent-trial --resume auto
 攻方 PPO 可用 `--defender-profiles balanced,fortified,mobile` 轮换真实脚本守方风格。
 均衡型保留原参数；城防型增加工匠、枪卫和堡垒周边防御投入；机动型增加猎骑配比、限制入口塔数。
 三者都复用原有守方执行层、资源约束与公开情报，风格参数是训练多样性选择，不是已标定最优配平。
-每个地图循环轮到一种风格，按世界种子选择，重置和批次大小不影响同一局的选择。
+每个地图循环通过世界种子的无状态混合选择一种风格，避免风格与入口、等级的取余周期绑定。
+不消耗游戏或学习器随机流，重置和批次大小不影响同一局的选择。
 完成记录的 `defender_profile` 区分实际对手；配置了三种风格不等于已完成全部覆盖。
 默认不传此选项时保持旧行为，开启时需要新原生模块与新训练目录。
 验证见 [守城风格回归](../docs/rl-results/2026-09-09-defender-profiles-validation.json)。

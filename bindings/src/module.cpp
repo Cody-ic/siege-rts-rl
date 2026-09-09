@@ -133,6 +133,8 @@ auto as_cspan(const Arr& a) {
 }  // namespace
 
 PYBIND11_MODULE(rts_native, m) {
+    m.def("defender_profile_index",&bindings::defender_profile_index,
+          py::arg("world_seed"),py::arg("map_count"),py::arg("profile_count"));
     py::list command_names;
     for(int i=0;i<rts::kCommandKindCount;++i)
         command_names.append(std::string(rts::ident_of(static_cast<rts::CommandKind>(i))));

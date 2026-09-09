@@ -3,6 +3,16 @@
 #include "game/defender_macro.hpp"
 
 namespace bindings {
+inline std::size_t defender_profile_index(std::uint64_t seed,std::size_t maps,std::size_t profiles) {
+    if(maps==0 || profiles==0) throw rts::ContractError("Profile schedule dimensions must be positive");
+    // Stateless mixing avoids locking style to entrance/level modulo cycles.
+    // All maps in one round share a choice; no game or learner RNG is consumed.
+    std::uint64_t value=seed/maps+0x9e3779b97f4a7c15ULL;
+    value=(value^(value>>30))*0xbf58476d1ce4e5b9ULL;
+    value=(value^(value>>27))*0x94d049bb133111ebULL;
+    value^=value>>31;
+    return static_cast<std::size_t>(value%profiles);
+}
 // Training opponents, not balance changes or new unit AI. All retain the real
 // defender's breach repair, garrison, counter-composition and worker behavior.
 inline game::MacroParams defender_profile(const std::string& name) {

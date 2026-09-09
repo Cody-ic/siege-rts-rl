@@ -21,11 +21,22 @@ class ProfileTests(unittest.TestCase):
             map_pool=tuple(str(ROOT/'game/data/maps/pool'/f'gen_{m}.json') for m in ('01001000','01004000')),
             defender_prepare_ticks=900,defender_profiles=('balanced','fortified','mobile'))
 
+    def test_profiles_do_not_lock_to_entrance_or_level_cycles(self):
+        cfg=self.config();cfg.levels=(1,4,8,16)
+        cfg.map_pool=tuple(str(ROOT/'game/data/maps/pool'/f'gen_{m}.json') for m in ('01001000','01004000','01005000','01006001'))
+        expected={(p,lv,spawn,profile) for p in cfg.map_pool for lv in cfg.levels
+                  for spawn in range(len(ppo.R.map_sites(p)['spawns'])) for profile in range(3)}
+        actual={(*ppo.episode_spec(cfg,i),ppo.R.defender_profile_index(cfg.seed*1000+i,4,3)) for i in range(3072)}
+        self.assertEqual(actual,expected)
+        for seed in range(1000,1100,4):
+            self.assertEqual(len({ppo.R.defender_profile_index(seed+i,4,3) for i in range(4)}),1)
+        with self.assertRaises(Exception):ppo.R.defender_profile_index(1,0,3)
+
     def test_profile_assignment_survives_batching_and_reset(self):
         cfg=self.config();batch=ppo.make_env(cfg,6,1.)
         singles=[]
         for i in range(6):
-            selected=cfg.defender_profiles[((cfg.seed*1000+i)//2)%3]
+            selected=cfg.defender_profiles[ppo.R.defender_profile_index(cfg.seed*1000+i,2,3)]
             single_cfg=copy.copy(cfg);single_cfg.defender_profiles=(selected,)
             single=ppo.make_env(single_cfg,1,1.,start=i)
             singles.append(single)
@@ -87,7 +98,9 @@ class ProfileTests(unittest.TestCase):
             for r in (a,b):r['progress'].pop('elapsed_seconds')
             equal(a['progress'],b['progress'])
             rows=list(a['progress']['completed_coverage'].values())
-            self.assertEqual({r['defender_profile'] for r in rows},set(cfg.defender_profiles))
+            expected_profiles={cfg.defender_profiles[ppo.R.defender_profile_index(cfg.seed*1000+i,2,3)]
+                               for i in range(a['progress']['completed'])}
+            self.assertEqual({r['defender_profile'] for r in rows},expected_profiles)
             self.assertEqual(sum(r['completed'] for r in rows),a['progress']['completed'])
             with self.assertRaises(ValueError):run(resumed,['--resume','auto','--defender-profiles','mobile,balanced'])
 
