@@ -1,0 +1,57 @@
+{
+  "models": {
+    "baseline": "runs\\macro-joint-20260909\\frozen-update32.pt",
+    "candidate": "runs\\macro-league-20260909\\frozen-update64.pt"
+  },
+  "maps": [
+    "game/data/maps/pool/gen_01002000.json",
+    "game/data/maps/pool/gen_01003000.json",
+    "game/data/maps/pool/gen_01007000.json",
+    "game/data/maps/pool/gen_01009000.json"
+  ],
+  "seeds": [
+    1801,
+    1902
+  ],
+  "period": 20,
+  "max_wave": 6,
+  "max_ticks": 30000,
+  "opponents": [
+    "",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\runs\\prepared-final-20260909\\export\\attacker.onnx",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\runs\\critic-isolation-shared-20260909\\export-v2\\attacker.onnx"
+  ],
+  "stats": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\stats_placeholder.json",
+  "source_simulations": {
+    "baseline": "3fba3e619cadd7e3f661007be46b46dd51cd5d210169693e6f37b38f87f36e55",
+    "candidate": "7c46c04e8a23557f240825238a2fd941506719035b45c5abaa1b3d50c8f5f6ca"
+  },
+  "simulation": "7c46c04e8a23557f240825238a2fd941506719035b45c5abaa1b3d50c8f5f6ca",
+  "files": {
+    "runs\\macro-joint-20260909\\frozen-update32.pt": "d51f11fd52fe17c20898870eb4711c212f6d344333bed83060b8799697411c86",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\build-league-onnx\\bindings\\Release\\rts_native.cp313-win_amd64.pyd": "b4ecb6d4f9e0b14206bc0d7f8a37f31e970a4309b77e147b38820ea96487b2b8",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\stats_placeholder.json": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01001000.json": "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01004000.json": "d11740be256d2666dc66318255efa4a7912744f47917f745ab920c572f56df45",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01005000.json": "7c43e2030fde2389cfc0784fd25410f21969e4b3f27911de798857e109f9a18d",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01006001.json": "7f32afd88e5dfdaea06cae08a9df2bf53d0169f7d9f3fbf89c909214b6fdd160",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\runs\\prepared-final-20260909\\export\\attacker.onnx": "2e62e27f1b2b7002e9e727a09a58f0357909cc0ee01ee76e1db0477bdf52c7c3",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\runs\\critic-isolation-shared-20260909\\export-v2\\attacker.onnx": "71d26a694e9dfabe61a1e4ae73f14b51529ef3d1e1d284dc957b36e88c3ce4a1",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\build-league-onnx\\bindings\\Release\\onnxruntime.dll": "69d8e6d3879a3b4001cdc74c8ed9ccc7e7f799a5b847059738323404519ec471",
+    "train/macro_train.py": "e6f7dbe2da8252171ced2bd6088b05ae8830c4a5ad3e279dff4ce95ccbaad458",
+    "train/macro_league.py": "cfc346056dda15215434ba3adfa7b4f154a2c7b12b2fce87bd53830724dd5628",
+    "train/macro_policy.py": "a2f28829e9b8b2043c7f5426681bcf6368bac2565f8120d23a97f726d1b3d777",
+    "train/macro_opponent.py": "a987f3a5ce4786d791457cb6f69cbd16ec7f38bc3fb83896733c294a5b81ce8d",
+    "train/macro_evaluate.py": "e3646d1d5449fa1e21d4468bf5607c944ced9f9e24f4399f7e4071d6732d4e0c",
+    "train/checkpointing.py": "91adb6096c250baf2fe973d3607814b6fef37e7010adc8c3fb8e68eb82fc1cf6",
+    "runs\\macro-league-20260909\\frozen-update64.pt": "01e685c1602ee3b275c3b74a383c28f62f8e917ad4da625cdfa020b0255e35de",
+    "game/data/maps/pool/gen_01002000.json": "258426af6ee45cece5789f02ced8dff215b2db1e130471c766a9eb9c2c6628bf",
+    "game/data/maps/pool/gen_01003000.json": "1eca9b886a26f424b8039fb4665a8d4ca056b145672d54e9a060a03d453c737d",
+    "game/data/maps/pool/gen_01007000.json": "65f8ed3f8102fba260e8bc2b9a0b386bb3b2d0ae66081e4008f520e10f0463fd",
+    "game/data/maps/pool/gen_01009000.json": "09a441043b8e1bfdfe9b6405fdd60c0bb1cef5f943049fd4f03ccc8bde680ebf"
+  },
+  "mode": "sample",
+  "selection": "Final update64; no checkpoint reselection",
+  "gate": "For each opponent separately, candidate total defender waves survived and six-wave completions must be >= baseline. Preserve all per-case regressions. No default promotion from training reward.",
+  "scope": "Two defender checkpoints x three immutable opponents x four held-out maps x two fresh seeds: 48 full native campaigns. Python sampling; native deployment still needs its own verification."
+}
