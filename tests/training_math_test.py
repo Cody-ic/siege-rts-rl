@@ -95,7 +95,7 @@ class ResetSamplingTests(unittest.TestCase):
         source = Path(__file__).resolve().parents[1] / 'train/ppo.py'
         tree = ast.parse(source.read_text(encoding='utf-8'))
         functions = [n for n in tree.body if isinstance(n,ast.FunctionDef)
-                     and n.name in ('make_worlds','episode_map')]
+                     and n.name in ('make_worlds','episode_map','episode_spec')]
         native = SimpleNamespace(
             obs=SimpleNamespace(UNIT_TYPE_NAMES=['Ghoul']),
             map_sites=lambda _: {'spawns':[(0,0),(100,0),(100,100),(0,100)], 'keep':(50,50)},

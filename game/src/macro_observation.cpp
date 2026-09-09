@@ -28,12 +28,12 @@ std::vector<float> pack_macro_detail(const rts::WorldView& v) {
         const auto p=v.obstacle_pos()[i];out[index(p.i,p.j)+1]=1.f;
     }
     for(const auto& site:v.resources()) {
-        const int kind=site.kind==rts::Resource::Stone?0:site.kind==rts::Resource::Wood?1:2;
+        const std::size_t kind=site.kind==rts::Resource::Stone?0u:site.kind==rts::Resource::Wood?1u:2u;
         out[index(site.pos.i,site.pos.j)+2+kind]=1.f;
     }
     for(std::size_t i=0;i<v.bld_alive().size();++i) if(v.bld_alive()[i]) {
         const auto p=v.bld_pos()[i];const auto base=index(p.i,p.j);
-        out[base+5+static_cast<int>(v.bld_type()[i])]=1.f;
+        out[base+5+static_cast<std::size_t>(v.bld_type()[i])]=1.f;
         out[base+state]=static_cast<float>(v.bld_hp()[i])/static_cast<float>(std::max<std::int64_t>(1,v.bld_max_hp()[i]));
         out[base+state+1]=static_cast<float>(v.bld_level()[i])/32.f;
         out[base+state+2]=v.bld_built()[i]?1.f:0.f;
