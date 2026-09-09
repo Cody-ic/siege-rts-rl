@@ -18,6 +18,7 @@ from checkpointing import load_auto, restore_rng, rng_state, run_lock, save_run,
 from macro_policy import MacroPolicy
 from macro_evaluate import load_policy
 from macro_opponent import load_opponent, check_opponent
+from macro_league import OpponentPool
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -39,6 +40,7 @@ class Config:
     anchor_weight: float = 0.
     detach_critic_features: bool = False
     attacker_model: str = ''
+    attacker_pool: tuple = ()
     init_from_simulation: str = ''
 
 
@@ -50,10 +52,12 @@ def contract(cfg, opponent=None):
                 commands=list(native.COMMAND_KIND_NAMES), maps=[sha256(p) for p in cfg.maps],
                 stats=sha256(cfg.stats), opponent=opponent or dict(kind='script'),
                 sources={name:sha256(ROOT/'train'/name) for name in
-                    ('macro_train.py','macro_policy.py','macro_opponent.py','checkpointing.py')})
+                    ('macro_train.py','macro_policy.py','macro_opponent.py','macro_league.py','checkpointing.py')})
 
 
 def campaign(cfg, episode, opponent=None):
+    if isinstance(opponent, OpponentPool):
+        opponent = opponent.select(episode, len(cfg.maps))
     return native.TrainingCampaign(cfg.maps[episode % len(cfg.maps)], cfg.stats, cfg.seed + episode,
                                   attacker=opponent)
 
@@ -116,7 +120,13 @@ def train(cfg, folder, updates,init_checkpoint=None):
         raise ValueError('Expected exact source simulation SHA256 for weight transfer')
     torch.set_num_threads(1)
     random.seed(cfg.seed);np.random.seed(cfg.seed);torch.manual_seed(cfg.seed)
-    opponent,opponent_identity=load_opponent(cfg.attacker_model,cfg.stats)
+    if cfg.attacker_pool and cfg.attacker_model:
+        raise ValueError('Use either attacker_model or attacker_pool')
+    if cfg.attacker_pool:
+        opponent=OpponentPool(cfg.attacker_pool,cfg.stats)
+        opponent_identity=opponent.identity
+    else:
+        opponent,opponent_identity=load_opponent(cfg.attacker_model,cfg.stats)
     identity = contract(cfg,opponent_identity)
     with run_lock(folder):
         saved,_ = load_auto(folder)
@@ -164,18 +174,26 @@ def train(cfg, folder, updates,init_checkpoint=None):
         for command in commands:
             world.advance(cfg.period,[tuple(command)])
         if saved:
+            if isinstance(opponent,OpponentPool) and saved['campaign'].get('opponent_index')!=opponent.index(progress['episode'],len(cfg.maps)):
+                raise ValueError('Campaign recovery opponent mismatch')
             if world.diagnostic_state_hash!=saved['campaign']['hash']:
                 raise ValueError('Campaign recovery hash mismatch; refusing to continue')
             restore_rng(saved['rng'])
 
         def commit():
-            check_opponent(cfg.attacker_model,opponent_identity)
+            if isinstance(opponent,OpponentPool):
+                opponent.check()
+            else:
+                check_opponent(cfg.attacker_model,opponent_identity)
+            campaign_state=dict(commands=commands,hash=world.diagnostic_state_hash,
+                                tick=world.tick,wave=world.wave)
+            if isinstance(opponent,OpponentPool):
+                campaign_state['opponent_index']=opponent.index(progress['episode'],len(cfg.maps))
             save_run(folder,dict(format=1,config=asdict(cfg),contract=identity,
                 progress=progress,status='ready',initialization=initialization,
                 model=policy.state_dict(),optimizer=optimizer.state_dict(),rng=rng_state(),
                 reference_model=reference.state_dict() if reference is not None else None,
-                campaign=dict(commands=commands,hash=world.diagnostic_state_hash,
-                              tick=world.tick,wave=world.wave)))
+                campaign=campaign_state))
         if not saved:
             commit()
         while progress['updates']<updates:
@@ -208,6 +226,8 @@ def train(cfg, folder, updates,init_checkpoint=None):
                     progress['finished_campaigns'].append(dict(
                         map=cfg.maps[progress['episode']%len(cfg.maps)],seed=cfg.seed+progress['episode'],
                         ticks=world.tick,waves_survived=world.wave-1,defeated=transition['defeated']))
+                    if isinstance(opponent,OpponentPool):
+                        progress['finished_campaigns'][-1]['opponent_index']=opponent.index(progress['episode'],len(cfg.maps))
                     progress['episode']+=1
                     world=campaign(cfg,progress['episode'],opponent);commands=[]
             if rows and not rows[-1]['terminal']:
@@ -256,6 +276,8 @@ if __name__=='__main__':
     parser.add_argument('--gae-lambda',type=float,default=.95)
     parser.add_argument('--detach-critic-features',action='store_true')
     parser.add_argument('--attacker-model',default='',help='Frozen tactical ONNX opponent; default is script')
+    parser.add_argument('--attacker-pool',nargs='+',default=[],
+                        help='Frozen ONNX paths or script; rotate after each full map cycle, never mid-campaign')
     parser.add_argument('--init-from-simulation',default='',
                         help='Explicit source fingerprint for weights-only transfer into a NEW run')
     args=parser.parse_args()
@@ -263,5 +285,6 @@ if __name__=='__main__':
                  seed=args.seed,rollout=args.rollout,period=args.period,anchor_weight=args.anchor_weight,
                  gamma=args.gamma,gae_lambda=args.gae_lambda,detach_critic_features=args.detach_critic_features,
                  attacker_model=str(Path(args.attacker_model).resolve()) if args.attacker_model else '',
+                 attacker_pool=tuple('' if p=='script' else str(Path(p).resolve()) for p in args.attacker_pool),
                  init_from_simulation=args.init_from_simulation),
           args.run_dir,args.updates,args.init_checkpoint)
