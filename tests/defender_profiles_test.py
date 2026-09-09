@@ -12,6 +12,7 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'train'))
 import ppo
 from checkpointing import load_training
+from evaluate import evaluate
 
 
 class ProfileTests(unittest.TestCase):
@@ -103,6 +104,26 @@ class ProfileTests(unittest.TestCase):
             self.assertEqual({r['defender_profile'] for r in rows},expected_profiles)
             self.assertEqual(sum(r['completed'] for r in rows),a['progress']['completed'])
             with self.assertRaises(ValueError):run(resumed,['--resume','auto','--defender-profiles','mobile,balanced'])
+
+    def test_frozen_evaluation_records_the_style_that_defended(self):
+        # A single-style evaluation must face only that style, and a multi-style
+        # one must label each row with the selector the native side actually used.
+        cfg=self.config();cfg.map_pool=();cfg.map_path=str(ROOT/'game/data/maps/pool/gen_01001000.json')
+        cfg.envs=2;cfg.max_ticks=18;cfg.defender_prepare_ticks=90
+        cfg.defender_profiles=('fortified',)
+        single=evaluate(None,cfg,3,1.,'flow')
+        self.assertEqual(single['defender_profiles'],['fortified'])
+        self.assertEqual([r['defender_profile'] for r in single['rows']],['fortified']*3)
+        self.assertEqual([(s['defender_profile'],s['episodes']) for s in single['by_profile']],[('fortified',3)])
+        cfg.defender_profiles=('balanced','fortified','mobile')
+        mixed=evaluate(None,cfg,6,1.,'flow')
+        expected=[cfg.defender_profiles[ppo.R.defender_profile_index(cfg.seed*1000+i,1,3)] for i in range(6)]
+        self.assertEqual([r['defender_profile'] for r in mixed['rows']],expected)
+        self.assertEqual(sum(s['episodes'] for s in mixed['by_profile']),6)
+        cfg.defender_profiles=()
+        plain=evaluate(None,cfg,2,1.,'flow')
+        self.assertEqual(plain['by_profile'],[])
+        self.assertNotIn('defender_profile',plain['rows'][0])
 
 
 if __name__=='__main__':unittest.main()

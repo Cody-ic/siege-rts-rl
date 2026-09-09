@@ -11,7 +11,7 @@ import numpy as np
 import torch
 import rts_native as R
 from checkpointing import atomic_json, contract, load_training, load_weights, sha256
-from ppo import Cfg, Observer, Policy, make_env, make_worlds, policy_forward
+from ppo import Cfg, Observer, Policy, make_env, make_worlds, policy_forward, validate
 from diagnostics import (MOVE_DELTAS, EpisodeDiagnostics, episode_rng,
                          sample_actions, summarize_spawns)
 
@@ -71,6 +71,19 @@ def breach_actions(observation):
                     np.where(walk != stop, walk, fallback)).astype(np.uint8)
 
 
+def summarize_profiles(rows):
+    # Mirrors summarize_spawns: one line per defender style that actually appeared.
+    results = []
+    for profile in sorted({r['defender_profile'] for r in rows}):
+        group = [r for r in rows if r['defender_profile'] == profile]
+        results.append(dict(defender_profile=profile, episodes=len(group),
+                            wins=sum(r['end'] == 'keep_destroyed' for r in group),
+                            hit_buildings=sum(r['tally']['dmg_to_blds'] > 0 for r in group),
+                            mean_building_damage=float(np.mean([r['tally']['dmg_to_blds'] for r in group])),
+                            mean_building_value=float(np.mean([r['tally']['bld_value'] for r in group]))))
+    return results
+
+
 def evaluate(checkpoint, cfg, episodes, frac, policy='frozen_argmax', *, diagnostics=False, trace_every=25):
     if cfg.map_pool:
         raise ValueError('Evaluate each map separately with map_pool=(); do not average away failed maps')
@@ -100,6 +113,13 @@ def evaluate(checkpoint, cfg, episodes, frac, policy='frozen_argmax', *, diagnos
     indices, next_index, rows = list(range(n)), n, []
     generators = [episode_rng(cfg.seed, i) for i in indices]
     spawns = list(R.map_sites(cfg.map_path)['spawns'])
+    # Same stateless selector the native ScriptedDefender uses at reset, so the
+    # recorded style is the one that actually defended. Single map here (see the
+    # map_pool check above), hence map_count = 1.
+    def profile_of(index):
+        if not cfg.defender_profiles:
+            return None
+        return cfg.defender_profiles[R.defender_profile_index(cfg.seed*1000+index, 1, len(cfg.defender_profiles))]
     probes = ([EpisodeDiagnostics(p, trace_every) for p in env.potentials] if diagnostics else None)
     names = {R.EpisodeEnd.KeepDestroyed:'keep_destroyed', R.EpisodeEnd.Timeout:'timeout',
              R.EpisodeEnd.AttackersEliminated:'attackers_eliminated'}
@@ -146,6 +166,8 @@ def evaluate(checkpoint, cfg, episodes, frac, policy='frozen_argmax', *, diagnos
                        'spawn_index':(cfg.seed+indices[i]) % len(spawns),
                        'steps':int(steps[i]), 'end':names[ends[i]],
                        'tally':dict(zip(R.obs.TALLY_NAMES, totals[i].tolist()))}
+                if cfg.defender_profiles:
+                    row['defender_profile'] = profile_of(indices[i])
                 if probes is not None:
                     row['diagnostics'] = probes[i].report()
                 rows.append(row)
@@ -173,6 +195,8 @@ def evaluate(checkpoint, cfg, episodes, frac, policy='frozen_argmax', *, diagnos
             'defender':'scripted' if cfg.defender else 'none',
             'defender_macro_period':cfg.defender_macro_period,
             'defender_prepare_ticks':cfg.defender_prepare_ticks,
+            'defender_profiles':list(cfg.defender_profiles),
+            'by_profile':summarize_profiles(rows) if cfg.defender_profiles else [],
             'spawns':[list(s) for s in spawns], 'by_spawn':summarize_spawns(rows),
             'diagnostics':diagnostics, 'trace_every':trace_every if diagnostics else None,
             'evaluator_sha256':{name:sha256(Path(__file__).parent/name)
@@ -205,6 +229,9 @@ def main():
     ap.add_argument('--ticks-per-step', type=int)
     ap.add_argument('--roster',choices=('ghouls','mixed'))
     ap.add_argument('--levels',type=lambda s:tuple(int(x) for x in s.split(',')))
+    ap.add_argument('--defender-profiles',type=lambda s:tuple(x for x in s.split(',') if x),
+                    help='Scripted defender styles to evaluate against (comma-separated); '
+                         'a single name evaluates that style alone. Not part of the checkpoint contract.')
     args = ap.parse_args()
     cfg, saved = Cfg(), None
     if args.checkpoint:
@@ -214,7 +241,7 @@ def main():
             cfg = Cfg(**saved['config'])
         else:
             print('Legacy policy-only file: opponent/map settings must be supplied explicitly.')
-    for name in ('envs','seed','device','threads','torch_threads','map_path','stats_path','max_ticks','ticks_per_step','roster','levels','defender_prepare_ticks'):
+    for name in ('envs','seed','device','threads','torch_threads','map_path','stats_path','max_ticks','ticks_per_step','roster','levels','defender_prepare_ticks','defender_profiles'):
         value = getattr(args,name)
         if value is not None:
             if saved and name in ('map_path','stats_path','max_ticks','ticks_per_step') and value != getattr(cfg,name):
@@ -226,6 +253,7 @@ def main():
         cfg.defender = False
     if saved and contract(R,cfg) != saved['contract']:
         raise ValueError('Evaluation contract differs from checkpoint; rebuild/use matching data and learner')
+    validate(cfg)   # same profile/defender rules as training; profiles are an opponent choice, not a contract term
     result = evaluate(args.checkpoint,cfg,args.episodes,args.frac,args.policy,
                       diagnostics=args.diagnostics,trace_every=args.trace_every)
     atomic_json(args.output,result)
@@ -235,6 +263,10 @@ def main():
         print(f'  spawn {spawn["spawn_index"]}: wins {spawn["wins"]}/{spawn["episodes"]}, '
               f'hit buildings {spawn["hit_buildings"]}/{spawn["episodes"]}, '
               f'mean damage {spawn["mean_building_damage"]:.1f}')
+    for style in result['by_profile']:
+        print(f'  defender {style["defender_profile"]}: wins {style["wins"]}/{style["episodes"]}, '
+              f'hit buildings {style["hit_buildings"]}/{style["episodes"]}, '
+              f'mean value {style["mean_building_value"]:.1f}')
     print(args.output)
 
 

@@ -510,6 +510,14 @@ python train/ppo.py --run-dir runs/my-independent-trial --resume auto
 默认不传此选项时保持旧行为，开启时需要新原生模块与新训练目录。
 验证见 [守城风格回归](../docs/rl-results/2026-09-09-defender-profiles-validation.json)。
 
+冻结评估也能按风格分开：`evaluate.py --defender-profiles fortified` 只对一种风格评，
+报告顶层多出 `defender_profiles` 与 `by_profile`，每局记录带 `defender_profile`。
+风格不进检查点合同——它是对手选择，不是学习器身份，所以对旧检查点同样可用。
+`pipeline.py --train-profiles balanced,fortified,mobile --eval-profiles balanced,fortified,mobile`
+把两者接起来：PPO 轮换三种风格，评估阶段每张图 × 每档等级 × 每种风格各出一份报告，
+最弱的那种风格不会被平均掉。示范采集刻意仍对原始脚本进行，于是两组对照从相同的
+模仿权重出发，只有 PPO 面对的守方不同。
+
 ## 轮换冻结攻方陪练
 
 守方宏观 PPO 的 `--attacker-pool script PATH_1.onnx PATH_2.onnx` 可以轮换冻结攻方陪练，
