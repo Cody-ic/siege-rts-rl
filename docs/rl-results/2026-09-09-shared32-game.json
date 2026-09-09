@@ -1,0 +1,453 @@
+{
+  "plan_sha256": "0d71d3595c5108cfdc03d273d7ded15c92a5d8d8b17f52b3008041e2485c34b5",
+  "files_verified": true,
+  "totals": {
+    "baseline": {
+      "city_defeats": 8,
+      "defender_waves_survived": 21,
+      "defender_completions": 0,
+      "timeouts": 0
+    },
+    "candidate": {
+      "city_defeats": 7,
+      "defender_waves_survived": 30,
+      "defender_completions": 1,
+      "timeouts": 0
+    }
+  },
+  "pairs": [
+    {
+      "map": "game/data/maps/pool/gen_01002000.json",
+      "seed": 1601,
+      "city_defeat_delta": -1,
+      "defender_survival_delta": 2,
+      "tick_delta": 3641
+    },
+    {
+      "map": "game/data/maps/pool/gen_01002000.json",
+      "seed": 1702,
+      "city_defeat_delta": 0,
+      "defender_survival_delta": 0,
+      "tick_delta": -225
+    },
+    {
+      "map": "game/data/maps/pool/gen_01003000.json",
+      "seed": 1601,
+      "city_defeat_delta": 0,
+      "defender_survival_delta": 0,
+      "tick_delta": 157
+    },
+    {
+      "map": "game/data/maps/pool/gen_01003000.json",
+      "seed": 1702,
+      "city_defeat_delta": 0,
+      "defender_survival_delta": 1,
+      "tick_delta": 2391
+    },
+    {
+      "map": "game/data/maps/pool/gen_01007000.json",
+      "seed": 1601,
+      "city_defeat_delta": 0,
+      "defender_survival_delta": 3,
+      "tick_delta": 8547
+    },
+    {
+      "map": "game/data/maps/pool/gen_01007000.json",
+      "seed": 1702,
+      "city_defeat_delta": 0,
+      "defender_survival_delta": 3,
+      "tick_delta": 9084
+    },
+    {
+      "map": "game/data/maps/pool/gen_01009000.json",
+      "seed": 1601,
+      "city_defeat_delta": 0,
+      "defender_survival_delta": 0,
+      "tick_delta": 610
+    },
+    {
+      "map": "game/data/maps/pool/gen_01009000.json",
+      "seed": 1702,
+      "city_defeat_delta": 0,
+      "defender_survival_delta": 0,
+      "tick_delta": 642
+    }
+  ],
+  "reports": {
+    "baseline": [
+      {
+        "attacker_identity": "9554465781158682901",
+        "completed": false,
+        "defeated": true,
+        "defender_identity": "17228096830293534042",
+        "map": "game/data/maps/pool/gen_01002000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          4164456678,
+          3077394565,
+          3821840885,
+          4010909797
+        ],
+        "runtime_seconds": 236.6125844,
+        "seed": 1601,
+        "state_hash": 139131877431534568,
+        "tick": 14959,
+        "timeout": false,
+        "wave": 5,
+        "waves_survived": 4,
+        "plan_sha256": "0d71d3595c5108cfdc03d273d7ded15c92a5d8d8b17f52b3008041e2485c34b5",
+        "arm": "baseline"
+      },
+      {
+        "attacker_identity": "9554465781158682901",
+        "completed": false,
+        "defeated": true,
+        "defender_identity": "17228096830293534042",
+        "map": "game/data/maps/pool/gen_01002000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          616957239,
+          3669701254,
+          701399828,
+          3462737463
+        ],
+        "runtime_seconds": 98.0769829,
+        "seed": 1702,
+        "state_hash": 8446804787001753708,
+        "tick": 14303,
+        "timeout": false,
+        "wave": 5,
+        "waves_survived": 4,
+        "plan_sha256": "0d71d3595c5108cfdc03d273d7ded15c92a5d8d8b17f52b3008041e2485c34b5",
+        "arm": "baseline"
+      },
+      {
+        "attacker_identity": "9554465781158682901",
+        "completed": false,
+        "defeated": true,
+        "defender_identity": "17228096830293534042",
+        "map": "game/data/maps/pool/gen_01003000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          1175917327,
+          3541488560,
+          3147731003,
+          1434780519
+        ],
+        "runtime_seconds": 196.5235008,
+        "seed": 1601,
+        "state_hash": 1289569644047189435,
+        "tick": 11707,
+        "timeout": false,
+        "wave": 4,
+        "waves_survived": 3,
+        "plan_sha256": "0d71d3595c5108cfdc03d273d7ded15c92a5d8d8b17f52b3008041e2485c34b5",
+        "arm": "baseline"
+      },
+      {
+        "attacker_identity": "9554465781158682901",
+        "completed": false,
+        "defeated": true,
+        "defender_identity": "17228096830293534042",
+        "map": "game/data/maps/pool/gen_01003000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          3201197377,
+          3229403207,
+          2280153267,
+          2370474457
+        ],
+        "runtime_seconds": 83.3953711,
+        "seed": 1702,
+        "state_hash": 1585097091097845738,
+        "tick": 8803,
+        "timeout": false,
+        "wave": 3,
+        "waves_survived": 2,
+        "plan_sha256": "0d71d3595c5108cfdc03d273d7ded15c92a5d8d8b17f52b3008041e2485c34b5",
+        "arm": "baseline"
+      },
+      {
+        "attacker_identity": "9554465781158682901",
+        "completed": false,
+        "defeated": true,
+        "defender_identity": "17228096830293534042",
+        "map": "game/data/maps/pool/gen_01007000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          140868138,
+          3867276500,
+          2894063002,
+          4241028403
+        ],
+        "runtime_seconds": 250.6833308,
+        "seed": 1601,
+        "state_hash": 2040518853630901938,
+        "tick": 8742,
+        "timeout": false,
+        "wave": 3,
+        "waves_survived": 2,
+        "plan_sha256": "0d71d3595c5108cfdc03d273d7ded15c92a5d8d8b17f52b3008041e2485c34b5",
+        "arm": "baseline"
+      },
+      {
+        "attacker_identity": "9554465781158682901",
+        "completed": false,
+        "defeated": true,
+        "defender_identity": "17228096830293534042",
+        "map": "game/data/maps/pool/gen_01007000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          1409771844,
+          337864726,
+          2109035299,
+          3127759537
+        ],
+        "runtime_seconds": 63.9688652,
+        "seed": 1702,
+        "state_hash": 8180132336498351440,
+        "tick": 5694,
+        "timeout": false,
+        "wave": 2,
+        "waves_survived": 1,
+        "plan_sha256": "0d71d3595c5108cfdc03d273d7ded15c92a5d8d8b17f52b3008041e2485c34b5",
+        "arm": "baseline"
+      },
+      {
+        "attacker_identity": "9554465781158682901",
+        "completed": false,
+        "defeated": true,
+        "defender_identity": "17228096830293534042",
+        "map": "game/data/maps/pool/gen_01009000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          1730233030,
+          4215717956,
+          1696400263,
+          2364426568
+        ],
+        "runtime_seconds": 210.8923406,
+        "seed": 1601,
+        "state_hash": 13783471469784928803,
+        "tick": 8402,
+        "timeout": false,
+        "wave": 3,
+        "waves_survived": 2,
+        "plan_sha256": "0d71d3595c5108cfdc03d273d7ded15c92a5d8d8b17f52b3008041e2485c34b5",
+        "arm": "baseline"
+      },
+      {
+        "attacker_identity": "9554465781158682901",
+        "completed": false,
+        "defeated": true,
+        "defender_identity": "17228096830293534042",
+        "map": "game/data/maps/pool/gen_01009000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          4159772019,
+          1374493359,
+          3543452962,
+          18788386
+        ],
+        "runtime_seconds": 178.9847994,
+        "seed": 1702,
+        "state_hash": 15689539056980570353,
+        "tick": 11413,
+        "timeout": false,
+        "wave": 4,
+        "waves_survived": 3,
+        "plan_sha256": "0d71d3595c5108cfdc03d273d7ded15c92a5d8d8b17f52b3008041e2485c34b5",
+        "arm": "baseline"
+      }
+    ],
+    "candidate": [
+      {
+        "attacker_identity": "6346968484515317153",
+        "completed": true,
+        "defeated": false,
+        "defender_identity": "17228096830293534042",
+        "map": "game/data/maps/pool/gen_01002000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          562921021,
+          2571546767,
+          1720724791,
+          1029554650
+        ],
+        "runtime_seconds": 286.5594491,
+        "seed": 1601,
+        "state_hash": 2181134405524844263,
+        "tick": 18600,
+        "timeout": false,
+        "wave": 7,
+        "waves_survived": 6,
+        "plan_sha256": "0d71d3595c5108cfdc03d273d7ded15c92a5d8d8b17f52b3008041e2485c34b5",
+        "arm": "candidate"
+      },
+      {
+        "attacker_identity": "6346968484515317153",
+        "completed": false,
+        "defeated": true,
+        "defender_identity": "17228096830293534042",
+        "map": "game/data/maps/pool/gen_01002000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          753504982,
+          2314234303,
+          477056487,
+          1353621252
+        ],
+        "runtime_seconds": 200.2193069,
+        "seed": 1702,
+        "state_hash": 258848322140374734,
+        "tick": 14078,
+        "timeout": false,
+        "wave": 5,
+        "waves_survived": 4,
+        "plan_sha256": "0d71d3595c5108cfdc03d273d7ded15c92a5d8d8b17f52b3008041e2485c34b5",
+        "arm": "candidate"
+      },
+      {
+        "attacker_identity": "6346968484515317153",
+        "completed": false,
+        "defeated": true,
+        "defender_identity": "17228096830293534042",
+        "map": "game/data/maps/pool/gen_01003000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          671298338,
+          469956506,
+          3851272701,
+          2811301866
+        ],
+        "runtime_seconds": 106.1488044,
+        "seed": 1601,
+        "state_hash": 8528040752709822048,
+        "tick": 11864,
+        "timeout": false,
+        "wave": 4,
+        "waves_survived": 3,
+        "plan_sha256": "0d71d3595c5108cfdc03d273d7ded15c92a5d8d8b17f52b3008041e2485c34b5",
+        "arm": "candidate"
+      },
+      {
+        "attacker_identity": "6346968484515317153",
+        "completed": false,
+        "defeated": true,
+        "defender_identity": "17228096830293534042",
+        "map": "game/data/maps/pool/gen_01003000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          3246585048,
+          2835731834,
+          4244288399,
+          4132201212
+        ],
+        "runtime_seconds": 255.6829055,
+        "seed": 1702,
+        "state_hash": 13121300290470032584,
+        "tick": 11194,
+        "timeout": false,
+        "wave": 4,
+        "waves_survived": 3,
+        "plan_sha256": "0d71d3595c5108cfdc03d273d7ded15c92a5d8d8b17f52b3008041e2485c34b5",
+        "arm": "candidate"
+      },
+      {
+        "attacker_identity": "6346968484515317153",
+        "completed": false,
+        "defeated": true,
+        "defender_identity": "17228096830293534042",
+        "map": "game/data/maps/pool/gen_01007000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          188096240,
+          288046672,
+          3572794459,
+          717831822
+        ],
+        "runtime_seconds": 298.1245565,
+        "seed": 1601,
+        "state_hash": 4384200679705753701,
+        "tick": 17289,
+        "timeout": false,
+        "wave": 6,
+        "waves_survived": 5,
+        "plan_sha256": "0d71d3595c5108cfdc03d273d7ded15c92a5d8d8b17f52b3008041e2485c34b5",
+        "arm": "candidate"
+      },
+      {
+        "attacker_identity": "6346968484515317153",
+        "completed": false,
+        "defeated": true,
+        "defender_identity": "17228096830293534042",
+        "map": "game/data/maps/pool/gen_01007000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          3095045094,
+          427014055,
+          2720788415,
+          1253562404
+        ],
+        "runtime_seconds": 438.4245839,
+        "seed": 1702,
+        "state_hash": 5661419716473332648,
+        "tick": 14778,
+        "timeout": false,
+        "wave": 5,
+        "waves_survived": 4,
+        "plan_sha256": "0d71d3595c5108cfdc03d273d7ded15c92a5d8d8b17f52b3008041e2485c34b5",
+        "arm": "candidate"
+      },
+      {
+        "attacker_identity": "6346968484515317153",
+        "completed": false,
+        "defeated": true,
+        "defender_identity": "17228096830293534042",
+        "map": "game/data/maps/pool/gen_01009000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          3942919042,
+          3717917679,
+          2414335660,
+          3709111644
+        ],
+        "runtime_seconds": 1009.0563768,
+        "seed": 1601,
+        "state_hash": 11649427701617291154,
+        "tick": 9012,
+        "timeout": false,
+        "wave": 3,
+        "waves_survived": 2,
+        "plan_sha256": "0d71d3595c5108cfdc03d273d7ded15c92a5d8d8b17f52b3008041e2485c34b5",
+        "arm": "candidate"
+      },
+      {
+        "attacker_identity": "6346968484515317153",
+        "completed": false,
+        "defeated": true,
+        "defender_identity": "17228096830293534042",
+        "map": "game/data/maps/pool/gen_01009000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          3353489351,
+          1345972339,
+          731240298,
+          3474209381
+        ],
+        "runtime_seconds": 43.2069862,
+        "seed": 1702,
+        "state_hash": 6670291930814310765,
+        "tick": 12055,
+        "timeout": false,
+        "wave": 4,
+        "waves_survived": 3,
+        "plan_sha256": "0d71d3595c5108cfdc03d273d7ded15c92a5d8d8b17f52b3008041e2485c34b5",
+        "arm": "candidate"
+      }
+    ]
+  },
+  "gate_passed": false,
+  "scope": "Actual DemoBattle deployment comparison, same frozen learned defender. Baseline v1 keep-only versus candidate v2 macro goals; measures combined deployment change, not isolated weight effect.",
+  "criteria": "Report all paired attacker city defeats, defender waves survived, completion and timeout. More attacker defeats and no greater aggregate defender survival are required to advance; this is not a full 70-wave acceptance test."
+}

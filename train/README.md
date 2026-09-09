@@ -499,6 +499,16 @@ python train/ppo.py --run-dir runs/my-independent-trial --resume auto
 恢复后继续累计。配置写了四档等级不代表四档均有完整对局；未完成的局中环境不会记成已覆盖。
 先检查实际覆盖，再冻结最终检查点做同环境对照，保留原始基线，不把训练胜率当作泛化成绩。
 
+## 攻方训练的守城风格轮换
+
+攻方 PPO 可用 `--defender-profiles balanced,fortified,mobile` 轮换真实脚本守方风格。
+均衡型保留原参数；城防型增加工匠、枪卫和堡垒周边防御投入；机动型增加猎骑配比、限制入口塔数。
+三者都复用原有守方执行层、资源约束与公开情报，风格参数是训练多样性选择，不是已标定最优配平。
+每个地图循环轮到一种风格，按世界种子选择，重置和批次大小不影响同一局的选择。
+完成记录的 `defender_profile` 区分实际对手；配置了三种风格不等于已完成全部覆盖。
+默认不传此选项时保持旧行为，开启时需要新原生模块与新训练目录。
+验证见 [守城风格回归](../docs/rl-results/2026-09-09-defender-profiles-validation.json)。
+
 ## 轮换冻结攻方陪练
 
 守方宏观 PPO 的 `--attacker-pool script PATH_1.onnx PATH_2.onnx` 可以轮换冻结攻方陪练，

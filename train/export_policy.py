@@ -82,6 +82,7 @@ def export(args):
             cfg=Cfg(device='cpu',envs=1,threads=1,torch_threads=1,map_path=args.map_path,stats_path=args.stats_path,
                     roster='ghouls' if set(types)=={'Ghoul'} else 'mixed',levels=(level,),ticks_per_step=args.ticks_per_step,
                     tactical_goals=goal_mode,
+                    defender_profiles=tuple(source_config.get('defender_profiles',())),
                     defender_prepare_ticks=source_config.get('defender_prepare_ticks',0) if goal_mode!='keep' else 0)
             env=make_env(cfg,1,1.)
             obs=Observer(env)

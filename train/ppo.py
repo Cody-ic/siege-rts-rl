@@ -163,6 +163,7 @@ class Cfg:
     # **单兵那一半不受它节流**（登墙意愿必须每拍重发）。
     defender_macro_period: int = 4
     defender_prepare_ticks: int = 0  # optional real construction before attackers spawn
+    defender_profiles: tuple[str, ...] = ()  # empty preserves the original single script
     stats_path: str = "game/data/stats_placeholder.json"
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -285,6 +286,10 @@ def make_worlds(cfg: Cfg, n: int, frac: float = 1.0, start: int = 0) -> list:
 
 
 def validate(cfg):
+    if cfg.defender_profiles and (not cfg.defender or
+            len(set(cfg.defender_profiles))!=len(cfg.defender_profiles) or
+            any(p not in ('balanced','fortified','mobile') for p in cfg.defender_profiles)):
+        raise ValueError('defender_profiles requires a defender and unique known profile names')
     if cfg.tactical_goals not in ('keep','known-economy','split-economy'):
         raise ValueError('tactical_goals must be keep, known-economy or split-economy')
     if not 0 <= cfg.defender_prepare_ticks <= 2400 or (cfg.defender_prepare_ticks and not cfg.defender):
@@ -318,6 +323,7 @@ def validate(cfg):
 
 def make_env(cfg, n, frac, start=0, episode_indices=None):
     maps={'defender_maps':list(cfg.map_pool)} if cfg.defender and cfg.map_pool else {}
+    if cfg.defender_profiles: maps['defender_profiles']=list(cfg.defender_profiles)
     if cfg.tactical_goals != 'keep': maps['tactical_goals']=cfg.tactical_goals
     worlds=(make_worlds(cfg,n,frac,start) if episode_indices is None else
             [make_worlds(cfg,1,frac,index)[0] for index in episode_indices])
@@ -591,9 +597,15 @@ def train(cfg, args, saved, *, gradient_observer=None):
                 for i in finished:
                     path,level,spawn_index=episode_spec(cfg,episode_indices[int(i)])
                     key=json.dumps([path,level,spawn_index,stage],separators=(',',':'))
+                    profile=None
+                    if cfg.defender_profiles:
+                        world_seed=cfg.seed*1000+episode_indices[int(i)]
+                        profile=cfg.defender_profiles[(world_seed//max(1,len(cfg.map_pool)))%len(cfg.defender_profiles)]
+                        key=json.dumps([path,level,spawn_index,stage,profile],separators=(',',':'))
                     coverage=completed_coverage.setdefault(key,dict(map=path,level=level,
                         spawn_index=spawn_index,stage=stage,frac=frac,completed=0,wins=0,
                         timeouts=0,eliminated=0,decisions=0,building_value=0.0))
+                    if profile is not None: coverage['defender_profile']=profile
                     coverage['completed']+=1
                     coverage['wins']+=int(won[i])
                     coverage['timeouts']+=int(ends[i]==R.EpisodeEnd.Timeout)
@@ -785,8 +797,8 @@ def main():
             ap.add_argument('--no-defender', action='store_true', default=None)
         elif name == 'curriculum':
             ap.add_argument('--curriculum', type=lambda s: tuple(float(x) for x in s.split(',')))
-        elif name == 'map_pool':
-            ap.add_argument('--map-pool',type=lambda s:tuple(s.split(',')))
+        elif name in ('map_pool','defender_profiles'):
+            ap.add_argument('--'+name.replace('_','-'),type=lambda s:tuple(s.split(',')))
         elif name == 'levels':
             ap.add_argument('--levels',type=lambda s:tuple(int(x) for x in s.split(',')))
         else:
@@ -809,6 +821,7 @@ def main():
         cfg = Cfg(**saved['config']) if saved else default
         cfg.curriculum = tuple(cfg.curriculum)
         cfg.map_pool = tuple(cfg.map_pool)
+        cfg.defender_profiles = tuple(cfg.defender_profiles)
         cfg.levels = tuple(cfg.levels)
         runtime = {'total_steps', 'device', 'threads', 'torch_threads', 'save_every'}
         for field in fields(default):

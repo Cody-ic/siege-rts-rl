@@ -1,0 +1,18 @@
+{
+  "default_world_hashes_exact": true,
+  "world_comparisons": 480,
+  "before_simulation": "22ee6f2b6b018eaa1af3f96ad9607d3e941f43adb914ce9abe2aafb1b821ed65",
+  "after_simulation": "422edf41fefdac7708d79217f79c1f99ebd36f90940a5ee8bb596af116c12ae5",
+  "profile_tests_passed": 3,
+  "runtime_tests_passed": 38,
+  "three_distinct_profile_worlds": true,
+  "files": {
+    "bindings/src/defender_profiles.hpp": "5110a2f02e5fcd03e34fe46807cc61f552de95da91543e8515ee6172bd80ab20",
+    "bindings/src/scripted_defender.hpp": "8a18e6b9c2a66eb1af47e14ff67172c7d8cc75f64f4c012d62b9299ddd83bda8",
+    "bindings/src/module.cpp": "fe2ae9da8801db55ab96ba4d781ecdfa4d0065e3ce7ef5c266422c749cec0086",
+    "train/ppo.py": "8f5dfc77a96d9a2c2aa7d8a47cce0ce191fc741b3725c4543f70c4628b250c64",
+    "tests/defender_profiles_test.py": "23a8acb2d5332d4a9af800d179cd9938df6da113dfc3f95a6710de5e1f100181",
+    "build-defender-profiles/bindings/Release/rts_native.cp313-win_amd64.pyd": "bc9f690736d44866951aa7b83f807864d3a843564429c7a052840afafbc6262b"
+  },
+  "scope": "Native style effects after 900 preparation plus 1200 combat ticks; batch/reset invariance; PPO boundary resume and actual profile coverage. No policy quality claim."
+}

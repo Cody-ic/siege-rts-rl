@@ -87,8 +87,8 @@ public:
 
     ScriptedDefender(const std::vector<game::MapData>& maps, int n, std::uint64_t seed,
                      const game::MacroParams& mp = {}, const game::ScriptParams& sp = {},
-                     int macro_period_steps = 1)
-        : maps_(maps), mp_(mp), sp_(sp), seed_(seed),
+                     int macro_period_steps = 1, std::vector<game::MacroParams> profiles = {})
+        : maps_(maps), mp_(mp), sp_(sp), profiles_(std::move(profiles)), seed_(seed),
           macro_period_(macro_period_steps < 1 ? 1 : macro_period_steps) {
         if(maps_.empty()) throw rts::ContractError("ScriptedDefender requires at least one map");
         per_.reserve(static_cast<std::size_t>(n));
@@ -113,7 +113,11 @@ public:
         // than batch index so frozen evaluation is independent of batching.
         // Training assigns map index = world seed modulo the map pool size.
         // The same rule applies after reset_one, independent of batch slot.
-        if (w.now() == 0) reset(i, maps_[w.seed()%maps_.size()], seed_ ^ w.seed(), mp_, sp_);
+        if (w.now() == 0) {
+            // Whole map cycle per profile; independent of worker/batch slot.
+            const auto& params=profiles_.empty()?mp_:profiles_[(w.seed()/maps_.size())%profiles_.size()];
+            reset(i, maps_[w.seed()%maps_.size()], seed_ ^ w.seed(), params, sp_);
+        }
         Per& s = *per_[static_cast<std::size_t>(i)];
 
         // ——宏观：建 / 修 / 招 / 升 / 清野——
@@ -180,6 +184,7 @@ private:
     std::vector<game::MapData> maps_;
     game::MacroParams mp_;
     game::ScriptParams sp_;
+    std::vector<game::MacroParams> profiles_;
     std::uint64_t seed_;
     int macro_period_ = 1;
 };

@@ -48,6 +48,7 @@
 #include "game/macro_policy.hpp"
 #include "game/macro_observation.hpp"
 #include "scripted_defender.hpp"
+#include "defender_profiles.hpp"
 #include "rts/action.hpp"
 #include "rts/batched_env.hpp"
 #include "rts/obs.hpp"
@@ -416,7 +417,12 @@ PYBIND11_MODULE(rts_native, m) {
                          const std::string& defender_map, int defender_seed,
                          int defender_macro_period, rts::ObsNorms norms,
                          const std::vector<std::string>& defender_maps,
-                         int defender_prepare_ticks, const std::string& tactical_goals) {
+                         int defender_prepare_ticks, const std::string& tactical_goals,
+                         const std::vector<std::string>& defender_profiles) {
+                 std::vector<game::MacroParams> profiles;
+                 for(const auto& name:defender_profiles) profiles.push_back(bindings::defender_profile(name));
+                 if(!profiles.empty() && defender_map.empty() && defender_maps.empty())
+                     throw rts::ContractError("Defender profiles require a scripted defender");
                  if(tactical_goals!="keep" && tactical_goals!="known-economy" && tactical_goals!="split-economy")
                      throw rts::ContractError("Unknown tactical goal mode");
                  if(tactical_goals!="keep" && side!=rts::Side::Attacker)
@@ -458,7 +464,7 @@ PYBIND11_MODULE(rts_native, m) {
                          maps, static_cast<int>(bi.worlds.size()),
                          static_cast<std::uint64_t>(defender_seed),
                          game::MacroParams{}, game::ScriptParams{},
-                         defender_macro_period);
+                         defender_macro_period,profiles);
                      bi.opponent_hook = [brain](rts::World& w, int i) {
                          (*brain)(w, i);
                      };
@@ -492,6 +498,7 @@ PYBIND11_MODULE(rts_native, m) {
              py::arg("defender_maps") = std::vector<std::string>{},
              py::arg("defender_prepare_ticks") = 0,
              py::arg("tactical_goals") = "keep",
+             py::arg("defender_profiles") = std::vector<std::string>{},
              "defender_map 给了就**接上真正的守方**（game::DefenderScript + "
              "DefenderMacro，逐局各一份）。**不给 = 对侧一动不动**——那是 "
              "2026-09-07 之前的行为，而它让 enemy_* 那几条观测通道十万局零"
