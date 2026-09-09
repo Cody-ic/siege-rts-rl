@@ -213,6 +213,8 @@ if(Python3_FOUND)
              COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/training_math_test.py")
     add_test(NAME compare_goal_evaluations
              COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/compare_goal_evaluations_test.py")
+    add_test(NAME compare_profile_evaluations
+             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/compare_profile_evaluations_test.py")
     set(_checker "${CMAKE_SOURCE_DIR}/tools/check_determinism_bans.py")
     # 扫 rts_core/ 与 game/ 两处。
     #
