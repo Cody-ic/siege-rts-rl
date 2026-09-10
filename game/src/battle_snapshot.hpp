@@ -170,6 +170,7 @@ struct SnapshotCodec {
             f("walls",v.walls);
             f("gaps",v.gaps);
             f("economy",v.economy);
+            f("approach_towers",v.approach_towers);
         }
         else if constexpr(std::is_same_v<U,ScriptParams>) {
             f("kite_trigger_cells",v.kite_trigger_cells);
@@ -259,6 +260,9 @@ struct SnapshotCodec {
             // Earlier v4 snapshots predate the appendix latch; no retrospective award.
             if constexpr(std::is_same_v<T,DemoBattle>) {
                 if(std::string_view(name)=="white_feather_" && !j.contains(name)) {v.white_feather_=false;return;}
+            }
+            if constexpr(std::is_same_v<T,AttackerIntel>) {
+                if(std::string_view(name)=="approach_towers" && !j.contains(name)) {v.approach_towers.clear();return;}
             }
             decode(j.at(name),x);
         });}

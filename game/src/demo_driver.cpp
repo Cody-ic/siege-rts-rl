@@ -426,14 +426,14 @@ void DemoBattle::spawn_wave() {
     //   * **「免费方向提示 = 兵力最多的集结点」此前由整数取余决定**（2026-09-01
     //     加的 HUD 那一行）——有主攻之后它才真的指向主攻
     //
-    // **主攻方向按波数轮换**（`wave % 集结点数`），不掷点：demo 的确定性不该
-    // 依赖随机数，而轮换保证玩家不能靠「永远守北面」蒙混过关。
+    // Use the previous reconnaissance snapshot to prefer a less covered entry.
+    // Unknown or equal coverage retains deterministic wave rotation.
     //
     // **佯攻不比主攻多**：CLAUDE.md 说 AI 可以「把佯攻部队堆得比主攻更多」让
     // 提示变成诱饵，但那是**宏观层要学的决策**；这里是它的无决策退化
     // （比例固定），所以提示在 demo 里始终诚实。欺骗留给 RL。
     const std::size_t n_spawn = spawns.size();
-    const auto main_spawn = static_cast<std::size_t>(wave) % n_spawn;
+    const auto main_spawn = macro_.main_spawn(wave, wave_intel_);
     const std::size_t feint_spawn = (main_spawn + 1) % n_spawn;
     const int kMainPermille = curve_.main_permille;   // 主攻拿几成（运行期可设）
 

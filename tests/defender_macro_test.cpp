@@ -31,6 +31,8 @@
 
 namespace {
 
+// See the direction tests below: selection uses a frozen, possibly stale report.
+
 game::MapData pool_map() {
     const std::filesystem::path pool =
         rts::path_from_utf8(std::string(GAME_DATA_DIR) + "/maps/pool");
@@ -81,6 +83,26 @@ void run_with_macro(game::DemoBattle& b, game::DefenderMacro& m, int ticks,
 }
 
 }   // namespace
+
+TEST_CASE("Attack direction prefers known weaker coverage without treating fog as empty", "[macro][direction]") {
+    const auto map = pool_map();
+    const game::AttackerMacro macro(map);
+    REQUIRE(map.spawns().size() >= 3);
+    game::AttackerIntel intel;
+    CHECK(macro.main_spawn(1, intel) == 1);
+    intel.approach_towers.assign(map.spawns().size(), 3);
+    CHECK(macro.main_spawn(1, intel) == 1); // equal coverage keeps rotation
+    intel.approach_towers[2] = 0;
+    CHECK(macro.main_spawn(1, intel) == 2);
+    intel.fresh = false;
+    CHECK(macro.main_spawn(1, intel) == 2); // stale scout report remains usable
+    intel.approach_towers[0] = -1;
+    CHECK(macro.main_spawn(1, intel) == 2); // unknown is not better than zero
+    intel.approach_towers[1] = -1;
+    CHECK(macro.main_spawn(1, intel) == 1); // no unsupported comparison
+    intel.approach_towers.pop_back();
+    CHECK(macro.main_spawn(1, intel) == 1); // old/incomplete snapshots fall back
+}
 
 // ——曲线参数化：默认值不许漂——
 
@@ -763,6 +785,8 @@ TEST_CASE("攻方情报：只读自己的迷雾，没探索过的地方一无所
     CHECK(blind.walls == 0);
     CHECK(blind.gaps == 0);   // 「从未见过」不是缺口——迷雾三态存在的理由
     CHECK(blind.economy.empty());
+    REQUIRE(blind.approach_towers.size() == map.spawns().size());
+    for (const int count : blind.approach_towers) CHECK(count == -1);
 
     // ——破坏性验证：把整张图对攻方点亮，同一次调用必须读出东西——
     rts::FogLayer& af = w.fog_mut(rts::Side::Attacker);
@@ -785,6 +809,7 @@ TEST_CASE("攻方情报：只读自己的迷雾，没探索过的地方一无所
     CAPTURE(seen.towers, seen.walls, seen.gaps);
     CHECK(seen.walls > 0);          // 城圈是一整圈墙实体，看得见就数得出
     CHECK(seen.fresh);
+    for (const int count : seen.approach_towers) CHECK(count >= 0);
     // 结论真的变了 —— 否则上面那半截是空的
     CHECK((seen.walls != blind.walls || seen.towers != blind.towers));
 }

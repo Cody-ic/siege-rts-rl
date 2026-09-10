@@ -208,6 +208,8 @@ struct AttackerIntel {
     int gaps = 0;
     // 记忆里的采集建筑位置，按地图文件里资源点的顺序（固定序，纪律 2）。
     std::vector<rts::GridPos> economy;
+    // Per-spawn tower coverage at the wall entry; -1 means unexplored.
+    std::vector<int> approach_towers;
 };
 
 // 一族攻方宏观策略的参数。**全部是占位值。**
@@ -331,6 +333,7 @@ public:
                      const AttackerIntel& intel) const;
 
     int ring_radius() const noexcept { return ring_r_; }
+    std::size_t main_spawn(int wave, const AttackerIntel& intel) const;
     const AttackerParams& params() const noexcept { return p_; }
 
 private:
@@ -342,6 +345,7 @@ private:
     std::vector<rts::GridPos> city_cells_;
     // 资源点位置，地图文件序。
     std::vector<rts::GridPos> resource_cells_;
+    std::vector<SpawnPoint> spawns_;
 };
 
 }   // namespace game

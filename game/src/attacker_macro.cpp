@@ -52,6 +52,7 @@ double WaveCurve::power_at(int wave) const {
 AttackerMacro::AttackerMacro(const MapData& map, const AttackerParams& params)
     : p_(params) {
     keep_ = map.keep();
+    spawns_ = map.spawns();
 
     // 环半径 = max(|墙格 − keep|)。**与 `DefenderMacro` 和
     // `tools/calibration_runner` 的 `collect_map_info` 同一条判据**——同一件事
@@ -127,7 +128,48 @@ AttackerIntel AttackerMacro::read_intel(const rts::WorldView& av, bool fresh) co
         out.economy.push_back(c);
     }
 
+    // Project each spawn onto the original city ring. This is an entry-point
+    // heuristic, not a path solver. Require the entire possible tower footprint
+    // to be explored: an unseen flank must not masquerade as undefended.
+    const float range = av.stats().of(rts::BldType::Tower).range;
+    const int radius = static_cast<int>(std::ceil(range));
+    for (const SpawnPoint& spawn : spawns_) {
+        const int dx = spawn.pos.i - keep_.i;
+        const int dy = spawn.pos.j - keep_.j;
+        const int distance = std::max(std::abs(dx), std::abs(dy));
+        const int x = keep_.i + (distance > 0 ? dx * ring_r_ / distance : 0);
+        const int y = keep_.j + (distance > 0 ? dy * ring_r_ / distance : 0);
+        bool known = true;
+        int towers = 0;
+        for (int i = x - radius; i <= x + radius; ++i) {
+            for (int j = y - radius; j <= y + radius; ++j) {
+                const int di = i - x, dj = j - y;
+                if (static_cast<float>(di * di + dj * dj) > range * range) continue;
+                if (!fog.in_bounds(i, j)) continue;
+                if (fog.at(i, j) == rts::Vis::Unseen) { known = false; continue; }
+                rts::RememberedBld b;
+                if (fog.remembered_bld(i, j, &b) && b.type == rts::BldType::Tower && b.hp_permille > 0)
+                    ++towers;
+            }
+        }
+        out.approach_towers.push_back(known ? towers : -1);
+    }
     return out;
+}
+
+std::size_t AttackerMacro::main_spawn(int wave, const AttackerIntel& intel) const {
+    if (spawns_.empty()) return 0;
+    const std::size_t fallback = static_cast<std::size_t>(std::max(0, wave)) % spawns_.size();
+    if (intel.approach_towers.size() != spawns_.size()) return fallback;
+    // Do not abandon an unexplored scheduled flank merely because another one
+    // was scouted. Change direction only with a strictly better known option.
+    if (intel.approach_towers[fallback] < 0) return fallback;
+    std::size_t best = fallback;
+    for (std::size_t offset = 1; offset < spawns_.size(); ++offset) {
+        const std::size_t i = (fallback + offset) % spawns_.size();
+        if (intel.approach_towers[i] >= 0 && intel.approach_towers[i] < intel.approach_towers[best]) best = i;
+    }
+    return best;
 }
 
 WavePlan AttackerMacro::compose(const WaveCurve& c, int wave,

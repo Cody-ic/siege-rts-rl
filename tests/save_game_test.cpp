@@ -31,9 +31,13 @@ TEST_CASE("存档还原临时指令、待执行命令、战斗及后续确定性
     // 刻意在 advance 之前保存命令队列，读档不能漏掉这一帧刚点击的操作。
     const auto train=game::train_command(rts::UnitType::Archer,1,battle.world().keep_pos(),battle.world().width());
     battle.submit_defender(&train,1);
+    auto& direction_intel=const_cast<game::AttackerIntel&>(battle.wave_intel());
+    direction_intel.approach_towers.assign(game::MapLoader::from_string(map_text()).spawns().size(),-1);
+    direction_intel.approach_towers.front()=3;
     const auto archive=game::capture_battle(original,map_text(),stats_text());
     const auto file=temp.path/"campaign.json";game::write_archive(file,archive);
     auto restored=game::restore_battle(game::read_archive(file));
+    REQUIRE(restored->wave_intel().approach_towers==direction_intel.approach_towers);
     REQUIRE(restored->world().state_hash()==battle.world().state_hash());
     REQUIRE(restored->player_events().size()==battle.player_events().size());
     for(int step=0;step<40;++step) {
