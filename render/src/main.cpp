@@ -177,6 +177,9 @@ struct Options {
     int developer_wave = 0;
     int journal_page = -1;
     int journal_ending = 0;
+    int journal_appendix = 0;
+    bool journal_feather_locked = false;
+    bool journal_emphasis = false;
     bool journal_bottom = false;
     bool classic_visuals = false;
     bool mute = false;
@@ -194,6 +197,8 @@ void print_usage(const char* argv0) {
         "  --classic-visuals     使用原始画面；游戏中 V 可切换\n"
         "  --journal-page <0..7> 仅配合截图预览指定日记章节\n"
         "  --journal-ending <1..2> 日记截图预览结局；--journal-bottom 预览末尾\n"
+        "  --journal-appendix <1..2> 附录截图；--journal-feather-locked 预览白羽线索\n"
+        "  --journal-emphasis 定位微笑者强调段落（仅附录 2 截图）\n"
         "  --menu                停在主菜单（窗口模式下与默认相同；给截图用）\n"
         "  --screen <名>         先切到哪一屏再拍：main / help / paused / guide / developer。只给截图用\n"
         "  --map <路径>          地图文件。只给它（不给 --battle/--menu）= 地图查看器\n"
@@ -253,6 +258,14 @@ bool parse(const std::vector<std::string>& args, Options& out) {
             out.classic_visuals = true;
         } else if (a == "--mute") {
             out.mute = true;
+        } else if (a == "--journal-appendix") {
+            const std::string* v=next("--journal-appendix");
+            if(!v || (*v!="1" && *v!="2")) return false;
+            out.journal_appendix=(*v)[0]-'0';out.menu=true;
+        } else if (a == "--journal-feather-locked") {
+            out.journal_feather_locked=true;
+        } else if (a == "--journal-emphasis") {
+            out.journal_emphasis=true;
         } else if (a == "--journal-bottom") {
             out.journal_bottom=true;
         } else if (a == "--journal-ending") {
@@ -338,7 +351,10 @@ bool parse(const std::vector<std::string>& args, Options& out) {
     if(out.developer_wave>0 && out.screenshot.empty()) return false;
     if((out.screen=="developer" || out.guide_entry!=0 || out.guide_level!=1 || out.guide_bottom) && out.screenshot.empty()) return false;
     if(out.journal_page>=0 && out.screenshot.empty()) { std::fprintf(stderr,"--journal-page 仅用于截图预览\n"); return false; }
-    if((out.journal_ending>0 || out.journal_bottom) && out.journal_page<0) return false;
+    if(out.journal_appendix && (out.screenshot.empty() || out.journal_page>=0 || out.journal_ending)) return false;
+    if(out.journal_feather_locked && out.journal_appendix!=1) return false;
+    if(out.journal_emphasis && (out.journal_appendix!=2 || out.journal_bottom)) return false;
+    if((out.journal_ending>0 || out.journal_bottom) && out.journal_page<0 && !out.journal_appendix) return false;
     if(out.journal_ending>0 && out.journal_page!=7) return false;
     // **这里不再判「哪个参数是必需的」。** 缺的路径由 `resolve_paths()` 用素材
     // 自动发现补齐，补不上才报错——而那条报错要说出「试过哪些目录」，
@@ -992,13 +1008,14 @@ int run_game(const Options& opt) {
     std::optional<game::BattleArchive> archive;
     std::string storage_status;
     int stored_wave=1;
+    game::JournalProgress stored_journal;
     bool storage_ready=false;
     if(persistent) {
         try {
             save_dir=opt.save_dir.empty()?game::default_save_directory():rts::path_from_utf8(opt.save_dir);
             std::filesystem::create_directories(save_dir);
             storage_ready=true;
-            stored_wave=game::read_journal_progress(save_dir/"journal.json");
+            stored_journal=game::read_journal(save_dir/"journal.json");stored_wave=stored_journal.highest_wave;
         } catch(const std::exception& e) {
             storage_status="日记记录读取失败，原文件已保留";std::fprintf(stderr,"journal: %s\n",e.what());
         }
@@ -1225,8 +1242,16 @@ int run_game(const Options& opt) {
     render::BattleAudio audio(opt.screenshot.empty());
     if(opt.mute) audio.toggle();
     render::ChronicleView journal;
-    int reached_wave = stored_wave;
+    game::JournalProgress progress=stored_journal;
+    progress.highest_wave=stored_wave;
+    int& reached_wave=progress.highest_wave;
+    journal.appendices=progress.appendices;
     if(opt.journal_page>=0) { journal.preview(opt.journal_page,opt.journal_ending,opt.journal_bottom); reached_wave=70; }
+    if(opt.journal_appendix) {
+        journal.preview_appendix(opt.journal_appendix,opt.journal_bottom,opt.journal_emphasis);
+        journal.appendices={opt.journal_appendix==1,opt.journal_appendix==2};
+        reached_wave=opt.journal_feather_locked?59:90;
+    }
     int enemy_report_wave=0;
     bool enemy_reported=false;
     bool developer_panel=opt.screen=="developer";
@@ -1244,13 +1269,14 @@ int run_game(const Options& opt) {
     double next_auto_save=0;
     const auto save_now=[&]() -> bool {
         if(!persistent || !shell.battle() || shell.battle()->developer()) return true;
+        progress.observe(shell.battle()->world().wave(),shell.battle()->earned_white_feather(),shell.chronicle().choice(),false);
         bool saved=false;
         next_auto_save=GetTime()+10;
         try {
             if(!storage_ready) throw std::runtime_error("存档目录不可用");
             game::write_archive(save_dir/"campaign.json",game::capture_battle(shell,map_json,stats_json));
             reached_wave=std::max(reached_wave,shell.battle()->world().wave());
-            game::write_journal_progress(save_dir/"journal.json",reached_wave);
+            game::write_journal(save_dir/"journal.json",progress);stored_journal=progress;
             last_save_tick=shell.battle()->world().now();last_save_wave=shell.battle()->world().wave();
             saved_terminal=shell.battle()->defeated() || shell.chronicle().completed();
             storage_status="对局已保存";saved=true;
@@ -1814,7 +1840,10 @@ int run_game(const Options& opt) {
                 popup=Popup{};dragging=false;dragged_garrison.reset();
             }
             story_wave_seen=wave;
-            reached_wave=std::max(reached_wave,wave);
+            const auto previous_appendices=progress.appendices;
+            progress.observe(wave,shell.battle()->earned_white_feather(),shell.chronicle().choice(),false);
+            journal.appendices=progress.appendices;
+            if(previous_appendices!=progress.appendices) {notice="日记已更新 · 按 J 阅读";notice_until=GetTime()+8;}
             const auto count=game::chronicle_unlocked(reached_wave);
             if(count>known_chapters) {notice="日记已更新 · 按 J 阅读";notice_until=GetTime()+6;known_chapters=count;}
         }
@@ -1825,8 +1854,8 @@ int run_game(const Options& opt) {
                 notice="窥使侦查成功：敌军下一波将参考当前城防";notice_until=GetTime()+10;enemy_reported=true;
             }
         }
-        if(persistent && reached_wave>stored_wave && storage_ready) {
-            try {game::write_journal_progress(save_dir/"journal.json",reached_wave);stored_wave=reached_wave;}
+        if(persistent && progress!=stored_journal && storage_ready) {
+            try {game::write_journal(save_dir/"journal.json",progress);stored_journal=progress;stored_wave=reached_wave;}
             catch(const std::exception& e) {std::fprintf(stderr,"journal: %s\n",e.what());storage_ready=false;storage_status="日记保存失败，请检查存档目录";storage_notice_until=GetTime()+12;}
         }
         if(IsKeyPressed(KEY_F5)) {

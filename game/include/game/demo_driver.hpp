@@ -236,6 +236,7 @@ public:
     const std::vector<PhoenixRecord>& phoenix_roster() const noexcept {
         return phoenix_roster_;
     }
+    bool earned_white_feather() const noexcept {return white_feather_;}
     // 被击落、正在等重生的那些：{身份号, 还差几波}。
     const std::vector<std::pair<int,int>>& phoenix_respawn() const noexcept {
         return phoenix_respawn_;
@@ -390,6 +391,7 @@ private:
     // −1 = 这个槽位上不是不死鸟（或已被复用）。
     std::vector<int> phoenix_id_of_;
     int next_phoenix_id_ = 0;
+    bool white_feather_ = false;
     AttackerIntel recon_intel_{};
     WavePlan wave_plan_{},baseline_plan_{};
     // ——斥候侦查的本波状态（逐波重置）——

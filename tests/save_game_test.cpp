@@ -209,3 +209,90 @@ TEST_CASE("存档 v4 拒绝 v3 并保留独立旧版备份", "[save]") {
     REQUIRE(game::read_archive(file).hash==archive.hash);
     REQUIRE(game::read_save_text(backup)==text);
 }
+
+TEST_CASE("附录读权、分支选择和开发者隔离", "[save]") {
+    game::JournalProgress progress;
+    progress.observe(59,true,game::ChronicleChoice::None,false);
+    REQUIRE(progress.appendices.white_feather);
+    REQUIRE_FALSE(progress.appendices.readable(1,progress.highest_wave));
+    progress.observe(60,false,game::ChronicleChoice::None,false);
+    REQUIRE(progress.appendices.readable(1,progress.highest_wave));
+    progress.observe(89,false,game::ChronicleChoice::Guard,false);
+    REQUIRE_FALSE(progress.appendices.loss_list);
+    progress.observe(90,false,game::ChronicleChoice::Release,false);
+    REQUIRE_FALSE(progress.appendices.loss_list);
+    progress.observe(90,false,game::ChronicleChoice::Guard,true);
+    REQUIRE_FALSE(progress.appendices.loss_list);
+    progress.observe(90,false,game::ChronicleChoice::Guard,false);
+    REQUIRE(progress.appendices.readable(2,90));
+    progress.observe(1,false,game::ChronicleChoice::None,false);
+    REQUIRE(progress.appendices.white_feather);
+    REQUIRE(progress.appendices.loss_list);
+    REQUIRE_FALSE(game::earns_white_feather(9));
+    REQUIRE(game::earns_white_feather(10));
+    game::JournalProgress developer;
+    developer.observe(999,true,game::ChronicleChoice::Guard,true);
+    REQUIRE(developer==game::JournalProgress{});
+}
+
+TEST_CASE("日记 v1 迁移不补发彩蛋，v2 合并持久化与备份", "[save]") {
+    Temp temp;const auto file=temp.path/"journal.json";
+    {std::ofstream out(file);out<<R"({"format":"siege-journal","version":1,"highest_wave":95})";}
+    auto old=game::read_journal(file);
+    REQUIRE(old.highest_wave==95);
+    REQUIRE_FALSE(old.appendices.white_feather);
+    REQUIRE_FALSE(old.appendices.loss_list);
+    game::write_journal(file,{59,{true,false}});
+    auto restored=game::read_journal(file);
+    REQUIRE(restored.highest_wave==95);
+    REQUIRE(restored.appendices.white_feather);
+    game::write_journal(file,{90,{false,true}});
+    restored=game::read_journal(file);
+    REQUIRE(restored.appendices.white_feather);
+    REQUIRE(restored.appendices.loss_list);
+    game::write_journal_progress(file,1);
+    REQUIRE(game::read_journal(file)==restored);
+    game::write_journal(file,{96,{}});
+    {std::ofstream out(file);out<<"broken";}
+    REQUIRE(game::read_journal(file)==restored);
+}
+
+TEST_CASE("白羽判据按同一身份计数，击落重置且获得后存档保留", "[save]") {
+    auto curve=game::WaveCurve{};curve.phoenix_from_wave=1;curve.phoenix_base=1;curve.phoenix_cap=1;
+    // The small fixture has edge spawns: keep its army within the spawn ring.
+    curve.slots_base=3;curve.slots_per_wave=0;curve.slots_cap=3;
+    game::WaveTiming timing;timing.first_build_ticks=1;timing.build_ticks=1;timing.assault_max_ticks=5;
+    auto original=shell();
+    original.adopt_saved_battle(game::DemoBattle(game::MapLoader::from_string(map_text()),
+        game::StatsLoader::from_string(stats_text()),7,timing,curve),1,game::ChronicleChoice::None);
+    auto& battle=*original.battle();
+    const auto until=[&](int wave) {
+        for(int tick=0;tick<300 && battle.world().wave()<wave;++tick) battle.update(1);
+        REQUIRE(battle.world().wave()==wave);
+    };
+    const auto kill_bird=[&]() {
+        std::vector<rts::UnitId> ids;battle.world().enumerate_units(rts::Side::Attacker,ids);
+        for(auto id:ids) if(battle.world().unit_type(id)==rts::UnitType::Phoenix) {
+            const_cast<rts::World&>(battle.world()).kill_unit(id);return;
+        }
+        FAIL("expected living phoenix");
+    };
+    until(10);REQUIRE_FALSE(battle.earned_white_feather());
+    SECTION("连续十波") {until(11);}
+    SECTION("九波后击落不累计旧进度") {
+        kill_bird();until(14);
+        REQUIRE(battle.phoenix_roster()[0].waves_alive==0);
+        until(23);REQUIRE_FALSE(battle.earned_white_feather());
+        until(24);
+    }
+    REQUIRE(battle.earned_white_feather());
+    kill_bird();battle.update(1);
+    auto archive=game::capture_battle(original,map_text(),stats_text());
+    auto restored=game::restore_battle(archive);
+    REQUIRE(restored->earned_white_feather());
+    for(int tick=0;tick<20;++tick) {
+        battle.update(1);restored->update(1);
+        REQUIRE(restored->world().state_hash()==battle.world().state_hash());
+        REQUIRE(restored->earned_white_feather());
+    }
+}

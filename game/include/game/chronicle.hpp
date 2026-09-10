@@ -510,6 +510,32 @@ constexpr int chronicle_to_present(int previous_wave,int current_wave,bool devel
 }
 
 enum class ChronicleChoice { None, Guard, Release };
+inline constexpr int kWhiteFeatherSurvivalWaves=10;
+inline constexpr int kSmilerUnlockWave=90;
+constexpr bool earns_white_feather(int consecutive_waves) noexcept {
+    return consecutive_waves>=kWhiteFeatherSurvivalWaves;
+}
+struct ChronicleAppendix {
+    bool white_feather=false, loss_list=false;
+    constexpr bool readable(int appendix,int highest_wave) const noexcept {
+        return appendix==1 ? white_feather && highest_wave>=60 : appendix==2 && loss_list;
+    }
+    bool operator==(const ChronicleAppendix&) const = default;
+};
+struct JournalProgress {
+    int highest_wave=1;
+    ChronicleAppendix appendices;
+    constexpr void merge(const JournalProgress& other) noexcept {
+        if(other.highest_wave>highest_wave) highest_wave=other.highest_wave;
+        appendices.white_feather|=other.appendices.white_feather;
+        appendices.loss_list|=other.appendices.loss_list;
+    }
+    constexpr void observe(int wave,bool feather,ChronicleChoice choice,bool developer) noexcept {
+        if(developer) return;
+        merge({wave,{feather,wave>=kSmilerUnlockWave && choice==ChronicleChoice::Guard}});
+    }
+    bool operator==(const JournalProgress&) const = default;
+};
 class ChronicleDecision {
 public:
     ChronicleChoice choice() const noexcept { return choice_; }

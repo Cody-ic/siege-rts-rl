@@ -1,3 +1,4 @@
+#include "rts/cli_args.hpp"
 // No window/audio device required: presentation must leave simulation untouched.
 #include "render/battle_audio.hpp"
 #include "render/battle_atmosphere.hpp"
@@ -22,9 +23,10 @@ rts::WorldInit fixture(const rts::StatsTable& stats) {
 }
 }
 int main(int argc,char** argv) {
+    const auto args = rts::utf8_args(argc, argv);
     if(argc<2 || argc>3) return 2;
     try {
-        const auto init=fixture(game::StatsLoader::from_file(argv[1]));
+        const auto init=fixture(game::StatsLoader::from_file(args[1].c_str()));
         rts::World plain(init),observed(init);
         for(auto* world:{&plain,&observed}) {
             world->spawn_unit(rts::UnitType::Ram,{6.5f,3.5f},1,100000,100000);
@@ -89,7 +91,7 @@ int main(int argc,char** argv) {
         check(!wind.empty()&&wind.front()==0&&std::abs(wind.back())<0.001f,"wind has discontinuous endpoints");
         if(argc==3) {
             Wave wave{static_cast<unsigned int>(preview.size()),24000,32,1,preview.data()};
-            check(ExportWave(wave,argv[2]),"audio preview export failed");
+            check(ExportWave(wave,args[2].c_str()),"audio preview export failed");
         }
         std::puts("PASS: 240 matching world hashes; real combat cues; fog; reset; grounded picking; 8 synthesized cues.");
         return 0;

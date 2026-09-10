@@ -96,6 +96,7 @@ struct SnapshotCodec {
             f("phoenix_respawn_",v.phoenix_respawn_);
             f("phoenix_id_of_",v.phoenix_id_of_);
             f("next_phoenix_id_",v.next_phoenix_id_);
+            f("white_feather_",v.white_feather_);
             f("w_",v.w_);
             f("script_",v.script_);
             f("macro_",v.macro_);
@@ -254,7 +255,13 @@ struct SnapshotCodec {
             check(j.is_array() && j.size()<=2000000);
             if constexpr(requires {v.resize(j.size());}) v.resize(j.size());else check(j.size()==v.size());
             std::size_t i=0;for(auto& e:v) decode(j.at(i++),e);
-        } else {check(j.is_object());fields(v,[&](const char* name,auto& x){decode(j.at(name),x);});}
+        } else {check(j.is_object());fields(v,[&](const char* name,auto& x){
+            // Earlier v4 snapshots predate the appendix latch; no retrospective award.
+            if constexpr(std::is_same_v<T,DemoBattle>) {
+                if(std::string_view(name)=="white_feather_" && !j.contains(name)) {v.white_feather_=false;return;}
+            }
+            decode(j.at(name),x);
+        });}
     }
     template<class P> static void validate_pool(const P& p) {
         check(p.generation_.size()==p.alive_.size() && p.alive_.size()<65535);
