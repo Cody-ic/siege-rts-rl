@@ -110,20 +110,20 @@ std::string_view stand_sprite_at(const rts::WorldView& view,
 
 rts::Vec2 unit_draw_anchor(const rts::WorldView& view, std::size_t unit_slot,
                            const game::IsoProjection& proj,
-                           render::SpriteAtlas& atlas,const game::MapData& map) {
+                           render::SpriteAtlas& atlas) {
     rts::Vec2 p = proj.world_to_screen(view.unit_pos()[unit_slot]);
     const auto garrison = view.unit_garrison();
     const auto mount = view.unit_mount();
     if (garrison[unit_slot] != rts::kNoSlot && mount[unit_slot] == 0) {
         const std::string_view stand = stand_sprite_at(view, garrison[unit_slot]);
-        if (!stand.empty()) p.y -= atlas.stand_lift_px(stand,"idle",game::to_string(game::SceneModel::run_direction(map,rts::pos_of_slot(garrison[unit_slot],view.width()),game::SceneModel::RunKind::Wall)));
+        if (!stand.empty()) p.y -= atlas.stand_lift_px(stand,"idle",game::to_string(game::SceneModel::run_direction(view,rts::pos_of_slot(garrison[unit_slot],view.width()))));
     }
     return p;
 }
 
 std::optional<rts::UnitId> pick_garrisoned_unit(
     const rts::WorldView& view, const std::vector<rts::UnitId>& defenders,
-    const game::IsoProjection& proj, render::SpriteAtlas& atlas, Vector2 world_mouse,const game::MapData& map) {
+    const game::IsoProjection& proj, render::SpriteAtlas& atlas, Vector2 world_mouse) {
     const auto type = view.unit_type();
     const auto garrison = view.unit_garrison();
     const auto mount = view.unit_mount();
@@ -133,7 +133,7 @@ std::optional<rts::UnitId> pick_garrisoned_unit(
     for (const rts::UnitId id : defenders) {
         const std::size_t k = id.index();
         if (garrison[k] == rts::kNoSlot || mount[k] != 0) continue;
-        const rts::Vec2 foot = unit_draw_anchor(view, k, proj, atlas,map);
+        const rts::Vec2 foot = unit_draw_anchor(view, k, proj, atlas);
         const render::Sprite& sprite =
             atlas.get(rts::ident_of(type[k]), "idle", "SE");
 
@@ -170,6 +170,7 @@ struct Options {
     std::string defender_policy_path;
     bool verify_assets = false;  // 只校验素材，不渲场景
     bool battle = false;         // 游戏模式，且**跳过主菜单**直接开局
+    bool placement_shot = false; // Screenshot-only construction interaction fixture.
     bool menu = false;           // 游戏模式，停在主菜单（截图用；窗口下同默认）
     std::string screen;          // 开局前先切到哪一屏（main / help / paused），截图用
     int ticks = 0;               // 截图模式下先推进这么多 tick 再拍
@@ -309,6 +310,9 @@ bool parse(const std::vector<std::string>& args, Options& out) {
             const std::string* v=next("--defender-policy");
             if(!v || v->empty()) return false;
             out.defender_policy_path=*v;
+        } else if (a == "--placement-preview") {
+            out.placement_shot=true;
+            out.battle=true;
         } else if (a == "--battle") {
             out.battle = true;
         } else if (a == "--menu") {
@@ -346,6 +350,7 @@ bool parse(const std::vector<std::string>& args, Options& out) {
             return false;
         }
     }
+    if(out.placement_shot && out.screenshot.empty()) return false;
     if(out.inspect_x>=0 && (out.screenshot.empty() || !out.battle)) {std::fprintf(stderr,"--inspect requires --battle --screenshot\n");return false;}
     if(out.developer_wave>0 && out.screenshot.empty()) return false;
     if((out.screen=="developer" || out.guide_entry!=0 || out.guide_level!=1 || out.guide_bottom) && out.screenshot.empty()) return false;
@@ -480,6 +485,7 @@ std::optional<rts::GridPos> pick_building_sprite(
 // **任何要显示的数据串，都必须在建字体之前登记。**
 std::vector<std::string_view> font_coverage(const game::MapData& map) {
     std::vector<std::string_view> cover = game::all_display_strings();
+    cover.push_back("强制抢修：工匠将忽略危险，工程结束后恢复自主请选择工匠，并指向在建、在修或升级中的建筑建造指令已提交段座库存换建筑换轴退出");
     const std::vector<std::string_view>& ui = render::ui_strings();
     cover.insert(cover.end(), ui.begin(), ui.end());
     // 菜单条目与操作说明。**这一份是机械推导出来的**（`game::all_menu_strings()`
@@ -935,9 +941,9 @@ void draw_battle_hud(const render::FontSet& font,
     }
 }
 
-std::array<Rectangle,5> battle_buttons(float width, float height) {
-    const float button_w = std::min(148.0f, (width-80.0f)/5.0f);
-    std::array<Rectangle,5> result{};
+std::array<Rectangle,6> battle_buttons(float width, float height) {
+    const float button_w = std::min(148.0f, (width-90.0f)/6.0f);
+    std::array<Rectangle,6> result{};
     for(std::size_t i=0;i<result.size();++i)
         result[i]=Rectangle{14.0f+static_cast<float>(i)*(button_w+10),height-59,button_w,42};
     return result;
@@ -1253,6 +1259,9 @@ int run_game(const Options& opt) {
     int train_level_sel = 1;
     std::vector<rts::UnitId> selected;   // 框选 / 点选出的己方单位
     bool dragging = false;
+    std::optional<std::size_t> placing;
+    std::optional<rts::GridPos> placement_start;
+    std::vector<game::BuildPreview> placement_preview;
     std::optional<rts::UnitId> dragged_garrison;   // 有值 = 从墙头拖兵；空 = 普通框选
     Vector2 drag_screen_start{};   // 屏幕坐标：用位移量判断「点」还是「拖」
     Vector2 drag_world_start{};    // 世界像素坐标：拖动结束时拼框选矩形
@@ -1424,10 +1433,8 @@ int run_game(const Options& opt) {
                                  std::string(game::display_name(bt)).c_str(),
                                  static_cast<int>(s.cost_stone),
                                  static_cast<int>(s.cost_wood));
-                    // 位置合法 AND 买得起——只查前者时，钱不够也会亮绿框
-                    // （一次试玩报出来的 bug：两条各查一半，缺了买不买得起）。
-                    push(buf, game::can_place_hint(v, bt, p.cell) &&
-                                 game::can_afford_build(v, bt),
+                    // 此处只选建筑类型；落点与预算在放置预览里统一检查。
+                    push(buf, true,
                         PopupKind::Build, static_cast<int>(i));
                 }
                 break;
@@ -1528,14 +1535,44 @@ int run_game(const Options& opt) {
             overlay.draw_cell_outline(cell, Color{235, 235, 245, 255},
                                       2.0f / cam.camera().zoom);
         }
+        if (shell.screen() == game::Screen::Battle && b && placing) {
+            const auto type=buildable[*placing];
+            const auto view=b->world().view(rts::Side::Defender);
+            std::vector<rts::GridPos> planned;
+            for (const auto& item:placement_preview) if(item.legal) planned.push_back(item.cell);
+            for (const auto& item : placement_preview) {
+                const Color tint=!item.legal ? Color{240,85,85,135} : item.affordable ? Color{110,235,160,150} : Color{145,145,145,115};
+                auto facing=game::Facing::SE;
+                if(type==rts::BldType::Wall || type==rts::BldType::Gate) {
+                    facing=game::SceneModel::run_direction(view,item.cell,planned);
+                }
+                const auto& sprite=atlas.get(rts::ident_of(type),"idle",game::to_string(facing));
+                const auto anchor=proj.grid_to_screen(item.cell);
+                DrawTextureV(sprite.texture,{anchor.x-sprite.ground_anchor.x,anchor.y-sprite.ground_anchor.y},tint);
+                if(type==rts::BldType::Wall && game::SceneModel::is_wall_corner(view,item.cell,planned)) {
+                    const auto& corner=atlas.get("Wall","idle","SE");
+                    DrawTextureV(corner.texture,{anchor.x-corner.ground_anchor.x,anchor.y-corner.ground_anchor.y},tint);
+                }
+                overlay.draw_cell_outline(item.cell,tint,2.0f/cam.camera().zoom);
+            }
+        }
         if (shell.screen() == game::Screen::Battle && b != nullptr) {
             const rts::WorldView v = b->world().view(rts::Side::Defender);
             // 选中集：每个单位脚下画一个小圈，框选/点选的即时反馈。
             const auto ualive = v.unit_alive();
+            std::vector<rts::UnitId> workers;
+            b->world().enumerate_units(rts::Side::Defender, workers);
+            for (const auto id : workers) {
+                if (!b->forced_work_active(id)) continue;
+                const auto anchor = unit_draw_anchor(v, id.index(), proj, atlas);
+                const float scale = 1.0f / cam.camera().zoom;
+                DrawCircleV({anchor.x, anchor.y - 28 * scale}, 6 * scale, Color{255, 160, 55, 245});
+                DrawLineEx({anchor.x, anchor.y - 32 * scale}, {anchor.x, anchor.y - 27 * scale}, 2 * scale, BLACK);
+            }
             for (const rts::UnitId id : selected) {
                 const std::size_t s = id.index();
                 if (s >= ualive.size() || !ualive[s]) continue;
-                const rts::Vec2 sp = unit_draw_anchor(v, s, proj, atlas,map);
+                const rts::Vec2 sp = unit_draw_anchor(v, s, proj, atlas);
                 const float radius = 10.0f / cam.camera().zoom;
                 DrawRing(Vector2{sp.x, sp.y}, radius, radius+2.0f/cam.camera().zoom,
                          0, 360, 32, Color{255, 214, 120, 235});
@@ -1572,7 +1609,7 @@ int run_game(const Options& opt) {
                 const Vector2 cur = GetScreenToWorld2D(GetMousePosition(), cam.camera());
                 const std::size_t s = dragged_garrison->index();
                 if (s < ualive.size() && ualive[s]) {
-                    const rts::Vec2 from = unit_draw_anchor(v, s, proj, atlas,map);
+                    const rts::Vec2 from = unit_draw_anchor(v, s, proj, atlas);
                     DrawLineEx(Vector2{from.x, from.y}, cur, 3.0f / cam.camera().zoom,
                                Color{255, 214, 120, 220});
                     DrawCircleLines(static_cast<int>(cur.x), static_cast<int>(cur.y), 10.0f,
@@ -1602,8 +1639,8 @@ int run_game(const Options& opt) {
             const float screen_h = static_cast<float>(GetScreenHeight());
             DrawRectangleRec(Rectangle{0,screen_h-76,screen_w,76},Color{23,28,30,245});
             const auto buttons=battle_buttons(screen_w,screen_h);
-            const std::array<std::string_view,5> labels{
-                "菜单",paused ? "继续" : "暂停", "回到堡垒", "查看全图", "指挥官日记"};
+            const std::array<std::string_view,6> labels{
+                "菜单",paused ? "继续" : "暂停", "回到堡垒", "查看全图", "指挥官日记", "建造 B"};
             for(std::size_t i=0;i<buttons.size();++i) {
                 const bool hover=has_cursor && CheckCollisionPointRec(GetMousePosition(),buttons[i]);
                 DrawRectangleRec(buttons[i], hover ? Color{77,74,56,255}:Color{42,48,46,255});
@@ -1612,6 +1649,18 @@ int run_game(const Options& opt) {
                            Color{244,228,194,255});
             }
             char hint[160];
+            if (placing) {
+                const auto type=buildable[*placing];
+                const auto& cost=b->world().view(rts::Side::Defender).stats().of(type);
+                const auto stock=b->world().view(rts::Side::Defender).stock();
+                const auto count=static_cast<std::int64_t>(placement_preview.size());
+                const std::string text="建造："+std::string(game::display_name(type))+"  "+std::to_string(count)+
+                    " 段/座  石 "+std::to_string(count*cost.cost_stone)+"/"+std::to_string(stock[static_cast<std::size_t>(rts::Resource::Stone)])+
+                    "  木 "+std::to_string(count*cost.cost_wood)+"/"+std::to_string(stock[static_cast<std::size_t>(rts::Resource::Wood)])+
+                    "   Tab 换建筑 · Shift 换轴 · 右键/Esc 退出";
+                DrawRectangle(0,static_cast<int>(screen_h)-108,static_cast<int>(screen_w),32,Color{23,28,30,245});
+                font->draw(text,{14,screen_h-102},18,Color{244,228,194,255});
+            }
             const float hint_x=buttons.back().x+buttons.back().width+22;
             if(screen_w-hint_x>420) {
                 std::snprintf(hint,sizeof(hint),"已选 %zu 名   右键移动 / 驻墙",selected.size());
@@ -1748,6 +1797,13 @@ int run_game(const Options& opt) {
         shell.poll();
         if (shell.attempt() != preloaded_attempt) preload_for_battle();
         const Vector2 vp{static_cast<float>(opt.width), static_cast<float>(opt.height)};
+        if (opt.placement_shot && shell.battle()) {
+            if (!map.in_bounds(19,6)) return 2;
+            placing=std::size_t{0}; placement_start=rts::GridPos{8,6};
+            placement_preview=game::preview_build(shell.battle()->world().view(rts::Side::Defender),
+                rts::BldType::Wall,game::build_line(*placement_start,{19,6},false));
+            cam.focus_keep(proj,{13,6},vp);
+        }
         if(shell.battle()) atmosphere.observe(shell.battle()->world().view(rts::Side::Defender),
                                               shell.battle()->world().now(),shell.battle()->world().wave());
         RenderTexture2D rt = LoadRenderTexture(opt.width, opt.height);
@@ -1815,6 +1871,9 @@ int run_game(const Options& opt) {
 
         const Vector2 mouse = GetMousePosition();
         const bool in_menu = shell.screen() != game::Screen::Battle;
+        if (in_menu || journal.open) {
+            placing.reset(); placement_start.reset(); placement_preview.clear();
+        }
         rts::GridPos cell{};
         audio.active(shell.screen()==game::Screen::Main ||
                      (shell.should_advance() && !paused && !journal.open && !developer_panel));
@@ -1921,7 +1980,7 @@ int run_game(const Options& opt) {
                 shell.on_escape();
             }
         } else if (game::DemoBattle* b = shell.battle()) {
-            const bool on_toolbar=mouse.y>=vp.y-76;
+            const bool on_toolbar=mouse.y>=vp.y-(placing?108:76);
             const bool on_hud=mouse.x>=14 && mouse.x<=714 && mouse.y>=14 && mouse.y<=150;
             bool has_inspector = false;
             const auto input_view = b->world().view(rts::Side::Defender);
@@ -1941,10 +2000,15 @@ int run_game(const Options& opt) {
                 if(CheckCollisionPointRec(mouse,buttons[2])) cam.focus_keep(proj,b->world().keep_pos(),vp);
                 if(CheckCollisionPointRec(mouse,buttons[3])) show_full_map();
                 if(CheckCollisionPointRec(mouse,buttons[4])) journal.open=true;
+                if(CheckCollisionPointRec(mouse,buttons[5])) { placing=std::size_t{0}; placement_start.reset(); popup=Popup{}; }
                 dragging=false;
                 dragged_garrison.reset();
             }
-            if (IsKeyPressed(KEY_ESCAPE)) shell.on_escape();   // → 暂停菜单
+            const bool cancel_placement = placing && (IsKeyPressed(KEY_ESCAPE) || IsMouseButtonPressed(MOUSE_BUTTON_RIGHT));
+            if (cancel_placement) { placing.reset(); placement_start.reset(); placement_preview.clear(); }
+            else if (IsKeyPressed(KEY_ESCAPE)) shell.on_escape();
+            if (IsKeyPressed(KEY_B)) { placing=std::size_t{0}; placement_start.reset(); popup=Popup{}; dragging=false; dragged_garrison.reset(); }
+            if (placing && IsKeyPressed(KEY_TAB)) { *placing=(*placing+1)%buildable.size(); placement_start.reset(); }
             if (IsKeyPressed(KEY_F)) show_full_map();
             if (IsKeyPressed(KEY_SPACE)) paused = !paused;
             // 征兵等级。下限钳在这里（1，恒合法）；
@@ -1976,7 +2040,32 @@ int run_game(const Options& opt) {
             const bool in_map = map.in_bounds(cell.i, cell.j) && !on_toolbar && !on_hud && !on_inspector;
             const rts::WorldView view = b->world().view(rts::Side::Defender);
 
-            if (popup.kind != PopupKind::None) {
+            placement_preview.clear();
+            if (placing) {
+                const auto type = buildable[*placing];
+                const bool line = type == rts::BldType::Wall || type == rts::BldType::Fence;
+                if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && in_map) placement_start=cell;
+                if (in_map || placement_start) {
+                    const rts::GridPos end{static_cast<std::int16_t>(std::clamp(int(cell.i),0,map.width()-1)),
+                                           static_cast<std::int16_t>(std::clamp(int(cell.j),0,map.height()-1))};
+                    const auto cells = line && placement_start ? game::build_line(*placement_start,end,
+                        IsKeyDown(KEY_LEFT_SHIFT)||IsKeyDown(KEY_RIGHT_SHIFT)) : std::vector<rts::GridPos>{end};
+                    placement_preview=game::preview_build(view,type,cells);
+                }
+                if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT) && placement_start) {
+                    if (in_map) {
+                        std::vector<rts::Command> commands;
+                        for (const auto& item : placement_preview) if (item.legal && item.affordable)
+                            commands.push_back(game::build_command(type,item.cell,map.width()));
+                        if (!commands.empty()) b->submit_defender(commands.data(),commands.size());
+                        notice="建造指令已提交："+std::to_string(commands.size())+" 段 / 座";
+                        notice_until=GetTime()+3;
+                    }
+                    placement_start.reset();
+                }
+            } else if (cancel_placement) {
+                // Consume cancellation so the same right click cannot issue unit orders.
+            } else if (popup.kind != PopupKind::None) {
                 // 菜单开着时，鼠标只做两件事：点选项生效 / 右键关闭。
                 // 不碰框选与下令——两套输入不该在同一帧里叠着解释。
                 if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
@@ -2001,8 +2090,11 @@ int run_game(const Options& opt) {
                         const std::size_t opt_idx = static_cast<std::size_t>(opts[i].index);
                         switch (opts[i].action) {
                             case PopupKind::Build:
-                                c = game::build_command(buildable[opt_idx],
-                                                        popup.cell, map.width());
+                                placing=opt_idx;
+                                placement_start.reset();
+                                dragging=false;
+                                dragged_garrison.reset();
+                                have=false;
                                 break;
                             case PopupKind::Train:
                                 c = game::train_command(
@@ -2042,7 +2134,7 @@ int run_game(const Options& opt) {
                 std::vector<rts::UnitId> defenders;
                 b->world().enumerate_units(rts::Side::Defender, defenders);
                 dragged_garrison = in_map ? pick_garrisoned_unit(
-                    view, defenders, proj, atlas, wpos,map) : std::nullopt;
+                    view, defenders, proj, atlas, wpos) : std::nullopt;
                 if (dragged_garrison || in_map) {
                     dragging = true;
                     drag_screen_start = mouse;
@@ -2133,7 +2225,12 @@ int run_game(const Options& opt) {
                 // 回归自主——它们不是 `rts::Command`，不进世界、不进哈希
                 // （`game/player_input.hpp` 文件头）。唯一还走命令通道的是
                 // 清野（标记是全局的，与选中集无关）。
-                switch (game::classify_click(view, cell)) {
+                if (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT)) {
+                    if (const auto hit = pick_building_sprite(map, view, b->world().now(), proj, atlas, wpos, atmosphere_on)) cell = *hit;
+                    const bool issued = b->issue_forced_work(selected, cell);
+                    notice = issued ? "强制抢修：工匠将忽略危险，工程结束后恢复自主" : "请选择工匠，并指向在建、在修或升级中的建筑";
+                    notice_until = GetTime() + 3.0;
+                } else switch (game::classify_click(view, cell)) {
                     case game::ClickTarget::Wall:
                         b->issue_garrison_order(selected, cell);
                         order_target = cell;

@@ -178,6 +178,8 @@ public:
         return std::span<const std::uint8_t>(w_->bld_pool_.alive_bytes(),
                                              w_->bld_pool_.slot_count());
     }
+    BldId bld_at(GridPos cell) const noexcept { return w_->bld_at(cell); }
+    bool alive(UnitId id) const noexcept { return w_->alive(id); }
 
     std::span<const ObstacleType> obstacle_type() const noexcept {
         return sp(w_->o_type_);

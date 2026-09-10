@@ -32,6 +32,8 @@ C++ 程序设计课程设计。**不对称波次生存 RTS**：玩家守城（�
 
 工匠避险、守方兵种调整、快照恢复、Alt+F12 开发者模式和剧情自动展示见 [试玩调整说明](docs/defense-and-campaign.md)。
 
+Shift 强制抢修、活墙朝向与 B/Tab 放置模式、拖线建墙见 [建造交互说明](docs/construction-interactions.md)。
+
 | | 状态 |
 |---|---|
 | 设计契约（`CLAUDE.md`） | ✅ 已定稿多轮，是四人对齐的依据 |

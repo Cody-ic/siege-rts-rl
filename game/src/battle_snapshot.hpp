@@ -146,6 +146,9 @@ struct SnapshotCodec {
             f("target",v.target);
             f("garrison",v.garrison);
             f("generation",v.generation);
+            f("forced",v.forced);
+            f("building",v.building);
+            f("upgrade",v.upgrade);
         }
         else if constexpr(std::is_same_v<U,PatrolGoal>) {
             f("active",v.active);
@@ -242,7 +245,17 @@ struct SnapshotCodec {
             check(j.is_array() && j.size()<=2000000);
             if constexpr(requires {v.resize(j.size());}) v.resize(j.size());else check(j.size()==v.size());
             std::size_t i=0;for(auto& e:v) decode(j.at(i++),e);
-        } else {check(j.is_object());fields(v,[&](const char* name,auto& x){decode(j.at(name),x);});}
+        } else {
+            check(j.is_object());
+            fields(v,[&](const char* name,auto& x){
+                // Older snapshots contain only ordinary manual orders.
+                if constexpr(std::is_same_v<T,ManualOrder>) {
+                    if (!j.contains("forced") && (std::string_view(name)=="forced" ||
+                        std::string_view(name)=="building" || std::string_view(name)=="upgrade")) { x={}; return; }
+                }
+                decode(j.at(name),x);
+            });
+        }
     }
     template<class P> static void validate_pool(const P& p) {
         check(p.generation_.size()==p.alive_.size() && p.alive_.size()<65535);

@@ -109,6 +109,19 @@ rts_set_warnings(rts_render)
 # 查的是「跑得通且真画出了东西」：退出码 0 + 导出的 PNG 存在且非空。
 # 没有它的话，渲染层的任何回归都只能靠人开窗看才能发现。
 if(RTS_BUILD_TESTS)
+    add_test(NAME render_placement_preview COMMAND rts_render --placement-preview
+        --map "${CMAKE_SOURCE_DIR}/game/data/demo_skirmish.json"
+        --stats "${CMAKE_SOURCE_DIR}/game/data/stats_placeholder.json"
+        --sprites "${CMAKE_SOURCE_DIR}/tools/sprite_gen/out_3d"
+        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/placement-preview.png" --size 1500 1000)
+    add_executable(wall_probe src/wall_probe.cpp)
+    target_link_libraries(wall_probe PRIVATE render_lib)
+    rts_set_warnings(wall_probe)
+    add_test(NAME render_live_wall_shot COMMAND wall_probe
+        "${CMAKE_SOURCE_DIR}/game/data/demo_skirmish.json"
+        "${CMAKE_SOURCE_DIR}/game/data/stats_placeholder.json"
+        "${CMAKE_SOURCE_DIR}/tools/sprite_gen/out_3d"
+        "${CMAKE_CURRENT_BINARY_DIR}/live-wall.png")
     add_executable(presentation_probe src/presentation_probe.cpp)
     target_link_libraries(presentation_probe PRIVATE render_lib)
     rts_set_warnings(presentation_probe)
