@@ -334,6 +334,33 @@ if(RTS_BUILD_TESTS)
                 --screenshot "${CMAKE_CURRENT_BINARY_DIR}/journal_ending_${_ending}.png" --size 960 540)
     endforeach()
     add_test(NAME render_journal_requires_screenshot COMMAND rts_render --journal-page 7)
+    foreach(_appendix RANGE 1 2)
+        add_test(NAME render_appendix_${_appendix}
+            COMMAND rts_render --journal-appendix ${_appendix} --size 1100 700
+                --screenshot "${CMAKE_CURRENT_BINARY_DIR}/appendix_${_appendix}.png")
+        add_test(NAME render_appendix_bottom_${_appendix}
+            COMMAND rts_render --journal-appendix ${_appendix} --journal-bottom --size 960 540
+                --screenshot "${CMAKE_CURRENT_BINARY_DIR}/appendix_bottom_${_appendix}.png")
+    endforeach()
+    add_test(NAME render_appendix_white_feather_locked
+        COMMAND rts_render --journal-appendix 1 --journal-feather-locked --size 960 540
+            --screenshot "${CMAKE_CURRENT_BINARY_DIR}/appendix_locked.png")
+    add_test(NAME render_appendix_requires_screenshot COMMAND rts_render --journal-appendix 1)
+    set_tests_properties(render_appendix_requires_screenshot PROPERTIES WILL_FAIL TRUE)
+    foreach(_width IN ITEMS 800 960 1100)
+        add_test(NAME render_appendix_emphasis_${_width}
+            COMMAND rts_render --journal-appendix 2 --journal-emphasis --size ${_width} 540
+                --screenshot "${CMAKE_CURRENT_BINARY_DIR}/appendix_emphasis_${_width}.png")
+    endforeach()
+    add_test(NAME render_appendix_emphasis_requires_appendix COMMAND rts_render --journal-emphasis)
+    set_tests_properties(render_appendix_emphasis_requires_appendix PROPERTIES WILL_FAIL TRUE)
+    foreach(_notice RANGE 1 3)
+        add_test(NAME render_appendix_notice_${_notice}
+            COMMAND rts_render --journal-appendix 2 --appendix-notice ${_notice} --size 640 540
+                --screenshot "${CMAKE_CURRENT_BINARY_DIR}/appendix_notice_${_notice}.png")
+    endforeach()
+    add_test(NAME render_appendix_notice_requires_screenshot COMMAND rts_render --appendix-notice 1)
+    set_tests_properties(render_appendix_notice_requires_screenshot PROPERTIES WILL_FAIL TRUE)
     set_tests_properties(render_journal_requires_screenshot PROPERTIES WILL_FAIL TRUE)
     add_test(NAME render_journal_rejects_ninth COMMAND rts_render --journal-page 8 --screenshot never_ninth.png)
     set_tests_properties(render_journal_rejects_ninth PROPERTIES WILL_FAIL TRUE)

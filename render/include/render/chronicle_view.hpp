@@ -12,6 +12,8 @@ public:
     void update(Vector2 viewport, int reached_wave);
     void draw(const FontSet& font, Vector2 viewport, int reached_wave);
     void preview(int chapter,int ending=0,bool bottom=false) noexcept;
+    void preview_appendix(int appendix,bool bottom=false,bool emphasis=false) noexcept;
+    game::ChronicleAppendix appendices;
     bool decision_enabled = false;
     game::ChronicleChoice take_choice() noexcept {
         const auto result=requested_; requested_=game::ChronicleChoice::None; return result;
@@ -20,6 +22,8 @@ public:
 private:
     int chapter_ = 0;
     int ending_ = 0;
+    int appendix_ = 0;
+    bool preview_emphasis_ = false;
     float scroll_ = 0, max_scroll_ = 0;
     game::ChronicleChoice requested_=game::ChronicleChoice::None;
 };

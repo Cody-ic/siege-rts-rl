@@ -1,4 +1,5 @@
 #include "game/demo_driver.hpp"
+#include "game/chronicle.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -680,6 +681,7 @@ void DemoBattle::retire_phoenix(rts::UnitId id) {
         std::erase_if(phoenix_roster_,
                       [pid](const PhoenixRecord& r) { return r.id == pid; });
         phoenix_roster_.push_back(PhoenixRecord{pid, alive + 1});
+        if(!developer() && game::earns_white_feather(alive+1)) white_feather_=true;
         phoenix_id_of_[ui] = -1;
     }
     w_.kill_unit(id);

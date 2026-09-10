@@ -25,6 +25,8 @@ void write_archive(const std::filesystem::path& file,const BattleArchive& archiv
 BattleArchive read_archive(const std::filesystem::path& file);
 void preserve_incompatible_archive(const std::filesystem::path& file);
 int read_journal_progress(const std::filesystem::path& file);
+JournalProgress read_journal(const std::filesystem::path& file);
+void write_journal(const std::filesystem::path& file,JournalProgress progress);
 void write_journal_progress(const std::filesystem::path& file,int highest_wave);
 std::filesystem::path default_save_directory();
 std::string read_save_text(const std::filesystem::path& file);
