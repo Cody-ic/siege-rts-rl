@@ -25,4 +25,3 @@ Windows/MSVC Release，使用 CMake 构建并运行 CTest。回归覆盖新建�
 新增截图测试 `render_live_wall_shot` 和 `render_placement_preview`。后者使用真实游戏的放置绘制路径，包含绿色可建段、红色非法段和灰色预算不足段。截图输出位于构建目录的 `render/`。
 
 测试过程中修复了三个既有渲染探针的 Windows 命令行编码问题，以及存档测试的中文路径转换。批量脚本旧临时依赖路径失效时，可让 CMake 重新下载锁定依赖，或指定仍存在的源码目录。
-
