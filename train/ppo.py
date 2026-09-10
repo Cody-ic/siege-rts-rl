@@ -318,10 +318,14 @@ def validate(cfg):
         raise ValueError('curriculum fractions must be in (0,1]')
     if tuple(sorted(set(cfg.curriculum))) != tuple(cfg.curriculum):
         raise ValueError('curriculum must be strictly increasing')
+    if cfg.defender_prepare_ticks and tuple(cfg.curriculum) != (1.0,):
+        raise ValueError('defender_prepare_ticks requires curriculum=(1.0,) to preserve spawn clearance')
     task_reward(0, False, cfg.reward_mode, cfg.win_reward)
 
 
 def make_env(cfg, n, frac, start=0, episode_indices=None):
+    if cfg.defender_prepare_ticks and frac != 1.0:
+        raise ValueError('defender_prepare_ticks requires frac=1.0 to preserve spawn clearance')
     maps={'defender_maps':list(cfg.map_pool)} if cfg.defender and cfg.map_pool else {}
     if cfg.defender_profiles: maps['defender_profiles']=list(cfg.defender_profiles)
     if cfg.tactical_goals != 'keep': maps['tactical_goals']=cfg.tactical_goals

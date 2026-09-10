@@ -1,5 +1,7 @@
 """Regression tests runnable on the default build, without torch or numpy."""
 import ast
+import math
+from dataclasses import dataclass
 from pathlib import Path
 import sys
 import unittest
@@ -89,7 +91,53 @@ class WindowTests(unittest.TestCase):
         self.assertEqual(w.rate, 0)
 
 
+class PreparationTests(unittest.TestCase):
+    def test_preparation_requires_full_distance_before_world_creation(self):
+        source = Path(__file__).resolve().parents[1] / 'train/ppo.py'
+        tree = ast.parse(source.read_text(encoding='utf-8'))
+        nodes = [n for n in tree.body if isinstance(n, (ast.ClassDef, ast.FunctionDef))
+                 and n.name in ('Cfg', 'validate', 'make_env')]
+        calls = []
+        native = SimpleNamespace(Side=SimpleNamespace(Attacker=0),
+                                 BatchedEnv=lambda *a, **kw: calls.append(kw))
+        namespace = {'dataclass': dataclass, 'np': SimpleNamespace(isfinite=math.isfinite),
+                     'torch': SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: False)),
+                     'task_reward': task_reward, 'R': native,
+                     'make_worlds': lambda cfg, n, *args: [None]*n}
+        exec(compile(ast.Module(body=nodes, type_ignores=[]), str(source), 'exec'), namespace)
+        cfg = namespace['Cfg']()
+        namespace['validate'](cfg)
+        cfg.defender_prepare_ticks = 900
+        with self.assertRaisesRegex(ValueError, 'curriculum='):
+            namespace['validate'](cfg)
+        for frac in (.15, .75, float('nan')):
+            with self.assertRaisesRegex(ValueError, 'frac='):
+                namespace['make_env'](cfg, 1, frac)
+        self.assertEqual(calls, [])
+        cfg.curriculum = (1.0,)
+        namespace['validate'](cfg)
+        namespace['make_env'](cfg, 1, 1.0)
+        self.assertEqual(calls[0]['defender_prepare_ticks'], 900)
+        cfg.defender_prepare_ticks = 0
+        namespace['make_env'](cfg, 1, .15)
+        self.assertEqual(len(calls), 2)
+
+
 class ResetSamplingTests(unittest.TestCase):
+    def test_each_map_covers_its_own_spawn_level_cycle(self):
+        source = Path(__file__).resolve().parents[1] / 'train/ppo.py'
+        tree = ast.parse(source.read_text(encoding='utf-8'))
+        nodes = [n for n in tree.body if isinstance(n, ast.FunctionDef)
+                 and n.name in ('episode_map', 'episode_spec')]
+        namespace = {'world_factory': lambda path, _: (None, {'spawns': range(3 if path == 'a' else 5)})}
+        exec(compile(ast.Module(body=nodes, type_ignores=[]), str(source), 'exec'), namespace)
+        cfg = SimpleNamespace(seed=1, map_pool=('a', 'b'), stats_path='', levels=(1, 7))
+        cases = [namespace['episode_spec'](cfg, i) for i in range(60)]
+        for path, count in (('a', 3), ('b', 5)):
+            expected = {(path, level, spawn) for level in cfg.levels for spawn in range(count)}
+            self.assertEqual({case for case in cases if case[0] == path}, expected)
+            self.assertEqual(len({cases.count(case) for case in expected}), 1)
+
     def test_single_resets_keep_seed_and_direction_diversity(self):
         # Execute the production factory without importing torch.
         source = Path(__file__).resolve().parents[1] / 'train/ppo.py'
