@@ -1,0 +1,393 @@
+{
+ "date": "2026-09-10",
+ "branch": "codex/rl-navigation-diagnostics",
+ "question": "pipeline.py 的学习器配方能否在自己的模仿初值上改进？（风格 A/B 门槛未过后的追因）",
+ "shared": {
+  "init_weights": "/home/yys/Cody-ic/runs/profiles-ab-20260909/control-s1/fit/policy.pt",
+  "init_sha": "f05c7c5d9452a26c9e8e1507d88a13737e3353a565cb87b7e5bb7d37e9c1fefe",
+  "train_maps": [
+   "gen_01001000",
+   "gen_01004000",
+   "gen_01005000",
+   "gen_01006001"
+  ],
+  "heldout_maps": [
+   "gen_01007000",
+   "gen_01008000",
+   "gen_01009000"
+  ],
+  "levels": [
+   1,
+   4,
+   8,
+   16
+  ],
+  "curriculum": [
+   1.0
+  ],
+  "envs": 16,
+  "threads": 6,
+  "torch_threads": 2,
+  "device": "cpu",
+  "seed": 1,
+  "total_steps": 262144,
+  "value_features": "detached",
+  "defender_prepare_ticks": 900,
+  "roster": "mixed",
+  "eval": "冻结 argmax vs balanced 守方，每案例 32 局，种子 100001/200001/300001"
+ },
+ "arms": {
+  "fit-only": {
+   "note": "模仿初值本身，未经 PPO",
+   "metrics": null,
+   "reports": {
+    "01007000-L1": {
+     "wins": 24,
+     "timeouts": 8,
+     "eliminated": 0,
+     "hit_rate": 1.0,
+     "mean_building_value": 453.75,
+     "mean_building_damage": 4425.25,
+     "episodes": 32,
+     "seed": 100001,
+     "sha256": "1576967cc1b57953168f6de5d3d0085d14c6295b6102ee77caf9a3dd5112f248"
+    },
+    "01007000-L4": {
+     "wins": 24,
+     "timeouts": 8,
+     "eliminated": 0,
+     "hit_rate": 1.0,
+     "mean_building_value": 478.75,
+     "mean_building_damage": 4776.0,
+     "episodes": 32,
+     "seed": 100001,
+     "sha256": "43cd35a025b94561537818d32583573a1a49b18a236eadc5d93264d138d23adc"
+    },
+    "01008000-L1": {
+     "wins": 6,
+     "timeouts": 26,
+     "eliminated": 0,
+     "hit_rate": 1.0,
+     "mean_building_value": 347.96875,
+     "mean_building_damage": 3738.5625,
+     "episodes": 32,
+     "seed": 200001,
+     "sha256": "847f998856d5de8afa5dcaa946e3484961008618b4692d39d0abb6a9f56a1661"
+    },
+    "01008000-L4": {
+     "wins": 12,
+     "timeouts": 20,
+     "eliminated": 0,
+     "hit_rate": 1.0,
+     "mean_building_value": 362.8125,
+     "mean_building_damage": 5196.4375,
+     "episodes": 32,
+     "seed": 200001,
+     "sha256": "d7cc2a133f5f7f9250f5dac64c618e9869e59ea1e5bbb9b938894b4418902e55"
+    },
+    "01009000-L1": {
+     "wins": 8,
+     "timeouts": 24,
+     "eliminated": 0,
+     "hit_rate": 1.0,
+     "mean_building_value": 302.5,
+     "mean_building_damage": 4380.75,
+     "episodes": 32,
+     "seed": 300001,
+     "sha256": "2190c76dda0427b5bdba1fb47d2f45b0c3f98e5c72f47d9225a5d7907f31a9d4"
+    },
+    "01009000-L4": {
+     "wins": 32,
+     "timeouts": 0,
+     "eliminated": 0,
+     "hit_rate": 1.0,
+     "mean_building_value": 375.0,
+     "mean_building_damage": 4888.5,
+     "episodes": 32,
+     "seed": 300001,
+     "sha256": "039b5fad8fb0db789769057b71d5616c563222c7e2ea07c2fe3b03430f9a9fa6"
+    }
+   },
+   "total_wins": 106,
+   "total_value": 2320.8
+  },
+  "sweep-ref0-262k": {
+   "note": "pipeline 配方，唯一改动 reference_coef 1→0",
+   "metrics": {
+    "updates": 256,
+    "final_steps": 262144,
+    "entropy_first": 0.011044445098377764,
+    "entropy_last": 0.18104743026196957,
+    "value_loss_last": 13230.603271484375,
+    "mean_return_first": 0.0,
+    "mean_return_last": 807.0236840655435,
+    "window_win_last": 0.14,
+    "approx_kl_max": 0.015409818664193154,
+    "clip_max": 0.09149639368115459,
+    "train_wins": 261,
+    "train_timeouts": 458,
+    "train_eliminated": 1
+   },
+   "reports": {
+    "01007000-L1": {
+     "wins": 8,
+     "timeouts": 24,
+     "eliminated": 0,
+     "hit_rate": 1.0,
+     "mean_building_value": 355.0,
+     "mean_building_damage": 4216.75,
+     "episodes": 32,
+     "seed": 100001,
+     "sha256": "a18e4ea80d6300359c6b3934461e247e53b25669f25df908fb2a00932d5393cb"
+    },
+    "01007000-L4": {
+     "wins": 8,
+     "timeouts": 24,
+     "eliminated": 0,
+     "hit_rate": 1.0,
+     "mean_building_value": 287.5,
+     "mean_building_damage": 3817.75,
+     "episodes": 32,
+     "seed": 100001,
+     "sha256": "cd2941c8cff0111c9f42b702d8d259bd76eeaf62cda4a8f1d7ee90451e98e13f"
+    },
+    "01008000-L1": {
+     "wins": 0,
+     "timeouts": 32,
+     "eliminated": 0,
+     "hit_rate": 1.0,
+     "mean_building_value": 167.1875,
+     "mean_building_damage": 597.0625,
+     "episodes": 32,
+     "seed": 200001,
+     "sha256": "631c4619a63f0f89ff97187ccec2aaae5e8949347e270831e21700f114496ffb"
+    },
+    "01008000-L4": {
+     "wins": 0,
+     "timeouts": 32,
+     "eliminated": 0,
+     "hit_rate": 1.0,
+     "mean_building_value": 206.5625,
+     "mean_building_damage": 1803.78125,
+     "episodes": 32,
+     "seed": 200001,
+     "sha256": "f5d04d25df46a15acf38c4ee51108434412d2d2a64996e4c93b8403ca0b65c64"
+    },
+    "01009000-L1": {
+     "wins": 0,
+     "timeouts": 32,
+     "eliminated": 0,
+     "hit_rate": 1.0,
+     "mean_building_value": 312.5,
+     "mean_building_damage": 2114.25,
+     "episodes": 32,
+     "seed": 300001,
+     "sha256": "d79a2f58651967aa9696d28f316bfc5f31cc771682b5cbf0e2209f26478fddd4"
+    },
+    "01009000-L4": {
+     "wins": 0,
+     "timeouts": 32,
+     "eliminated": 0,
+     "hit_rate": 1.0,
+     "mean_building_value": 417.5,
+     "mean_building_damage": 2326.5,
+     "episodes": 32,
+     "seed": 300001,
+     "sha256": "6eb0de9de1f102adc0360298020d884cb0363bc9feb6e313eb82037c7fa7c134"
+    }
+   },
+   "total_wins": 16,
+   "total_value": 1746.2
+  },
+  "probe-ent0": {
+   "note": "同上，再把 ent_coef 0.01→0",
+   "metrics": {
+    "updates": 256,
+    "final_steps": 262144,
+    "entropy_first": 0.010779663047287613,
+    "entropy_last": 0.07309438195079565,
+    "value_loss_last": 21029.380859375,
+    "mean_return_first": 0.0,
+    "mean_return_last": 1648.4794604880028,
+    "window_win_last": 0.65,
+    "approx_kl_max": 0.005146408268046798,
+    "clip_max": 0.02314501542423386,
+    "train_wins": 538,
+    "train_timeouts": 280,
+    "train_eliminated": 1
+   },
+   "reports": {
+    "01007000-L1": {
+     "wins": 8,
+     "timeouts": 24,
+     "eliminated": 0,
+     "hit_rate": 1.0,
+     "mean_building_value": 450.0,
+     "mean_building_damage": 5520.25,
+     "episodes": 32,
+     "seed": 100001,
+     "sha256": "89e009de1b8ba265db404b8c185565df5e3beeb2fe26b70d750ba96b0a7f031b"
+    },
+    "01007000-L4": {
+     "wins": 16,
+     "timeouts": 16,
+     "eliminated": 0,
+     "hit_rate": 1.0,
+     "mean_building_value": 450.0,
+     "mean_building_damage": 5345.75,
+     "episodes": 32,
+     "seed": 100001,
+     "sha256": "3fec46043c52d7ef6d8260c4b5c594bbc229edfbf31dcc3c1712e1e778a50625"
+    },
+    "01008000-L1": {
+     "wins": 0,
+     "timeouts": 32,
+     "eliminated": 0,
+     "hit_rate": 1.0,
+     "mean_building_value": 301.09375,
+     "mean_building_damage": 3737.3125,
+     "episodes": 32,
+     "seed": 200001,
+     "sha256": "c6d010220ea54dc29c34e7c96a17fa323714651d1ecf51ee2b4a30f536962898"
+    },
+    "01008000-L4": {
+     "wins": 12,
+     "timeouts": 20,
+     "eliminated": 0,
+     "hit_rate": 1.0,
+     "mean_building_value": 291.71875,
+     "mean_building_damage": 4315.65625,
+     "episodes": 32,
+     "seed": 200001,
+     "sha256": "865c3d7f4ed3aaaa5168a33185c83092e014bf7f95dcdf2320b6c4a5a4042648"
+    },
+    "01009000-L1": {
+     "wins": 8,
+     "timeouts": 24,
+     "eliminated": 0,
+     "hit_rate": 1.0,
+     "mean_building_value": 420.0,
+     "mean_building_damage": 3479.25,
+     "episodes": 32,
+     "seed": 300001,
+     "sha256": "165a93057b2db31e331b6a744b2b10785e377cfd89a29b7db3a4ac354881a86a"
+    },
+    "01009000-L4": {
+     "wins": 16,
+     "timeouts": 16,
+     "eliminated": 0,
+     "hit_rate": 1.0,
+     "mean_building_value": 450.0,
+     "mean_building_damage": 3895.25,
+     "episodes": 32,
+     "seed": 300001,
+     "sha256": "f238a99bdd3a1f05b3b8227c33a0d384404ddd5a15602aa65c4e77be9967429c"
+    }
+   },
+   "total_wins": 60,
+   "total_value": 2362.8
+  }
+ },
+ "cases": [
+  {
+   "case": "01007000-L1",
+   "gate_wins": 24,
+   "gate_value": 453.75,
+   "sweep-ref0-262k": {
+    "wins": 8,
+    "value": 355.0,
+    "passes_wins": false
+   },
+   "probe-ent0": {
+    "wins": 8,
+    "value": 450.0,
+    "passes_wins": false
+   }
+  },
+  {
+   "case": "01007000-L4",
+   "gate_wins": 24,
+   "gate_value": 478.75,
+   "sweep-ref0-262k": {
+    "wins": 8,
+    "value": 287.5,
+    "passes_wins": false
+   },
+   "probe-ent0": {
+    "wins": 16,
+    "value": 450.0,
+    "passes_wins": false
+   }
+  },
+  {
+   "case": "01008000-L1",
+   "gate_wins": 6,
+   "gate_value": 347.96875,
+   "sweep-ref0-262k": {
+    "wins": 0,
+    "value": 167.1875,
+    "passes_wins": false
+   },
+   "probe-ent0": {
+    "wins": 0,
+    "value": 301.09375,
+    "passes_wins": false
+   }
+  },
+  {
+   "case": "01008000-L4",
+   "gate_wins": 12,
+   "gate_value": 362.8125,
+   "sweep-ref0-262k": {
+    "wins": 0,
+    "value": 206.5625,
+    "passes_wins": false
+   },
+   "probe-ent0": {
+    "wins": 12,
+    "value": 291.71875,
+    "passes_wins": true
+   }
+  },
+  {
+   "case": "01009000-L1",
+   "gate_wins": 8,
+   "gate_value": 302.5,
+   "sweep-ref0-262k": {
+    "wins": 0,
+    "value": 312.5,
+    "passes_wins": false
+   },
+   "probe-ent0": {
+    "wins": 8,
+    "value": 420.0,
+    "passes_wins": true
+   }
+  },
+  {
+   "case": "01009000-L4",
+   "gate_wins": 32,
+   "gate_value": 375.0,
+   "sweep-ref0-262k": {
+    "wins": 0,
+    "value": 417.5,
+    "passes_wins": false
+   },
+   "probe-ent0": {
+    "wins": 16,
+    "value": 450.0,
+    "passes_wins": false
+   }
+  }
+ ],
+ "finding": {
+  "verdict": "两条臂都未达门槛：留出图上没有一条超过模仿初值的总胜局（106/192）",
+  "entropy_bonus": "ent_coef 0.01 是主要破坏源：关掉后 16→60 胜，两个案例完全追平初值",
+  "remaining_gap": "总胜局仍只有初值 57%；但建筑价值反超（2363 vs 2321，六张图五张不低于初值） ⇒ 它在啃建筑打不死堡垒，失败轴是目标选择",
+  "root_cause": "train/demonstrations.py 只用 cross_entropy 拟合 actor（其文档字符串明写 \"it does not train a value function\"）⇒ critic 是随机初值；pipeline.py 又硬编码 value_features=detached ⇒ critic 是「为动作分类训出的冻结特征」上的单层线性探针。 实测 value_loss 全程在 1e3–7e4 间跳，无收敛趋势",
+  "already_rejected": "独立 critic 与 shared/detached 都比过（提交 b5670b5、docs/rl-stability-and-deployment.md「可选独立价值网络对照」：原基线 29/32、shared 31/32、independent 27/32）⇒ 「切断连接」这条路已走完两次，都无效",
+  "pipeline_inconsistency": "记录里选中的是 shared，而 pipeline.py:49 与 :81 把 detached 硬编码（连 reference_coef=1 一起），不可由旗标覆盖 ⇒ 流水线跑的是当初没被选中的那一臂",
+  "next": "从源头处理价值目标尺度（回报量级 ~1900、critic 是单层 Linear(256,1)、初始 V≈0 ⇒ 价值损失天然 1e4 量级）：running mean/std 或 PopArt。记录里从未试过。 同批把吞吐拉满——train/README.md:459 实测同机 --envs 64 --threads 4 达 383 env-step/s，而此后每轮都在用 16/6（90 env-step/s），4.3 倍未被使用",
+  "not_evidence": "训练奖励与训练胜率不作为证据：基线训练胜率 64%→11% 与留出图 16/192 同向，但 ent0 训练胜率 67% 却只换到 60/192"
+ }
+}
