@@ -5,6 +5,7 @@
 #include "game/player_input.hpp"
 #include "game/defender_macro.hpp"
 #include <chrono>
+#include "rts/utf8_path.hpp"
 #include <fstream>
 namespace {
 struct Temp {
@@ -13,8 +14,8 @@ struct Temp {
     Temp(){std::filesystem::create_directories(path);}
     ~Temp(){std::error_code ec;for(const auto& entry:std::filesystem::directory_iterator(path))std::filesystem::remove(entry.path(),ec);std::filesystem::remove(path,ec);}
 };
-std::string map_text(){return game::read_save_text(std::filesystem::path(GAME_DATA_DIR)/"demo_skirmish.json");}
-std::string stats_text(){return game::read_save_text(std::filesystem::path(GAME_DATA_DIR)/"stats_placeholder.json");}
+std::string map_text(){return game::read_save_text(rts::path_from_utf8(GAME_DATA_DIR)/"demo_skirmish.json");}
+std::string stats_text(){return game::read_save_text(rts::path_from_utf8(GAME_DATA_DIR)/"stats_placeholder.json");}
 game::GameShell shell(){return {game::MapLoader::from_string(map_text()),game::StatsLoader::from_string(stats_text()),7};}
 }
 TEST_CASE("存档还原临时指令、待执行命令、战斗及后续确定性", "[save]") {
@@ -64,7 +65,7 @@ TEST_CASE("日记跨进程式重读不倒退且有备份", "[save]") {
 }
 TEST_CASE("跨多波战斗与宏观操作恢复后仍继续一致", "[save]") {
     Temp temp;
-    const auto text=game::read_save_text(std::filesystem::path(GAME_DATA_DIR)/"maps/pool/gen_01001000.json");
+    const auto text=game::read_save_text(rts::path_from_utf8(GAME_DATA_DIR)/"maps/pool/gen_01001000.json");
     const auto map=game::MapLoader::from_string(text);
     game::GameShell original(map,game::StatsLoader::from_string(stats_text()),1);
     original.apply(game::MenuAction::StartNew);
@@ -156,4 +157,55 @@ TEST_CASE("剧情按本局十波里程碑展示，开发者模式不触发", "[s
     REQUIRE(game::chronicle_to_present(0,70,true)==-1);
     auto active=shell();active.apply(game::MenuAction::StartNew);active.battle()->enable_developer();active.battle()->developer_wave(70);
     REQUIRE(active.should_advance());
+}
+
+
+TEST_CASE("不死鸟花名册与冷却快照恢复后跨波一致", "[save]") {
+    auto curve=game::WaveCurve{};curve.phoenix_from_wave=1;curve.phoenix_base=2;curve.phoenix_cap=2;
+    curve.phoenix_respawn_waves=2;curve.phoenix_withdraw_hp_permille=777;
+    game::WaveTiming timing;timing.first_build_ticks=1;timing.build_ticks=1;timing.assault_max_ticks=5;
+    auto original=shell();
+    original.adopt_saved_battle(game::DemoBattle(game::MapLoader::from_string(map_text()),
+        game::StatsLoader::from_string(stats_text()),7,timing,curve),1,game::ChronicleChoice::None);
+    auto& battle=*original.battle();
+    std::vector<rts::UnitId> ids;battle.world().enumerate_units(rts::Side::Attacker,ids);
+    for(auto id:ids) if(battle.world().unit_type(id)==rts::UnitType::Phoenix) {
+        const_cast<rts::World&>(battle.world()).kill_unit(id);break;
+    }
+    for(int tick=0;tick<30 && battle.world().wave()<2;++tick) battle.update(1);
+    REQUIRE(battle.world().wave()==2);
+    REQUIRE(battle.phoenix_respawn().size()==1);
+    REQUIRE(battle.phoenix_roster().size()==1);
+    const auto archive=game::capture_battle(original,map_text(),stats_text());
+    auto restored=game::restore_battle(archive);
+    for(int tick=0;tick<40;++tick) {
+        REQUIRE(restored->world().state_hash()==battle.world().state_hash());
+        REQUIRE(restored->phoenix_respawn()==battle.phoenix_respawn());
+        REQUIRE(restored->phoenix_roster().size()==battle.phoenix_roster().size());
+        for(std::size_t i=0;i<battle.phoenix_roster().size();++i) {
+            REQUIRE(restored->phoenix_roster()[i].id==battle.phoenix_roster()[i].id);
+            REQUIRE(restored->phoenix_roster()[i].waves_alive==battle.phoenix_roster()[i].waves_alive);
+        }
+        battle.world().enumerate_units(rts::Side::Attacker,ids);
+        for(auto id:ids) REQUIRE(restored->phoenix_identity(id)==battle.phoenix_identity(id));
+        battle.update(1);restored->update(1);
+    }
+}
+
+TEST_CASE("存档 v4 拒绝 v3 并保留独立旧版备份", "[save]") {
+    Temp temp;auto active=shell();active.apply(game::MenuAction::StartNew);
+    const auto archive=game::capture_battle(active,map_text(),stats_text());
+    const auto file=temp.path/"campaign.json";game::write_archive(file,archive);
+    auto text=game::read_save_text(file);
+    const std::string marker="\"version\":"+std::to_string(game::kSaveVersion);
+    const auto at=text.find(marker);REQUIRE(at!=std::string::npos);
+    text.replace(at,marker.size(),"\"version\":3");
+    {std::ofstream out(file);out<<text;}
+    REQUIRE_THROWS(game::read_archive(file));
+    game::preserve_incompatible_archive(file);
+    const auto backup=temp.path/("campaign.json.legacy-v3-"+std::to_string(archive.hash)+".json");
+    REQUIRE(game::read_save_text(backup)==text);
+    game::write_archive(file,archive);
+    REQUIRE(game::read_archive(file).hash==archive.hash);
+    REQUIRE(game::read_save_text(backup)==text);
 }

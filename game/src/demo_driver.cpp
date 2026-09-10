@@ -316,10 +316,12 @@ void DemoBattle::spawn_wave() {
     // 上一波结束时还挂在 `phoenix_id_of_` 上、却没进花名册的那些 = 被击落的。
     // 它们进重生队列；花名册里的则原样回来（当波等级、满血，见头文件那段）。
     settle_phoenix_roster();
-    // 曲线给的是「这一波场上该有几只」，花名册已经占掉一部分名额。
-    const int phoenix_returning = static_cast<int>(phoenix_roster_.size());
+    // 花名册与冷却队列都占名额；冷却期间不能用新身份补满。
+    // 当波计划缩编时，暂存多出的老鸟，场上数量仍受计划约束。
+    const int phoenix_reserved = static_cast<int>(phoenix_roster_.size() + phoenix_respawn_.size());
+    const int phoenix_returning = std::min(plan.phoenixes, static_cast<int>(phoenix_roster_.size()));
     const int phoenix_new =
-        std::max(0, plan.phoenixes - phoenix_returning);
+        std::max(0, plan.phoenixes - phoenix_reserved);
 
     // ——展开成编队：一支编队 = 同兵种 `squad_cap_of()` 个（2026-09-05）——
     //
@@ -369,7 +371,7 @@ void DemoBattle::spawn_wave() {
     add_squads(rts::UnitType::Shade, plan.shades);
     add_squads(rts::UnitType::Knight, plan.knights);
     add_squads(rts::UnitType::Ram, plan.rams);
-    // 回来的 + 新生的 = 曲线给的上限（`phoenix_new` 已减去花名册，见上）。
+    // 回来的 + 新生的 <= 曲线给的上限；尚在冷却的名额保持空缺。
     // 两批都在这里展开，因为「哪一只是老的」由下面的落位循环按顺序认领
     // ——不死鸟一队一只（`squad_cap_of`），所以第 n 只不死鸟就是第 n 支
     // 不死鸟编队，顺序是确定的。
@@ -537,7 +539,9 @@ void DemoBattle::settle_phoenix_roster() {
         // 没进花名册 ⇒ 上一波被打下来了。等 N 波，满血回来。
         std::erase_if(phoenix_roster_,
                       [pid](const PhoenixRecord& r) { return r.id == pid; });
-        phoenix_respawn_.emplace_back(pid, curve_.phoenix_respawn_waves);
+        if (curve_.phoenix_respawn_waves > 0)
+            phoenix_respawn_.emplace_back(pid, curve_.phoenix_respawn_waves);
+        else reborn.push_back(pid);
     }
     std::fill(phoenix_id_of_.begin(), phoenix_id_of_.end(), -1);
 

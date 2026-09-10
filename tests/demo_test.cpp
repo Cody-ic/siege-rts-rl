@@ -1273,3 +1273,36 @@ TEST_CASE("不死鸟：撤离阈值与重生波数的默认值", "[demo]") {
     REQUIRE(curve.phoenix_withdraw_hp_permille > 0);
     REQUIRE(curve.phoenix_respawn_waves > 0);
 }
+
+TEST_CASE("不死鸟冷却占用名额且满期以原身份重生", "[demo]") {
+    auto curve=phoenix_from_first_wave();curve.phoenix_base=1;curve.phoenix_cap=1;
+    SECTION("跳过三波") {curve.phoenix_respawn_waves=3;}
+    SECTION("零冷却下一波返回") {curve.phoenix_respawn_waves=0;}
+    game::WaveTiming timing;timing.first_build_ticks=1;timing.build_ticks=1;timing.assault_max_ticks=5;
+    game::DemoBattle battle(demo_map(),demo_stats(),7,timing,curve);
+    std::vector<rts::UnitId> ids;battle.world().enumerate_units(rts::Side::Attacker,ids);
+    rts::UnitId bird{};
+    for(auto id:ids) if(battle.world().unit_type(id)==rts::UnitType::Phoenix) bird=id;
+    REQUIRE(battle.world().alive(bird));
+    const int identity=battle.phoenix_identity(bird);REQUIRE(identity>=0);
+    // Controlled casualty: test fixture owns the non-const battle and its world.
+    const_cast<rts::World&>(battle.world()).kill_unit(bird);
+    REQUIRE(battle.phoenix_identity(bird)==-1);
+    const int return_wave=2+curve.phoenix_respawn_waves;
+    for(int wave=2;wave<=return_wave;++wave) {
+        for(int tick=0;tick<30 && battle.world().wave()<wave;++tick) battle.update(1);
+        REQUIRE(battle.world().wave()==wave);
+        if(wave<return_wave) {
+            REQUIRE(count_phoenix(battle)==0);
+            REQUIRE(battle.phoenix_respawn().size()==1);
+            REQUIRE(battle.phoenix_respawn()[0].first==identity);
+            REQUIRE(battle.phoenix_respawn()[0].second==return_wave-wave);
+        } else {
+            REQUIRE(count_phoenix(battle)==1);
+            REQUIRE(battle.phoenix_respawn().empty());
+            battle.world().enumerate_units(rts::Side::Attacker,ids);
+            for(auto id:ids) if(battle.world().unit_type(id)==rts::UnitType::Phoenix)
+                REQUIRE(battle.phoenix_identity(id)==identity);
+        }
+    }
+}

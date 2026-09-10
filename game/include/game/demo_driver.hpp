@@ -243,7 +243,8 @@ public:
     // 场上这只不死鸟的跨波身份号（不是不死鸟或没有身份则 −1）。
     int phoenix_identity(rts::UnitId id) const noexcept {
         const std::size_t ui = id.index();
-        return ui < phoenix_id_of_.size() ? phoenix_id_of_[ui] : -1;
+        return w_.alive(id) && w_.unit_type(id) == rts::UnitType::Phoenix && ui < phoenix_id_of_.size()
+            ? phoenix_id_of_[ui] : -1;
     }
     void submit_defender(const rts::Command* cmds, std::size_t count) {
         for (std::size_t i = 0; i < count; ++i) {
