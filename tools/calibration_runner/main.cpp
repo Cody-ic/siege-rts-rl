@@ -134,6 +134,10 @@ struct Options {
     int slots_cap = game::WaveCurve{}.slots_cap;
     int phoenix_per_waves = game::WaveCurve{}.phoenix_per_waves;
     int phoenix_cap = game::WaveCurve{}.phoenix_cap;
+    // 撤离与重生（2026-09-10，#170）。阈值 0 = 永不因掉血而撤，即落地之前的
+    // 「出了必死」行为——**A/B 的对照臂就靠它**，不必另编一个二进制。
+    int phoenix_withdraw_hp_permille = game::WaveCurve{}.phoenix_withdraw_hp_permille;
+    int phoenix_respawn_waves = game::WaveCurve{}.phoenix_respawn_waves;
 };
 
 void print_help() {
@@ -182,6 +186,8 @@ void print_help() {
         "  --slots-base <x> --slots-per-wave <x> 编成位线性项\n"
         "  --slots-cap <n>                       编成位硬顶，0 = 不封顶\n"
         "  --phoenix-per-waves <n> --phoenix-cap <n>  空军放开节奏与上限\n"
+        "  --phoenix-withdraw-hp <permille>      掉到这个血量比就撤，0 = 永不撤\n"
+        "  --phoenix-respawn-waves <n>           被击落后等几波重生\n"
         "  --build-ticks <n> --first-build-ticks <n>  建造阶段时长\n"
         "\n"
         "注：--seeds 1,2,3 目前等于同一局跑三遍——攻方一条随机分支都没有\n"
@@ -315,6 +321,14 @@ bool parse_args(const std::vector<std::string>& args, Options& out) {
             const std::string vv = need(i, "--phoenix-cap");
             if (vv.empty()) return false;
             out.phoenix_cap = std::atoi(vv.c_str());
+        } else if (a == "--phoenix-withdraw-hp") {
+            const std::string vv = need(i, "--phoenix-withdraw-hp");
+            if (vv.empty()) return false;
+            out.phoenix_withdraw_hp_permille = std::atoi(vv.c_str());
+        } else if (a == "--phoenix-respawn-waves") {
+            const std::string vv = need(i, "--phoenix-respawn-waves");
+            if (vv.empty()) return false;
+            out.phoenix_respawn_waves = std::atoi(vv.c_str());
         } else if (a == "--macro-recall") {
             const std::string vv = need(i, "--macro-recall");
             if (vv.empty()) return false;
@@ -1459,6 +1473,8 @@ int main(int argc, char** argv) {
             curve.slots_cap = opt.slots_cap;
             curve.phoenix_per_waves = opt.phoenix_per_waves;
             curve.phoenix_cap = opt.phoenix_cap;
+            curve.phoenix_withdraw_hp_permille = opt.phoenix_withdraw_hp_permille;
+            curve.phoenix_respawn_waves = opt.phoenix_respawn_waves;
             if (opt.power_form == "linear") {
                 curve.power_form = game::WaveCurve::PowerForm::Linear;
             } else if (opt.power_form == "log") {
@@ -1605,6 +1621,8 @@ int main(int argc, char** argv) {
     j.key("slots_cap");             j.val(opt.slots_cap);
     j.key("phoenix_per_waves");     j.val(opt.phoenix_per_waves);
     j.key("phoenix_cap");           j.val(opt.phoenix_cap);
+    j.key("phoenix_withdraw_hp_permille"); j.val(opt.phoenix_withdraw_hp_permille);
+    j.key("phoenix_respawn_waves"); j.val(opt.phoenix_respawn_waves);
     j.key("macro");                 j.val(opt.macro ? 1 : 0);
     j.key("macro_period");          j.val(opt.macro_period);
     j.key("macro_recall");          j.val(opt.macro_recall);
