@@ -214,7 +214,7 @@ public:
     }
     struct PlayerEvent {
         rts::Tick tick=0;
-        int kind=0; // 0 command, 1 move, 2 garrison
+        int kind=0; // 0 command, 1 move, 2 garrison, 3 forced work
         rts::Command command{};
         std::vector<rts::UnitId> ids;
         rts::GridPos target{};
@@ -240,6 +240,14 @@ public:
     void issue_move_order(std::span<const rts::UnitId> ids, rts::GridPos target) {
         script_.issue_move_order(ids, target);
         player_events_.push_back({w_.now(),1,{},std::vector<rts::UnitId>(ids.begin(),ids.end()),target});
+    }
+    bool issue_forced_work(std::span<const rts::UnitId> ids, rts::GridPos target) {
+        if (!script_.issue_forced_work(w_.view(rts::Side::Defender), ids, target)) return false;
+        player_events_.push_back({w_.now(),3,{},std::vector<rts::UnitId>(ids.begin(),ids.end()),target});
+        return true;
+    }
+    bool forced_work_active(rts::UnitId id) const {
+        return script_.forced_work_active(w_.view(rts::Side::Defender), id);
     }
     void issue_garrison_order(std::span<const rts::UnitId> ids,
                               rts::GridPos wall_cell) {

@@ -42,6 +42,38 @@ rts::WorldInit iarena() {
 
 }  // namespace
 
+TEST_CASE("Build drags choose one axis and preserve press-to-release order", "[input]") {
+    const auto cells=game::build_line({4,2},{1,4},false);
+    REQUIRE(cells == std::vector<rts::GridPos>{{4,2},{3,2},{2,2},{1,2}});
+    REQUIRE(game::build_line({4,2},{1,4},true) == std::vector<rts::GridPos>{{4,2},{4,3},{4,4}});
+    REQUIRE(game::build_line({1,1},{3,3},false) == std::vector<rts::GridPos>{{1,1},{2,1},{3,1}});
+    REQUIRE(game::build_line({1,1},{1,1},false).size() == 1);
+    for (const auto p : cells) {
+        const auto command=game::build_command(rts::BldType::Wall,p,10);
+        REQUIRE(command.slot == rts::slot_of(p,10));
+        REQUIRE(command.kind == rts::CommandKind::Build);
+        REQUIRE(command.what == static_cast<std::uint8_t>(rts::BldType::Wall));
+    }
+}
+
+TEST_CASE("Build preview reserves resources only for legal affordable cells", "[input]") {
+    auto init=iarena();
+    init.stats.bld[static_cast<std::size_t>(rts::BldType::Wall)].cost_stone=10;
+    rts::World world(init);
+    world.set_stock(rts::Resource::Stone,20);
+    const auto cells=game::build_line({6,2},{9,2},false); // Rock at 7,2 must not consume money.
+    const auto preview=game::preview_build(world.view(rts::Side::Defender),rts::BldType::Wall,cells);
+    REQUIRE(preview.size()==4);
+    REQUIRE(preview[0].legal); REQUIRE(preview[0].affordable);
+    REQUIRE_FALSE(preview[1].legal);
+    REQUIRE(preview[2].legal); REQUIRE(preview[2].affordable);
+    REQUIRE(preview[3].legal); REQUIRE_FALSE(preview[3].affordable);
+    const std::vector<rts::GridPos> repeated{{6,2},{6,2},{8,2}};
+    const auto unique=game::preview_build(world.view(rts::Side::Defender),rts::BldType::Wall,repeated);
+    REQUIRE_FALSE(unique[1].legal);
+    REQUIRE(unique[2].legal); REQUIRE(unique[2].affordable);
+}
+
 TEST_CASE("右键的分类：完工墙/门=驻墙、障碍=清野、其余=开拔", "[input]") {
     rts::World w(iarena());
     w.place_bld(rts::BldType::Wall, rts::GridPos{4, 2}, 40, 40);

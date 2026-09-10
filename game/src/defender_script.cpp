@@ -94,7 +94,8 @@ CityBounds city_bounds(const rts::WorldView& v) {
     return b;
 }
 rts::UnitAction safe_worker(const rts::WorldView& v,std::size_t slot,std::uint16_t mask,
-                            std::vector<std::size_t>& claimed,const rts::GridPos* manual=nullptr) {
+                            std::vector<std::size_t>& claimed,const rts::GridPos* manual=nullptr,
+                            const ManualOrder* forced=nullptr) {
     const int w=v.width(),h=v.height(),n=w*h;
     const auto here=rts::grid_of(v.unit_pos()[slot]);const auto bounds=city_bounds(v);const bool inside=bounds.contains(here);
     bool outside_safe=v.phase()==rts::WavePhase::Build;
@@ -102,6 +103,7 @@ rts::UnitAction safe_worker(const rts::WorldView& v,std::size_t slot,std::uint16
         const auto p=v.unit_pos()[u];
         if(p.x>float(bounds.l)-10 && p.x<float(bounds.r)+10 && p.y>float(bounds.t)-10 && p.y<float(bounds.b)+10) outside_safe=false;
     }
+    if (forced) outside_safe = true;
     const auto idx=[&](rts::GridPos p){return int(p.j)*w+int(p.i);};
     const auto cell=[&](int c){return rts::GridPos{static_cast<std::int16_t>(c%w),static_cast<std::int16_t>(c/w)};};
     std::vector<unsigned char> open(static_cast<std::size_t>(n),0);
@@ -130,25 +132,27 @@ rts::UnitAction safe_worker(const rts::WorldView& v,std::size_t slot,std::uint16
             const auto delta=rts::move_delta(a);const int x=c%w+delta.di,y=c/w+delta.dj;
             if(x<0||y<0||x>=w||y>=h) continue;
             const int next=y*w+x;if(!open[static_cast<std::size_t>(next)]) continue;
-            const float nd=d+1+1000*risk[static_cast<std::size_t>(next)];
+            const float nd=d+1+(forced?0:1000*risk[static_cast<std::size_t>(next)]);
             if(nd<cost[static_cast<std::size_t>(next)]) {cost[static_cast<std::size_t>(next)]=nd;first[static_cast<std::size_t>(next)]=c==start?a:first[static_cast<std::size_t>(c)];q.push({nd,next});}
         }
     }
     int goal=-1;float best=inf;std::size_t job=0;
     const float radius=v.stats().global.mason_work_radius;
-    if(risk[static_cast<std::size_t>(start)]==0 && !manual) for(std::size_t b=0;b<v.bld_pos().size();++b) {
+    if(forced || (risk[static_cast<std::size_t>(start)]==0 && !manual)) for(std::size_t b=0;b<v.bld_pos().size();++b) {
         if(!v.bld_alive()[b] || (v.bld_work_left()[b]<=0 && v.bld_upgrade_left()[b]<=0)) continue;
         const auto bp=v.bld_pos()[b];
+        if(forced && bp != forced->target) continue;
         for(int y=std::max(0,int(bp.j)-2);y<std::min(h,int(bp.j)+3);++y) for(int x=std::max(0,int(bp.i)-2);x<std::min(w,int(bp.i)+3);++x) {
             const int c=y*w+x;
             const bool wall=v.bld_type()[b]==rts::BldType::Wall || v.bld_type()[b]==rts::BldType::Gate;
-            if(((!outside_safe || wall) && !bounds.contains(cell(c))) || !open[static_cast<std::size_t>(c)] || risk[static_cast<std::size_t>(c)]>0 || dist2(rts::center_of(cell(c)),rts::center_of(bp))>radius*radius) continue;
+            if((!forced && (((!outside_safe || wall) && !bounds.contains(cell(c))) || risk[static_cast<std::size_t>(c)]>0)) || !open[static_cast<std::size_t>(c)] || dist2(rts::center_of(cell(c)),rts::center_of(bp))>radius*radius) continue;
             if(c==start && dist2(v.unit_pos()[slot],rts::center_of(bp))>radius*radius) continue;
             const float score=cost[static_cast<std::size_t>(c)]+(std::find(claimed.begin(),claimed.end(),b)!=claimed.end()?100.0f:0.0f);
             if(score<best) {best=score;goal=c;job=b;}
         }
     }
     if(goal>=0) claimed.push_back(job);
+    else if(forced) return rts::UnitAction::Stop; // Blocked job: wait, never claim another.
     else for(int c=0;c<n;++c) {
         if(!open[static_cast<std::size_t>(c)] || !bounds.contains(cell(c)) || !std::isfinite(cost[static_cast<std::size_t>(c)])) continue;
         const float score=100000*risk[static_cast<std::size_t>(c)]+cost[static_cast<std::size_t>(c)]+4*dist2(rts::center_of(cell(c)),rts::center_of(manual?*manual:v.keep_pos()));
@@ -231,6 +235,32 @@ void DefenderScript::issue_garrison_order(std::span<const rts::UnitId> ids,
     }
 }
 
+bool DefenderScript::forced_work_active(const rts::WorldView& view, rts::UnitId id) const {
+    if (!view.alive(id) || id.index() >= manual_order_.size() ||
+        view.unit_type()[id.index()] != rts::UnitType::Mason) return false;
+    const auto& order = manual_order_[id.index()];
+    if (!order.active || !order.forced || order.generation != id.generation()) return false;
+    const auto building = view.bld_at(order.target);
+    return building.valid() && building.raw() == order.building &&
+        (order.upgrade ? view.bld_upgrade_left()[building.index()] : view.bld_work_left()[building.index()]) > 0;
+}
+
+bool DefenderScript::issue_forced_work(const rts::WorldView& view,
+                                      std::span<const rts::UnitId> ids, rts::GridPos target) {
+    const auto building = view.bld_at(target);
+    if (!building.valid()) return false;
+    const bool upgrade = view.bld_upgrade_left()[building.index()] > 0;
+    if (!upgrade && view.bld_work_left()[building.index()] <= 0) return false;
+    bool issued = false;
+    for (const auto id : ids) {
+        if (!view.alive(id) || view.unit_type()[id.index()] != rts::UnitType::Mason) continue;
+        if (manual_order_.size() <= id.index()) manual_order_.resize(static_cast<std::size_t>(id.index()) + 1);
+        manual_order_[id.index()] = ManualOrder{true, target, false, id.generation(), true, building.raw(), upgrade};
+        issued = true;
+    }
+    return issued;
+}
+
 rts::UnitAction DefenderScript::decide_unit(const rts::WorldView& view,
                                             rts::UnitId id,
                                             std::uint16_t& wish) {
@@ -242,6 +272,14 @@ rts::UnitAction DefenderScript::decide_unit(const rts::WorldView& view,
 
     if(t==rts::UnitType::Mason) {
         const rts::GridPos* target=nullptr;
+        if (slot < manual_order_.size() && manual_order_[slot].active) {
+            auto& order = manual_order_[slot];
+            if (order.generation != id.generation()) order = ManualOrder{};
+            else if (order.forced) {
+                if (forced_work_active(view, id)) return safe_worker(view, slot, mask, bld_claimed_, nullptr, &order);
+                order = ManualOrder{};
+            }
+        }
         if(slot<manual_order_.size() && manual_order_[slot].active && manual_order_[slot].generation==id.generation()) {
             auto& order=manual_order_[slot];
             if(dist2(me,rts::center_of(order.target))<2.25f) order.active=false;

@@ -83,7 +83,7 @@ std::unique_ptr<DemoBattle> restore_battle(const BattleArchive& a,const RestoreP
     require(a.attempt>0 && a.attempt<1000000,"存档局次无效");
     require(a.choice==ChronicleChoice::None || (a.wave>=70 && (a.choice==ChronicleChoice::Guard || a.choice==ChronicleChoice::Release)),"存档结局无效");
     rts::Tick checked_tick=0;
-    for(const auto& e:a.events) {require(e.tick>=checked_tick && e.tick<=a.tick && e.kind>=0 && e.kind<=2,"存档操作时间无效");checked_tick=e.tick;}
+    for(const auto& e:a.events) {require(e.tick>=checked_tick && e.tick<=a.tick && e.kind>=0 && e.kind<=3,"存档操作时间无效");checked_tick=e.tick;}
     bool snapshot_restored=false;
     if(!a.snapshot.empty()) {
         try {
@@ -116,6 +116,7 @@ std::unique_ptr<DemoBattle> restore_battle(const BattleArchive& a,const RestoreP
         if(event.kind==0) battle->submit_defender(&event.command,1);
         else if(event.kind==1) battle->issue_move_order(event.ids,event.target);
         else if(event.kind==2) battle->issue_garrison_order(event.ids,event.target);
+        else if(event.kind==3) battle->issue_forced_work(event.ids,event.target);
         else throw std::runtime_error("存档操作类型无效");
     }
     advance_to(a.tick);

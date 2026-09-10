@@ -122,9 +122,7 @@ std::vector<DrawItem> BattleScene::sorted(const MapData& map,
         out.push_back(it);
     }
 
-    // 建筑（从仿真读，含血条）。墙的走向本该看相邻墙段（4.2.1.1），
-    // 这里先按地图初始墙况推——拆墙不改剩余墙段的走向读法，缺口两侧
-    // 仍读作「同一条墙断了」，这正是想要的画面。
+    // 建筑（从仿真读，含血条）。墙的走向读取活墙/门，工地也算邻居。
     const auto b_alive = view.bld_alive();
     const auto b_type = view.bld_type();
     const auto b_pos = view.bld_pos();
@@ -143,7 +141,7 @@ std::vector<DrawItem> BattleScene::sorted(const MapData& map,
         it.pos = b_pos[k];
         it.sprite = rts::ident_of(b_type[k]);
         if (b_type[k] == rts::BldType::Wall || b_type[k] == rts::BldType::Gate) {
-            it.facing = SceneModel::run_direction(map, it.pos, SceneModel::RunKind::Wall);
+            it.facing = SceneModel::run_direction(view, it.pos);
         }
         if(b_type[k]==rts::BldType::Tower || b_type[k]==rts::BldType::Flak) {
             const auto& stats=view.stats().of(b_type[k]);
@@ -164,11 +162,9 @@ std::vector<DrawItem> BattleScene::sorted(const MapData& map,
         out.push_back(it);
         // 拐角格补竖板（同 `SceneModel::build` 那条纪律）：城圈四角横竖两条边
         // 相交，`run_direction` 只给横板（NE），竖边缺一格、角在画面上是开的。
-        // 走向看**地图初始墙况**（同上面 run_direction 的那份注释），不是活墙——
-        // 拆墙不改剩余墙段的走向读法。补板不带血条（血条画在主板上，否则两板
-        // 重叠画两条）。
+        // 拐角同样读取活墙，拆除相邻墙后不再留下补板。补板不重复画血条。
         if (b_type[k] == rts::BldType::Wall &&
-            SceneModel::is_wall_corner(map, it.pos)) {
+            SceneModel::is_wall_corner(view, it.pos)) {
             DrawItem corner = it;
             corner.facing = Facing::SE;
             corner.hp_frac = -1.0f;
@@ -219,7 +215,7 @@ std::vector<DrawItem> BattleScene::sorted(const MapData& map,
         // **抬多少不在这里定**——只说踩着哪座建筑，像素归渲染侧（见 `stand_on`）。
         if (u_garrison[k] != rts::kNoSlot && u_mount[k] == 0) {
             it.stand_on = garrison_stand_sprite(view, u_garrison[k]);
-            it.stand_facing=SceneModel::run_direction(map,rts::pos_of_slot(u_garrison[k],view.width()),SceneModel::RunKind::Wall);
+            it.stand_facing=SceneModel::run_direction(view,rts::pos_of_slot(u_garrison[k],view.width()));
         }
         const bool winding = u_windup[k] > 0 && u_tgt[k] != rts::TgtKind::None;
         it.facing = facing_of(u_action[k], u_pos[k], u_aim[k], winding);

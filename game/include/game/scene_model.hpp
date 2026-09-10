@@ -22,6 +22,7 @@
 
 #include "game/map_data.hpp"
 #include "rts/types.hpp"
+#include "rts/world_view.hpp"
 
 namespace game {
 
@@ -173,6 +174,10 @@ public:
     static Facing run_direction(const MapData& map, rts::GridPos p,
                                 RunKind kind) noexcept;
 
+    // 对局墙与门读取活建筑（含工地）；静态地图查看器仍用上面的重载。
+    static Facing run_direction(const rts::WorldView& view, rts::GridPos p,
+                                std::span<const rts::GridPos> planned = {}) noexcept;
+
     // 墙格是否在**拐角**：gi 方向（左右）与 gj 方向（上下）都连着墙/门。
     //
     // 城圈是切比雪夫方环，四个角格各连着一条横边与一条竖边。`run_direction`
@@ -180,6 +185,8 @@ public:
     // 缺一格——四个角在画面上是开的（机制上走不进来，纯视觉缺陷，见
     // `rts_core` 的穿角禁令）。调用方据这个函数给拐角格**补画**第二块板。
     static bool is_wall_corner(const MapData& map, rts::GridPos p) noexcept;
+    static bool is_wall_corner(const rts::WorldView& view, rts::GridPos p,
+                               std::span<const rts::GridPos> planned = {}) noexcept;
 
     // 资源点 → 地表标记的精灵标识符（`StonePt`/`WoodPt`/`GoldPt`）。
     //
