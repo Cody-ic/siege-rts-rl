@@ -7,12 +7,15 @@
 #include <vector>
 namespace render {
 namespace {
+constexpr float kBodySize=18.0f;
+constexpr float kLineHeight=27.0f;
+constexpr float kParagraphGap=10.0f;
 struct Layout { Rectangle panel, close, body; float rail, row; };
 Layout layout(Vector2 vp) {
-    const float w=std::min(1220.0f,vp.x-40), h=std::min(760.0f,vp.y-40);
+    const float w=std::min(1400.0f,vp.x-24), h=vp.y-24;
     const float x=(vp.x-w)/2, y=(vp.y-h)/2;
-    const float rail=std::min(250.0f,w*0.27f);
-    return {{x,y,w,h},{x+w-105,y+20,80,32},{x+rail+30,y+165,w-rail-60,h-255},rail,
+    const float rail=std::clamp(w*0.23f,180.0f,220.0f);
+    return {{x,y,w,h},{x+w-105,y+20,80,32},{x+rail+24,y+132,w-rail-48,h-222},rail,
             std::min(48.0f,(h-140)/11)};
 }
 std::vector<std::string> wrap_plain(const FontSet& font, std::string_view text, float width) {
@@ -24,7 +27,7 @@ std::vector<std::string> wrap_plain(const FontSet& font, std::string_view text, 
         const int codepoint=GetCodepointNext(text.data()+i,&bytes);
         const auto n=static_cast<std::size_t>(std::max(1,bytes));
         const std::string glyph(text.substr(i,n));
-        if(!line.empty() && font.measure(line+glyph,22).x>width) {
+        if(!line.empty() && font.measure(line+glyph,kBodySize).x>width) {
             // 行首禁则：将前一个字和句末标点一起换行，避免单独一行的句号。
             const bool closing=codepoint==0x3002 || codepoint==0xff0c || codepoint==0xff1b ||
                 codepoint==0xff1a || codepoint==0xff1f || codepoint==0xff01 ||
@@ -61,8 +64,8 @@ void draw_emphasis(const FontSet& font,const std::string& text,Vector2 pos) {
     // Synthetic oblique keeps the existing CJK font coverage; a second pass adds weight.
     const float matrix[16]={1,0,0,0, -0.18f,1,0,0, 0,0,1,0, pos.x+4,pos.y,0,1};
     rlPushMatrix();rlMultMatrixf(matrix);
-    font.draw(text,{0,0},22,Color{216,217,203,255});
-    font.draw(text,{0.8f,0},22,Color{216,217,203,255});
+    font.draw(text,{0,0},kBodySize,Color{216,217,203,255});
+    font.draw(text,{0.7f,0},kBodySize,Color{216,217,203,255});
     rlPopMatrix();
 }
 }
@@ -85,6 +88,7 @@ std::vector<std::string_view> ChronicleView::strings() {
     };
     add(game::kChronicleGuard); add(game::kChronicleRelease);
     add(game::kChronicleLeap);add(game::kChronicleSmiler);
+    for(const auto text:game::kAppendixNotices) add(text);
     add("附录一根白羽损失清单一跃菲尼克斯小传微笑者副官陆衡小传尚无附录记录这根羽毛来自反复归来的白鸟。第60波的日记将说明它的来历。尚未获得这份记录。");
     for(const auto& e:game::kChronicle) {out.push_back(e.title);add(e.text);}
     return out;
@@ -157,26 +161,33 @@ void ChronicleView::draw(const FontSet& font,Vector2 vp,int reached_wave) {
     const std::string title=appendix_?(appendix_readable?(appendix_==1?"一跃 / 菲尼克斯小传":"微笑者 / 副官陆衡小传"):
         (appendix_==1 && appendices.white_feather?"一根白羽":"尚未解锁")):
         unlocked?(ending_==1?"继续守护 / 无尽模式":ending_==2?"放下武器 / 伪通关达成":std::string(entry.title)):"尚未解锁";
-    font.draw(title,{l.body.x,l.panel.y+118},28,Color{232,211,168,255});
+    font.draw(title,{l.body.x,l.panel.y+98},26,Color{232,211,168,255});
     std::string body=unlocked?std::string(ending_==1?game::kChronicleGuard:ending_==2?game::kChronicleRelease:entry.text):
         "第 "+std::to_string(entry.wave)+" 波解锁";
     if(appendix_) body=appendix_readable?std::string(appendix_==1?game::kChronicleLeap:game::kChronicleSmiler):
         appendix_==1 && appendices.white_feather?"这根羽毛来自反复归来的白鸟。第 60 波的日记将说明它的来历。":"尚未获得这份记录。";
     const auto lines=wrap(font,body,l.body.width-20);
-    max_scroll_=std::max(0.0f,static_cast<float>(lines.size())*33-l.body.height);
+    std::vector<float> offsets;
+    offsets.reserve(lines.size());
+    float content_height=0;
+    for(const auto& line:lines) {
+        offsets.push_back(content_height);
+        content_height+=line.text.empty()?kParagraphGap:kLineHeight;
+    }
+    max_scroll_=std::max(0.0f,content_height-l.body.height);
     if(preview_emphasis_) {
         for(std::size_t i=0;i<lines.size();++i) if(lines[i].emphasis) {
-            scroll_=std::max(0.0f,static_cast<float>(i)*33-l.body.height*0.4f);break;
+            scroll_=std::max(0.0f,offsets[i]-l.body.height*0.4f);break;
         }
         preview_emphasis_=false;
     }
     scroll_=std::clamp(scroll_,0.0f,max_scroll_);
     BeginScissorMode(static_cast<int>(l.body.x),static_cast<int>(l.body.y),static_cast<int>(l.body.width),static_cast<int>(l.body.height));
     for(std::size_t i=0;i<lines.size();++i) {
-        const Vector2 pos{l.body.x,l.body.y+static_cast<float>(i)*33-scroll_};
-        if(pos.y+33<l.body.y || pos.y>l.body.y+l.body.height) continue;
+        const Vector2 pos{l.body.x,l.body.y+offsets[i]-scroll_};
+        if(pos.y+kLineHeight<l.body.y || pos.y>l.body.y+l.body.height) continue;
         if(lines[i].emphasis) draw_emphasis(font,lines[i].text,pos);
-        else font.draw(lines[i].text,{pos.x,pos.y},22,Color{216,217,203,255});
+        else font.draw(lines[i].text,{pos.x,pos.y},kBodySize,Color{216,217,203,255});
     }
     EndScissorMode();
     if(max_scroll_>0) {

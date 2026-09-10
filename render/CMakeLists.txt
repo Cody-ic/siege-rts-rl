@@ -354,6 +354,13 @@ if(RTS_BUILD_TESTS)
     endforeach()
     add_test(NAME render_appendix_emphasis_requires_appendix COMMAND rts_render --journal-emphasis)
     set_tests_properties(render_appendix_emphasis_requires_appendix PROPERTIES WILL_FAIL TRUE)
+    foreach(_notice RANGE 1 3)
+        add_test(NAME render_appendix_notice_${_notice}
+            COMMAND rts_render --journal-appendix 2 --appendix-notice ${_notice} --size 640 540
+                --screenshot "${CMAKE_CURRENT_BINARY_DIR}/appendix_notice_${_notice}.png")
+    endforeach()
+    add_test(NAME render_appendix_notice_requires_screenshot COMMAND rts_render --appendix-notice 1)
+    set_tests_properties(render_appendix_notice_requires_screenshot PROPERTIES WILL_FAIL TRUE)
     set_tests_properties(render_journal_requires_screenshot PROPERTIES WILL_FAIL TRUE)
     add_test(NAME render_journal_rejects_ninth COMMAND rts_render --journal-page 8 --screenshot never_ninth.png)
     set_tests_properties(render_journal_rejects_ninth PROPERTIES WILL_FAIL TRUE)

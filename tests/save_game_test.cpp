@@ -211,6 +211,11 @@ TEST_CASE("存档 v4 拒绝 v3 并保留独立旧版备份", "[save]") {
 }
 
 TEST_CASE("附录读权、分支选择和开发者隔离", "[save]") {
+    REQUIRE(game::appendix_notice({},{true,false})==game::kAppendixNotices[0]);
+    REQUIRE(game::appendix_notice({true,false},{true,true})==game::kAppendixNotices[1]);
+    REQUIRE(game::appendix_notice({},{true,true})==game::kAppendixNotices[2]);
+    REQUIRE(game::appendix_notice({true,true},{true,true}).empty());
+    REQUIRE(game::appendix_notice({true,true},{}).empty());
     game::JournalProgress progress;
     progress.observe(59,true,game::ChronicleChoice::None,false);
     REQUIRE(progress.appendices.white_feather);

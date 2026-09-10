@@ -522,6 +522,16 @@ struct ChronicleAppendix {
     }
     bool operator==(const ChronicleAppendix&) const = default;
 };
+inline constexpr std::array<std::string_view,3> kAppendixNotices{
+    "触发彩蛋：一根白羽 · 按 J 查看",
+    "触发彩蛋：损失清单 · 按 J 查看",
+    "触发彩蛋：白羽与损失清单 · 按 J 查看"
+};
+constexpr std::string_view appendix_notice(ChronicleAppendix previous,ChronicleAppendix current) noexcept {
+    const bool feather=current.white_feather && !previous.white_feather;
+    const bool loss=current.loss_list && !previous.loss_list;
+    return feather && loss?kAppendixNotices[2]:feather?kAppendixNotices[0]:loss?kAppendixNotices[1]:std::string_view{};
+}
 struct JournalProgress {
     int highest_wave=1;
     ChronicleAppendix appendices;
