@@ -1,5 +1,31 @@
 # 攻方 RL 训练与恢复
 
+## 团队信用对照（单波第一阶段）
+
+`--credit-assignment team --value-features independent` 启用独立团队 critic。
+团队回报跨编队死亡继续，actor 仍只使用当时存活的编队样本；潜势奖励仅在世界终局
+归零，不再给每个编队额外做死亡截断。默认 `individual` 保持原行为。
+
+```sh
+python train/ppo.py --credit-assignment team --value-features independent --run-dir runs/team-credit --device cpu --envs 2 --threads 1 --rollout 16 --total-steps 128 --curriculum 1.0
+```
+
+这是链路检查用的小预算，不是推荐训练规模。团队 critic 聚合现有合法观测的局部通道
+均值/最大值、自身特征、全局特征和存活编队数；它是粗粒度基线，不能完整表示城市。
+没有新增原生隐藏信息，也没有改变 actor 输入、动作或奖励权重。
+critic 按环境步独立更新，包含零 actor 的在途弹丸尾段。指标为 `team_value_loss`、
+`team_value_samples`；`value_loss` 在此模式为 actor 循环的零占位，不能当团队 critic 损失。
+
+本阶段**没有切换到连续城市训练**：超时和整波全灭仍是现有有限单波任务的终局，
+不能把新城重置当作同一城市接续。回报辅助函数区分终止/截断，生产单波适配仍全部
+传任务终止。真正的跨波采样、攻方动作接口及城市 critic 需下一阶段实现。
+
+新 run 保存团队网络和优化器，恢复时缺失/损坏会拒绝该代并尝试上代；旧 run 应使用
+原版本恢复。采用同一份 `--init-weights` 做新目录对照，不能绕过契约恢复校验。
+团队池化 critic 与旧个体 critic 架构也不同，因此与默认模式的差异不是纯信用消融；
+实战收益及各因素贡献尚未验证，不能据此采用模型。完整机制边界见
+[团队信用实施说明](../docs/rl-team-credit.md)。
+
 ## PR #180：战果记账与连续波次验收
 
 冻结单波报告的 `outcomes` 将伤害过程与建筑摧毁分开，另列侦察击杀、工匠击杀、

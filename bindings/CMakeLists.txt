@@ -88,7 +88,7 @@ if(RTS_TEST_TRAINING)
     if(NOT _training_python_ok EQUAL 0)
         message(FATAL_ERROR "RTS_TRAIN_PYTHON must provide torch and numpy")
     endif()
-    foreach(_training_test ppo_smoke rl_runtime rl_suite stable_kl defender_profiles campaign_binding macro_policy macro_train macro_league macro_evaluate macro_imitation macro_compare attacker_campaign_evaluate)
+    foreach(_training_test ppo_smoke rl_runtime rl_suite stable_kl defender_profiles campaign_binding macro_policy macro_train macro_league macro_evaluate macro_imitation macro_compare attacker_campaign_evaluate team_credit)
         add_test(NAME "${_training_test}"
                  COMMAND "${RTS_TRAIN_PYTHON}" "${CMAKE_SOURCE_DIR}/tests/${_training_test}_test.py")
         set_tests_properties("${_training_test}" PROPERTIES
