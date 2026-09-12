@@ -226,6 +226,32 @@ PYBIND11_MODULE(rts_native, m) {
             }
             return result;
         })
+        .def("diagnostic_city",[](const game::TrainingCampaign& c) {
+            const auto v=c.world().view(rts::Side::Defender);
+            py::dict city;
+            city["stone"]=v.stock()[static_cast<std::size_t>(rts::Resource::Stone)];
+            city["wood"]=v.stock()[static_cast<std::size_t>(rts::Resource::Wood)];
+            city["gold"]=v.stock()[static_cast<std::size_t>(rts::Resource::Gold)];
+            city["wave"]=v.wave();
+            city["assault"]=v.phase()==rts::WavePhase::Assault;
+            city["unit_level_cap"]=v.unit_level_cap();
+            city["population"]=v.defender_pop();
+            city["population_cap"]=v.defender_pop_cap();
+            city["keep_level"]=0;
+            city["keep_hp"]=0;
+            city["keep_max_hp"]=0;
+            city["keep_hp_fraction"]=0.0;
+            for(std::size_t i=0;i<v.bld_alive().size();++i) {
+                if(!v.bld_alive()[i] || v.bld_type()[i]!=rts::BldType::Keep) continue;
+                city["keep_level"]=v.bld_level()[i];
+                city["keep_hp"]=v.bld_hp()[i];
+                city["keep_max_hp"]=v.bld_max_hp()[i];
+                city["keep_hp_fraction"]=static_cast<double>(v.bld_hp()[i])/
+                    static_cast<double>(std::max<std::int64_t>(1,v.bld_max_hp()[i]));
+                break;
+            }
+            return city;
+        },"Read-only audit snapshot in native units, separate from normalized policy observations")
         .def("defender_observation",[](const game::TrainingCampaign& c) {
             const auto packed=game::pack_macro_observation(c.world().view(rts::Side::Defender));
             py::array_t<float> cells({game::kMacroGrid,game::kMacroGrid,game::kMacroChannels});

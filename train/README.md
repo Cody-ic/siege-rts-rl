@@ -22,6 +22,11 @@ python train/attacker_campaign_evaluate.py --model runs/export/policy.onnx --map
 到观察上限不算最终败局。保留正常脚本/模型决策频率及模型支持范围外的脚本回退，
 所以它是产品对照，不是只改变权重的严格消融。输出目录不可复用，完整结束才标记 complete。
 
+`report_version=2` 的 `city` 保存实际整数资源、人口、等级和血量，只有
+`keep_hp_fraction` 是比例；旧报告中的同名字段曾直接保存归一化观测，不可混用。
+评估输入冻结在输出目录的 `inputs/`，原文件或副本发生变化会中止并保持
+`complete=false`。报告同时记录副本 SHA256 与原生构建模式，便于复核。
+
 单波伤害、旧单波采用门槛或此处的小样本报告均不能独立证明模型值得部署。
 gamma、修复价格、威胁溢价和团队信用接续仍需各自的受控实验；本次不预设这些机制有错。
 

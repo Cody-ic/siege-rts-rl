@@ -4,7 +4,7 @@ from collections import Counter
 from pathlib import Path
 
 import rts_native as R
-from checkpointing import atomic_json, sha256
+from checkpointing import atomic_json, atomic_write, sha256
 
 
 def evaluate_case(map_path, stats, seed, attacker, max_waves, max_ticks):
@@ -24,7 +24,7 @@ def evaluate_case(map_path, stats, seed, attacker, max_waves, max_ticks):
             waves.append(dict(wave=wave, start_tick=start, end_tick=world.tick,
                 keep_destroyed=defeated, wave_complete=result['wave_advanced'],
                 attacker=dict(attack), defender=dict(defense),
-                city=dict(zip(R.macro_obs.GLOBAL_NAMES, world.defender_observation()[1].tolist())),
+                city=world.diagnostic_city(),
                 state_hash=world.diagnostic_state_hash))
             start = world.tick
             attack.clear()
@@ -49,32 +49,57 @@ def main():
         parser.error('positive limits required')
     if len(set(args.maps)) != len(args.maps) or len(set(args.seeds)) != len(args.seeds):
         parser.error('duplicate maps/seeds are not additional evidence')
-    output = Path(args.output)
+    output = Path(args.output).resolve()
     output.mkdir(parents=True, exist_ok=False)
-    model_hash = sha256(args.model)
-    policy = R.FrozenAttacker(args.model, args.stats)
-    report = dict(complete=False, rows=[], model_sha256=model_hash,
-        simulation=R.SIMULATION_FINGERPRINT, stats_sha256=sha256(args.stats),
-        maps={p:sha256(p) for p in args.maps}, seeds=args.seeds,
+    inputs = []
+
+    def freeze(source, name):
+        target = output / 'inputs' / name
+        payload = Path(source).read_bytes()
+        atomic_write(target, lambda stream: stream.write(payload))
+        item = dict(source=str(Path(source).resolve()), snapshot=str(target), sha256=sha256(target))
+        inputs.append(item)
+        return item
+
+    model = freeze(args.model, 'policy.onnx')
+    stats = freeze(args.stats, 'stats.json')
+    maps = {path:freeze(path, f'map-{i:03d}.json') for i,path in enumerate(args.maps)}
+
+    def verify_inputs():
+        for item in inputs:
+            for path in (item['source'], item['snapshot']):
+                if sha256(path) != item['sha256']:
+                    raise ValueError(f'Evaluation input changed: {path}')
+
+    report = dict(complete=False, rows=[], report_version=2, model_sha256=model['sha256'],
+        simulation=R.SIMULATION_FINGERPRINT, native_build_mode=R.BUILD_MODE,
+        stats_sha256=stats['sha256'], inputs=inputs,
+        maps={p:item['sha256'] for p,item in maps.items()}, seeds=args.seeds,
         max_waves=args.max_waves, max_ticks=args.max_ticks,
         evaluator_sha256=sha256(__file__),
         scope='Product controller comparison: normal cadence, script fallback outside model support',
+        city_units='Resources, population, levels and HP are native integers; keep_hp_fraction is a ratio',
         interpretation='Wave/tick limits are censored, not final attacker losses; damage is not destruction')
     atomic_json(output / 'report.json', report)
+    verify_inputs()
+    policy = R.FrozenAttacker(model['snapshot'], stats['snapshot'])
     for path in args.maps:
         for seed in args.seeds:
             initial_hash = None
             for arm, attacker in (('script', None), ('rl', policy)):
-                row = evaluate_case(path, args.stats, seed, attacker, args.max_waves, args.max_ticks)
+                verify_inputs()
+                row = evaluate_case(maps[path]['snapshot'], stats['snapshot'], seed,
+                                    attacker, args.max_waves, args.max_ticks)
+                verify_inputs()
                 if initial_hash is not None and row['initial_hash'] != initial_hash:
                     raise ValueError('Paired initial city states differ')
                 initial_hash = row['initial_hash']
+                row['map'] = path
                 row['arm'] = arm
                 report['rows'].append(row)
                 atomic_json(output / 'report.json', report)
                 print(path, seed, arm, row['end'], row['final_wave'], flush=True)
-    if sha256(args.model) != model_hash:
-        raise ValueError('Frozen model changed during evaluation')
+    verify_inputs()
     report['complete'] = True
     atomic_json(output / 'report.json', report)
 
