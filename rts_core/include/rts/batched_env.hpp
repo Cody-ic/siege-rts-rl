@@ -210,10 +210,12 @@ public:
     enum class EpisodeEnd : std::uint8_t { Running, KeepDestroyed, Timeout, AttackersEliminated };
     std::span<const EpisodeEnd> episode_ends() const noexcept;
 
-    static constexpr int kTallyFields = 8;
+    static constexpr int kTallyFields = 13;
     static constexpr std::array<std::string_view, kTallyFields> kTallyNames{
         {"dmg_to_units", "dmg_to_blds", "units_killed", "blds_destroyed",
-         "bld_value", "scouts_killed", "losses", "progress"}};
+         "bld_value", "scouts_killed", "losses", "progress",
+         "scout_units_killed", "masons_killed", "phoenix_losses", "enemy_unit_gold",
+         "opponent_repair_wood_spent"}};
 
     // 把第 `i` 局换成一个新局面。终局之后由 `train/` 调。
     //

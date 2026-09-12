@@ -653,6 +653,11 @@ class RuntimeTests(unittest.TestCase):
                 self.assertLessEqual(probe['attack_ignored'],probe['attack_available'])
                 self.assertLessEqual(probe['moves_toward_flow']+probe['moves_against_flow'],probe['moves_with_flow'])
             self.assertEqual(sum(r['episodes'] for r in one['by_spawn']),3)
+            for metric in ('scout_units_killed', 'masons_killed', 'phoenix_losses',
+                           'enemy_unit_gold', 'opponent_repair_wood_spent'):
+                self.assertIn(metric, R.obs.TALLY_NAMES)
+                self.assertEqual(one['outcomes']['mean'][metric],
+                                 sum(row['tally'][metric] for row in one['rows']) / 3)
             self.assertEqual(sum(r['hit_buildings'] for r in one['by_spawn']),
                              sum(r['tally']['dmg_to_blds']>0 for r in one['rows']))
             self.assertEqual(checksum,sha256(checkpoint))

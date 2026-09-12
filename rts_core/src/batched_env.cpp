@@ -486,6 +486,15 @@ void BatchedEnv::take_tally(std::span<float> out) {
         out[o + 6] = static_cast<float>(t.losses);
         // 第 8 列由这一层给（不是 `World::Tally` 的字段），同样读走即清。
         out[o + 7] = static_cast<float>(p_->progress[ui]);
+        out[o + 8] = static_cast<float>(t.scout_units_killed);
+        out[o + 9] = static_cast<float>(t.masons_killed);
+        out[o + 10] = static_cast<float>(t.phoenix_losses);
+        out[o + 11] = static_cast<float>(t.enemy_unit_gold);
+        const auto opponent = p_->side == Side::Attacker ? Side::Defender : Side::Attacker;
+        // Read and clear opponent counters together; otherwise repair spending
+        // would be counted again on each training step.
+        const auto other = p_->worlds[ui]->take_tally(opponent);
+        out[o + 12] = static_cast<float>(other.repair_wood_spent);
         p_->progress[ui] = 0.0;
     }
 }

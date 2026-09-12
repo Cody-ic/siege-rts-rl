@@ -158,6 +158,11 @@ PYBIND11_MODULE(rts_native, m) {
             d["dmg_to_units"]=t.dmg_to_units;d["dmg_to_blds"]=t.dmg_to_blds;
             d["units_killed"]=t.units_killed;d["blds_destroyed"]=t.blds_destroyed;
             d["bld_value"]=t.bld_value;d["scouts_killed"]=t.scouts_killed;d["losses"]=t.losses;
+            d["scout_units_killed"]=t.scout_units_killed;
+            d["masons_killed"]=t.masons_killed;
+            d["phoenix_losses"]=t.phoenix_losses;
+            d["enemy_unit_gold"]=t.enemy_unit_gold;
+            d["repair_wood_spent"]=t.repair_wood_spent;
             return d;
         };
         out["attacker_tally"]=tally(value.attacker);

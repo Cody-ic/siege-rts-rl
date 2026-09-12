@@ -411,6 +411,7 @@ void World::apply_one(const Command& c) {
             std::int64_t ticks = (missing + rate - 1) / rate;
             if (ticks > INT32_MAX) ticks = INT32_MAX;
             stock_[static_cast<std::size_t>(Resource::Wood)] -= wood;
+            tally_[static_cast<std::size_t>(Side::Defender)].repair_wood_spent += wood;
             b_work_[k] = static_cast<std::int32_t>(ticks);
             break;
         }

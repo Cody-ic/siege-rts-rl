@@ -79,6 +79,36 @@ void act(rts::World& w, rts::Side side, std::initializer_list<rts::UnitAction> a
 
 }  // namespace
 
+TEST_CASE("Audit kills distinguish mason scout and phoenix retirement", "[mech][audit]") {
+    for (const auto type : {rts::UnitType::Mason, rts::UnitType::Scout}) {
+        auto init = arena();
+        us(init.stats, type).cost_gold = 40;
+        rts::World w(init);
+        const auto victim = w.spawn_unit(type, {5.5f, 4.5f}, 4, 1, 40);
+        w.spawn_unit(rts::UnitType::Ghoul, {4.5f, 4.5f}, 1, 30, 30);
+        const auto expected = w.train_cost_gold(type, 4);
+        act(w, rts::Side::Attacker, {rts::UnitAction::AtkNear});
+        w.advance(8);
+        REQUIRE_FALSE(w.alive(victim));
+        const auto tally = w.take_tally(rts::Side::Attacker);
+        CHECK(tally.units_killed == 1);
+        CHECK(tally.scouts_killed == 1);
+        CHECK(tally.masons_killed == (type == rts::UnitType::Mason ? 1 : 0));
+        CHECK(tally.scout_units_killed == (type == rts::UnitType::Scout ? 1 : 0));
+        CHECK(tally.enemy_unit_gold == expected);
+        CHECK(w.take_tally(rts::Side::Attacker).enemy_unit_gold == 0);
+    }
+    rts::World w(arena());
+    const auto retired = w.spawn_unit(rts::UnitType::Phoenix, {5.5f, 4.5f}, 1, 24, 24);
+    w.kill_unit(retired); // Runtime retirement removes units without combat damage.
+    CHECK(w.peek_tally(rts::Side::Attacker).phoenix_losses == 0);
+    const auto killed = w.spawn_unit(rts::UnitType::Phoenix, {5.5f, 4.5f}, 1, 1, 24);
+    w.place_bld(rts::BldType::Flak, {4, 4}, 40, 40);
+    w.advance(8);
+    REQUIRE_FALSE(w.alive(killed));
+    CHECK(w.peek_tally(rts::Side::Attacker).phoenix_losses == 1);
+}
+
 // ——决定 ⑫ 的四个子条——
 
 TEST_CASE("apply_permille：一次除法、四舍五入、钳到正", "[mech]") {

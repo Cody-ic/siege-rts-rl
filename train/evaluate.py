@@ -12,6 +12,7 @@ import torch
 import rts_native as R
 from checkpointing import atomic_json, contract, load_training, load_weights, sha256
 from ppo import Cfg, Observer, Policy, make_env, make_worlds, policy_forward, validate
+from outcome_metrics import summarize_outcomes
 from diagnostics import (MOVE_DELTAS, EpisodeDiagnostics, episode_rng,
                          sample_actions, summarize_spawns)
 
@@ -190,6 +191,7 @@ def evaluate(checkpoint, cfg, episodes, frac, policy='frozen_argmax', *, diagnos
             'hit_rate':sum(r['tally']['dmg_to_blds']>0 for r in rows)/episodes,
             'mean_building_damage':float(np.mean([r['tally']['dmg_to_blds'] for r in rows])),
             'mean_building_value':float(np.mean([r['tally']['bld_value'] for r in rows])),
+            'outcomes':summarize_outcomes(rows),
             'seed':cfg.seed, 'frac':frac, 'ticks_per_step':cfg.ticks_per_step,
             'max_ticks':cfg.max_ticks, 'policy':policy, 'device':cfg.device,
             'defender':'scripted' if cfg.defender else 'none',
@@ -200,7 +202,7 @@ def evaluate(checkpoint, cfg, episodes, frac, policy='frozen_argmax', *, diagnos
             'spawns':[list(s) for s in spawns], 'by_spawn':summarize_spawns(rows),
             'diagnostics':diagnostics, 'trace_every':trace_every if diagnostics else None,
             'evaluator_sha256':{name:sha256(Path(__file__).parent/name)
-                                for name in ('evaluate.py','diagnostics.py')},
+                                for name in ('evaluate.py','diagnostics.py','outcome_metrics.py')},
             'contract':contract(R,cfg), 'seconds':time.perf_counter()-started,
             'sha256':{'checkpoint':sha256(checkpoint) if checkpoint else None,
                       'map':sha256(cfg.map_path), 'stats':sha256(cfg.stats_path)},

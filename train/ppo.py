@@ -74,6 +74,11 @@ REWARD_W = {
     "bld_value": 1.0,        # **有原则的推导**：= 重建成本，见上
     "scouts_killed": 3.0,    # 适中常量，见上
     "losses": -0.001,        # 负但小，见上
+    "scout_units_killed": 0.0,  # audit only; calibrate before assigning rewards
+    "masons_killed": 0.0,  # audit only; calibrate before assigning rewards
+    "phoenix_losses": 0.0,  # audit only; calibrate before assigning rewards
+    "enemy_unit_gold": 0.0,  # audit only; calibrate before assigning rewards
+    "opponent_repair_wood_spent": 0.0,  # audit only; calibrate before assigning rewards
     "progress": 0.0,       # 只作位移日志，不把未折扣的距离差当奖励
 }
 

@@ -414,12 +414,16 @@ void World::deal_damage(TgtKind kind, std::uint32_t raw, std::int64_t amount,
             u_hp_[t] -= amount;
             if (u_hp_[t] <= 0) {
                 ++tl.units_killed;
-                // 侦查单位单列：`CLAUDE.md`「RL 侧两条硬要求」第 2 条要求
-                // 击杀 `Scout` 必须给即时奖励——信息否定的收益在 episode 内
-                // 衡量不了，不给的话 AI 永不会学习屏蔽集结区或猎杀斥候。
-                // 判据用 `is_combat()` 的反面而不是列举兵种名：「哪些单位
-                // 不求战」是花名册的性质（同 `attacker_can_fight` 那条先例）。
+                // Preserve legacy noncombat rewards; expose precise Scout/Wraith
+                // and Mason counts separately so audits do not confuse their roles.
                 if (!is_combat(u_type_[t])) ++tl.scouts_killed;
+                if (u_type_[t] == UnitType::Scout || u_type_[t] == UnitType::Wraith)
+                    ++tl.scout_units_killed;
+                if (u_type_[t] == UnitType::Mason) ++tl.masons_killed;
+                if (side_of(u_type_[t]) == Side::Defender)
+                    tl.enemy_unit_gold += train_cost_gold(u_type_[t], u_level_[t]);
+                if (u_type_[t] == UnitType::Phoenix)
+                    ++tally_[static_cast<std::size_t>(side_of(u_type_[t]))].phoenix_losses;
                 // 自身损失记在**被打的那一方**头上，用满血而不是当前血：
                 // 「损失」是这个单位值多少，不是它死时还剩多少。
                 tally_[static_cast<std::size_t>(side_of(u_type_[t]))].losses +=
