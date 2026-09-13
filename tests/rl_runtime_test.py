@@ -27,6 +27,37 @@ from rollout import advantages, RolloutStorage
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_timeout_review_preserves_base_results_and_same_episode(self):
+        cfg = self.cfg(max_ticks=12)
+        base = evaluate(None, cfg, 3, 1., 'flow_breach', diagnostics=True)
+        extended = evaluate(None, cfg, 3, 1., 'flow_breach', diagnostics=True, timeout_review_ticks=18)
+        self.assertEqual(base['wins'], extended['wins'])
+        self.assertEqual(base['timeouts'], extended['timeouts'])
+        self.assertEqual(extended['max_ticks'], 12)
+        for original, reviewed in zip(base['rows'], extended['rows']):
+            detail = reviewed.pop('timeout_review')
+            self.assertEqual(original, reviewed)
+            self.assertEqual(detail['world_seed'], original['world_seed'])
+            self.assertEqual(detail['spawn_index'], original['spawn_index'])
+            self.assertEqual(detail['steps'], 3)
+            self.assertEqual(detail['end'], 'timeout')
+        with self.assertRaises(ValueError):
+            evaluate(None, cfg, 1, 1., 'flow_breach', timeout_review_ticks=6)
+
+    def test_late_keep_victory_does_not_rewrite_original_timeout(self):
+        cfg = ppo.Cfg(device='cpu', threads=1, envs=1, seed=912001, max_ticks=6,
+                      map_path=str(ROOT/'game/data/maps/pool/gen_01009000.json'),
+                      stats_path=str(ROOT/'game/data/stats_placeholder.json'),
+                      levels=(4,), roster='mixed', defender_prepare_ticks=900)
+        result = evaluate(None, cfg, 1, 1., 'flow_breach', timeout_review_ticks=2400)
+        self.assertEqual(result['wins'], 0)
+        self.assertEqual(result['timeouts'], 1)
+        row = result['rows'][0]
+        self.assertEqual(row['end'], 'timeout')
+        self.assertEqual(row['steps'], 1)
+        self.assertEqual(row['timeout_review']['end'], 'keep_destroyed')
+        self.assertGreater(row['timeout_review']['steps'], row['steps'])
+
     def test_prepared_city_reset_and_full_combat_horizon(self):
         cfg=self.cfg(roster='mixed',defender_prepare_ticks=90,max_ticks=12)
         env=ppo.make_env(cfg,1,1.)
@@ -654,7 +685,8 @@ class RuntimeTests(unittest.TestCase):
                 self.assertLessEqual(probe['moves_toward_flow']+probe['moves_against_flow'],probe['moves_with_flow'])
             self.assertEqual(sum(r['episodes'] for r in one['by_spawn']),3)
             for metric in ('scout_units_killed', 'masons_killed', 'phoenix_losses',
-                           'enemy_unit_gold', 'opponent_repair_wood_spent'):
+                           'enemy_unit_gold', 'opponent_repair_wood_spent',
+                           'friendly_unit_damage', 'friendly_units_killed'):
                 self.assertIn(metric, R.obs.TALLY_NAMES)
                 self.assertEqual(one['outcomes']['mean'][metric],
                                  sum(row['tally'][metric] for row in one['rows']) / 3)

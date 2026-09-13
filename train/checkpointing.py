@@ -35,7 +35,7 @@ def contract(native, cfg):
         'simulation_fingerprint': native.SIMULATION_FINGERPRINT,
         'native_build_mode': native.BUILD_MODE,
         'tally_names': list(native.obs.TALLY_NAMES),
-        'learner_version': 8,  # optional team credit and separately checkpointed team critic
+        'learner_version': 9,  # enemy-only rewards; explicit friendly-fire audit columns
         'learner_sha256': {name: sha256(ROOT/'train'/name) for name in
                            ('ppo.py', 'learning.py', 'rollout.py', 'checkpointing.py', 'stable_kl.py', 'team_credit.py')},
     }

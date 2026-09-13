@@ -410,18 +410,24 @@ void World::deal_damage(TgtKind kind, std::uint32_t raw, std::int64_t amount,
             // 机制里各加一笔（那种散落的记账迟早漏一处）。
             // 伤害按**实际扣掉的血**记，不按 `amount`——超杀的那部分不是战果。
             Tally& tl = tally_[static_cast<std::size_t>(dealer_side)];
-            tl.dmg_to_units += amount < u_hp_[t] ? amount : u_hp_[t];
+            const bool enemy = side_of(u_type_[t]) != dealer_side;
+            const auto damage = amount < u_hp_[t] ? amount : u_hp_[t];
+            if (enemy) tl.dmg_to_units += damage;
+            else tl.friendly_unit_damage += damage;
             u_hp_[t] -= amount;
             if (u_hp_[t] <= 0) {
-                ++tl.units_killed;
-                // Preserve legacy noncombat rewards; expose precise Scout/Wraith
-                // and Mason counts separately so audits do not confuse their roles.
-                if (!is_combat(u_type_[t])) ++tl.scouts_killed;
-                if (u_type_[t] == UnitType::Scout || u_type_[t] == UnitType::Wraith)
-                    ++tl.scout_units_killed;
-                if (u_type_[t] == UnitType::Mason) ++tl.masons_killed;
-                if (side_of(u_type_[t]) == Side::Defender)
-                    tl.enemy_unit_gold += train_cost_gold(u_type_[t], u_level_[t]);
+                if (enemy) {
+                    ++tl.units_killed;
+                    // Preserve noncombat categories, but only for enemy victims.
+                    if (!is_combat(u_type_[t])) ++tl.scouts_killed;
+                    if (u_type_[t] == UnitType::Scout || u_type_[t] == UnitType::Wraith)
+                        ++tl.scout_units_killed;
+                    if (u_type_[t] == UnitType::Mason) ++tl.masons_killed;
+                    if (side_of(u_type_[t]) == Side::Defender)
+                        tl.enemy_unit_gold += train_cost_gold(u_type_[t], u_level_[t]);
+                } else {
+                    ++tl.friendly_units_killed;
+                }
                 if (u_type_[t] == UnitType::Phoenix)
                     ++tally_[static_cast<std::size_t>(side_of(u_type_[t]))].phoenix_losses;
                 // 自身损失记在**被打的那一方**头上，用满血而不是当前血：
