@@ -1,5 +1,9 @@
 # 攻方 RL 训练与恢复
 
+## 2026-09-14 候选奖励实际接入
+
+新增 `--reward-profile legacy|attrition-v1` 和 `--reward-config`，默认旧配方保持可复现。新候选按兵种等级交换、建筑升级重建价、实际维修消耗和有效生产能力计价，完整定义、局限和对照计划见 [奖励配方](../docs/rl-reward-profiles.md)。每次训练保存完整配方并纳入恢复契约，旧 run 用原 learner/native 恢复。该实现不代表候选数值已标定。
+
 ## 2026-09-13 复盘修正
 
 learner version 9 将 `dmg_to_units`、`units_killed` 及侦察/工匠击杀限制为敌军。

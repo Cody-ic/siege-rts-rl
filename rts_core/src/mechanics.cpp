@@ -418,6 +418,7 @@ void World::deal_damage(TgtKind kind, std::uint32_t raw, std::int64_t amount,
             if (u_hp_[t] <= 0) {
                 if (enemy) {
                     ++tl.units_killed;
+                    tl.enemy_unit_levels[static_cast<std::size_t>(u_type_[t])] += u_level_[t];
                     // Preserve noncombat categories, but only for enemy victims.
                     if (!is_combat(u_type_[t])) ++tl.scouts_killed;
                     if (u_type_[t] == UnitType::Scout || u_type_[t] == UnitType::Wraith)
@@ -434,6 +435,7 @@ void World::deal_damage(TgtKind kind, std::uint32_t raw, std::int64_t amount,
                 // 「损失」是这个单位值多少，不是它死时还剩多少。
                 tally_[static_cast<std::size_t>(side_of(u_type_[t]))].losses +=
                     u_max_hp_[t];
+                tally_[static_cast<std::size_t>(side_of(u_type_[t]))].own_unit_levels[static_cast<std::size_t>(u_type_[t])] += u_level_[t];
                 kill_unit(id);
             }
             break;
@@ -451,6 +453,29 @@ void World::deal_damage(TgtKind kind, std::uint32_t raw, std::int64_t amount,
                 // 手工试凑，且经济建筑与防御建筑共用同一公式」。
                 const BldStats& bs = stats_.of(b_type_[t]);
                 tl.bld_value += bs.cost_stone + bs.cost_wood;
+                // Keep is paid once by the terminal reward. An unfinished site
+                // has its base investment, but no completed upgrade or income.
+                if (b_type_[t] != BldType::Keep) {
+                    tl.destroyed_stone += bs.cost_stone;
+                    tl.destroyed_wood += bs.cost_wood;
+                    if (b_built_[t]) {
+                        for (int level = 1; level < b_level_[t]; ++level) {
+                            tl.destroyed_stone += bld_upgrade_cost_stone(b_type_[t], level);
+                            tl.destroyed_wood += bld_upgrade_cost_wood(b_type_[t], level);
+                        }
+                        if (is_gatherer(b_type_[t]) && stats_.global.income_period_ticks > 0) {
+                            for (const auto& site : resources_) {
+                                if (site.pos != b_pos_[t] || site.kind != resource_of(b_type_[t]) || wave_ < site.unlock_wave) continue;
+                                const auto pm = site.tier == ResourceTier::Outer ? tier_income_permille_.outer : tier_income_permille_.inner;
+                                const auto lost_income = (bs.income_amount * pm + kPermilleOne / 2) / kPermilleOne;
+                                if (site.kind == Resource::Stone) tl.destroyed_income_stone += lost_income;
+                                else if (site.kind == Resource::Wood) tl.destroyed_income_wood += lost_income;
+                                else tl.destroyed_income_gold += lost_income;
+                                break;
+                            }
+                        }
+                    }
+                }
                 destroy_bld(id);
             }
             break;

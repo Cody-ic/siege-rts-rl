@@ -24,6 +24,7 @@ def sha256(path):
 
 
 def contract(native, cfg):
+    from reward_profiles import recipe
     # Compiled-in source identity catches stale bindings and allows equivalent rebuilds.
     return {
         'obs_version': native.obs.VERSION,
@@ -35,9 +36,10 @@ def contract(native, cfg):
         'simulation_fingerprint': native.SIMULATION_FINGERPRINT,
         'native_build_mode': native.BUILD_MODE,
         'tally_names': list(native.obs.TALLY_NAMES),
-        'learner_version': 9,  # enemy-only rewards; explicit friendly-fire audit columns
+        'reward_recipe': recipe(cfg.reward_profile,cfg.reward_config),
+        'learner_version': 10,  # versioned reward recipe and typed economic tallies
         'learner_sha256': {name: sha256(ROOT/'train'/name) for name in
-                           ('ppo.py', 'learning.py', 'rollout.py', 'checkpointing.py', 'stable_kl.py', 'team_credit.py')},
+                           ('ppo.py', 'learning.py', 'rollout.py', 'checkpointing.py', 'stable_kl.py', 'team_credit.py', 'reward_profiles.py')},
     }
 
 

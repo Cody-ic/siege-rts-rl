@@ -81,6 +81,21 @@ class RuntimeTests(unittest.TestCase):
     def setUp(self):
         torch.set_num_threads(1)
 
+    def test_reward_profile_training_and_resume_contract(self):
+        from reward_profiles import recipe
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); config=root/'reward.json'; config.write_text('{"unit_scale":0.1}')
+            run=root/'run'
+            self.run_train(run,['--reward-profile','attrition-v1','--reward-config',str(config),
+                                '--credit-assignment','team','--value-features','independent'])
+            saved=load_training(run/'latest.pt')
+            self.assertEqual(saved['contract']['reward_recipe'],recipe('attrition-v1',str(config)))
+            self.assertEqual(json.loads((run/'reward-recipe.json').read_text())['weights']['own_Phoenix_levels'],-20)
+            self.run_train(run,['--resume','auto','--total-steps','18'])
+            config.write_text('{"unit_scale":0.2}')
+            with self.assertRaisesRegex(ValueError,'contract differs'):
+                self.run_train(run,['--resume','auto','--total-steps','24'])
+
     def cfg(self, **kw):
         return ppo.Cfg(envs=2, threads=1, rollout=3, epochs=1, minibatches=2,
                        total_steps=12, device='cpu',

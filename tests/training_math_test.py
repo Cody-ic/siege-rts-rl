@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'train'))
 from learning import CompletionWindow, potential_reward, task_reward
+from reward_profiles import LEGACY_WEIGHTS, weights_for
 
 
 class RewardTests(unittest.TestCase):
@@ -99,10 +100,11 @@ class PreparationTests(unittest.TestCase):
                  and n.name in ('Cfg', 'validate', 'make_env')]
         calls = []
         native = SimpleNamespace(Side=SimpleNamespace(Attacker=0),
+                                 obs=SimpleNamespace(TALLY_NAMES=tuple(LEGACY_WEIGHTS)),
                                  BatchedEnv=lambda *a, **kw: calls.append(kw))
         namespace = {'dataclass': dataclass, 'np': SimpleNamespace(isfinite=math.isfinite),
                      'torch': SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: False)),
-                     'task_reward': task_reward, 'R': native,
+                     'task_reward': task_reward, 'R': native, 'weights_for': weights_for,
                      'make_worlds': lambda cfg, n, *args: [None]*n}
         exec(compile(ast.Module(body=nodes, type_ignores=[]), str(source), 'exec'), namespace)
         cfg = namespace['Cfg']()

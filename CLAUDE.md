@@ -1,5 +1,9 @@
 # CLAUDE.md
 
+## 2026-09-14 RL 奖励候选
+
+新增可选 attrition-v1，不修改默认 legacy。规则、候选价值表及未解决范围见 docs/rl-reward-profiles.md。该文覆盖候选配方与旧奖励说明的差异；数值等待公平对照，不作为游戏平衡定案。
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## 2026-09-08 试玩反馈定版（优先于下文旧配平推导）

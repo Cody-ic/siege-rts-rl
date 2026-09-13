@@ -726,6 +726,14 @@ public:
         std::int64_t repair_wood_spent = 0;
         std::int64_t friendly_unit_damage = 0;
         std::int64_t friendly_units_killed = 0;
+        // Raw level sums by victim type. Pricing belongs to the learner.
+        std::array<std::int64_t, kUnitTypeCount> enemy_unit_levels{};
+        std::array<std::int64_t, kUnitTypeCount> own_unit_levels{};
+        std::int64_t destroyed_stone = 0;
+        std::int64_t destroyed_wood = 0;
+        std::int64_t destroyed_income_stone = 0;
+        std::int64_t destroyed_income_wood = 0;
+        std::int64_t destroyed_income_gold = 0;
 
     };
 

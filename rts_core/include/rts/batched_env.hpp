@@ -210,12 +210,13 @@ public:
     enum class EpisodeEnd : std::uint8_t { Running, KeepDestroyed, Timeout, AttackersEliminated };
     std::span<const EpisodeEnd> episode_ends() const noexcept;
 
-    static constexpr int kTallyFields = 15;
+    static constexpr int kTallyFields = 42;
     static constexpr std::array<std::string_view, kTallyFields> kTallyNames{
         {"dmg_to_units", "dmg_to_blds", "units_killed", "blds_destroyed",
          "bld_value", "scouts_killed", "losses", "progress",
          "scout_units_killed", "masons_killed", "phoenix_losses", "enemy_unit_gold",
-         "opponent_repair_wood_spent", "friendly_unit_damage", "friendly_units_killed"}};
+         "opponent_repair_wood_spent", "friendly_unit_damage", "friendly_units_killed",
+         "enemy_Archer_levels", "enemy_Spear_levels", "enemy_Ranger_levels", "enemy_Scout_levels", "enemy_Mason_levels", "enemy_Ghoul_levels", "enemy_Shade_levels", "enemy_Knight_levels", "enemy_Phoenix_levels", "enemy_Wraith_levels", "enemy_Ram_levels", "own_Archer_levels", "own_Spear_levels", "own_Ranger_levels", "own_Scout_levels", "own_Mason_levels", "own_Ghoul_levels", "own_Shade_levels", "own_Knight_levels", "own_Phoenix_levels", "own_Wraith_levels", "own_Ram_levels", "destroyed_stone", "destroyed_wood", "destroyed_income_stone", "destroyed_income_wood", "destroyed_income_gold"}};
 
     // 把第 `i` 局换成一个新局面。终局之后由 `train/` 调。
     //

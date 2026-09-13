@@ -211,6 +211,8 @@ endif()
 if(Python3_FOUND)
     add_test(NAME outcome_metrics
              COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/outcome_metrics_test.py")
+    add_test(NAME reward_profiles
+             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/reward_profiles_test.py")
     add_test(NAME training_math
              COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/training_math_test.py")
     add_test(NAME compare_goal_evaluations
