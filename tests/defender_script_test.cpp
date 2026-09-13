@@ -148,6 +148,24 @@ TEST_CASE("Forced work reaches danger and expires with its job or identity", "[s
     }
 }
 
+TEST_CASE("Worker builds outside during assault when route and site are safe", "[script]") {
+    auto init=sarena(24,13);
+    rts::World w(init);
+    // A city ring with an east gate, and a job well outside the ring.
+    for(int x=2;x<=8;++x) for(int y=2;y<=10;++y) {
+        if(x!=2 && x!=8 && y!=2 && y!=10) continue;
+        w.place_bld(x==8 && y==6?rts::BldType::Gate:rts::BldType::Wall,
+                    {static_cast<std::int16_t>(x),static_cast<std::int16_t>(y)},40,40);
+    }
+    const auto worker=w.spawn_unit(rts::UnitType::Mason,{5.5f,6.5f},1,12,12);
+    const auto job=w.place_bld(rts::BldType::Tower,{14,6},100,100,300);
+    w.begin_assault();
+    game::DefenderScript script({},7);
+    run(w,script,160);
+    CHECK(w.unit_pos(worker).x>8.5f);
+    CHECK(w.view(rts::Side::Defender).bld_work_left()[job.index()]<300);
+}
+
 // ——克制表三条：每条一手一个对照——
 
 TEST_CASE("弓手拉扯：追兵永远够不着，反被一路放风筝打死", "[script]") {
