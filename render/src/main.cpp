@@ -1177,6 +1177,13 @@ int run_game(const Options& opt) {
     std::string notice;
     double notice_until = 0.0;
     bool inspected_busy = false;
+    std::optional<Vector2> inspected_click;
+    const auto inspector_box = [&](Vector2 viewport) {
+        Rectangle box{14, viewport.y-210, std::min(700.0f,viewport.x-28), 120};
+        // A newly opened inspector must not cover the point used to cycle buildings.
+        if (inspected_click && CheckCollisionPointRec(*inspected_click,box)) box.y=174;
+        return box;
+    };
     // 侦查警报的跨帧状态（`draw_alert_banner`）：斥候回报/阵亡两条闪抓的是
     // **二元判定的边沿**（#139：`DemoBattle::scout_outcome()` 三态，逐波重置
     // 为 `None`——重新武装由此是现成的，不需要再记「上一帧看见没有」）。
@@ -1643,9 +1650,9 @@ int run_game(const Options& opt) {
             if(inspected) {
                 for(std::size_t k=0;k<info.bld_pos().size();++k) {
                     if(!info.bld_alive()[k] || info.bld_pos()[k]!=*inspected) continue;
-                    const float y=screen_h-210;
-                    const float width=std::min(700.0f,screen_w-28);
-                    DrawRectangleRec(Rectangle{14,y,width,120},Color{23,28,30,238});
+                    const auto box=inspector_box({screen_w,screen_h});
+                    const float y=box.y;
+                    DrawRectangleRec(box,Color{23,28,30,238});
                     std::snprintf(hint,sizeof(hint),"%s   Lv%d   %lld / %lld",
                         std::string(game::display_name(info.bld_type()[k])).c_str(),info.bld_level()[k],
                         static_cast<long long>(info.bld_hp()[k]),static_cast<long long>(info.bld_max_hp()[k]));
@@ -1835,6 +1842,7 @@ int run_game(const Options& opt) {
             dragging = false;
             dragged_garrison.reset();
             inspected.reset();
+            inspected_click.reset();
             building_cycle.reset();
             order_target.reset();
             notice.clear();
@@ -1962,8 +1970,7 @@ int run_game(const Options& opt) {
             for (std::size_t k=0; inspected && k<input_view.bld_pos().size(); ++k)
                 if (input_view.bld_alive()[k] && input_view.bld_pos()[k]==*inspected)
                     has_inspector = true;
-            const bool on_inspector=has_inspector && mouse.x>=14 && mouse.x<=714 &&
-                                     mouse.y>=vp.y-210 && mouse.y<vp.y-90;
+            const bool on_inspector=has_inspector && CheckCollisionPointRec(mouse,inspector_box(vp));
             const auto show_full_map = [&] {
                 cam.fit(proj, map.width(), map.height(), Vector2{vp.x, std::max(1.0f,vp.y-152.0f)});
                 cam.set_viewport(vp);
@@ -2161,6 +2168,7 @@ int run_game(const Options& opt) {
                         mouse.x+260.0f<vp.x?mouse.x+20.0f:std::max(0.0f,mouse.x-260.0f),
                         std::clamp(mouse.y,154.0f,std::max(154.0f,vp.y-430.0f))};
                     inspected = cell;
+                    inspected_click = mouse;
                     inspected_busy=false;
                     // 点（没拖开）：这一格能不能弹出菜单。**练兵优先于维修**——
                     // 能练兵的格子（完工的兵营/堡垒、没在练）一律走 Train 弹窗，
