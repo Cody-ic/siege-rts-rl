@@ -505,3 +505,44 @@ TEST_CASE("弹丸精灵按阵营分档的前提：每侧恰好一个兵种会放
     REQUIRE(std::find(launchers.begin(), launchers.end(), rts::UnitType::Shade)
             != launchers.end());
 }
+
+TEST_CASE("Fences orient live and planned runs and update after demolition", "[scene][fence]") {
+    const auto map = fixture();
+    rts::WorldInit init;
+    init.width = map.width();
+    init.height = map.height();
+    init.terrain.assign(static_cast<std::size_t>(init.width * init.height), rts::Terrain::Plain);
+    init.keep = at(0, 0);
+    init.buildings.push_back({rts::BldType::Keep, init.keep, 100, 100});
+    rts::World world(init);
+    world.place_bld(rts::BldType::Fence, at(2, 2), 100, 100);
+    const auto boards = [&]() {
+        auto items = game::BattleScene::sorted(map, world.view(rts::Side::Defender), world.now());
+        std::erase_if(items, [](const auto& item) { return item.pos != at(2, 2) || item.sprite != "Fence"; });
+        return items;
+    };
+    REQUIRE(boards().size() == 1);
+    REQUIRE(boards()[0].facing == game::Facing::SE);
+    world.place_bld(rts::BldType::Tower, at(1, 2), 100, 100);
+    REQUIRE(boards()[0].facing == game::Facing::SE);
+    const auto east = world.place_bld(rts::BldType::Fence, at(3, 2), 10, 100, 20);
+    REQUIRE(boards()[0].facing == game::Facing::NE);
+    world.place_bld(rts::BldType::Fence, at(2, 3), 100, 100);
+    REQUIRE(boards().size() == 2);
+    REQUIRE(boards()[1].facing == game::Facing::SE);
+    REQUIRE(boards()[1].hp_frac < 0.0f);
+    world.destroy_bld(east);
+    REQUIRE(boards().size() == 1);
+    REQUIRE(boards()[0].facing == game::Facing::SE);
+
+    const auto before = world.state_hash();
+    const auto view = world.view(rts::Side::Defender);
+    const std::vector<rts::GridPos> planned{at(3, 2), at(4, 2)};
+    REQUIRE(game::SceneModel::run_direction(view, at(3, 2), planned, rts::BldType::Fence) == game::Facing::NE);
+    REQUIRE(game::SceneModel::run_direction(view, at(3, 2), {}, rts::BldType::Fence) == game::Facing::NE);
+    REQUIRE(game::SceneModel::run_direction(view, at(3, 2)) == game::Facing::SE);
+    REQUIRE_FALSE(view.bld_at(at(3, 2)).valid());
+    REQUIRE(world.state_hash() == before);
+    world.place_bld(rts::BldType::Gate, at(3, 2), 100, 100);
+    REQUIRE(boards()[0].facing == game::Facing::NE);
+}

@@ -26,6 +26,12 @@ int main(int argc, char** argv) {
     }
     world.place_bld(rts::BldType::Wall, {13, 7}, 100, 100);
     world.place_bld(rts::BldType::Wall, {13, 8}, 100, 100);
+    for (int x = 8; x <= 11; ++x) {
+        world.place_bld(rts::BldType::Fence,
+                        {static_cast<std::int16_t>(x), 9}, 100, 100);
+    }
+    world.place_bld(rts::BldType::Fence, {11, 10}, 100, 100);
+    world.place_bld(rts::BldType::Fence, {11, 11}, 100, 100);
     const auto before = world.state_hash();
     const auto items = game::BattleScene::sorted(map, world.view(rts::Side::Defender), world.now());
     for (const auto& item : items) {

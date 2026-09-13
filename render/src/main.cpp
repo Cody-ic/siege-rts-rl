@@ -1551,14 +1551,15 @@ int run_game(const Options& opt) {
             for (const auto& item : placement_preview) {
                 const Color tint=!item.legal ? Color{240,85,85,135} : item.affordable ? Color{110,235,160,150} : Color{145,145,145,115};
                 auto facing=game::Facing::SE;
-                if(type==rts::BldType::Wall || type==rts::BldType::Gate) {
-                    facing=game::SceneModel::run_direction(view,item.cell,planned);
+                if(type==rts::BldType::Wall || type==rts::BldType::Gate || type==rts::BldType::Fence) {
+                    facing=game::SceneModel::run_direction(view,item.cell,planned,type);
                 }
                 const auto& sprite=atlas.get(rts::ident_of(type),"idle",game::to_string(facing));
                 const auto anchor=proj.grid_to_screen(item.cell);
                 DrawTextureV(sprite.texture,{anchor.x-sprite.ground_anchor.x,anchor.y-sprite.ground_anchor.y},tint);
-                if(type==rts::BldType::Wall && game::SceneModel::is_wall_corner(view,item.cell,planned)) {
-                    const auto& corner=atlas.get("Wall","idle","SE");
+                if((type==rts::BldType::Wall || type==rts::BldType::Fence) &&
+                    game::SceneModel::is_wall_corner(view,item.cell,planned,type)) {
+                    const auto& corner=atlas.get(rts::ident_of(type),"idle","SE");
                     DrawTextureV(corner.texture,{anchor.x-corner.ground_anchor.x,anchor.y-corner.ground_anchor.y},tint);
                 }
                 overlay.draw_cell_outline(item.cell,tint,2.0f/cam.camera().zoom);

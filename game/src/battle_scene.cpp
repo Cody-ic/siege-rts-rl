@@ -140,8 +140,9 @@ std::vector<DrawItem> BattleScene::sorted(const MapData& map,
         DrawItem it;
         it.pos = b_pos[k];
         it.sprite = rts::ident_of(b_type[k]);
-        if (b_type[k] == rts::BldType::Wall || b_type[k] == rts::BldType::Gate) {
-            it.facing = SceneModel::run_direction(view, it.pos);
+        if (b_type[k] == rts::BldType::Wall || b_type[k] == rts::BldType::Gate ||
+            b_type[k] == rts::BldType::Fence) {
+            it.facing = SceneModel::run_direction(view, it.pos, {}, b_type[k]);
         }
         if(b_type[k]==rts::BldType::Tower || b_type[k]==rts::BldType::Flak) {
             const auto& stats=view.stats().of(b_type[k]);
@@ -163,8 +164,8 @@ std::vector<DrawItem> BattleScene::sorted(const MapData& map,
         // 拐角格补竖板（同 `SceneModel::build` 那条纪律）：城圈四角横竖两条边
         // 相交，`run_direction` 只给横板（NE），竖边缺一格、角在画面上是开的。
         // 拐角同样读取活墙，拆除相邻墙后不再留下补板。补板不重复画血条。
-        if (b_type[k] == rts::BldType::Wall &&
-            SceneModel::is_wall_corner(view, it.pos)) {
+        if ((b_type[k] == rts::BldType::Wall || b_type[k] == rts::BldType::Fence) &&
+            SceneModel::is_wall_corner(view, it.pos, {}, b_type[k])) {
             DrawItem corner = it;
             corner.facing = Facing::SE;
             corner.hp_frac = -1.0f;
