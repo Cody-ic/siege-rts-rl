@@ -16,7 +16,7 @@
 
 namespace render {
 inline constexpr std::array<std::string_view,4> developer_strings={
-    "开发者模式", "资源无限 · 人口无限 · 本局不保存、不解锁剧情",
+    "开发者模式", "资源无限 · 人口无限 · 全剧情预览 · 本局不保存",
     "下一波：", "输入波数（1–9999），回车应用；Esc 关闭面板"};
 // Restrained procedural materials: no external asset or shader dependency.
 inline void archive_backdrop(Vector2 vp) {
@@ -70,7 +70,7 @@ inline void draw_developer(const FontSet& font,const std::string& wave) {
     const Rectangle input{x,panel.y+213,512,70};
     DrawRectangleRec(input,Color{13,22,25,255});DrawRectangleLinesEx(input,1,Color{205,169,104,255});
     font.draw(wave.empty()?"1–9999":wave,{x+20,input.y+17},34,wave.empty()?Color{116,130,125,255}:gold);
-    font.draw("不保存对局，不触发剧情",{x,panel.y+295},18,Color{149,164,157,255});
+    font.draw("全剧情预览 · 本局不保存",{x,panel.y+295},18,Color{149,164,157,255});
     const auto button=developer_apply_button(vp);const bool hover=CheckCollisionPointRec(GetMousePosition(),button);
     DrawRectangleRec(button,hover?Color{139,76,55,255}:Color{112,55,42,255});DrawRectangleLinesEx(button,1,Color{195,155,95,255});
     font.draw("应用波数  ENTER",{button.x+22,button.y+15},21,gold);

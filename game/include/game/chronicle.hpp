@@ -503,7 +503,7 @@ constexpr std::size_t chronicle_unlocked(int wave) noexcept {
     for (const auto& e : kChronicle) if (wave >= e.wave) ++count;
     return count;
 }
-// Per-run narrative presentation is independent of permanently unlocked pages.
+// Narrative pages and milestone presentation belong to the current campaign.
 constexpr int chronicle_to_present(int previous_wave,int current_wave,bool developer) noexcept {
     return !developer && chronicle_unlocked(current_wave)>chronicle_unlocked(previous_wave)
         ? static_cast<int>(chronicle_unlocked(current_wave))-1 : -1;
