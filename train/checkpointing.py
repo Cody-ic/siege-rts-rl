@@ -35,9 +35,9 @@ def contract(native, cfg):
         'simulation_fingerprint': native.SIMULATION_FINGERPRINT,
         'native_build_mode': native.BUILD_MODE,
         'tally_names': list(native.obs.TALLY_NAMES),
-        'learner_version': 7,  # expanded audit tally layout; old runs require their frozen binding
+        'learner_version': 8,  # optional team credit and separately checkpointed team critic
         'learner_sha256': {name: sha256(ROOT/'train'/name) for name in
-                           ('ppo.py', 'learning.py', 'rollout.py', 'checkpointing.py', 'stable_kl.py')},
+                           ('ppo.py', 'learning.py', 'rollout.py', 'checkpointing.py', 'stable_kl.py', 'team_credit.py')},
     }
 
 
@@ -119,7 +119,13 @@ def load_training(path):
     required = {'format', 'model', 'optimizer', 'config', 'contract', 'progress', 'rng', 'status', 'initialization'}
     if not isinstance(data, dict) or not required.issubset(data) or data['format'] != FORMAT:
         raise ValueError('Not a resumable checkpoint. For old policy-only files use --init-weights PATH.')
-    if data['config'].get('value_features')=='independent':
+    if data['config'].get('credit_assignment') == 'team':
+        if not isinstance(data.get('team_model'), dict) or not isinstance(data.get('team_optimizer'), dict):
+            raise ValueError('Missing team value checkpoint state')
+        if not data['team_model'] or any(not isinstance(v, torch.Tensor) or not torch.isfinite(v).all()
+                                          for v in data['team_model'].values()):
+            raise ValueError('Invalid team value weights')
+    elif data['config'].get('value_features')=='independent':
         if not isinstance(data.get('value_model'),dict) or not isinstance(data.get('value_optimizer'),dict):
             raise ValueError('Missing independent value checkpoint state')
         if not data['value_model'] or any(not isinstance(v,torch.Tensor) or not torch.isfinite(v).all()

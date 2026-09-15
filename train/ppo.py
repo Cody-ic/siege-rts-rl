@@ -108,6 +108,7 @@ class Cfg:
     ent_coef: float = 0.01
     vf_coef: float = 0.5
     value_features: str = "shared"  # independent also separates value features, Adam and clipping
+    credit_assignment: str = "individual"  # team keeps credit across squad death, not world termination
     reference_coef: float = 0.0     # optional KL(reference || policy), explicit warm starts only
     max_grad_norm: float = 0.5
     seed: int = 1
@@ -305,6 +306,10 @@ def validate(cfg):
         raise ValueError('levels must be integers in [1,1000]')
     if len(set(cfg.levels))!=len(cfg.levels) or len(set(cfg.map_pool))!=len(cfg.map_pool):
         raise ValueError('Duplicate map/level entries bias the sampling distribution')
+    if cfg.credit_assignment not in ('individual', 'team'):
+        raise ValueError('credit_assignment must be individual or team')
+    if cfg.credit_assignment == 'team' and cfg.value_features != 'independent':
+        raise ValueError('team credit requires --value-features independent')
     if cfg.value_features not in ('shared','detached','independent'):
         raise ValueError('value_features must be shared, detached or independent')
     if not np.isfinite(cfg.reference_coef) or cfg.reference_coef < 0:
@@ -382,6 +387,7 @@ def policy_forward(net, observation, device, value_net=None):
 
 
 def train(cfg, args, saved, *, gradient_observer=None):
+    import team_credit
     import random
     import signal
     from checkpointing import FORMAT, atomic_json, contract, load_weights, repair_metrics, restore_rng, rng_state, save_run, sha256
@@ -453,7 +459,7 @@ def train(cfg, args, saved, *, gradient_observer=None):
               'Old rewards and win rates are not carried into this run.', flush=True)
 
     value_net=value_opt=None
-    if cfg.value_features=='independent':
+    if cfg.value_features=='independent' and cfg.credit_assignment != 'team':
         value_net=IndependentValue(net).to(dev)
         value_opt=torch.optim.Adam(value_net.parameters(),lr=cfg.lr,eps=1e-5)
         net.critic.requires_grad_(False)
@@ -462,6 +468,15 @@ def train(cfg, args, saved, *, gradient_observer=None):
                 raise ValueError('Missing independent value checkpoint state')
             value_net.load_state_dict(saved['value_model'])
             value_opt.load_state_dict(saved['value_optimizer'])
+
+    team_net = team_opt = None
+    if cfg.credit_assignment == 'team':
+        team_net = team_credit.TeamValue(R.obs.CHANNEL_COUNT, R.obs.SELF_COUNT, R.obs.GLOBAL_COUNT).to(dev)
+        team_opt = torch.optim.Adam(team_net.parameters(), lr=cfg.lr, eps=1e-5)
+        net.critic.requires_grad_(False)
+        if saved:
+            team_net.load_state_dict(saved['team_model'])
+            team_opt.load_state_dict(saved['team_optimizer'])
 
     reference = None
     if cfg.reference_coef:
@@ -508,6 +523,9 @@ def train(cfg, args, saved, *, gradient_observer=None):
     buf_r = torch.zeros((T, cfg.envs), device=dev)
     buf_d = torch.zeros((T, cfg.envs), device=dev)
     buf_next_potential = torch.zeros((T, cfg.envs), device=dev)
+    if team_net is not None:
+        team_inputs = torch.zeros((T, cfg.envs, team_net.size), device=dev)
+        team_values = torch.zeros((T, cfg.envs), device=dev)
     keys = np.zeros((T + 1, cfg.envs, mu), np.int64)
     actions = np.zeros((cfg.envs, mu), np.uint8)
     done = np.zeros(cfg.envs, np.uint8)
@@ -549,6 +567,8 @@ def train(cfg, args, saved, *, gradient_observer=None):
                               model=net.state_dict(), optimizer=opt.state_dict(),
                               value_model=value_net.state_dict() if value_net is not None else None,
                               value_optimizer=value_opt.state_dict() if value_opt is not None else None,
+                              team_model=team_net.state_dict() if team_net is not None else None,
+                              team_optimizer=team_opt.state_dict() if team_opt is not None else None,
                               reference_model=reference.state_dict() if reference is not None else None,
                               progress=progress(), rng=rng_state(), status=status))
 
@@ -575,6 +595,9 @@ def train(cfg, args, saved, *, gradient_observer=None):
                 keys[t] = obs.keys
                 storage.store(t, *observation)
                 with torch.no_grad():
+                    if team_net is not None:
+                        team_inputs[t] = torch.from_numpy(team_credit.features(obs)).to(dev)
+                        team_values[t] = team_net(team_inputs[t])
                     dist, value = policy_forward(net, observation, dev,value_net)
                     actions.fill(0)
                     if dist is not None:
@@ -640,13 +663,25 @@ def train(cfg, args, saved, *, gradient_observer=None):
                 _, value = policy_forward(net, end_obs, dev,value_net)
                 next_v = torch.zeros(n, device=dev)
                 next_v[end_obs[0]] = value
+                if team_net is not None:
+                    next_team_value = team_net(torch.from_numpy(team_credit.features(obs)).to(dev))
             if torch.device(dev).type == 'cuda':
                 torch.cuda.synchronize()
             sample_seconds = time.perf_counter() - sample_start
             update_start = time.perf_counter()
-            adv = advantages(buf_v[:horizon], buf_r[:horizon], buf_d[:horizon],
-                             keys[:horizon+1], next_v, cfg.gamma, cfg.gae_lambda,
-                             buf_next_potential[:horizon])
+            if team_net is not None:
+                # This remains the finite single-wave task: timeout/elimination
+                # are world terminations. Do not pretend a fresh city continues it.
+                successor_values = torch.cat((team_values[1:horizon], next_team_value[None]), dim=0)
+                team_adv = team_credit.advantages(team_values[:horizon], buf_r[:horizon],
+                    successor_values, buf_d[:horizon].bool(), torch.zeros_like(buf_d[:horizon]).bool(),
+                    cfg.gamma, cfg.gae_lambda)
+                team_targets = team_adv + team_values[:horizon]
+                adv = team_adv.repeat_interleave(mu, dim=1)
+            else:
+                adv = advantages(buf_v[:horizon], buf_r[:horizon], buf_d[:horizon],
+                                 keys[:horizon+1], next_v, cfg.gamma, cfg.gae_lambda,
+                                 buf_next_potential[:horizon])
             ret = adv + buf_v[:horizon]
             packed, native = storage.indices(horizon, n)
             count = len(packed)
@@ -685,7 +720,8 @@ def train(cfg, args, saved, *, gradient_observer=None):
                     advantage = (advantage-advantage.mean()) / (advantage.std(unbiased=False)+1e-8)
                     pg = -torch.min(ratio * advantage,
                                     ratio.clamp(1-cfg.clip, 1+cfg.clip) * advantage).mean()
-                    vf = .5 * (value-b_ret[j]).square().mean()
+                    vf = (.5 * (value-b_ret[j]).square().mean() if team_net is None
+                          else torch.zeros((), device=dev))
                     entropy = dist.entropy().mean()
                     loss = pg + cfg.vf_coef * vf - cfg.ent_coef * entropy
                     ref_kl = None
@@ -718,6 +754,11 @@ def train(cfg, args, saved, *, gradient_observer=None):
                         reference_kls.append(float(ref_kl.detach()))
                 if stopped_kl:
                     break
+            team_value_loss = None
+            if team_net is not None:
+                team_value_loss = team_credit.update(team_net, team_opt,
+                    team_inputs[:horizon].reshape(-1, team_net.size), team_targets.reshape(-1),
+                    cfg.epochs, cfg.vf_coef, cfg.max_grad_norm)
             # GAE and update finished against old task before a curriculum reset.
             trained_stage, trained_frac = stage, frac
             promoted = False
@@ -759,6 +800,9 @@ def train(cfg, args, saved, *, gradient_observer=None):
                        value_loss=float(np.mean(value_losses)) if value_losses else None,
                        reference_kl=float(np.mean(reference_kls)) if reference_kls else None,
                        reference_coef=cfg.reference_coef,
+                       credit_assignment=cfg.credit_assignment,
+                       team_value_loss=team_value_loss,
+                       team_value_samples=horizon*cfg.envs if team_net is not None else 0,
                        economy_goal_environment_steps=goal_exposure,
                        economy_goal_squad_steps=goal_squads,
                        approx_kl=float(np.mean(kls)) if kls else None,
