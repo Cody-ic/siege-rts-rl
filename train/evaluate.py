@@ -253,6 +253,7 @@ def main():
         cfg.defender = False
     if saved and contract(R,cfg) != saved['contract']:
         raise ValueError('Evaluation contract differs from checkpoint; rebuild/use matching data and learner')
+    cfg.curriculum = (args.frac,)  # Evaluation uses its explicit distance, not a training schedule.
     validate(cfg)   # same profile/defender rules as training; profiles are an opponent choice, not a contract term
     result = evaluate(args.checkpoint,cfg,args.episodes,args.frac,args.policy,
                       diagnostics=args.diagnostics,trace_every=args.trace_every)

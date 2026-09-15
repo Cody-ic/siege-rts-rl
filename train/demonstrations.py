@@ -69,7 +69,8 @@ def collect(args):
     cfg = Cfg(envs=args.envs,threads=args.threads,torch_threads=1,device='cpu',seed=args.seed,
               map_path=args.map_path,stats_path=args.stats_path,map_pool=tuple(args.map_pool.split(',')) if args.map_pool else (),
               roster=args.roster,levels=tuple(int(x) for x in args.levels.split(',')),
-              defender_prepare_ticks=args.defender_prepare_ticks,tactical_goals=args.tactical_goals)
+              defender_prepare_ticks=args.defender_prepare_ticks,tactical_goals=args.tactical_goals,
+              curriculum=tuple(fractions))
     from ppo import validate
     validate(cfg)
     # JSON normalization makes tuple/list config fields identical after a restart.
