@@ -1131,3 +1131,178 @@ TEST_CASE("编队推进：行军途中前锋不甩开最慢兵种", "[demo]") {
 }
 
 
+// ——不死鸟的撤离与跨波留存（2026-09-10，#170）——
+//
+// `CLAUDE.md`「空中单位」给 `Phoenix` 定了四条结构约束，其中两条此前从未落地：
+// **跨波留存**与**击落后 N 波重生**。后果是实测的：它 58/60 波出场、只被击落
+// 12 次，而守方全程只有 2 座 `Flak`（`配平工作交接.md` §2.10）⇒「AA 的机会
+// 成本」那个两难从未成立过；塔损耗也因此是阶跃而非渐进
+// （`攻守配平的数学模型.md` §5.1）——成因正是它不会走。
+//
+// **这几条测试把不死鸟提到第 1 波**（`phoenix_from_wave = 1`）。理由是
+// `DemoBattle` 里没有 `DefenderMacro`：无渲染时没人替守方下建造/征兵命令
+// （`CLAUDE.md` 与 `demo_driver.cpp:556` 都记着这件事），于是堡垒在第 2–3 波
+// 就掉了，这份文件里既有的测试也全都止步于第 2 波。把出场波次提前是**改
+// 参数、不是改被测逻辑**——撤离、花名册、重生三条代码路径与正式曲线下逐字
+// 相同。
+
+namespace {
+// 不死鸟从第 1 波就来的曲线，其余照默认。
+game::WaveCurve phoenix_from_first_wave() {
+    game::WaveCurve c{};
+    c.phoenix_from_wave = 1;
+    return c;
+}
+// 场上活着的不死鸟数。
+int count_phoenix(const game::DemoBattle& b) {
+    const rts::WorldView v = b.world().view(rts::Side::Attacker);
+    int n = 0;
+    for (std::size_t k = 0; k < v.unit_type().size(); ++k)
+        if (v.unit_alive()[k] && v.unit_type()[k] == rts::UnitType::Phoenix) ++n;
+    return n;
+}
+}  // namespace
+
+// 第一条，也是最要紧的一条：**波次循环不能因为「会撤的不死鸟」卡死**。
+//
+// `CLAUDE.md` 点过这个坑的名：「波次循环挂在攻方存活数归零上，而会撤退的侦查
+// 单位不会死——一只就能让游戏永远停在这一波。加任何『不求战』的单位时都要
+// 回头看这个终止条件。」不死鸟现在正好变成了那种单位。
+//
+// 本实现用的是「到达集结点即离场」而不是「活着但不算数」——后者才需要去改
+// `attacker_can_fight()`，而那正是坑的形状。这条钉的是结果：第 1 波有不死鸟
+// 在场，而波次仍然翻到了第 2 波。
+TEST_CASE("不死鸟撤离：本波有不死鸟，波次循环仍能翻页", "[demo]") {
+    const game::MapData map = demo_map();
+    const rts::StatsTable stats = demo_stats();
+    game::DemoBattle a(map, stats, 7, {}, phoenix_from_first_wave());
+
+    // 生波即数（建造期，还没开打）——等到开打之后再数分不清「没生」与「死了」，
+    // 同 `Wraith` 那条测试记着的坑。
+    const int at_spawn = count_phoenix(a);
+    CAPTURE(a.wave_plan().phoenixes, a.wave_plan().ghouls, at_spawn);
+    REQUIRE(a.world().wave() == 1);
+    REQUIRE(a.wave_plan().phoenixes >= 1);   // 编成里真的排了不死鸟
+    REQUIRE(at_spawn >= 1);   // 参数真的生效了，否则下面什么都没验
+    a.update(kJustAssault);
+    REQUIRE(a.world().wave() == 1);
+
+    bool turned = false;
+    for (int t = 0; t < 200000 && !turned; t += 20) {
+        a.update(20);
+        if (a.defeated()) break;
+        turned = a.world().wave() >= 2;
+    }
+    CAPTURE(a.world().wave(), a.defeated(), count_phoenix(a));
+    REQUIRE(turned);
+}
+
+// 撤离成功的不死鸟进花名册，下一波以**同一身份**回来。
+//
+// **等级与血量刻意不跨波带**（组内 2026-09-10 定）：回来的是当波名义等级、
+// 满血。代价定义在重生延迟上，而不是让老鸟随波次相对变弱——理由见
+// `demo_driver.hpp` 那段。所以这里断言的是**身份**的连续，不是数值的继承。
+TEST_CASE("不死鸟留存：撤走的进花名册，下一波以同一身份回来", "[demo]") {
+    const game::MapData map = demo_map();
+    const rts::StatsTable stats = demo_stats();
+    // 撤离阈值拉满：掉一滴血就走。**这是把随机的战况变成确定的路径**——
+    // 默认 400‰ 下它撤不撤取决于守方打得多准，那会让这条测试变成对火力的断言。
+    game::WaveCurve curve = phoenix_from_first_wave();
+    curve.phoenix_withdraw_hp_permille = 1000;
+    game::DemoBattle a(map, stats, 7, {}, curve);
+
+    bool roster_seen = false;
+    for (int t = 0; t < 200000 && a.world().wave() < 3; t += 20) {
+        a.update(20);
+        if (a.defeated()) break;
+        for (const auto& r : a.phoenix_roster()) {
+            roster_seen = true;
+            REQUIRE(r.waves_alive >= 1);   // 撤一次记一波
+        }
+    }
+    CAPTURE(a.world().wave(), a.defeated());
+    REQUIRE(roster_seen);
+}
+
+// 场上不死鸟数不超过曲线给的上限——留存不是「越攒越多」。
+//
+// 花名册占的是**同一批名额**（`spawn_wave` 里 `phoenix_new = 上限 − 花名册`），
+// 这条钉的就是那个减法：漏了它，每波都按上限新生一批、再加上回来的老鸟，
+// 天空会被不死鸟填满。
+TEST_CASE("不死鸟留存：场上数量始终不超过曲线上限", "[demo]") {
+    const game::MapData map = demo_map();
+    const rts::StatsTable stats = demo_stats();
+    game::WaveCurve curve = phoenix_from_first_wave();
+    curve.phoenix_withdraw_hp_permille = 1000;
+    game::DemoBattle a(map, stats, 7, {}, curve);
+    for (int t = 0; t < 200000 && a.world().wave() < 3; t += 20) {
+        a.update(20);
+        if (a.defeated()) break;
+        CAPTURE(a.world().wave());
+        REQUIRE(count_phoenix(a) <= curve.phoenix_cap);
+    }
+}
+
+// 同一身份不会同时「在花名册里」又「在重生队列里」——两个状态互斥。
+// 倒计时也必须落在 [0, N] 内（漏了递减会让它永远回不来）。
+TEST_CASE("不死鸟重生：队列与花名册互斥，倒计时有界", "[demo]") {
+    const game::MapData map = demo_map();
+    const rts::StatsTable stats = demo_stats();
+    const game::WaveCurve curve = phoenix_from_first_wave();
+    game::DemoBattle a(map, stats, 7, {}, curve);
+    for (int t = 0; t < 200000 && a.world().wave() < 3; t += 20) {
+        a.update(20);
+        if (a.defeated()) break;
+        for (const auto& [pid, left] : a.phoenix_respawn()) {
+            REQUIRE(left >= 0);
+            REQUIRE(left <= curve.phoenix_respawn_waves);
+            for (const auto& r : a.phoenix_roster()) REQUIRE(r.id != pid);
+        }
+    }
+}
+
+// 默认值不漂（照 `defender_macro_test.cpp` 那条先例）。
+//
+// 两个数都是**占位**、要进标定清单，但它们的语义是结构性的：撤离阈值为 0 等于
+// 「出了必死」（回到落地之前），重生波数为 0 等于「击落没有代价」——那正是
+// `CLAUDE.md` 说 RL 会学出「波尾无成本自杀换伤害」的那个退化形态。
+TEST_CASE("不死鸟：撤离阈值与重生波数的默认值", "[demo]") {
+    const game::WaveCurve curve{};
+    REQUIRE(curve.phoenix_withdraw_hp_permille == 400);
+    REQUIRE(curve.phoenix_respawn_waves == 3);
+    REQUIRE(curve.phoenix_withdraw_hp_permille > 0);
+    REQUIRE(curve.phoenix_respawn_waves > 0);
+}
+
+TEST_CASE("不死鸟冷却占用名额且满期以原身份重生", "[demo]") {
+    auto curve=phoenix_from_first_wave();curve.phoenix_base=1;curve.phoenix_cap=1;
+    SECTION("跳过三波") {curve.phoenix_respawn_waves=3;}
+    SECTION("零冷却下一波返回") {curve.phoenix_respawn_waves=0;}
+    game::WaveTiming timing;timing.first_build_ticks=1;timing.build_ticks=1;timing.assault_max_ticks=5;
+    game::DemoBattle battle(demo_map(),demo_stats(),7,timing,curve);
+    std::vector<rts::UnitId> ids;battle.world().enumerate_units(rts::Side::Attacker,ids);
+    rts::UnitId bird{};
+    for(auto id:ids) if(battle.world().unit_type(id)==rts::UnitType::Phoenix) bird=id;
+    REQUIRE(battle.world().alive(bird));
+    const int identity=battle.phoenix_identity(bird);REQUIRE(identity>=0);
+    // Controlled casualty: test fixture owns the non-const battle and its world.
+    const_cast<rts::World&>(battle.world()).kill_unit(bird);
+    REQUIRE(battle.phoenix_identity(bird)==-1);
+    const int return_wave=2+curve.phoenix_respawn_waves;
+    for(int wave=2;wave<=return_wave;++wave) {
+        for(int tick=0;tick<30 && battle.world().wave()<wave;++tick) battle.update(1);
+        REQUIRE(battle.world().wave()==wave);
+        if(wave<return_wave) {
+            REQUIRE(count_phoenix(battle)==0);
+            REQUIRE(battle.phoenix_respawn().size()==1);
+            REQUIRE(battle.phoenix_respawn()[0].first==identity);
+            REQUIRE(battle.phoenix_respawn()[0].second==return_wave-wave);
+        } else {
+            REQUIRE(count_phoenix(battle)==1);
+            REQUIRE(battle.phoenix_respawn().empty());
+            battle.world().enumerate_units(rts::Side::Attacker,ids);
+            for(auto id:ids) if(battle.world().unit_type(id)==rts::UnitType::Phoenix)
+                REQUIRE(battle.phoenix_identity(id)==identity);
+        }
+    }
+}

@@ -181,6 +181,10 @@ struct Options {
     int developer_wave = 0;
     int journal_page = -1;
     int journal_ending = 0;
+    int journal_appendix = 0;
+    bool journal_feather_locked = false;
+    bool journal_emphasis = false;
+    int appendix_notice = 0;
     bool journal_bottom = false;
     bool classic_visuals = false;
     bool mute = false;
@@ -200,6 +204,9 @@ void print_usage(const char* argv0) {
         "  --classic-visuals     使用原始画面；游戏中 V 可切换\n"
         "  --journal-page <0..7> 仅配合截图预览指定日记章节\n"
         "  --journal-ending <1..2> 日记截图预览结局；--journal-bottom 预览末尾\n"
+        "  --journal-appendix <1..2> 附录截图；--journal-feather-locked 预览白羽线索\n"
+        "  --journal-emphasis 定位微笑者强调段落（仅附录 2 截图）\n"
+        "  --appendix-notice <1..3> 彩蛋通知截图预览\n"
         "  --menu                停在主菜单（窗口模式下与默认相同；给截图用）\n"
         "  --screen <名>         先切到哪一屏再拍：main / help / paused / guide / developer。只给截图用\n"
         "  --map <路径>          地图文件。只给它（不给 --battle/--menu）= 地图查看器\n"
@@ -259,6 +266,18 @@ bool parse(const std::vector<std::string>& args, Options& out) {
             out.classic_visuals = true;
         } else if (a == "--mute") {
             out.mute = true;
+        } else if (a == "--journal-appendix") {
+            const std::string* v=next("--journal-appendix");
+            if(!v || (*v!="1" && *v!="2")) return false;
+            out.journal_appendix=(*v)[0]-'0';out.menu=true;
+        } else if (a == "--journal-feather-locked") {
+            out.journal_feather_locked=true;
+        } else if (a == "--journal-emphasis") {
+            out.journal_emphasis=true;
+        } else if (a == "--appendix-notice") {
+            const std::string* v=next("--appendix-notice");
+            if(!v || (*v!="1" && *v!="2" && *v!="3")) return false;
+            out.appendix_notice=(*v)[0]-'0';
         } else if (a == "--journal-bottom") {
             out.journal_bottom=true;
         } else if (a == "--journal-ending") {
@@ -360,7 +379,11 @@ bool parse(const std::vector<std::string>& args, Options& out) {
     if(out.developer_wave>0 && out.screenshot.empty()) return false;
     if((out.screen=="developer" || out.guide_entry!=0 || out.guide_level!=1 || out.guide_bottom) && out.screenshot.empty()) return false;
     if(out.journal_page>=0 && out.screenshot.empty()) { std::fprintf(stderr,"--journal-page 仅用于截图预览\n"); return false; }
-    if((out.journal_ending>0 || out.journal_bottom) && out.journal_page<0) return false;
+    if(out.journal_appendix && (out.screenshot.empty() || out.journal_page>=0 || out.journal_ending)) return false;
+    if(out.journal_feather_locked && out.journal_appendix!=1) return false;
+    if(out.journal_emphasis && (out.journal_appendix!=2 || out.journal_bottom)) return false;
+    if(out.appendix_notice && out.screenshot.empty()) return false;
+    if((out.journal_ending>0 || out.journal_bottom) && out.journal_page<0 && !out.journal_appendix) return false;
     if(out.journal_ending>0 && out.journal_page!=7) return false;
     // **这里不再判「哪个参数是必需的」。** 缺的路径由 `resolve_paths()` 用素材
     // 自动发现补齐，补不上才报错——而那条报错要说出「试过哪些目录」，
@@ -1218,6 +1241,20 @@ int run_game(const Options& opt) {
     double order_until = 0.0;
     std::string notice;
     double notice_until = 0.0;
+    std::string appendix_notice;
+    double appendix_notice_until=0;
+    if(opt.appendix_notice) {
+        appendix_notice=game::kAppendixNotices[static_cast<std::size_t>(opt.appendix_notice-1)];
+        appendix_notice_until=GetTime()+10;
+    }
+    const auto draw_appendix_notice=[&](Vector2 viewport) {
+        if(appendix_notice.empty() || GetTime()>=appendix_notice_until) return;
+        const float width=font->measure(appendix_notice,20).x+32;
+        const float x=(viewport.x-width)/2,y=viewport.y-52;
+        DrawRectangleRec({x,y,width,36},Color{31,47,42,250});
+        DrawRectangleLinesEx({x,y,width,36},1,Color{181,153,99,255});
+        font->draw(appendix_notice,{x+16,y+7},20,Color{240,226,192,255});
+    };
     bool inspected_busy = false;
     std::optional<Vector2> inspected_click;
     const auto inspector_box = [&](Vector2 viewport) {
@@ -1292,8 +1329,19 @@ int run_game(const Options& opt) {
     render::BattleAudio audio(opt.screenshot.empty());
     if(opt.mute) audio.toggle();
     render::ChronicleView journal;
-    int reached_wave = shell.battle()?shell.battle()->world().wave():1;
+    game::JournalProgress progress;
+    if(shell.battle() && !shell.battle()->developer())
+        progress.observe(shell.battle()->world().wave(),shell.battle()->earned_white_feather(),shell.chronicle().choice(),false);
+    // Saving can observe a newly earned appendix before the next UI frame.
+    auto announced_appendices=progress.appendices;
+    int& reached_wave=progress.highest_wave;
+    journal.appendices=progress.appendices;
     if(opt.journal_page>=0) { journal.preview(opt.journal_page,opt.journal_ending,opt.journal_bottom); reached_wave=70; }
+    if(opt.journal_appendix) {
+        journal.preview_appendix(opt.journal_appendix,opt.journal_bottom,opt.journal_emphasis);
+        journal.appendices={opt.journal_appendix==1,opt.journal_appendix==2};
+        reached_wave=opt.journal_feather_locked?59:90;
+    }
     int enemy_report_wave=0;
     bool enemy_reported=false;
     bool developer_panel=opt.screen=="developer";
@@ -1311,6 +1359,7 @@ int run_game(const Options& opt) {
     double next_auto_save=0;
     const auto save_now=[&]() -> bool {
         if(!persistent || !shell.battle() || shell.battle()->developer()) return true;
+        progress.observe(shell.battle()->world().wave(),shell.battle()->earned_white_feather(),shell.chronicle().choice(),false);
         bool saved=false;
         next_auto_save=GetTime()+10;
         try {
@@ -1329,6 +1378,11 @@ int run_game(const Options& opt) {
         else {
             if(action==game::MenuAction::Quit && !save_now()) return;
             shell.apply(action);
+            if(action==game::MenuAction::StartNew || action==game::MenuAction::Restart) {
+                progress=game::JournalProgress{};
+                announced_appendices=progress.appendices;
+                journal.appendices=progress.appendices;
+            }
             if(action==game::MenuAction::StartNew || action==game::MenuAction::Restart || action==game::MenuAction::ToMain || action==game::MenuAction::Quit)
                 save_now();
         }
@@ -1829,6 +1883,7 @@ int run_game(const Options& opt) {
         RenderTexture2D rt = LoadRenderTexture(opt.width, opt.height);
         BeginTextureMode(rt);
         draw_frame(vp, /*has_cursor=*/false, rts::GridPos{});
+        draw_appendix_notice(vp);
         EndTextureMode();
 
         Image img = LoadImageFromTexture(rt.texture);
@@ -1941,6 +1996,12 @@ int run_game(const Options& opt) {
             }
             story_wave_seen=wave;
             reached_wave=wave;
+            const auto previous_appendices=announced_appendices;
+            progress.observe(wave,shell.battle()->earned_white_feather(),shell.chronicle().choice(),false);
+            journal.appendices=progress.appendices;
+            const auto earned=game::appendix_notice(previous_appendices,progress.appendices);
+            if(!earned.empty()) {appendix_notice=earned;appendix_notice_until=GetTime()+10;}
+            announced_appendices=progress.appendices;
             const auto count=game::chronicle_unlocked(reached_wave);
             if(count>known_chapters) {notice="日记已更新 · 按 J 阅读";notice_until=GetTime()+6;known_chapters=count;}
         }
@@ -2334,6 +2395,7 @@ int run_game(const Options& opt) {
         }
         BeginDrawing();
         draw_frame(vp, !in_menu, cell);
+        draw_appendix_notice(vp);
         EndDrawing();
         if(GetTime()>=next_auto_save && shell.battle() && (shell.battle()->world().wave()!=last_save_wave ||
             shell.battle()->world().now()-last_save_tick>=1200 ||

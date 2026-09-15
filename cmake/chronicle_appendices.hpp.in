@@ -1,0 +1,6 @@
+#pragma once
+#include <string_view>
+namespace game {
+inline constexpr std::string_view kChronicleLeap=R"APPENDIX(@LEAP_TEXT@)APPENDIX";
+inline constexpr std::string_view kChronicleSmiler=R"APPENDIX(@SMILER_TEXT@)APPENDIX";
+}
