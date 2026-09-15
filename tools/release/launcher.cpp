@@ -29,7 +29,9 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR arguments, int) {
         startup.dwFlags=STARTF_USESTDHANDLES;
         startup.hStdOutput=log;startup.hStdError=log;startup.hStdInput=input;
     }
-    std::wstring command=L"\""+exe.wstring()+L"\" --font \""+font.wstring()+L"\" "+arguments;
+    // Keep the renderer's engineering-build font priority. Its last fallback
+    // lives in the child working directory (the packaged game data folder).
+    std::wstring command=L"\""+exe.wstring()+L"\" "+arguments;
     PROCESS_INFORMATION process{};
     const BOOL started=CreateProcessW(exe.c_str(),command.data(),nullptr,nullptr,TRUE,CREATE_NO_WINDOW,nullptr,data.c_str(),&startup,&process);
     if(log!=INVALID_HANDLE_VALUE) CloseHandle(log);
