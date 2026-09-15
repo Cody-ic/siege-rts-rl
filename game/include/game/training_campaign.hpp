@@ -14,6 +14,10 @@ struct CampaignTransition {
     bool defeated = false;
     rts::World::Tally attacker;
     rts::World::Tally defender;
+    // Pre-tick, assault-only live combat unit exposure; eligibility, not proof
+    // of an action being issued. Scouts and build phases are excluded.
+    std::int64_t model_eligible_unit_ticks = 0;
+    std::int64_t script_combat_unit_ticks = 0;
 };
 
 // A complete native campaign for macro training. Single-unit control stays in
@@ -44,6 +48,7 @@ private:
                            std::span<const rts::Command> commands,
                            std::span<const UnitOrder> orders);
     DemoBattle battle_;
+    std::shared_ptr<TacticalPolicy> attacker_policy_;
     DefenderMacro macro_;
     int macro_period_;
     std::vector<rts::Command> commands_;

@@ -13,6 +13,18 @@ from checkpointing import sha256
 
 
 class CampaignEvaluationTest(unittest.TestCase):
+    @unittest.skipUnless(R.FrozenAttacker.runtime_available(), 'Requires ONNX runtime')
+    def test_frozen_policy_coverage_starts_with_assault(self):
+        stats = 'game/data/stats_placeholder.json'
+        policy = R.FrozenAttacker('game/testdata/rl_constant.onnx', stats)
+        world = R.TrainingCampaign('game/data/maps/pool/gen_01007000.json', stats, 101,
+                                   attacker=policy)
+        preparation = world.advance_scripted(900)
+        self.assertEqual(sum(preparation['controller_coverage'].values()), 0)
+        combat = world.advance_scripted(20)
+        self.assertGreater(combat['controller_coverage']['model_eligible_unit_ticks'], 0)
+        self.assertEqual(combat['controller_coverage']['script_combat_unit_ticks'], 0)
+
     def test_city_snapshot_uses_native_units_and_is_read_only(self):
         world = R.TrainingCampaign('game/data/maps/pool/gen_01007000.json',
                                    'game/data/stats_placeholder.json', 101)
@@ -39,6 +51,10 @@ class CampaignEvaluationTest(unittest.TestCase):
         self.assertEqual(row['final_wave'], 2)
         self.assertEqual(len(row['waves']), 1)
         self.assertTrue(row['waves'][0]['wave_complete'])
+        coverage = row['waves'][0]['controller_coverage']
+        self.assertEqual(coverage['mode'], 'script_only')
+        self.assertEqual(coverage['model_eligible_unit_ticks'], 0)
+        self.assertGreater(coverage['script_combat_unit_ticks'], 0)
         self.assertGreater(row['waves'][0]['end_tick'], row['waves'][0]['start_tick'])
         self.assertNotEqual(row['initial_hash'], row['waves'][0]['state_hash'])
 
@@ -81,6 +97,15 @@ class CampaignEvaluationTest(unittest.TestCase):
 
 
 class CampaignInputTest(unittest.TestCase):
+    def test_coverage_distinguishes_fallback_from_absent_combat(self):
+        self.assertIsNone(campaign.summarize_coverage({})['model_eligible_fraction'])
+        self.assertEqual(campaign.summarize_coverage({})['mode'], 'no_combat')
+        counts = dict(model_eligible_unit_ticks=10, script_combat_unit_ticks=30)
+        self.assertEqual(campaign.summarize_coverage(counts)['mode'], 'mixed')
+        self.assertEqual(campaign.summarize_coverage(counts)['model_eligible_fraction'], .25)
+        self.assertEqual(campaign.summarize_coverage(dict(model_eligible_unit_ticks=10))['mode'],
+                         'model_supported')
+
     def run_evaluation(self, root, mutate=None):
         sources = {name:root/name for name in ('map.json', 'stats.json', 'model.onnx')}
         for name, path in sources.items():
@@ -119,7 +144,7 @@ class CampaignInputTest(unittest.TestCase):
             report, calls = self.run_evaluation(root)
             self.assertTrue(report['complete'])
             self.assertEqual(len(calls), 4)
-            self.assertEqual(report['report_version'], 2)
+            self.assertEqual(report['report_version'], 3)
             self.assertEqual(report['native_build_mode'], R.BUILD_MODE)
             self.assertEqual({r['map'] for r in report['rows']}, {str(root/'map.json')})
             for item in report['inputs']:

@@ -724,6 +724,8 @@ public:
         std::int64_t phoenix_losses = 0;
         std::int64_t enemy_unit_gold = 0;
         std::int64_t repair_wood_spent = 0;
+        std::int64_t friendly_unit_damage = 0;
+        std::int64_t friendly_units_killed = 0;
 
     };
 

@@ -3,6 +3,8 @@
 The flow diagnostic reads the same local observation and action masks as the policy.
 """
 import argparse
+import copy
+from dataclasses import replace
 import math
 from pathlib import Path
 import time
@@ -85,7 +87,8 @@ def summarize_profiles(rows):
     return results
 
 
-def evaluate(checkpoint, cfg, episodes, frac, policy='frozen_argmax', *, diagnostics=False, trace_every=25):
+def evaluate(checkpoint, cfg, episodes, frac, policy='frozen_argmax', *, diagnostics=False,
+             trace_every=25, timeout_review_ticks=None):
     if cfg.map_pool:
         raise ValueError('Evaluate each map separately with map_pool=(); do not average away failed maps')
     if episodes < 1 or cfg.envs < 1 or not 0 < frac <= 1 or cfg.max_ticks < 1:
@@ -94,9 +97,16 @@ def evaluate(checkpoint, cfg, episodes, frac, policy='frozen_argmax', *, diagnos
         raise ValueError('unknown evaluation policy')
     if trace_every < 1:
         raise ValueError('trace_every must be positive')
+    if timeout_review_ticks is not None and (
+            timeout_review_ticks <= cfg.max_ticks or
+            timeout_review_ticks % cfg.ticks_per_step or cfg.max_ticks % cfg.ticks_per_step):
+        raise ValueError('Timeout review must exceed the original limit; both limits must be whole decision steps')
+    # Extend the same worlds, without changing the reported base-task horizon or
+    # replacing its outcomes. No fresh seed/city is substituted at the boundary.
+    env_cfg = replace(cfg, max_ticks=timeout_review_ticks) if timeout_review_ticks else cfg
     torch.set_num_threads(cfg.torch_threads)
     n = min(episodes, cfg.envs)
-    env = make_env(cfg, n, frac)
+    env = make_env(env_cfg, n, frac)
     obs = Observer(env)
     net = None
     if policy in ('frozen_argmax', 'frozen_sample'):
@@ -112,6 +122,7 @@ def evaluate(checkpoint, cfg, episodes, frac, policy='frozen_argmax', *, diagnos
     totals = np.zeros_like(tally, dtype=np.float64)
     steps = np.zeros(n, np.int64)
     indices, next_index, rows = list(range(n)), n, []
+    pending_reviews = {}
     generators = [episode_rng(cfg.seed, i) for i in indices]
     spawns = list(R.map_sites(cfg.map_path)['spawns'])
     # Same stateless selector the native ScriptedDefender uses at reset, so the
@@ -159,21 +170,31 @@ def evaluate(checkpoint, cfg, episodes, frac, policy='frozen_argmax', *, diagnos
                 if indices[i] is None:
                     continue
                 steps[i] += 1
+                at_limit = bool(timeout_review_ticks and
+                                steps[i] * cfg.ticks_per_step == cfg.max_ticks)
                 if probes is not None:
-                    probes[i].after_step(int(steps[i]), totals[i], potentials[i], live_squads[i], done[i])
-                if not done[i]:
+                    probes[i].after_step(int(steps[i]), totals[i], potentials[i], live_squads[i],
+                                         bool(done[i]) or at_limit)
+                if not done[i] and not at_limit:
                     continue
                 row = {'episode':indices[i], 'world_seed':cfg.seed*1000+indices[i],
                        'spawn_index':(cfg.seed+indices[i]) % len(spawns),
-                       'steps':int(steps[i]), 'end':names[ends[i]],
+                       'steps':int(steps[i]), 'end':names[ends[i]] if done[i] else 'timeout',
                        'tally':dict(zip(R.obs.TALLY_NAMES, totals[i].tolist()))}
                 if cfg.defender_profiles:
                     row['defender_profile'] = profile_of(indices[i])
                 if probes is not None:
                     row['diagnostics'] = probes[i].report()
+                if at_limit and not done[i]:
+                    pending_reviews[i] = copy.deepcopy(row)
+                    continue
+                if i in pending_reviews:
+                    review = row
+                    row = pending_reviews.pop(i)
+                    row['timeout_review'] = review
                 rows.append(row)
                 if next_index < episodes:
-                    env.reset_one(i, make_worlds(cfg, 1, frac, next_index)[0])
+                    env.reset_one(i, make_worlds(env_cfg, 1, frac, next_index)[0])
                     generators[i] = episode_rng(cfg.seed, next_index)
                     if probes is not None:
                         probes[i] = EpisodeDiagnostics(env.potentials[i], trace_every)
@@ -184,6 +205,7 @@ def evaluate(checkpoint, cfg, episodes, frac, policy='frozen_argmax', *, diagnos
                     indices[i] = None
                     generators[i] = None
     wins = sum(row['end']=='keep_destroyed' for row in rows)
+    reviews = [row['timeout_review'] for row in rows if 'timeout_review' in row]
     return {'episodes':episodes, 'wins':wins,
             'timeouts':sum(row['end']=='timeout' for row in rows),
             'eliminated':sum(row['end']=='attackers_eliminated' for row in rows),
@@ -194,6 +216,13 @@ def evaluate(checkpoint, cfg, episodes, frac, policy='frozen_argmax', *, diagnos
             'outcomes':summarize_outcomes(rows),
             'seed':cfg.seed, 'frac':frac, 'ticks_per_step':cfg.ticks_per_step,
             'max_ticks':cfg.max_ticks, 'policy':policy, 'device':cfg.device,
+            'timeout_review_ticks':timeout_review_ticks,
+            'timeout_review_summary':dict(reviewed=len(reviews),
+                later_wins=sum(r['end']=='keep_destroyed' for r in reviews),
+                still_unresolved=sum(r['end']=='timeout' for r in reviews),
+                attackers_eliminated=sum(r['end']=='attackers_eliminated' for r in reviews)),
+            'timeout_review_semantics':'Original wins/timeouts stay unchanged. Review continues the same city; '
+                                       'remaining timeouts are censored, not final defeats.',
             'defender':'scripted' if cfg.defender else 'none',
             'defender_macro_period':cfg.defender_macro_period,
             'defender_prepare_ticks':cfg.defender_prepare_ticks,
@@ -228,6 +257,8 @@ def main():
     ap.add_argument('--map-path')
     ap.add_argument('--stats-path')
     ap.add_argument('--max-ticks', type=int)
+    ap.add_argument('--timeout-review-ticks', type=int,
+                    help='Continue original timeouts to this total tick horizon; preserve original results')
     ap.add_argument('--ticks-per-step', type=int)
     ap.add_argument('--roster',choices=('ghouls','mixed'))
     ap.add_argument('--levels',type=lambda s:tuple(int(x) for x in s.split(',')))
@@ -258,7 +289,8 @@ def main():
     cfg.curriculum = (args.frac,)  # Evaluation uses its explicit distance, not a training schedule.
     validate(cfg)   # same profile/defender rules as training; profiles are an opponent choice, not a contract term
     result = evaluate(args.checkpoint,cfg,args.episodes,args.frac,args.policy,
-                      diagnostics=args.diagnostics,trace_every=args.trace_every)
+                      diagnostics=args.diagnostics,trace_every=args.trace_every,
+                      timeout_review_ticks=args.timeout_review_ticks)
     atomic_json(args.output,result)
     print(f'Frozen evaluation: wins {result["wins"]}/{result["episodes"]}, '
           f'hit buildings {result["hit_rate"]:.0%}, mean damage {result["mean_building_damage"]:.1f}')

@@ -495,6 +495,8 @@ void BatchedEnv::take_tally(std::span<float> out) {
         // would be counted again on each training step.
         const auto other = p_->worlds[ui]->take_tally(opponent);
         out[o + 12] = static_cast<float>(other.repair_wood_spent);
+        out[o + 13] = static_cast<float>(t.friendly_unit_damage);
+        out[o + 14] = static_cast<float>(t.friendly_units_killed);
         p_->progress[ui] = 0.0;
     }
 }

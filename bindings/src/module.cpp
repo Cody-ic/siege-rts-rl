@@ -153,6 +153,10 @@ PYBIND11_MODULE(rts_native, m) {
         out["ticks"]=value.ticks;
         out["wave_advanced"]=value.wave_advanced;
         out["defeated"]=value.defeated;
+        py::dict coverage;
+        coverage["model_eligible_unit_ticks"]=value.model_eligible_unit_ticks;
+        coverage["script_combat_unit_ticks"]=value.script_combat_unit_ticks;
+        out["controller_coverage"]=coverage;
         const auto tally=[](const rts::World::Tally& t) {
             py::dict d;
             d["dmg_to_units"]=t.dmg_to_units;d["dmg_to_blds"]=t.dmg_to_blds;
@@ -163,6 +167,8 @@ PYBIND11_MODULE(rts_native, m) {
             d["phoenix_losses"]=t.phoenix_losses;
             d["enemy_unit_gold"]=t.enemy_unit_gold;
             d["repair_wood_spent"]=t.repair_wood_spent;
+            d["friendly_unit_damage"]=t.friendly_unit_damage;
+            d["friendly_units_killed"]=t.friendly_units_killed;
             return d;
         };
         out["attacker_tally"]=tally(value.attacker);

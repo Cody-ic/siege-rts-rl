@@ -79,6 +79,8 @@ REWARD_W = {
     "phoenix_losses": 0.0,  # audit only; calibrate before assigning rewards
     "enemy_unit_gold": 0.0,  # audit only; calibrate before assigning rewards
     "opponent_repair_wood_spent": 0.0,  # audit only; calibrate before assigning rewards
+    "friendly_unit_damage": 0.0,  # no positive credit for friendly fire
+    "friendly_units_killed": 0.0,  # own combat deaths remain charged through losses
     "progress": 0.0,       # 只作位移日志，不把未折扣的距离差当奖励
 }
 

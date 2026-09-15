@@ -1,5 +1,23 @@
 # 攻方 RL 训练与恢复
 
+## 2026-09-13 复盘修正
+
+learner version 9 将 `dmg_to_units`、`units_killed` 及侦察/工匠击杀限制为敌军。
+误伤进入 `friendly_unit_damage`、`friendly_units_killed`，权重为零；自身战斗阵亡
+仍通过 `losses` 扣分。未改变物理误伤规则、其余奖励权重或折扣。旧 run 必须用原版本
+恢复；如复用旧 actor，只能以 `--init-weights` 开新目录，重新采样和评估。
+
+连续战役报告 v3 逐波提供 `controller_coverage`：按进攻阶段每个 tick 开始时的
+存活战斗单位统计，区分模型支持范围与脚本控制范围。零战斗记 `no_combat`，覆盖率
+为 null；侦察单位不参与分母。支持范围不等于每拍都执行了模型动作，更不证明协作。
+超出模型支持等级后获胜属于混合产品表现，不能当成纯模型的多波胜利。
+
+冻结单波评估可加 `--timeout-review-ticks 4800`，将原超时局在同一城市继续观察。
+例如原 `--max-ticks 2400` 的胜率与战果保持不变，延长结果放在各行 `timeout_review`；
+两个上限必须是决策周期的整数倍，复查上限必须更大。这是诊断选项，不改变训练终局
+定义。仍超时属于观察窗口内未决；还应比较胜利耗时、拆除和损失，避免只为提高胜率
+反复放宽上限。同入口重复记录不能当作独立场景证据。
+
 ## 团队信用对照（单波第一阶段）
 
 `--credit-assignment team --value-features independent` 启用独立团队 critic。

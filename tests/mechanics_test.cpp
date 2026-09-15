@@ -111,6 +111,53 @@ TEST_CASE("Audit kills distinguish mason scout and phoenix retirement", "[mech][
 
 // ——决定 ⑫ 的四个子条——
 
+TEST_CASE("Defender volley cannot claim its own mason as an enemy kill", "[mech][audit]") {
+    auto init = arena();
+    bs(init.stats, rts::BldType::Tower).aoe_radius = 1.5f;
+    us(init.stats, rts::UnitType::Mason).cost_gold = 40;
+    rts::World w(init);
+    w.place_bld(rts::BldType::Tower, {4, 4}, 50, 50);
+    const auto enemy = w.spawn_unit(rts::UnitType::Ghoul, {5.5f, 4.5f}, 1, 1, 30);
+    const auto buddy = w.spawn_unit(rts::UnitType::Mason, {5.5f, 5.0f}, 1, 1, 40);
+    w.advance(8);
+    REQUIRE_FALSE(w.alive(enemy));
+    REQUIRE_FALSE(w.alive(buddy));
+    const auto defense = w.take_tally(rts::Side::Defender);
+    CHECK(defense.dmg_to_units == 1);
+    CHECK(defense.units_killed == 1);
+    CHECK(defense.friendly_unit_damage == 1);
+    CHECK(defense.friendly_units_killed == 1);
+    CHECK(defense.losses == 40);
+    CHECK(defense.enemy_unit_gold == 0);
+    CHECK(defense.masons_killed == 0);
+    CHECK(defense.scouts_killed == 0);
+}
+
+TEST_CASE("Friendly splash has no enemy reward and retains own losses", "[mech][audit]") {
+    auto init = arena();
+    us(init.stats, rts::UnitType::Ranger).cost_gold = 40;
+    us(init.stats, rts::UnitType::Ram).splash_dmg_permille = 400;
+    rts::World w(init);
+    w.spawn_unit(rts::UnitType::Ram, {5.0f, 5.0f}, 1, 60, 60);
+    const auto enemy = w.spawn_unit(rts::UnitType::Ranger, {6.0f, 5.0f}, 1, 1, 18);
+    const auto buddy = w.spawn_unit(rts::UnitType::Ghoul, {6.9f, 5.0f}, 1, 1, 30);
+    act(w, rts::Side::Attacker, {rts::UnitAction::AtkNear, rts::UnitAction::Stop});
+    act(w, rts::Side::Defender, {rts::UnitAction::Stop});
+    w.advance(4);
+    REQUIRE_FALSE(w.alive(enemy));
+    REQUIRE_FALSE(w.alive(buddy));
+    const auto attack = w.take_tally(rts::Side::Attacker);
+    CHECK(attack.dmg_to_units == 1); // Actual enemy HP, excluding overkill and buddy.
+    CHECK(attack.units_killed == 1);
+    CHECK(attack.enemy_unit_gold == 40);
+    CHECK(attack.friendly_unit_damage == 1);
+    CHECK(attack.friendly_units_killed == 1);
+    CHECK(attack.losses == 30);
+    CHECK(w.peek_tally(rts::Side::Defender).losses == 18);
+    CHECK(w.peek_tally(rts::Side::Attacker).friendly_unit_damage == 0);
+    CHECK(w.peek_tally(rts::Side::Attacker).friendly_units_killed == 0);
+}
+
 TEST_CASE("apply_permille：一次除法、四舍五入、钳到正", "[mech]") {
     // 契约 §3.4 的原例：链式调用会静默少算（5×1500/1000=7 → ×1500/1000=10）。
     REQUIRE(rts::apply_permille(5, {1500, 1500}) == 11);

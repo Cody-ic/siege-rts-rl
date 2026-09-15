@@ -11,7 +11,8 @@ def evaluate_case(map_path, stats, seed, attacker, max_waves, max_ticks):
     world = R.TrainingCampaign(map_path, stats, seed, attacker=attacker)
     initial_hash = world.diagnostic_state_hash
     waves = []
-    attack, defense = Counter(), Counter()
+    attack, defense, coverage = Counter(), Counter(), Counter()
+    total_coverage = Counter()
     start = world.tick
     defeated = False
     while world.wave <= max_waves and world.tick < max_ticks and not defeated:
@@ -19,20 +20,34 @@ def evaluate_case(map_path, stats, seed, attacker, max_waves, max_ticks):
         result = world.advance_scripted(min(20, max_ticks - world.tick))
         attack.update(result['attacker_tally'])
         defense.update(result['defender_tally'])
+        coverage.update(result['controller_coverage'])
+        total_coverage.update(result['controller_coverage'])
         defeated = result['defeated']
         if result['wave_advanced'] or defeated or world.tick == max_ticks:
             waves.append(dict(wave=wave, start_tick=start, end_tick=world.tick,
                 keep_destroyed=defeated, wave_complete=result['wave_advanced'],
                 attacker=dict(attack), defender=dict(defense),
+                controller_coverage=summarize_coverage(coverage),
                 city=world.diagnostic_city(),
                 state_hash=world.diagnostic_state_hash))
             start = world.tick
             attack.clear()
             defense.clear()
+            coverage.clear()
     return dict(map=map_path, seed=seed, initial_hash=initial_hash,
+        controller=('frozen_policy_with_script_fallback' if attacker is not None else 'product_script'),
+        controller_coverage=summarize_coverage(total_coverage),
         keep_destroyed=defeated, end=('keep_destroyed' if defeated else
             'wave_limit' if world.wave > max_waves else 'tick_limit'),
         final_wave=world.wave, final_tick=world.tick, waves=waves)
+
+
+def summarize_coverage(counts):
+    eligible = counts.get('model_eligible_unit_ticks', 0)
+    script = counts.get('script_combat_unit_ticks', 0)
+    return dict(counts, model_eligible_fraction=eligible/(eligible+script) if eligible+script else None,
+                mode=('no_combat' if not eligible+script else 'script_only' if not eligible else
+                      'model_supported' if not script else 'mixed'))
 
 
 def main():
@@ -71,13 +86,15 @@ def main():
                 if sha256(path) != item['sha256']:
                     raise ValueError(f'Evaluation input changed: {path}')
 
-    report = dict(complete=False, rows=[], report_version=2, model_sha256=model['sha256'],
+    report = dict(complete=False, rows=[], report_version=3, model_sha256=model['sha256'],
         simulation=R.SIMULATION_FINGERPRINT, native_build_mode=R.BUILD_MODE,
         stats_sha256=stats['sha256'], inputs=inputs,
         maps={p:item['sha256'] for p,item in maps.items()}, seeds=args.seeds,
         max_waves=args.max_waves, max_ticks=args.max_ticks,
         evaluator_sha256=sha256(__file__),
         scope='Product controller comparison: normal cadence, script fallback outside model support',
+        coverage_semantics='Per-wave pre-tick live combat unit exposure during assault; '
+                           'model eligibility is not proof of an issued action or cooperation. Scouts excluded.',
         city_units='Resources, population, levels and HP are native integers; keep_hp_fraction is a ratio',
         interpretation='Wave/tick limits are censored, not final attacker losses; damage is not destruction')
     atomic_json(output / 'report.json', report)
