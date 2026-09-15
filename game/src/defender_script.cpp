@@ -87,6 +87,7 @@ struct CityBounds {
 CityBounds city_bounds(const rts::WorldView& v) {
     CityBounds b{v.width(),-1,v.height(),-1};
     for(std::size_t k=0;k<v.bld_type().size();++k) {
+        if(!v.bld_alive()[k]) continue;
         if(v.bld_type()[k]!=rts::BldType::Wall && v.bld_type()[k]!=rts::BldType::Gate) continue;
         const auto p=v.bld_pos()[k];b.l=std::min(b.l,int(p.i));b.r=std::max(b.r,int(p.i));b.t=std::min(b.t,int(p.j));b.b=std::max(b.b,int(p.j));
     }
@@ -97,18 +98,12 @@ rts::UnitAction safe_worker(const rts::WorldView& v,std::size_t slot,std::uint16
                             std::vector<std::size_t>& claimed,const rts::GridPos* manual=nullptr,
                             const ManualOrder* forced=nullptr) {
     const int w=v.width(),h=v.height(),n=w*h;
-    const auto here=rts::grid_of(v.unit_pos()[slot]);const auto bounds=city_bounds(v);const bool inside=bounds.contains(here);
-    bool outside_safe=v.phase()==rts::WavePhase::Build;
-    for(std::size_t u=0;u<v.unit_pos().size();++u) if(v.unit_alive()[u] && rts::side_of(v.unit_type()[u])==rts::Side::Attacker && rts::is_combat(v.unit_type()[u])) {
-        const auto p=v.unit_pos()[u];
-        if(p.x>float(bounds.l)-10 && p.x<float(bounds.r)+10 && p.y>float(bounds.t)-10 && p.y<float(bounds.b)+10) outside_safe=false;
-    }
-    if (forced) outside_safe = true;
+    const auto here=rts::grid_of(v.unit_pos()[slot]);const auto bounds=city_bounds(v);
     const auto idx=[&](rts::GridPos p){return int(p.j)*w+int(p.i);};
     const auto cell=[&](int c){return rts::GridPos{static_cast<std::int16_t>(c%w),static_cast<std::int16_t>(c/w)};};
     std::vector<unsigned char> open(static_cast<std::size_t>(n),0);
     std::vector<float> risk(static_cast<std::size_t>(n),0);
-    for(int c=0;c<n;++c) if(v.terrain().passable(c%w,c/w) && (!inside || outside_safe || bounds.contains(cell(c)))) open[static_cast<std::size_t>(c)]=1;
+    for(int c=0;c<n;++c) if(v.terrain().passable(c%w,c/w)) open[static_cast<std::size_t>(c)]=1;
     for(std::size_t b=0;b<v.bld_pos().size();++b) if(v.bld_alive()[b] && !(v.bld_type()[b]==rts::BldType::Gate && v.bld_built()[b])) open[static_cast<std::size_t>(idx(v.bld_pos()[b]))]=0;
     for(std::size_t b=0;b<v.obstacle_pos().size();++b) if(v.obstacle_alive()[b]) open[static_cast<std::size_t>(idx(v.obstacle_pos()[b]))]=0;
     for(std::size_t e=0;e<v.unit_pos().size();++e) {
@@ -132,6 +127,9 @@ rts::UnitAction safe_worker(const rts::WorldView& v,std::size_t slot,std::uint16
             const auto delta=rts::move_delta(a);const int x=c%w+delta.di,y=c/w+delta.dj;
             if(x<0||y<0||x>=w||y>=h) continue;
             const int next=y*w+x;if(!open[static_cast<std::size_t>(next)]) continue;
+            // A safe worker must not cross danger just to reach a safe job.
+            // Workers already in danger retain escape paths; forced work opts out.
+            if(!forced && risk[static_cast<std::size_t>(start)]==0 && risk[static_cast<std::size_t>(next)]>0) continue;
             const float nd=d+1+(forced?0:1000*risk[static_cast<std::size_t>(next)]);
             if(nd<cost[static_cast<std::size_t>(next)]) {cost[static_cast<std::size_t>(next)]=nd;first[static_cast<std::size_t>(next)]=c==start?a:first[static_cast<std::size_t>(c)];q.push({nd,next});}
         }
@@ -145,9 +143,9 @@ rts::UnitAction safe_worker(const rts::WorldView& v,std::size_t slot,std::uint16
         for(int y=std::max(0,int(bp.j)-2);y<std::min(h,int(bp.j)+3);++y) for(int x=std::max(0,int(bp.i)-2);x<std::min(w,int(bp.i)+3);++x) {
             const int c=y*w+x;
             const bool wall=v.bld_type()[b]==rts::BldType::Wall || v.bld_type()[b]==rts::BldType::Gate;
-            if((!forced && (((!outside_safe || wall) && !bounds.contains(cell(c))) || risk[static_cast<std::size_t>(c)]>0)) || !open[static_cast<std::size_t>(c)] || dist2(rts::center_of(cell(c)),rts::center_of(bp))>radius*radius) continue;
+            if((!forced && risk[static_cast<std::size_t>(c)]>0) || !open[static_cast<std::size_t>(c)] || dist2(rts::center_of(cell(c)),rts::center_of(bp))>radius*radius) continue;
             if(c==start && dist2(v.unit_pos()[slot],rts::center_of(bp))>radius*radius) continue;
-            const float score=cost[static_cast<std::size_t>(c)]+(std::find(claimed.begin(),claimed.end(),b)!=claimed.end()?100.0f:0.0f);
+            const float score=cost[static_cast<std::size_t>(c)]+(wall && !bounds.contains(cell(c))?4.0f:0.0f)+(std::find(claimed.begin(),claimed.end(),b)!=claimed.end()?100.0f:0.0f);
             if(score<best) {best=score;goal=c;job=b;}
         }
     }

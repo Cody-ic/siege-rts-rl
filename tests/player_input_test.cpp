@@ -15,11 +15,30 @@
 
 #include "game/iso_projection.hpp"
 #include "game/player_input.hpp"
+#include "game/selection_cycle.hpp"
 #include "game/stats_loader.hpp"
 #include "rts/roster.hpp"
 #include "rts/stats.hpp"
 #include "rts/world.hpp"
 #include "rts/world_view.hpp"
+
+TEST_CASE("Overlapping buildings cycle and reset after movement or candidate changes", "[input]") {
+    game::SelectionCycle cycle;
+    const rts::GridPos barrack{3,4},keep{3,3};
+    const std::vector<rts::GridPos> hits{barrack,keep};
+    const rts::Vec2 mouse{100,100};
+    CHECK(cycle.select(hits,mouse,mouse)==barrack);
+    CHECK(cycle.select(hits,mouse,mouse)==keep);
+    CHECK(cycle.select(hits,mouse,mouse)==barrack);
+    cycle.observe({110,100},mouse); // Moving away and back resets, even without a click.
+    CHECK(cycle.select(hits,mouse,mouse)==barrack);
+    CHECK(cycle.select(hits,mouse,mouse)==keep);
+    cycle.observe(mouse,{120,100}); // Camera moved under stationary pointer.
+    CHECK(cycle.select(hits,mouse,mouse)==barrack);
+    CHECK(cycle.select({keep},mouse,mouse)==keep);
+    CHECK_FALSE(cycle.select({},mouse,mouse));
+    CHECK(cycle.select(hits,mouse,mouse)==barrack);
+}
 
 namespace {
 
