@@ -19,7 +19,7 @@ if(DEFINED CMAKE_BUILD_TYPE)
 endif()
 
 project(siege_rts_rl
-        VERSION 0.1.0
+        VERSION 1.0.0
         DESCRIPTION "不对称波次生存 RTS：玩家守城，RL 驱动攻方"
         LANGUAGES CXX)
 
@@ -106,6 +106,13 @@ endif()
 if(RTS_BUILD_RENDER)
     if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/render/CMakeLists.txt")
         add_subdirectory(render)
+        if(MSVC)
+            enable_language(RC)
+            add_executable(sanctum_launcher WIN32 tools/release/launcher.cpp tools/release/launcher.rc)
+            target_compile_options(sanctum_launcher PRIVATE /utf-8)
+            target_link_libraries(sanctum_launcher PRIVATE user32)
+            set_property(TARGET sanctum_launcher PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+        endif()
     else()
         message(FATAL_ERROR "RTS_BUILD_RENDER=ON，但 render/ 尚未建立。前端还没开工。")
     endif()
