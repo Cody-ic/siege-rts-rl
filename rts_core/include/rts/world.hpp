@@ -715,8 +715,16 @@ public:
         std::int32_t units_killed = 0;   // 击杀的敌方单位数
         std::int32_t blds_destroyed = 0;
         std::int64_t bld_value = 0;      // 摧毁建筑的重建成本之和（石 + 木）
-        std::int32_t scouts_killed = 0;  // 击杀的敌方侦查单位（Scout / Wraith）
+        std::int32_t scouts_killed = 0;  // Legacy: all noncombat kills (including Mason)
         std::int64_t losses = 0;         // 自身损失（阵亡单位的满血之和）
+        // Audit-only counters: no implicit reward weights. Legacy scouts_killed
+        // retains its historical noncombat semantics for old reward recipes.
+        std::int64_t scout_units_killed = 0;
+        std::int64_t masons_killed = 0;
+        std::int64_t phoenix_losses = 0;
+        std::int64_t enemy_unit_gold = 0;
+        std::int64_t repair_wood_spent = 0;
+
     };
 
     // 读走并清零（`train/` 每步一次）。清零是为了让它天然是「这一步的增量」

@@ -6,7 +6,12 @@ namespace {
 rts::World::Tally difference(const rts::World::Tally& a,const rts::World::Tally& b) {
     return {a.dmg_to_units-b.dmg_to_units,a.dmg_to_blds-b.dmg_to_blds,
         a.units_killed-b.units_killed,a.blds_destroyed-b.blds_destroyed,
-        a.bld_value-b.bld_value,a.scouts_killed-b.scouts_killed,a.losses-b.losses};
+        a.bld_value-b.bld_value,a.scouts_killed-b.scouts_killed,a.losses-b.losses,
+        a.scout_units_killed-b.scout_units_killed,
+        a.masons_killed-b.masons_killed,
+        a.phoenix_losses-b.phoenix_losses,
+        a.enemy_unit_gold-b.enemy_unit_gold,
+        a.repair_wood_spent-b.repair_wood_spent};
 }
 }
 TrainingCampaign::TrainingCampaign(const MapData& map,const rts::StatsTable& stats,

@@ -95,6 +95,7 @@ def main():
                         raise ValueError('Evaluation checkpoint changed')
                     rows.append(dict(arm=arm, map=path, level=level, wins=result['wins'],
                                      episodes=result['episodes'], value=result['mean_building_value'],
+                                     outcomes=result['outcomes'],
                                      report_sha256=sha(report)))
                     write('evaluation-progress.json', rows)
         checks = {}
@@ -103,8 +104,12 @@ def main():
                      for r in rows if r['arm'] == 'anchored']
             checks[baseline] = all(r['wins'] >= b['wins'] and r['value'] >= b['value'] for r, b in pairs) and any(
                 r['wins'] > b['wins'] or r['value'] > b['value'] for r, b in pairs)
-        write('summary.json', dict(rows=rows, gate_by_baseline=checks, pilot_gate_passed=all(checks.values()), deployed=False))
-        write('status.json', dict(status='complete', pid=os.getpid(), pilot_gate_passed=all(checks.values()), deployed=False))
+        write('summary.json', dict(rows=rows, gate_by_baseline=checks, pilot_gate_passed=all(checks.values()), deployed=False,
+                                    campaign_validation_required=True,
+                                    gate_scope='Legacy single-wave screen only; does not establish campaign superiority'))
+        write('status.json', dict(status='complete', pid=os.getpid(), pilot_gate_passed=all(checks.values()), deployed=False,
+                                    campaign_validation_required=True,
+                                    gate_scope='Legacy single-wave screen only; does not establish campaign superiority'))
     except Exception as error:
         write('status.json', dict(status='failed', pid=os.getpid(), error=str(error)))
         traceback.print_exc()

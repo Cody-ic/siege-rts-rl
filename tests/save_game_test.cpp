@@ -1,3 +1,4 @@
+#include "rts/utf8_path.hpp"
 #include <catch2/catch_test_macros.hpp>
 #include "game/save_game.hpp"
 #include "game/map_loader.hpp"
@@ -13,8 +14,8 @@ struct Temp {
     Temp(){std::filesystem::create_directories(path);}
     ~Temp(){std::error_code ec;for(const auto& entry:std::filesystem::directory_iterator(path))std::filesystem::remove(entry.path(),ec);std::filesystem::remove(path,ec);}
 };
-std::string map_text(){return game::read_save_text(std::filesystem::path(GAME_DATA_DIR)/"demo_skirmish.json");}
-std::string stats_text(){return game::read_save_text(std::filesystem::path(GAME_DATA_DIR)/"stats_placeholder.json");}
+std::string map_text(){return game::read_save_text(rts::path_from_utf8(GAME_DATA_DIR)/"demo_skirmish.json");}
+std::string stats_text(){return game::read_save_text(rts::path_from_utf8(GAME_DATA_DIR)/"stats_placeholder.json");}
 game::GameShell shell(){return {game::MapLoader::from_string(map_text()),game::StatsLoader::from_string(stats_text()),7};}
 }
 TEST_CASE("Policy save directories isolate controller combinations", "[savepath]") {
@@ -73,7 +74,7 @@ TEST_CASE("日记跨进程式重读不倒退且有备份", "[save]") {
 }
 TEST_CASE("跨多波战斗与宏观操作恢复后仍继续一致", "[save]") {
     Temp temp;
-    const auto text=game::read_save_text(std::filesystem::path(GAME_DATA_DIR)/"maps/pool/gen_01001000.json");
+    const auto text=game::read_save_text(rts::path_from_utf8(GAME_DATA_DIR)/"maps/pool/gen_01001000.json");
     const auto map=game::MapLoader::from_string(text);
     game::GameShell original(map,game::StatsLoader::from_string(stats_text()),1);
     original.apply(game::MenuAction::StartNew);
