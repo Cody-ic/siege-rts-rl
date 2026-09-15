@@ -1,5 +1,7 @@
 # 攻方 RL 训练与恢复
 
+2026-09-14：[pooled / entity 对照评估](../docs/rl-entity-assessment-20260914.md)记录共同回报预测、动作分布和超时复查结果，以及下一轮实验建议；尚未部署新模型。
+
 ## 2026-09-13 复盘修正
 
 learner version 9 将 `dmg_to_units`、`units_killed` 及侦察/工匠击杀限制为敌军。
