@@ -315,6 +315,9 @@ bool parse(const std::vector<std::string>& args, Options& out) {
             const std::string* v=next("--defender-policy");
             if(!v || v->empty()) return false;
             out.defender_policy_path=*v;
+        } else if (a == "--placement-preview") {
+            out.placement_shot=true;
+            out.battle=true;
         } else if (a == "--battle") {
             out.battle = true;
         } else if (a == "--menu") {

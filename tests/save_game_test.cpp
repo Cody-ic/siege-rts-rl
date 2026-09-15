@@ -85,6 +85,39 @@ TEST_CASE("Policy save directories isolate controller combinations", "[savepath]
     REQUIRE(game::policy_save_directory(base,"123","456")!=game::policy_save_directory(base,"123","789"));
 }
 
+TEST_CASE("Forced work survives snapshots and operation-log recovery", "[save]") {
+    auto original=shell(); original.apply(game::MenuAction::StartNew);
+    auto& battle=*original.battle();
+    const auto view=battle.world().view(rts::Side::Defender);
+    rts::GridPos target{};
+    bool found=false;
+    for(int y=0;y<view.height() && !found;++y) for(int x=0;x<view.width() && !found;++x) {
+        const rts::GridPos p{static_cast<std::int16_t>(x),static_cast<std::int16_t>(y)};
+        if(game::can_place_hint(view,rts::BldType::Wall,p)) {target=p;found=true;}
+    }
+    REQUIRE(found);
+    const auto command=game::build_command(rts::BldType::Wall,target,view.width());
+    battle.submit_defender(&command,1); battle.update(1);
+    std::vector<rts::UnitId> ids; battle.world().enumerate_units(rts::Side::Defender,ids);
+    REQUIRE(battle.issue_forced_work(ids,target));
+    auto archive=game::capture_battle(original,map_text(),stats_text());
+    auto snapshot=game::restore_battle(archive);
+    archive.snapshot.clear();
+    auto replay=game::restore_battle(archive);
+    bool has_forced=false;
+    for(const auto id:ids) if(battle.forced_work_active(id)) {
+        has_forced=true;
+        REQUIRE(snapshot->forced_work_active(id));
+        REQUIRE(replay->forced_work_active(id));
+    }
+    REQUIRE(has_forced);
+    for(int i=0;i<20;++i) {
+        battle.update(10);snapshot->update(10);replay->update(10);
+        REQUIRE(battle.world().state_hash()==snapshot->world().state_hash());
+        REQUIRE(battle.world().state_hash()==replay->world().state_hash());
+    }
+}
+
 TEST_CASE("存档还原临时指令、待执行命令、战斗及后续确定性", "[save]") {
     Temp temp;auto original=shell();original.apply(game::MenuAction::StartNew);
     auto& battle=*original.battle();battle.update(2);
