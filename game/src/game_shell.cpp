@@ -64,7 +64,7 @@ void GameShell::go_(Screen s) {
     switch (s) {
         case Screen::Main:
             menu_.reset(main_menu_items(/*can_resume=*/battle_ &&
-                                        !battle_->defeated() && !chronicle_.completed()));
+                                        !battle_->defeated() && !chronicle_.completed(), policy_ != nullptr));
             break;
         case Screen::Paused:
             menu_.reset(pause_menu_items());
@@ -98,6 +98,7 @@ void GameShell::apply(MenuAction a) {
     switch (a) {
         case MenuAction::None:
         case MenuAction::Save: // 磁盘 IO 属于前端；状态机保持当前屏
+        case MenuAction::AttackerStrategy:
             break;
         case MenuAction::StartNew:
         case MenuAction::Restart:

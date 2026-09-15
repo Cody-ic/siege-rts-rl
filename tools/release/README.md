@@ -7,7 +7,8 @@ portable archive has only `圣城.exe`, `游戏数据/`, and `开始游玩.txt` 
 `package_windows.py` copies an explicit allowlist, not the checkout. Supply the
 build directory, compiled launcher, licensed regular-weight TTF, its license,
 MSVC x64 redistributable CRT directory, raylib and nlohmann/json licenses, output
-directory and version. Run `python tools/release/package_windows.py --help` for
+directory, version and a validated attacker ONNX model (`--attacker-model`).
+Run `python tools/release/package_windows.py --help` for
 the required arguments. Existing package directories/ZIPs are refused. Generated
 packages belong outside tracked source paths.
 
@@ -33,7 +34,13 @@ Confirm the log discovers the extracted assets rather than development paths.
 The launcher never needs administrator rights, Python or a compiler. It writes
 its diagnostic log under `%LOCALAPPDATA%/SiegeRTS/launcher.log`.
 
-The official player package defaults to the scripted attacker. Merging the RL
-source does not promote an experimental model. Release saves use v6, combining
+Version 1.0.1 includes the team's selected current RL result in
+`游戏数据/models/attacker.onnx`. The main menu switches between scripted and RL
+attackers, saving before reloading the corresponding campaign. RL saves are
+separated by model identity, including when using `--save-dir`. Each launch
+initially selects script; selecting RL restores its own campaign. Unsupported
+unit types and levels retain scripted control. No further training is required
+to play. Check the bundled model provenance in the release notes.
+Release saves use v6, combining
 worker orders, Phoenix lifecycle and optional policy state. Earlier v3/v4/v5
 saves are rejected with legacy backup; no migration is claimed.

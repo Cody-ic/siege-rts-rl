@@ -168,6 +168,8 @@ struct Options {
     std::string font_path;       // 非空 = 只用这个字体，不试候选
     std::string stats_path;      // 游戏模式必需：JSON 数值表
     std::string rl_policy_path;
+    std::string rl_menu_path;
+    int strategy_smoke = 0;
     std::string defender_policy_path;
     bool verify_assets = false;  // 只校验素材，不渲场景
     bool battle = false;         // 游戏模式，且**跳过主菜单**直接开局
@@ -326,6 +328,10 @@ bool parse(const std::vector<std::string>& args, Options& out) {
             out.placement_shot=true;
             out.battle=true;
 
+        } else if (a == "--strategy-smoke") {
+            const auto* v=next("--strategy-smoke");
+            if(!v || v->empty()) return false;
+            out.rl_menu_path=*v;out.strategy_smoke=2;out.menu=true;
         } else if (a == "--rl-policy") {
             const std::string* v=next("--rl-policy");
             if(!v) return false;
@@ -375,6 +381,7 @@ bool parse(const std::vector<std::string>& args, Options& out) {
         }
     }
     if(out.placement_shot && out.screenshot.empty()) return false;
+    if(out.strategy_smoke && (out.screenshot.empty() || out.battle || !out.screen.empty())) return false;
     if(out.inspect_x>=0 && (out.screenshot.empty() || !out.battle)) {std::fprintf(stderr,"--inspect requires --battle --screenshot\n");return false;}
     if(out.developer_wave>0 && out.screenshot.empty()) return false;
     if((out.screen=="developer" || out.guide_entry!=0 || out.guide_level!=1 || out.guide_bottom) && out.screenshot.empty()) return false;
@@ -1050,7 +1057,8 @@ std::string screen_subtitle(const game::GameShell& shell) {
     return {};
 }
 
-int run_game(const Options& opt) {
+int run_game(Options& opt) {
+    bool strategy_changed = false;
     // 地图与数值表**完全不碰图形**，所以在开窗之前读——数据坏了不该先弹一个窗。
     const bool persistent=opt.screenshot.empty();
     std::filesystem::path save_dir;
@@ -1060,7 +1068,7 @@ int run_game(const Options& opt) {
     if(persistent) {
         try {
             save_dir=opt.save_dir.empty()?game::default_save_directory():rts::path_from_utf8(opt.save_dir);
-            if(opt.save_dir.empty()) {
+            {
                 const auto attacker=opt.rl_policy_path.empty()?std::string{}:game::TacticalPolicy::file_identity(opt.rl_policy_path);
                 const auto defender=opt.defender_policy_path.empty()?std::string{}:
                     game::TacticalPolicy::file_identity(rts::utf8_from_path(rts::path_from_utf8(opt.defender_policy_path)/"manifest.json"));
@@ -1374,6 +1382,36 @@ int run_game(const Options& opt) {
         return saved;
     };
     const auto apply_menu=[&](game::MenuAction action) {
+        if(action==game::MenuAction::AttackerStrategy) {
+            if(shell.screen()!=game::Screen::Main || !save_now()) return;
+            if(opt.rl_policy_path.empty()) {
+                if(!game::TacticalPolicy::runtime_available()) {
+                    storage_status="当前版本不支持 RL，请使用正式发布版";
+                    storage_notice_until=GetTime()+12;return;
+                }
+                auto path=opt.rl_menu_path;
+                if(path.empty()) path=render::pick_attacker_policy();
+                if(path.empty()) return;
+                try {
+                    // Check against the new-game rules before leaving the current session.
+                    const auto rules=game::StatsLoader::from_string(game::read_save_text(rts::path_from_utf8(opt.stats_path)));
+                    game::TacticalPolicy checked(path,rules.fingerprint());
+                    opt.rl_menu_path=path;
+                } catch(const std::exception& e) {
+                    storage_status="RL 模型不兼容，仍使用脚本；详情见日志";
+                    storage_notice_until=GetTime()+12;
+                    std::fprintf(stderr,"RL import: %s\n",e.what());return;
+                }
+                opt.rl_policy_path=path;
+            } else {
+                opt.rl_menu_path=opt.rl_policy_path;
+                opt.rl_policy_path.clear();
+            }
+            strategy_changed=true;
+            opt.battle=false;
+            opt.screen.clear();
+            return;
+        }
         if(action==game::MenuAction::Save) save_now();
         else {
             if(action==game::MenuAction::Quit && !save_now()) return;
@@ -1846,7 +1884,10 @@ int run_game(const Options& opt) {
         }
         const ScreenText st = screen_text(shell.screen());
         const std::string sub = screen_subtitle(shell);
-        const render::MenuView::Chrome chrome{st.title, sub, st.footer,
+        const auto footer=shell.screen()==game::Screen::Main
+            ? (tactical_policy ? "RL 与脚本协同   /   两种策略分别保存进度"
+                               : "点击策略切换   /   两种策略分别保存进度") : st.footer;
+        const render::MenuView::Chrome chrome{st.title, sub, footer,
                                               align_of(shell.screen())};
         if (shell.screen() == game::Screen::Help) {
             menu_view.draw_help(shell.menu(), chrome, vp);
@@ -1857,6 +1898,14 @@ int run_game(const Options& opt) {
             font->draw(storage_status,{24,vp.y-28},18,Color{239,217,165,255});
     };
 
+    if(opt.strategy_smoke>0) {
+        --opt.strategy_smoke;
+        apply_menu(game::MenuAction::AttackerStrategy);
+        CloseWindow();
+        if(!strategy_changed) throw std::runtime_error("Menu strategy switch failed");
+        std::fprintf(stderr,"Menu strategy switch: %s\n",opt.rl_policy_path.empty()?"script":"RL");
+        return 5;
+    }
     if (!opt.screenshot.empty()) {
         // 截图模式：先把仿真推到要看的那一刻，再渲一帧导出。**逐 tick 推**
         // （不是一步推完）：侦查警报的状态要跟每个 tick 同步走，否则截图会
@@ -1915,7 +1964,7 @@ int run_game(const Options& opt) {
     double acc = 0.0;
     const double kTickDt = 1.0 / static_cast<double>(rts::kTicksPerSecond);
 
-    while (!WindowShouldClose() && !shell.quitting()) {
+    while (!WindowShouldClose() && !shell.quitting() && !strategy_changed) {
         const Vector2 vp{static_cast<float>(GetScreenWidth()),
                          static_cast<float>(GetScreenHeight())};
         if (IsWindowResized()) cam.set_viewport(vp);
@@ -2403,7 +2452,7 @@ int run_game(const Options& opt) {
     }
     const bool saved_on_exit=save_now();
     CloseWindow();
-    return saved_on_exit?0:3;
+    return saved_on_exit?(strategy_changed?5:0):3;
 }
 
 // 真正的入口。**约定：进来的每一条参数都是 UTF-8**，由 `cli_entry.cpp` 保证。
@@ -2418,6 +2467,10 @@ int cli_main_impl(const std::vector<std::string>& args) {
     const bool game_mode = opt.battle || opt.menu || !opt.rl_policy_path.empty() || !opt.defender_policy_path.empty() ||
                            (!opt.verify_assets && opt.map_path.empty());
     const std::string argv0 = args.empty() ? std::string() : args[0];
+    if(!argv0.empty() && opt.rl_menu_path.empty()) {
+        const auto bundled=rts::path_from_utf8(argv0).parent_path()/"models"/"attacker.onnx";
+        if(std::filesystem::is_regular_file(bundled)) opt.rl_menu_path=rts::utf8_from_path(bundled);
+    }
     std::string err;
     if (!resolve_paths(opt, argv0, /*need_map=*/!opt.verify_assets,
                        /*need_stats=*/game_mode, err)) {
@@ -2426,7 +2479,10 @@ int cli_main_impl(const std::vector<std::string>& args) {
     }
     try {
         if (opt.verify_assets) return run_verify(opt);
-        return game_mode ? run_game(opt) : run(opt);
+        if(!game_mode) return run(opt);
+        int result=0;
+        do { result=run_game(opt); } while(result==5);
+        return result;
     } catch (const std::exception& e) {
         // 地图格式错、素材缺失、字体缺字都走这里。**打完整信息再退非零**——
         // 这几类失败的报错里带着「哪个文件、哪个字段、哪个字符、哪些可选值」，

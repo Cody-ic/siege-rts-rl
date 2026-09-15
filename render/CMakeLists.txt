@@ -98,6 +98,9 @@ rts_set_warnings(render_lib)
 
 add_executable(rts_render src/main.cpp src/cli_entry.cpp)
 target_link_libraries(rts_render PRIVATE render_lib)
+if(WIN32)
+    target_link_libraries(rts_render PRIVATE comdlg32)
+endif()
 rts_copy_onnx_runtime(rts_render)
 rts_set_warnings(rts_render)
 
@@ -198,6 +201,17 @@ if(RTS_BUILD_TESTS)
                      --size 1100 700)
     set_tests_properties(render_help_shot PROPERTIES
                          WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    if(RTS_WITH_ONNX)
+        add_test(NAME render_strategy_roundtrip
+            COMMAND rts_render --strategy-smoke "${CMAKE_SOURCE_DIR}/game/testdata/rl_constant.onnx"
+                --screenshot "${CMAKE_CURRENT_BINARY_DIR}/strategy-roundtrip.png" --size 960 540)
+        add_test(NAME render_strategy_invalid_model
+            COMMAND rts_render --strategy-smoke "${CMAKE_SOURCE_DIR}/game/data/stats_placeholder.json"
+                --screenshot "${CMAKE_CURRENT_BINARY_DIR}/strategy-invalid.png" --size 960 540)
+        set_tests_properties(render_strategy_invalid_model PROPERTIES WILL_FAIL TRUE)
+        set_tests_properties(render_strategy_roundtrip render_strategy_invalid_model PROPERTIES
+            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    endif()
 
     # 屏名拼错必须红。少了它，`--screen hlep` 会安静地拍一张主菜单——
     # 而那张图看起来完全正常，正是「该红却绿」。

@@ -3,11 +3,13 @@
 ## 下载游玩
 
 前往 [GitHub Releases](https://github.com/Cody-ic/siege-rts-rl/releases/latest)，下载
-`Sanctum-1.0.0-Windows-x64.zip`，选择“全部解压”，双击 **圣城.exe**。
+`Sanctum-1.0.1-Windows-x64.zip`，选择“全部解压”，双击 **圣城.exe**。
 玩家无需下载 Source code、安装 Python 或编译工程。支持 Windows 10/11 x64，
 需要 OpenGL 3.3 显卡驱动。仓库仍为私有时，下载需要项目访问权限。
 
-正式包默认使用脚本攻方；RL 训练和可选推理代码保留在源码中，实验权重未设为默认。
+主菜单点击“攻方策略”可切换脚本 / RL，发布包内置项目当前选定的训练成果。
+每次启动默认脚本；切换前自动保存，两种策略分别继续自己的存档。
+RL 控制模型支持的兵种与等级，其余单位保留脚本行为，无需安装 Python 或训练。
 新开局重置剧情，继续存档恢复本局进度。正式版存档 v6 与此前分支版本不兼容，
 旧文件会保留备份，请使用对应旧版继续旧局。打包说明见 [tools/release](tools/release/README.md)。
 
