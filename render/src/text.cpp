@@ -139,6 +139,7 @@ std::vector<std::string> FontSet::font_candidates() {
     return {
         "C:/Windows/Fonts/simhei.ttf",   // 黑体
         "C:/Windows/Fonts/Deng.ttf",     // 等线（Windows 10 起自带）
+        "NotoSansSC.ttf",                // 发布启动器将工作目录设为游戏数据；仅作后备
     };
 }
 

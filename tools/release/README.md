@@ -11,7 +11,14 @@ directory and version. Run `python tools/release/package_windows.py --help` for
 the required arguments. Existing package directories/ZIPs are refused. Generated
 packages belong outside tracked source paths.
 
-The 1.0.0 font is Noto Sans SC from Google Fonts
+The launcher preserves the engineering build's default font priority: installed
+SimHei, then DengXian. It does not force a different font or change UI sizes.
+If neither system font loads, the renderer tries `NotoSansSC.ttf` in its working
+directory; the launcher always sets this to the packaged game data directory.
+Explicit `--font` still overrides this selection and fails on invalid fonts.
+Microsoft fonts are not redistributed.
+
+The bundled fallback font is Noto Sans SC from Google Fonts
 (`https://github.com/google/fonts/tree/main/ofl/notosanssc`), SIL OFL 1.1.
 Instantiate its `wght` axis at 400 using fontTools before packaging; the variable
 font's default weight is too thin for this UI. Keep its OFL notice in the package.
