@@ -19,7 +19,7 @@ if(DEFINED CMAKE_BUILD_TYPE)
 endif()
 
 project(siege_rts_rl
-        VERSION 1.0.0
+        VERSION 1.0.1
         DESCRIPTION "不对称波次生存 RTS：玩家守城，RL 驱动攻方"
         LANGUAGES CXX)
 

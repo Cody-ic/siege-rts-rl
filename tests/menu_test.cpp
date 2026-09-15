@@ -15,6 +15,7 @@
 #include "game/game_shell.hpp"
 #include "game/map_loader.hpp"
 #include "game/menu_model.hpp"
+#include "game/rl_policy.hpp"
 #include "game/stats_loader.hpp"
 
 namespace {
@@ -45,6 +46,27 @@ bool enabled(const game::MenuModel& m, game::MenuAction a) {
 }
 
 }  // namespace
+
+TEST_CASE("Strategy menu reflects the active controller and preserves a pending battle", "[menu][rlpolicy]") {
+    auto shell=make_shell();
+    const auto index=index_of(shell.menu(),game::MenuAction::AttackerStrategy);
+    REQUIRE(index>=0);
+    REQUIRE(shell.menu().items()[static_cast<std::size_t>(index)].label=="攻方策略：脚本");
+    shell.apply(game::MenuAction::StartNew);
+    shell.battle()->update(20);
+    shell.apply(game::MenuAction::ToMain);
+    shell.apply(game::MenuAction::AttackerStrategy);
+    REQUIRE(shell.battle()->world().now()==20);
+    REQUIRE(shell.screen()==game::Screen::Main);
+    if(game::TacticalPolicy::runtime_available()) {
+        auto policy=std::make_shared<game::TacticalPolicy>(std::string(GAME_TESTDATA_DIR)+"/rl_constant.onnx",demo_stats().fingerprint());
+        game::GameShell rl(demo_map(),demo_stats(),7,policy);
+        const auto item=index_of(rl.menu(),game::MenuAction::AttackerStrategy);
+        REQUIRE(rl.menu().items()[static_cast<std::size_t>(item)].label=="攻方策略：RL");
+        rl.apply(game::MenuAction::StartNew);
+        REQUIRE(rl.battle()->tactical_policy_identity()==policy->identity());
+    }
+}
 
 TEST_CASE("菜单导航：跳过禁用项、到头环绕", "[menu]") {
     game::MenuModel m(std::vector<game::MenuItem>{

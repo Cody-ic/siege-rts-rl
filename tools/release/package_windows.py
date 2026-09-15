@@ -22,7 +22,8 @@ def main():
     parser.add_argument('--raylib-license', type=Path, required=True)
     parser.add_argument('--json-license', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--version', default='1.0.0')
+    parser.add_argument('--attacker-model', type=Path, required=True)
+    parser.add_argument('--version', default='1.0.1')
     args=parser.parse_args()
     repo=Path(__file__).resolve().parents[2]
     root=args.output/f'Sanctum-{args.version}-Windows-x64'
@@ -35,6 +36,7 @@ def main():
     binary=args.build/'render/Release/rts_render.exe'
     copy(args.launcher,root/'圣城.exe')
     copy(binary,data/'rts_render.exe')
+    copy(args.attacker_model,data/'models/attacker.onnx')
     copy(args.font,data/'NotoSansSC.ttf')
     copy(args.font_license,data/'licenses/NotoSansSC-OFL.txt')
     copy(args.raylib_license,data/'licenses/raylib-LICENSE.txt')
@@ -68,7 +70,9 @@ B 建造，Tab 切换建筑；拖动建墙；Shift + 右键强制抢修。
 
 存档与日志：%LOCALAPPDATA%\\SiegeRTS
 旧版存档不兼容时会保留备份，请使用对应旧版继续旧局。
-本发布版默认使用脚本攻方；未将实验 RL 权重设为默认。
+主菜单点击“攻方策略”可切换脚本 / RL，内置当前训练成果，无需安装 Python 或显卡计算环境。
+切换前自动保存，两种策略分别保存进度。首次启动默认脚本。
+RL 负责模型支持的兵种与等级，其他单位仍由脚本控制。
 
 如遇错误，请将“launcher.log”连同问题描述反馈给项目组。
 ''',encoding='utf-8-sig')

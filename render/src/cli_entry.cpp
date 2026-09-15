@@ -24,6 +24,7 @@
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <commdlg.h>
 
 namespace {
 
@@ -79,6 +80,19 @@ bool owns_console() {
 
 }  // namespace
 
+std::string render::pick_attacker_policy() {
+    wchar_t path[32768]{};
+    OPENFILENAMEW dialog{};
+    dialog.lStructSize = sizeof(dialog);
+    dialog.hwndOwner = GetActiveWindow();
+    dialog.lpstrFilter = L"RL ONNX model\0*.onnx\0\0";
+    dialog.lpstrFile = path;
+    dialog.nMaxFile = 32768;
+    dialog.lpstrTitle = L"选择攻方 RL 模型";
+    dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    return GetOpenFileNameW(&dialog) ? utf8_from_wide(path) : std::string{};
+}
+
 // 用 `wmain` 而不是 `GetCommandLineW` + `CommandLineToArgvW`：后者要链 shell32，
 // 且会自己重新解析一遍命令行（引号规则与 CRT 略有差别）。`wmain` 由 CRT 给出，
 // 分词与 `main` 完全一致，且只用到 kernel32 里的 `WideCharToMultiByte`。
@@ -126,6 +140,8 @@ int wmain(int argc, wchar_t** wargv) {
 }
 
 #else
+
+std::string render::pick_attacker_policy() { return {}; }
 
 // POSIX：`argv` 的字节就是文件系统的字节，而那边一律 UTF-8，无需转换。
 int main(int argc, char** argv) {

@@ -59,11 +59,12 @@ MenuAction MenuModel::action_at(int index) const noexcept {
 //     「当前这局会被丢掉」。
 //   * 与 HUD 用同一套词：暂停屏的「继续对局」对应 HUD 上的「已暂停」。
 
-std::vector<MenuItem> main_menu_items(bool can_resume) {
+std::vector<MenuItem> main_menu_items(bool can_resume, bool rl) {
     return {
         MenuItem{MenuAction::StartNew, "开始新对局", true},
         // 首次启动时它是灰的，**但仍然在**（见 `MenuItem::enabled` 的注释）。
         MenuItem{MenuAction::Resume, "继续对局", can_resume},
+        MenuItem{MenuAction::AttackerStrategy, rl ? "攻方策略：RL" : "攻方策略：脚本", true},
         MenuItem{MenuAction::Help, "操作说明", true},
         MenuItem{MenuAction::Guide, "图鉴", true},
         MenuItem{MenuAction::Quit, "退出游戏", true},
@@ -119,6 +120,7 @@ const std::vector<HelpEntry>& help_entries() {
     // 兵种等级上限（守方升级轴第三个输出）落地后加了一条：`[`/`]` 调征兵
     // 等级——持久值，只在征兵弹窗里用得上（`render/` 侧的状态）。
     static const std::vector<HelpEntry> kEntries = {
+        {"攻方策略", "主菜单切换脚本与 RL，切换前保存进度；模型范围外的兵种与等级由脚本接管"},
         {"M", "开启或关闭声音；暂停与阅读日记时停止战场音效"},
         {"士兵是自主的", "弓手自会登墙、枪卫堵口、游骑袭攻城锤、工匠找活、斥候巡逻"},
         {"左键拖拽", "空地起手框选；从墙上士兵起手则拖到目标格下墙参战"},
@@ -166,6 +168,7 @@ const std::vector<std::string_view>& all_menu_strings() {
         };
         take(main_menu_items(true));
         take(main_menu_items(false));
+        take(main_menu_items(true, true));
         take(pause_menu_items());
         take(defeat_menu_items());
         take(help_menu_items());

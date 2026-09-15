@@ -40,6 +40,8 @@ int cli_main(const std::vector<std::string>& args);
 // 「双击之后什么都没发生」——最查不出原因的一种失败。所以那一侧要能把这段文本
 // 弹成一个对话框，而它只能从这里取。
 const std::string& last_fatal_message();
+// Native model picker; cancellation returns an empty UTF-8 path.
+std::string pick_attacker_policy();
 
 }  // namespace render
 

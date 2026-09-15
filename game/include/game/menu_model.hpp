@@ -41,6 +41,7 @@ enum class MenuAction : std::uint8_t {
     ToMain,     // 回主菜单（丢掉当前对局）
     Quit,       // 退出程序
     Save,       // 由前端持久化当前完整对局
+    AttackerStrategy, // 切换攻方策略，由前端保存并重新载入对应对局
 };
 
 struct MenuItem {
@@ -91,7 +92,7 @@ private:
 //
 // 做成自由函数而不是 `GameShell` 的私有成员：`all_menu_strings()` 要能把它们
 // 全部遍历一遍才能把文案机械地收齐，而那是字体码点集合的输入。
-std::vector<MenuItem> main_menu_items(bool can_resume);
+std::vector<MenuItem> main_menu_items(bool can_resume, bool rl = false);
 std::vector<MenuItem> pause_menu_items();
 std::vector<MenuItem> defeat_menu_items();
 std::vector<MenuItem> help_menu_items();
