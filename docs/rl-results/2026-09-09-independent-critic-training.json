@@ -1,0 +1,3968 @@
+{
+  "plan_sha256": "d75a19a02930a8d2e47d9ee7d28681805358e1153b4a618944bd5d5afa54ccc6",
+  "plan_files_verified": true,
+  "arms": {
+    "shared": {
+      "checkpoint": "runs\\critic-isolation-shared-20260909\\frozen-update64.pt",
+      "sha256": "34aec58b655572e0751f6317b04d7b93e4d537a7ca9d00ad002d4f70661cd008",
+      "config": {
+        "threads": 4,
+        "torch_threads": 1,
+        "max_ticks": 2400,
+        "save_every": 1,
+        "target_kl": 0.03,
+        "envs": 8,
+        "ticks_per_step": 6,
+        "rollout": 64,
+        "total_steps": 32768,
+        "lr": 1e-05,
+        "gamma": 0.995,
+        "gae_lambda": 0.95,
+        "clip": 0.2,
+        "epochs": 2,
+        "minibatches": 4,
+        "ent_coef": 0.005,
+        "vf_coef": 0.5,
+        "value_features": "shared",
+        "reference_coef": 1.0,
+        "max_grad_norm": 0.5,
+        "seed": 1,
+        "reward_mode": "economic",
+        "win_reward": 2000.0,
+        "curriculum": [
+          1.0
+        ],
+        "promote_at": 0.6,
+        "promote_outcome_at": 0.25,
+        "promote_window": 100,
+        "map_path": "game/data/maps/pool/gen_01001000.json",
+        "map_pool": [
+          "game/data/maps/pool/gen_01001000.json",
+          "game/data/maps/pool/gen_01004000.json",
+          "game/data/maps/pool/gen_01005000.json",
+          "game/data/maps/pool/gen_01006001.json"
+        ],
+        "roster": "mixed",
+        "tactical_goals": "split-economy",
+        "levels": [
+          1,
+          4,
+          8,
+          16
+        ],
+        "defender": true,
+        "defender_macro_period": 4,
+        "defender_prepare_ticks": 900,
+        "stats_path": "game/data/stats_placeholder.json",
+        "device": "cpu"
+      },
+      "contract": {
+        "obs_version": 2,
+        "obs_fingerprint": 13173046946482585016,
+        "actions": 13,
+        "max_agents": 32,
+        "map_sha256": "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+        "stats_sha256": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+        "map_pool_sha256": [
+          "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+          "d11740be256d2666dc66318255efa4a7912744f47917f745ab920c572f56df45",
+          "7c43e2030fde2389cfc0784fd25410f21969e4b3f27911de798857e109f9a18d",
+          "7f32afd88e5dfdaea06cae08a9df2bf53d0169f7d9f3fbf89c909214b6fdd160"
+        ],
+        "simulation_fingerprint": "22ee6f2b6b018eaa1af3f96ad9607d3e941f43adb914ce9abe2aafb1b821ed65",
+        "native_build_mode": "Release",
+        "learner_version": 6,
+        "learner_sha256": {
+          "ppo.py": "0b1ccf6dba8c36951b9cec3842ec5daa238885d1da4bc9d444524f0ca8d9e995",
+          "learning.py": "04c647de5551ba2642fcb61f738b729d4b10c020e85f1908d35f3b7e2fef46a4",
+          "rollout.py": "77b792a2ef89de002807681b5c89fd9f774b1dcfe029968d130c60e107e4398a",
+          "checkpointing.py": "91adb6096c250baf2fe973d3607814b6fef37e7010adc8c3fb8e68eb82fc1cf6",
+          "stable_kl.py": "ca7cd18ffb5a9c199278ea42d735168a79b9b375c65d91ecf7ee3d9ed3b44b8c"
+        }
+      },
+      "progress": {
+        "env_steps": 32768,
+        "updates": 64,
+        "stage": 0,
+        "frac": 1.0,
+        "wins": 67,
+        "timeouts": 30,
+        "eliminated": 0,
+        "completed": 97,
+        "completed_steps": 31385,
+        "completed_coverage": {
+          "[\"game/data/maps/pool/gen_01001000.json\",1,1,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 1,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 690,
+            "building_value": 1170.0
+          },
+          "[\"game/data/maps/pool/gen_01004000.json\",1,1,0]": {
+            "map": "game/data/maps/pool/gen_01004000.json",
+            "level": 1,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 0,
+            "timeouts": 2,
+            "eliminated": 0,
+            "decisions": 800,
+            "building_value": 0.0
+          },
+          "[\"game/data/maps/pool/gen_01005000.json\",1,1,0]": {
+            "map": "game/data/maps/pool/gen_01005000.json",
+            "level": 1,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 0,
+            "timeouts": 2,
+            "eliminated": 0,
+            "decisions": 800,
+            "building_value": 1170.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",1,1,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 1,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 0,
+            "timeouts": 2,
+            "eliminated": 0,
+            "decisions": 800,
+            "building_value": 440.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",1,2,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 1,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 0,
+            "timeouts": 2,
+            "eliminated": 0,
+            "decisions": 800,
+            "building_value": 1180.0
+          },
+          "[\"game/data/maps/pool/gen_01004000.json\",1,2,0]": {
+            "map": "game/data/maps/pool/gen_01004000.json",
+            "level": 1,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 0,
+            "timeouts": 2,
+            "eliminated": 0,
+            "decisions": 800,
+            "building_value": 0.0
+          },
+          "[\"game/data/maps/pool/gen_01005000.json\",1,2,0]": {
+            "map": "game/data/maps/pool/gen_01005000.json",
+            "level": 1,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 0,
+            "timeouts": 2,
+            "eliminated": 0,
+            "decisions": 800,
+            "building_value": 635.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",1,2,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 1,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 0,
+            "timeouts": 2,
+            "eliminated": 0,
+            "decisions": 800,
+            "building_value": 1190.0
+          },
+          "[\"game/data/maps/pool/gen_01005000.json\",1,0,0]": {
+            "map": "game/data/maps/pool/gen_01005000.json",
+            "level": 1,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 672,
+            "building_value": 390.0
+          },
+          "[\"game/data/maps/pool/gen_01004000.json\",1,0,0]": {
+            "map": "game/data/maps/pool/gen_01004000.json",
+            "level": 1,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 628,
+            "building_value": 780.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",1,0,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 1,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 651,
+            "building_value": 270.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",1,3,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 1,
+            "spawn_index": 3,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 0,
+            "timeouts": 2,
+            "eliminated": 0,
+            "decisions": 800,
+            "building_value": 1020.0
+          },
+          "[\"game/data/maps/pool/gen_01005000.json\",4,1,0]": {
+            "map": "game/data/maps/pool/gen_01005000.json",
+            "level": 4,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 664,
+            "building_value": 1000.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",1,3,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 1,
+            "spawn_index": 3,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 0,
+            "timeouts": 2,
+            "eliminated": 0,
+            "decisions": 800,
+            "building_value": 1520.0
+          },
+          "[\"game/data/maps/pool/gen_01004000.json\",4,1,0]": {
+            "map": "game/data/maps/pool/gen_01004000.json",
+            "level": 4,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 0,
+            "timeouts": 2,
+            "eliminated": 0,
+            "decisions": 800,
+            "building_value": 100.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",1,0,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 1,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 1,
+            "timeouts": 1,
+            "eliminated": 0,
+            "decisions": 720,
+            "building_value": 310.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",4,1,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 4,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 540,
+            "building_value": 1270.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",4,1,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 4,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 598,
+            "building_value": 440.0
+          },
+          "[\"game/data/maps/pool/gen_01004000.json\",4,0,0]": {
+            "map": "game/data/maps/pool/gen_01004000.json",
+            "level": 4,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 572,
+            "building_value": 980.0
+          },
+          "[\"game/data/maps/pool/gen_01005000.json\",4,0,0]": {
+            "map": "game/data/maps/pool/gen_01005000.json",
+            "level": 4,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 575,
+            "building_value": 550.0
+          },
+          "[\"game/data/maps/pool/gen_01004000.json\",4,2,0]": {
+            "map": "game/data/maps/pool/gen_01004000.json",
+            "level": 4,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 0,
+            "timeouts": 2,
+            "eliminated": 0,
+            "decisions": 800,
+            "building_value": 490.0
+          },
+          "[\"game/data/maps/pool/gen_01005000.json\",4,2,0]": {
+            "map": "game/data/maps/pool/gen_01005000.json",
+            "level": 4,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 0,
+            "timeouts": 2,
+            "eliminated": 0,
+            "decisions": 800,
+            "building_value": 565.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",4,2,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 4,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 1,
+            "timeouts": 1,
+            "eliminated": 0,
+            "decisions": 784,
+            "building_value": 1230.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",4,2,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 4,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 718,
+            "building_value": 1450.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",4,3,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 4,
+            "spawn_index": 3,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 1,
+            "timeouts": 1,
+            "eliminated": 0,
+            "decisions": 775,
+            "building_value": 1030.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",4,0,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 4,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 584,
+            "building_value": 200.0
+          },
+          "[\"game/data/maps/pool/gen_01005000.json\",8,1,0]": {
+            "map": "game/data/maps/pool/gen_01005000.json",
+            "level": 8,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 598,
+            "building_value": 1060.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",4,0,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 4,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 576,
+            "building_value": 420.0
+          },
+          "[\"game/data/maps/pool/gen_01004000.json\",8,1,0]": {
+            "map": "game/data/maps/pool/gen_01004000.json",
+            "level": 8,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 0,
+            "timeouts": 2,
+            "eliminated": 0,
+            "decisions": 800,
+            "building_value": 145.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",4,3,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 4,
+            "spawn_index": 3,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 685,
+            "building_value": 1640.0
+          },
+          "[\"game/data/maps/pool/gen_01004000.json\",8,2,0]": {
+            "map": "game/data/maps/pool/gen_01004000.json",
+            "level": 8,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 1,
+            "timeouts": 1,
+            "eliminated": 0,
+            "decisions": 752,
+            "building_value": 880.0
+          },
+          "[\"game/data/maps/pool/gen_01005000.json\",8,2,0]": {
+            "map": "game/data/maps/pool/gen_01005000.json",
+            "level": 8,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 678,
+            "building_value": 1500.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",8,1,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 8,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 460,
+            "building_value": 1160.0
+          },
+          "[\"game/data/maps/pool/gen_01004000.json\",8,0,0]": {
+            "map": "game/data/maps/pool/gen_01004000.json",
+            "level": 8,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 517,
+            "building_value": 850.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",8,1,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 8,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 1,
+            "wins": 1,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 232,
+            "building_value": 220.0
+          },
+          "[\"game/data/maps/pool/gen_01005000.json\",8,0,0]": {
+            "map": "game/data/maps/pool/gen_01005000.json",
+            "level": 8,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 556,
+            "building_value": 410.0
+          },
+          "[\"game/data/maps/pool/gen_01005000.json\",16,1,0]": {
+            "map": "game/data/maps/pool/gen_01005000.json",
+            "level": 16,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 429,
+            "building_value": 1150.0
+          },
+          "[\"game/data/maps/pool/gen_01004000.json\",16,1,0]": {
+            "map": "game/data/maps/pool/gen_01004000.json",
+            "level": 16,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 629,
+            "building_value": 990.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",8,2,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 8,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 1,
+            "wins": 1,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 330,
+            "building_value": 730.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",8,2,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 8,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 1,
+            "wins": 1,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 292,
+            "building_value": 760.0
+          },
+          "[\"game/data/maps/pool/gen_01005000.json\",16,2,0]": {
+            "map": "game/data/maps/pool/gen_01005000.json",
+            "level": 16,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 503,
+            "building_value": 1130.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",8,3,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 8,
+            "spawn_index": 3,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 1,
+            "wins": 1,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 338,
+            "building_value": 470.0
+          },
+          "[\"game/data/maps/pool/gen_01004000.json\",16,2,0]": {
+            "map": "game/data/maps/pool/gen_01004000.json",
+            "level": 16,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 598,
+            "building_value": 1320.0
+          },
+          "[\"game/data/maps/pool/gen_01004000.json\",16,0,0]": {
+            "map": "game/data/maps/pool/gen_01004000.json",
+            "level": 16,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 450,
+            "building_value": 1040.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",8,3,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 8,
+            "spawn_index": 3,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 1,
+            "wins": 1,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 291,
+            "building_value": 700.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",8,0,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 8,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 1,
+            "wins": 1,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 269,
+            "building_value": 100.0
+          },
+          "[\"game/data/maps/pool/gen_01005000.json\",16,0,0]": {
+            "map": "game/data/maps/pool/gen_01005000.json",
+            "level": 16,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 492,
+            "building_value": 600.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",8,0,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 8,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 1,
+            "wins": 1,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 262,
+            "building_value": 210.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",16,1,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 16,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 1,
+            "wins": 1,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 212,
+            "building_value": 600.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",16,1,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 16,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 1,
+            "wins": 1,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 190,
+            "building_value": 220.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",16,2,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 16,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 1,
+            "wins": 1,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 245,
+            "building_value": 600.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",16,2,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 16,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 1,
+            "wins": 1,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 238,
+            "building_value": 690.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",16,3,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 16,
+            "spawn_index": 3,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 1,
+            "wins": 1,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 264,
+            "building_value": 250.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",16,3,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 16,
+            "spawn_index": 3,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 1,
+            "wins": 1,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 242,
+            "building_value": 700.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",16,0,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 16,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 1,
+            "wins": 1,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 249,
+            "building_value": 100.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",16,0,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 16,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 1,
+            "wins": 1,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 237,
+            "building_value": 250.0
+          }
+        },
+        "curriculum_resets": 0,
+        "resume_resets": 0,
+        "active_partial_episodes": 8,
+        "next_episode": 105,
+        "stage_episodes": 97,
+        "fresh_episode_indices": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "recent_returns": [
+          2258.0758027066468,
+          2649.7620934579136,
+          2265.232406493896,
+          2661.6931072077805,
+          2741.235701984507,
+          29.004600121653148,
+          609.012291926357,
+          2308.730999150128,
+          35.44290038093329,
+          450.1344995314474,
+          2471.2197030927364,
+          2751.223301191527,
+          2218.8647006514343,
+          2150.7981991698566,
+          2311.1061047498342,
+          2576.1713046612153,
+          2599.65320026433,
+          84.2371987924994,
+          483.5051950862231,
+          2617.52279742043,
+          315.5386057775657,
+          2360.6502942522047,
+          261.425896591091,
+          684.4300933071303,
+          803.6575994783668,
+          626.9650055718108,
+          2699.278901304626,
+          2148.1751017289967,
+          132.1905989447297,
+          2744.1117972627753,
+          873.0956916549486,
+          262.102001166312,
+          2599.071402694056,
+          2541.869201550376,
+          2265.028100600219,
+          2150.859699575645,
+          2457.8532010278523,
+          2262.193095767772,
+          2708.339893016782,
+          734.7876928446707,
+          2712.269907478386,
+          2814.6740918413143,
+          2616.7752003517867,
+          708.0030039227305,
+          2149.879500417218,
+          2540.670007196605,
+          2873.145497921109,
+          2290.058401450926,
+          2487.5956044813156,
+          2146.7704005033615
+        ],
+        "stage_hits": {
+          "minimum": 100,
+          "batches": [
+            [
+              1,
+              1
+            ],
+            [
+              7,
+              7
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              3,
+              3
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              2,
+              2
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        "stage_wins": {
+          "minimum": 100,
+          "batches": [
+            [
+              1,
+              1
+            ],
+            [
+              7,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              3,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              2,
+              2
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        "stage_outcomes": {
+          "minimum": 100,
+          "batches": [
+            [
+              1,
+              1
+            ],
+            [
+              7,
+              5
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              3,
+              3
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              2,
+              2
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        "elapsed_seconds": 460.2047786000039
+      },
+      "expected_combinations": 56,
+      "completed_combinations": 56,
+      "missing_combinations": [],
+      "finite_updates": 64
+    },
+    "independent": {
+      "checkpoint": "runs\\critic-isolation-independent-20260909\\frozen-update64.pt",
+      "sha256": "b6a69fb610f25f4fcb192ebf797855c6f37ede2dd00ce1277df4d235f5bba657",
+      "config": {
+        "threads": 4,
+        "torch_threads": 1,
+        "max_ticks": 2400,
+        "save_every": 1,
+        "target_kl": 0.03,
+        "envs": 8,
+        "ticks_per_step": 6,
+        "rollout": 64,
+        "total_steps": 32768,
+        "lr": 1e-05,
+        "gamma": 0.995,
+        "gae_lambda": 0.95,
+        "clip": 0.2,
+        "epochs": 2,
+        "minibatches": 4,
+        "ent_coef": 0.005,
+        "vf_coef": 0.5,
+        "value_features": "independent",
+        "reference_coef": 1.0,
+        "max_grad_norm": 0.5,
+        "seed": 1,
+        "reward_mode": "economic",
+        "win_reward": 2000.0,
+        "curriculum": [
+          1.0
+        ],
+        "promote_at": 0.6,
+        "promote_outcome_at": 0.25,
+        "promote_window": 100,
+        "map_path": "game/data/maps/pool/gen_01001000.json",
+        "map_pool": [
+          "game/data/maps/pool/gen_01001000.json",
+          "game/data/maps/pool/gen_01004000.json",
+          "game/data/maps/pool/gen_01005000.json",
+          "game/data/maps/pool/gen_01006001.json"
+        ],
+        "roster": "mixed",
+        "tactical_goals": "split-economy",
+        "levels": [
+          1,
+          4,
+          8,
+          16
+        ],
+        "defender": true,
+        "defender_macro_period": 4,
+        "defender_prepare_ticks": 900,
+        "stats_path": "game/data/stats_placeholder.json",
+        "device": "cpu"
+      },
+      "contract": {
+        "obs_version": 2,
+        "obs_fingerprint": 13173046946482585016,
+        "actions": 13,
+        "max_agents": 32,
+        "map_sha256": "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+        "stats_sha256": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+        "map_pool_sha256": [
+          "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+          "d11740be256d2666dc66318255efa4a7912744f47917f745ab920c572f56df45",
+          "7c43e2030fde2389cfc0784fd25410f21969e4b3f27911de798857e109f9a18d",
+          "7f32afd88e5dfdaea06cae08a9df2bf53d0169f7d9f3fbf89c909214b6fdd160"
+        ],
+        "simulation_fingerprint": "22ee6f2b6b018eaa1af3f96ad9607d3e941f43adb914ce9abe2aafb1b821ed65",
+        "native_build_mode": "Release",
+        "learner_version": 6,
+        "learner_sha256": {
+          "ppo.py": "0b1ccf6dba8c36951b9cec3842ec5daa238885d1da4bc9d444524f0ca8d9e995",
+          "learning.py": "04c647de5551ba2642fcb61f738b729d4b10c020e85f1908d35f3b7e2fef46a4",
+          "rollout.py": "77b792a2ef89de002807681b5c89fd9f774b1dcfe029968d130c60e107e4398a",
+          "checkpointing.py": "91adb6096c250baf2fe973d3607814b6fef37e7010adc8c3fb8e68eb82fc1cf6",
+          "stable_kl.py": "ca7cd18ffb5a9c199278ea42d735168a79b9b375c65d91ecf7ee3d9ed3b44b8c"
+        }
+      },
+      "progress": {
+        "env_steps": 32768,
+        "updates": 64,
+        "stage": 0,
+        "frac": 1.0,
+        "wins": 71,
+        "timeouts": 27,
+        "eliminated": 0,
+        "completed": 98,
+        "completed_steps": 31226,
+        "completed_coverage": {
+          "[\"game/data/maps/pool/gen_01006001.json\",1,1,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 1,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 695,
+            "building_value": 440.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",1,1,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 1,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 743,
+            "building_value": 1370.0
+          },
+          "[\"game/data/maps/pool/gen_01004000.json\",1,1,0]": {
+            "map": "game/data/maps/pool/gen_01004000.json",
+            "level": 1,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 0,
+            "timeouts": 2,
+            "eliminated": 0,
+            "decisions": 800,
+            "building_value": 0.0
+          },
+          "[\"game/data/maps/pool/gen_01005000.json\",1,1,0]": {
+            "map": "game/data/maps/pool/gen_01005000.json",
+            "level": 1,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 0,
+            "timeouts": 2,
+            "eliminated": 0,
+            "decisions": 800,
+            "building_value": 1200.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",1,2,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 1,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 0,
+            "timeouts": 2,
+            "eliminated": 0,
+            "decisions": 800,
+            "building_value": 1130.0
+          },
+          "[\"game/data/maps/pool/gen_01004000.json\",1,2,0]": {
+            "map": "game/data/maps/pool/gen_01004000.json",
+            "level": 1,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 0,
+            "timeouts": 2,
+            "eliminated": 0,
+            "decisions": 800,
+            "building_value": 0.0
+          },
+          "[\"game/data/maps/pool/gen_01005000.json\",1,2,0]": {
+            "map": "game/data/maps/pool/gen_01005000.json",
+            "level": 1,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 0,
+            "timeouts": 2,
+            "eliminated": 0,
+            "decisions": 800,
+            "building_value": 460.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",1,2,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 1,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 0,
+            "timeouts": 2,
+            "eliminated": 0,
+            "decisions": 800,
+            "building_value": 755.0
+          },
+          "[\"game/data/maps/pool/gen_01004000.json\",1,0,0]": {
+            "map": "game/data/maps/pool/gen_01004000.json",
+            "level": 1,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 649,
+            "building_value": 740.0
+          },
+          "[\"game/data/maps/pool/gen_01005000.json\",1,0,0]": {
+            "map": "game/data/maps/pool/gen_01005000.json",
+            "level": 1,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 592,
+            "building_value": 710.0
+          },
+          "[\"game/data/maps/pool/gen_01005000.json\",4,1,0]": {
+            "map": "game/data/maps/pool/gen_01005000.json",
+            "level": 4,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 573,
+            "building_value": 1060.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",1,0,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 1,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 663,
+            "building_value": 450.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",1,3,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 1,
+            "spawn_index": 3,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 0,
+            "timeouts": 2,
+            "eliminated": 0,
+            "decisions": 800,
+            "building_value": 830.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",1,3,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 1,
+            "spawn_index": 3,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 0,
+            "timeouts": 2,
+            "eliminated": 0,
+            "decisions": 800,
+            "building_value": 1400.0
+          },
+          "[\"game/data/maps/pool/gen_01004000.json\",4,1,0]": {
+            "map": "game/data/maps/pool/gen_01004000.json",
+            "level": 4,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 0,
+            "timeouts": 2,
+            "eliminated": 0,
+            "decisions": 800,
+            "building_value": 100.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",1,0,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 1,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 1,
+            "timeouts": 1,
+            "eliminated": 0,
+            "decisions": 727,
+            "building_value": 200.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",4,1,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 4,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 554,
+            "building_value": 1150.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",4,1,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 4,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 601,
+            "building_value": 650.0
+          },
+          "[\"game/data/maps/pool/gen_01004000.json\",4,2,0]": {
+            "map": "game/data/maps/pool/gen_01004000.json",
+            "level": 4,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 0,
+            "timeouts": 2,
+            "eliminated": 0,
+            "decisions": 800,
+            "building_value": 285.0
+          },
+          "[\"game/data/maps/pool/gen_01005000.json\",4,2,0]": {
+            "map": "game/data/maps/pool/gen_01005000.json",
+            "level": 4,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 1,
+            "timeouts": 1,
+            "eliminated": 0,
+            "decisions": 795,
+            "building_value": 625.0
+          },
+          "[\"game/data/maps/pool/gen_01004000.json\",4,0,0]": {
+            "map": "game/data/maps/pool/gen_01004000.json",
+            "level": 4,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 578,
+            "building_value": 1040.0
+          },
+          "[\"game/data/maps/pool/gen_01005000.json\",4,0,0]": {
+            "map": "game/data/maps/pool/gen_01005000.json",
+            "level": 4,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 579,
+            "building_value": 660.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",4,2,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 4,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 723,
+            "building_value": 1330.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",4,2,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 4,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 0,
+            "timeouts": 2,
+            "eliminated": 0,
+            "decisions": 800,
+            "building_value": 1480.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",4,3,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 4,
+            "spawn_index": 3,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 646,
+            "building_value": 790.0
+          },
+          "[\"game/data/maps/pool/gen_01005000.json\",8,1,0]": {
+            "map": "game/data/maps/pool/gen_01005000.json",
+            "level": 8,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 481,
+            "building_value": 1300.0
+          },
+          "[\"game/data/maps/pool/gen_01004000.json\",8,1,0]": {
+            "map": "game/data/maps/pool/gen_01004000.json",
+            "level": 8,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 0,
+            "timeouts": 2,
+            "eliminated": 0,
+            "decisions": 800,
+            "building_value": 130.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",4,0,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 4,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 637,
+            "building_value": 410.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",4,0,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 4,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 530,
+            "building_value": 200.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",4,3,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 4,
+            "spawn_index": 3,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 711,
+            "building_value": 1735.0
+          },
+          "[\"game/data/maps/pool/gen_01005000.json\",8,2,0]": {
+            "map": "game/data/maps/pool/gen_01005000.json",
+            "level": 8,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 658,
+            "building_value": 1380.0
+          },
+          "[\"game/data/maps/pool/gen_01004000.json\",8,2,0]": {
+            "map": "game/data/maps/pool/gen_01004000.json",
+            "level": 8,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 1,
+            "timeouts": 1,
+            "eliminated": 0,
+            "decisions": 784,
+            "building_value": 285.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",8,1,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 8,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 476,
+            "building_value": 1150.0
+          },
+          "[\"game/data/maps/pool/gen_01004000.json\",8,0,0]": {
+            "map": "game/data/maps/pool/gen_01004000.json",
+            "level": 8,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 528,
+            "building_value": 720.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",8,1,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 8,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 443,
+            "building_value": 440.0
+          },
+          "[\"game/data/maps/pool/gen_01005000.json\",16,1,0]": {
+            "map": "game/data/maps/pool/gen_01005000.json",
+            "level": 16,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 376,
+            "building_value": 1300.0
+          },
+          "[\"game/data/maps/pool/gen_01005000.json\",8,0,0]": {
+            "map": "game/data/maps/pool/gen_01005000.json",
+            "level": 8,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 508,
+            "building_value": 620.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",8,2,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 8,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 1,
+            "wins": 1,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 316,
+            "building_value": 680.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",8,2,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 8,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 1,
+            "wins": 1,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 282,
+            "building_value": 640.0
+          },
+          "[\"game/data/maps/pool/gen_01004000.json\",16,1,0]": {
+            "map": "game/data/maps/pool/gen_01004000.json",
+            "level": 16,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 627,
+            "building_value": 1100.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",8,3,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 8,
+            "spawn_index": 3,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 1,
+            "wins": 1,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 337,
+            "building_value": 470.0
+          },
+          "[\"game/data/maps/pool/gen_01004000.json\",16,2,0]": {
+            "map": "game/data/maps/pool/gen_01004000.json",
+            "level": 16,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 654,
+            "building_value": 440.0
+          },
+          "[\"game/data/maps/pool/gen_01005000.json\",16,2,0]": {
+            "map": "game/data/maps/pool/gen_01005000.json",
+            "level": 16,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 558,
+            "building_value": 1380.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",8,3,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 8,
+            "spawn_index": 3,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 1,
+            "wins": 1,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 281,
+            "building_value": 710.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",8,0,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 8,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 1,
+            "wins": 1,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 273,
+            "building_value": 210.0
+          },
+          "[\"game/data/maps/pool/gen_01004000.json\",16,0,0]": {
+            "map": "game/data/maps/pool/gen_01004000.json",
+            "level": 16,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 472,
+            "building_value": 970.0
+          },
+          "[\"game/data/maps/pool/gen_01005000.json\",16,0,0]": {
+            "map": "game/data/maps/pool/gen_01005000.json",
+            "level": 16,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 2,
+            "wins": 2,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 499,
+            "building_value": 620.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",16,1,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 16,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 1,
+            "wins": 1,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 211,
+            "building_value": 600.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",8,0,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 8,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 1,
+            "wins": 1,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 254,
+            "building_value": 140.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",16,1,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 16,
+            "spawn_index": 1,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 1,
+            "wins": 1,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 188,
+            "building_value": 220.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",16,2,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 16,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 1,
+            "wins": 1,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 251,
+            "building_value": 530.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",16,3,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 16,
+            "spawn_index": 3,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 1,
+            "wins": 1,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 233,
+            "building_value": 320.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",16,2,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 16,
+            "spawn_index": 2,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 1,
+            "wins": 1,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 238,
+            "building_value": 640.0
+          },
+          "[\"game/data/maps/pool/gen_01001000.json\",16,0,0]": {
+            "map": "game/data/maps/pool/gen_01001000.json",
+            "level": 16,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 1,
+            "wins": 1,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 234,
+            "building_value": 100.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",16,3,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 16,
+            "spawn_index": 3,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 1,
+            "wins": 1,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 252,
+            "building_value": 725.0
+          },
+          "[\"game/data/maps/pool/gen_01006001.json\",16,0,0]": {
+            "map": "game/data/maps/pool/gen_01006001.json",
+            "level": 16,
+            "spawn_index": 0,
+            "stage": 0,
+            "frac": 1.0,
+            "completed": 1,
+            "wins": 1,
+            "timeouts": 0,
+            "eliminated": 0,
+            "decisions": 216,
+            "building_value": 140.0
+          }
+        },
+        "curriculum_resets": 0,
+        "resume_resets": 0,
+        "active_partial_episodes": 8,
+        "next_episode": 106,
+        "stage_episodes": 98,
+        "fresh_episode_indices": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "recent_returns": [
+          2191.535901188874,
+          2264.641106328523,
+          2581.751506781875,
+          2370.2908962833226,
+          2689.368401619696,
+          29.04110013566024,
+          638.7276930528095,
+          33.51190027932224,
+          271.57349890327396,
+          2432.685611784911,
+          2149.392598798579,
+          2482.520304665941,
+          2777.0580016162394,
+          2191.260601778931,
+          2577.5488019429467,
+          84.23000091964015,
+          2821.8021910285006,
+          261.814499994993,
+          2263.817897070432,
+          2362.062405627498,
+          2538.8478985221636,
+          340.06050298963305,
+          628.4745017729398,
+          2698.2660847530124,
+          363.2837025172497,
+          476.0408026525402,
+          2267.472605347207,
+          2739.576089929021,
+          98.73200137206919,
+          743.852190594656,
+          103.89820115031027,
+          2600.9876960912907,
+          2148.5522994692656,
+          2410.8671065775816,
+          2359.267694373322,
+          2698.898602567232,
+          2474.3076948257203,
+          2708.0377918415534,
+          820.3835926118705,
+          2743.9514975255724,
+          2689.2832910424668,
+          2550.010998661727,
+          2266.2823972271917,
+          2944.594599306635,
+          2614.8266925723374,
+          2295.1818990868865,
+          2263.6002974727335,
+          2601.58100952521,
+          2147.980900687048,
+          2264.9000034892856
+        ],
+        "stage_hits": {
+          "minimum": 100,
+          "batches": [
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              6,
+              6
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              3,
+              3
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        "stage_wins": {
+          "minimum": 100,
+          "batches": [
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              6,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              3,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        "stage_outcomes": {
+          "minimum": 100,
+          "batches": [
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              6,
+              4
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              3,
+              3
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        "elapsed_seconds": 614.5597921000008
+      },
+      "expected_combinations": 56,
+      "completed_combinations": 56,
+      "missing_combinations": [],
+      "finite_updates": 64
+    }
+  }
+}

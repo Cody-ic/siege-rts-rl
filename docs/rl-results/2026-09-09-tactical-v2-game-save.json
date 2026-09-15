@@ -1,0 +1,56 @@
+{
+  "purpose": "Real tactical-policy-2 and native defender save/replay integration",
+  "seed": 77,
+  "map": "game/data/maps/pool/gen_01001000.json",
+  "result": {
+    "attacker_identity": "3478773954371559787",
+    "checkpoints": [
+      {
+        "continuation_checks": 30,
+        "final_tick": 1380,
+        "saved_goal_counts": [
+          0,
+          0,
+          6
+        ],
+        "saved_tick": 1200
+      },
+      {
+        "continuation_checks": 30,
+        "final_tick": 6168,
+        "saved_goal_counts": [
+          2,
+          1,
+          7
+        ],
+        "saved_tick": 5988
+      }
+    ],
+    "defeated": true,
+    "defender_identity": "17228096830293534042",
+    "economy_goal_exercised": true,
+    "economy_restore_checked": true,
+    "peak_known_economy_targets": 2,
+    "peak_supported_economy_squads": 1,
+    "peak_supported_squads": 7,
+    "snapshot_and_replay_exact": true,
+    "tick": 8161,
+    "wave": 3
+  },
+  "files": {
+    "tests/tactical_game_check.cpp": "76fb1b15d730a12f315a87862dea6d06efa622a38abe99ceafbf2240492c46ef",
+    "game/src/demo_driver.cpp": "2d0fa30e9b6c824464f3b9710f0b4efd853167786541bb5b88a6d82755ba6b4b",
+    "game/include/game/demo_driver.hpp": "94fddd73f5ef7ff654367cc6ac6a1db3ab08b3e589fe4518948c546bcef54bcf",
+    "game/data/maps/pool/gen_01001000.json": "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+    "game/data/stats_placeholder.json": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+    "runs/tactical-critic-shared-20260909/export-v2/attacker.onnx": "fc3645a38911b296c4b09f55550eba6ef2ee983dfa37ed5d14ed45859fe3ab93",
+    "runs/macro-joint-20260909/export-native-v2/manifest.json": "45a2f1065134c7098e221dba69f4cd45ee82b84521e0a4eb7c2d580bb7d7da9f"
+  },
+  "limitations": [
+    "One map and one seed, not a policy quality benchmark.",
+    "Economy coverage counts supported assigned squads, not successful resource destruction.",
+    "The candidate failed independent quality comparison and is not promoted.",
+    "Model supports five combat types at levels 1 through 4; other units use scripts."
+  ],
+  "command": "tactical_game_check MAP STATS ATTACKER DEFENDER SAVE"
+}

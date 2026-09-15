@@ -410,20 +410,32 @@ void World::deal_damage(TgtKind kind, std::uint32_t raw, std::int64_t amount,
             // 机制里各加一笔（那种散落的记账迟早漏一处）。
             // 伤害按**实际扣掉的血**记，不按 `amount`——超杀的那部分不是战果。
             Tally& tl = tally_[static_cast<std::size_t>(dealer_side)];
-            tl.dmg_to_units += amount < u_hp_[t] ? amount : u_hp_[t];
+            const bool enemy = side_of(u_type_[t]) != dealer_side;
+            const auto damage = amount < u_hp_[t] ? amount : u_hp_[t];
+            if (enemy) tl.dmg_to_units += damage;
+            else tl.friendly_unit_damage += damage;
             u_hp_[t] -= amount;
             if (u_hp_[t] <= 0) {
-                ++tl.units_killed;
-                // 侦查单位单列：`CLAUDE.md`「RL 侧两条硬要求」第 2 条要求
-                // 击杀 `Scout` 必须给即时奖励——信息否定的收益在 episode 内
-                // 衡量不了，不给的话 AI 永不会学习屏蔽集结区或猎杀斥候。
-                // 判据用 `is_combat()` 的反面而不是列举兵种名：「哪些单位
-                // 不求战」是花名册的性质（同 `attacker_can_fight` 那条先例）。
-                if (!is_combat(u_type_[t])) ++tl.scouts_killed;
+                if (enemy) {
+                    ++tl.units_killed;
+                    tl.enemy_unit_levels[static_cast<std::size_t>(u_type_[t])] += u_level_[t];
+                    // Preserve noncombat categories, but only for enemy victims.
+                    if (!is_combat(u_type_[t])) ++tl.scouts_killed;
+                    if (u_type_[t] == UnitType::Scout || u_type_[t] == UnitType::Wraith)
+                        ++tl.scout_units_killed;
+                    if (u_type_[t] == UnitType::Mason) ++tl.masons_killed;
+                    if (side_of(u_type_[t]) == Side::Defender)
+                        tl.enemy_unit_gold += train_cost_gold(u_type_[t], u_level_[t]);
+                } else {
+                    ++tl.friendly_units_killed;
+                }
+                if (u_type_[t] == UnitType::Phoenix)
+                    ++tally_[static_cast<std::size_t>(side_of(u_type_[t]))].phoenix_losses;
                 // 自身损失记在**被打的那一方**头上，用满血而不是当前血：
                 // 「损失」是这个单位值多少，不是它死时还剩多少。
                 tally_[static_cast<std::size_t>(side_of(u_type_[t]))].losses +=
                     u_max_hp_[t];
+                tally_[static_cast<std::size_t>(side_of(u_type_[t]))].own_unit_levels[static_cast<std::size_t>(u_type_[t])] += u_level_[t];
                 kill_unit(id);
             }
             break;
@@ -441,6 +453,29 @@ void World::deal_damage(TgtKind kind, std::uint32_t raw, std::int64_t amount,
                 // 手工试凑，且经济建筑与防御建筑共用同一公式」。
                 const BldStats& bs = stats_.of(b_type_[t]);
                 tl.bld_value += bs.cost_stone + bs.cost_wood;
+                // Keep is paid once by the terminal reward. An unfinished site
+                // has its base investment, but no completed upgrade or income.
+                if (b_type_[t] != BldType::Keep) {
+                    tl.destroyed_stone += bs.cost_stone;
+                    tl.destroyed_wood += bs.cost_wood;
+                    if (b_built_[t]) {
+                        for (int level = 1; level < b_level_[t]; ++level) {
+                            tl.destroyed_stone += bld_upgrade_cost_stone(b_type_[t], level);
+                            tl.destroyed_wood += bld_upgrade_cost_wood(b_type_[t], level);
+                        }
+                        if (is_gatherer(b_type_[t]) && stats_.global.income_period_ticks > 0) {
+                            for (const auto& site : resources_) {
+                                if (site.pos != b_pos_[t] || site.kind != resource_of(b_type_[t]) || wave_ < site.unlock_wave) continue;
+                                const auto pm = site.tier == ResourceTier::Outer ? tier_income_permille_.outer : tier_income_permille_.inner;
+                                const auto lost_income = (bs.income_amount * pm + kPermilleOne / 2) / kPermilleOne;
+                                if (site.kind == Resource::Stone) tl.destroyed_income_stone += lost_income;
+                                else if (site.kind == Resource::Wood) tl.destroyed_income_wood += lost_income;
+                                else tl.destroyed_income_gold += lost_income;
+                                break;
+                            }
+                        }
+                    }
+                }
                 destroy_bld(id);
             }
             break;

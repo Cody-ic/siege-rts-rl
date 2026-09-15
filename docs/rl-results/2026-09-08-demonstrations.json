@@ -1,0 +1,834 @@
+{
+  "platform": "Windows CPU / PyTorch 2.14.0+cpu",
+  "teacher": "flow_actions using public observation and legal actions; absent during PPO and evaluation",
+  "source_sha256": {
+    "train/demonstrations.py": "9b355f2569c85672d7a8e7df630f37b0ca5a00e2c30fcaafeba08e8ada159b3c",
+    "train/ppo.py": "43511e61f90ac07c4452265793318dfe3d5be9cebbdc84aa27c11f41a99bf094",
+    "train/evaluate.py": "db5b74ee557b920edb601ac343191f67f6f2c937cf98bbacd641900a79f40de0",
+    "train/diagnostics.py": "f9e1d045f5aa8f5e68f4b1aabd6656e58540c5270dbb3fc125b822adeb56ea9a",
+    "train/checkpointing.py": "fcd10001cefc14a39f2c1a2969719ca5cf8d27d76ff32e029f85b1fa6b156c28"
+  },
+  "demonstration": {
+    "kind": "flow_demonstrations",
+    "plan": {
+      "dataset_sha256": "cb90d57ed5843e6b364bc286e169eeadeda49ad732bdc998a2176c8b9745de73",
+      "signature": {
+        "contract": {
+          "actions": 13,
+          "learner_sha256": {
+            "checkpointing.py": "fcd10001cefc14a39f2c1a2969719ca5cf8d27d76ff32e029f85b1fa6b156c28",
+            "learning.py": "04c647de5551ba2642fcb61f738b729d4b10c020e85f1908d35f3b7e2fef46a4",
+            "ppo.py": "43511e61f90ac07c4452265793318dfe3d5be9cebbdc84aa27c11f41a99bf094",
+            "rollout.py": "9798653e39e6f479144287b18345c86ea0df4068f93d9a9af89f0b7e2cbe9e2a"
+          },
+          "learner_version": 2,
+          "map_sha256": "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+          "max_agents": 32,
+          "native_build_mode": "Release",
+          "obs_fingerprint": 13173046946482585016,
+          "obs_version": 2,
+          "simulation_fingerprint": "fecbb6ab1b9e8fbd05e7bb87931b1364ac5f4f06805d68780241692ab19d4257",
+          "stats_sha256": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7"
+        },
+        "source": {
+          "demonstrations.py": "9b355f2569c85672d7a8e7df630f37b0ca5a00e2c30fcaafeba08e8ada159b3c",
+          "diagnostics.py": "f9e1d045f5aa8f5e68f4b1aabd6656e58540c5270dbb3fc125b822adeb56ea9a",
+          "evaluate.py": "db5b74ee557b920edb601ac343191f67f6f2c937cf98bbacd641900a79f40de0"
+        }
+      },
+      "seed": 1,
+      "batch_size": 256,
+      "lr": 0.0003
+    },
+    "epochs": 12,
+    "examples": 12252,
+    "teacher_env_steps": 6000,
+    "history": [
+      {
+        "epoch": 1,
+        "loss": 1.0457261013042838,
+        "accuracy": 0.7248612471433236
+      },
+      {
+        "epoch": 2,
+        "loss": 0.27854251465083646,
+        "accuracy": 0.8998530852105778
+      },
+      {
+        "epoch": 3,
+        "loss": 0.13807577339167926,
+        "accuracy": 0.9472739144629448
+      },
+      {
+        "epoch": 4,
+        "loss": 0.07565813910895962,
+        "accuracy": 0.9765752530199151
+      },
+      {
+        "epoch": 5,
+        "loss": 0.04793094502293106,
+        "accuracy": 0.9861247143323539
+      },
+      {
+        "epoch": 6,
+        "loss": 0.04060038756317673,
+        "accuracy": 0.9859614756774404
+      },
+      {
+        "epoch": 7,
+        "loss": 0.03540988040372238,
+        "accuracy": 0.9883284361736859
+      },
+      {
+        "epoch": 8,
+        "loss": 0.02503412265155417,
+        "accuracy": 0.9920829252366961
+      },
+      {
+        "epoch": 9,
+        "loss": 0.021270171383567887,
+        "accuracy": 0.9937969311132876
+      },
+      {
+        "epoch": 10,
+        "loss": 0.020939314194872532,
+        "accuracy": 0.9932255958210904
+      },
+      {
+        "epoch": 11,
+        "loss": 0.017190602066501894,
+        "accuracy": 0.9948579823702253
+      },
+      {
+        "epoch": 12,
+        "loss": 0.015142529016136247,
+        "accuracy": 0.9957557949722494
+      }
+    ],
+    "policy_sha256": "d72a4dac0cdcf49eb070f88b26995252f3b58238039688ec8074fbfffe4b6f5b",
+    "status": "complete"
+  },
+  "canonical_reproduction": {
+    "demonstration_arrays_equal": true,
+    "all_12_policy_tensors_equal": true,
+    "ppo_configs_equal": true,
+    "ppo_steps_per_arm": 32768,
+    "examples": 12252
+  },
+  "ppo_config": {
+    "threads": 2,
+    "torch_threads": 2,
+    "max_ticks": 2400,
+    "save_every": 1,
+    "target_kl": 0.03,
+    "envs": 16,
+    "ticks_per_step": 6,
+    "rollout": 64,
+    "total_steps": 32768,
+    "lr": 0.0003,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "clip": 0.2,
+    "epochs": 4,
+    "minibatches": 4,
+    "ent_coef": 0.01,
+    "vf_coef": 0.5,
+    "max_grad_norm": 0.5,
+    "seed": 1,
+    "reward_mode": "economic",
+    "win_reward": 2000.0,
+    "curriculum": [
+      1.0
+    ],
+    "promote_at": 0.6,
+    "promote_outcome_at": 0.25,
+    "promote_window": 100,
+    "map_path": "game/data/maps/pool/gen_01001000.json",
+    "defender": true,
+    "defender_macro_period": 4,
+    "stats_path": "game/data/stats_placeholder.json",
+    "device": "cpu"
+  },
+  "ppo_steps_per_arm": 32768,
+  "cost_note": "Equal PPO steps only. Demonstration arm also needs 6000 teacher env-steps and 12 fitting epochs. This validation additionally repeated collection/fitting to verify the deliverable script.",
+  "data_sha256": "cb90d57ed5843e6b364bc286e169eeadeda49ad732bdc998a2176c8b9745de73",
+  "ppo_checkpoint_sha256": "22e44c76b2b08e3cadc3d26afa63e47a1675e5c33f093a6e733b2b5b8a8e6a5c",
+  "exported_policy_sha256": "9f806867f0aaf21d6f01eb743841c78f03f83145ef3fd2868f2851b8635f954a",
+  "evaluation_results": [
+    {
+      "group": "initialization",
+      "policy": "frozen_argmax",
+      "episodes": 32,
+      "wins": 0,
+      "win_rate_95ci": [
+        0,
+        0.1071791982550706
+      ],
+      "hit_rate": 1.0,
+      "mean_building_damage": 3365.0,
+      "mean_building_value": 127.5,
+      "seed": 100001,
+      "frac": 1.0,
+      "spawns": [
+        [
+          135,
+          118
+        ],
+        [
+          35,
+          122
+        ],
+        [
+          35,
+          44
+        ],
+        [
+          129,
+          35
+        ]
+      ],
+      "by_spawn": [
+        {
+          "spawn_index": 0,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 8,
+          "mean_building_damage": 4085.0,
+          "mean_progress": 1081.0
+        },
+        {
+          "spawn_index": 1,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 8,
+          "mean_building_damage": 6720.0,
+          "mean_progress": 1313.0
+        },
+        {
+          "spawn_index": 2,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 8,
+          "mean_building_damage": 1144.0,
+          "mean_progress": 1053.0
+        },
+        {
+          "spawn_index": 3,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 8,
+          "mean_building_damage": 1511.0,
+          "mean_progress": 1069.0
+        }
+      ],
+      "report": "runs/navigation-pilot-20260908/evaluation/initialization-frozen_argmax.json",
+      "report_sha256": "9df394f93594ef099d07c29cb14f217cc091aba41bb8ccd68def4d07a914abb5",
+      "map_sha256": "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+      "policy_sha256": "c12e138eff84ca0f98650e1cda2e46ba45aff3843a595cdc2ff3ad0b3d28b84b"
+    },
+    {
+      "group": "initialization",
+      "policy": "frozen_sample",
+      "episodes": 32,
+      "wins": 0,
+      "win_rate_95ci": [
+        0,
+        0.1071791982550706
+      ],
+      "hit_rate": 1.0,
+      "mean_building_damage": 3692.40625,
+      "mean_building_value": 98.4375,
+      "seed": 100001,
+      "frac": 1.0,
+      "spawns": [
+        [
+          135,
+          118
+        ],
+        [
+          35,
+          122
+        ],
+        [
+          35,
+          44
+        ],
+        [
+          129,
+          35
+        ]
+      ],
+      "by_spawn": [
+        {
+          "spawn_index": 0,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 8,
+          "mean_building_damage": 4618.75,
+          "mean_progress": 1069.25
+        },
+        {
+          "spawn_index": 1,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 8,
+          "mean_building_damage": 6695.125,
+          "mean_progress": 1210.375
+        },
+        {
+          "spawn_index": 2,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 8,
+          "mean_building_damage": 1615.5,
+          "mean_progress": 1049.5
+        },
+        {
+          "spawn_index": 3,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 8,
+          "mean_building_damage": 1840.25,
+          "mean_progress": 1058.75
+        }
+      ],
+      "report": "runs/navigation-pilot-20260908/evaluation/initialization-frozen_sample.json",
+      "report_sha256": "7c9ac19ee31768f80c3d56fd8443925b9cdd1e9bb4d3b28a8af58e3a42f63ae6",
+      "map_sha256": "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+      "policy_sha256": "c12e138eff84ca0f98650e1cda2e46ba45aff3843a595cdc2ff3ad0b3d28b84b"
+    },
+    {
+      "group": "ppo",
+      "policy": "frozen_argmax",
+      "episodes": 32,
+      "wins": 0,
+      "win_rate_95ci": [
+        0,
+        0.1071791982550706
+      ],
+      "hit_rate": 1.0,
+      "mean_building_damage": 4603.75,
+      "mean_building_value": 132.5,
+      "seed": 100001,
+      "frac": 1.0,
+      "spawns": [
+        [
+          135,
+          118
+        ],
+        [
+          35,
+          122
+        ],
+        [
+          35,
+          44
+        ],
+        [
+          129,
+          35
+        ]
+      ],
+      "by_spawn": [
+        {
+          "spawn_index": 0,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 8,
+          "mean_building_damage": 3480.0,
+          "mean_progress": 1055.0
+        },
+        {
+          "spawn_index": 1,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 8,
+          "mean_building_damage": 6635.0,
+          "mean_progress": 1264.0
+        },
+        {
+          "spawn_index": 2,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 8,
+          "mean_building_damage": 6110.0,
+          "mean_progress": 1228.0
+        },
+        {
+          "spawn_index": 3,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 8,
+          "mean_building_damage": 2190.0,
+          "mean_progress": 1053.0
+        }
+      ],
+      "report": "runs/navigation-pilot-20260908/evaluation/ppo-demonstration-frozen_argmax.json",
+      "report_sha256": "b967d069f99368b528e7353fd4ff7aacb546efa9979415438ff2b905b1cc26e0",
+      "map_sha256": "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+      "policy_sha256": "22e44c76b2b08e3cadc3d26afa63e47a1675e5c33f093a6e733b2b5b8a8e6a5c"
+    },
+    {
+      "group": "ppo",
+      "policy": "frozen_sample",
+      "episodes": 32,
+      "wins": 2,
+      "win_rate_95ci": [
+        0.017310567031640967,
+        0.2014712314415458
+      ],
+      "hit_rate": 1.0,
+      "mean_building_damage": 5022.5,
+      "mean_building_value": 140.0,
+      "seed": 100001,
+      "frac": 1.0,
+      "spawns": [
+        [
+          135,
+          118
+        ],
+        [
+          35,
+          122
+        ],
+        [
+          35,
+          44
+        ],
+        [
+          129,
+          35
+        ]
+      ],
+      "by_spawn": [
+        {
+          "spawn_index": 0,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 8,
+          "mean_building_damage": 3588.125,
+          "mean_progress": 1056.875
+        },
+        {
+          "spawn_index": 1,
+          "episodes": 8,
+          "wins": 1,
+          "hit_buildings": 8,
+          "mean_building_damage": 7668.75,
+          "mean_progress": 1250.75
+        },
+        {
+          "spawn_index": 2,
+          "episodes": 8,
+          "wins": 1,
+          "hit_buildings": 8,
+          "mean_building_damage": 6512.5,
+          "mean_progress": 1285.75
+        },
+        {
+          "spawn_index": 3,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 8,
+          "mean_building_damage": 2320.625,
+          "mean_progress": 1053.0
+        }
+      ],
+      "report": "runs/navigation-pilot-20260908/evaluation/ppo-demonstration-frozen_sample.json",
+      "report_sha256": "510cc04cf5fecf86e59b56e7741a7d0564c650711b694cd6d793eba0c67d6e69",
+      "map_sha256": "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+      "policy_sha256": "22e44c76b2b08e3cadc3d26afa63e47a1675e5c33f093a6e733b2b5b8a8e6a5c"
+    },
+    {
+      "group": "random",
+      "policy": "frozen_argmax",
+      "episodes": 32,
+      "wins": 0,
+      "win_rate_95ci": [
+        0,
+        0.1071791982550706
+      ],
+      "hit_rate": 0.0,
+      "mean_building_damage": 0.0,
+      "mean_building_value": 0.0,
+      "seed": 100001,
+      "frac": 1.0,
+      "spawns": [
+        [
+          135,
+          118
+        ],
+        [
+          35,
+          122
+        ],
+        [
+          35,
+          44
+        ],
+        [
+          129,
+          35
+        ]
+      ],
+      "by_spawn": [
+        {
+          "spawn_index": 0,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": 0.0
+        },
+        {
+          "spawn_index": 1,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": 0.0
+        },
+        {
+          "spawn_index": 2,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": 0.0
+        },
+        {
+          "spawn_index": 3,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": 0.0
+        }
+      ],
+      "report": "runs/navigation-pilot-20260908/evaluation/random-random-frozen_argmax.json",
+      "report_sha256": "5cb9a35ebf17eeaa75fb5464973c0f8cd8a656fd0c53669cd915c3b46376e4f8",
+      "map_sha256": "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+      "policy_sha256": "7caf9b08338e3c7bbd944e94665996ef9cd1058ac621a187e68ac4533a432995"
+    },
+    {
+      "group": "random",
+      "policy": "frozen_sample",
+      "episodes": 32,
+      "wins": 0,
+      "win_rate_95ci": [
+        0,
+        0.1071791982550706
+      ],
+      "hit_rate": 0.0,
+      "mean_building_damage": 0.0,
+      "mean_building_value": 0.0,
+      "seed": 100001,
+      "frac": 1.0,
+      "spawns": [
+        [
+          135,
+          118
+        ],
+        [
+          35,
+          122
+        ],
+        [
+          35,
+          44
+        ],
+        [
+          129,
+          35
+        ]
+      ],
+      "by_spawn": [
+        {
+          "spawn_index": 0,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": -126.0
+        },
+        {
+          "spawn_index": 1,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": 102.375
+        },
+        {
+          "spawn_index": 2,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": 267.875
+        },
+        {
+          "spawn_index": 3,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": -30.0
+        }
+      ],
+      "report": "runs/navigation-pilot-20260908/evaluation/random-random-frozen_sample.json",
+      "report_sha256": "721002138a512ff457e216adbf9d970705bae108854d0cdfeb641c6629b66901",
+      "map_sha256": "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+      "policy_sha256": "7caf9b08338e3c7bbd944e94665996ef9cd1058ac621a187e68ac4533a432995"
+    },
+    {
+      "group": "unseen",
+      "policy": "frozen_argmax",
+      "episodes": 32,
+      "wins": 0,
+      "win_rate_95ci": [
+        0,
+        0.1071791982550706
+      ],
+      "hit_rate": 0.8125,
+      "mean_building_damage": 2322.8125,
+      "mean_building_value": 42.5,
+      "seed": 200001,
+      "frac": 1.0,
+      "spawns": [
+        [
+          135,
+          119
+        ],
+        [
+          70,
+          135
+        ],
+        [
+          35,
+          88
+        ],
+        [
+          72,
+          35
+        ],
+        [
+          135,
+          52
+        ]
+      ],
+      "by_spawn": [
+        {
+          "spawn_index": 0,
+          "episodes": 6,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": 1002.0
+        },
+        {
+          "spawn_index": 1,
+          "episodes": 7,
+          "wins": 0,
+          "hit_buildings": 7,
+          "mean_building_damage": 4280.0,
+          "mean_progress": 1050.0
+        },
+        {
+          "spawn_index": 2,
+          "episodes": 7,
+          "wins": 0,
+          "hit_buildings": 7,
+          "mean_building_damage": 2400.0,
+          "mean_progress": 1053.0
+        },
+        {
+          "spawn_index": 3,
+          "episodes": 6,
+          "wins": 0,
+          "hit_buildings": 6,
+          "mean_building_damage": 3410.0,
+          "mean_progress": 1048.0
+        },
+        {
+          "spawn_index": 4,
+          "episodes": 6,
+          "wins": 0,
+          "hit_buildings": 6,
+          "mean_building_damage": 1185.0,
+          "mean_progress": 1026.0
+        }
+      ],
+      "report": "runs/navigation-pilot-20260908/evaluation/unseen-frozen_argmax.json",
+      "report_sha256": "1cebe9e5a844f023f3b668213b135079a7a557dc6d73130a83dc62076177e5a0",
+      "map_sha256": "258426af6ee45cece5789f02ced8dff215b2db1e130471c766a9eb9c2c6628bf",
+      "policy_sha256": "9f806867f0aaf21d6f01eb743841c78f03f83145ef3fd2868f2851b8635f954a"
+    },
+    {
+      "group": "unseen",
+      "policy": "frozen_sample",
+      "episodes": 32,
+      "wins": 0,
+      "win_rate_95ci": [
+        0,
+        0.1071791982550706
+      ],
+      "hit_rate": 1.0,
+      "mean_building_damage": 3748.125,
+      "mean_building_value": 50.0,
+      "seed": 200001,
+      "frac": 1.0,
+      "spawns": [
+        [
+          135,
+          119
+        ],
+        [
+          70,
+          135
+        ],
+        [
+          35,
+          88
+        ],
+        [
+          72,
+          35
+        ],
+        [
+          135,
+          52
+        ]
+      ],
+      "by_spawn": [
+        {
+          "spawn_index": 0,
+          "episodes": 6,
+          "wins": 0,
+          "hit_buildings": 6,
+          "mean_building_damage": 3059.1666666666665,
+          "mean_progress": 1054.0
+        },
+        {
+          "spawn_index": 1,
+          "episodes": 7,
+          "wins": 0,
+          "hit_buildings": 7,
+          "mean_building_damage": 3700.0,
+          "mean_progress": 1045.857142857143
+        },
+        {
+          "spawn_index": 2,
+          "episodes": 7,
+          "wins": 0,
+          "hit_buildings": 7,
+          "mean_building_damage": 4816.428571428572,
+          "mean_progress": 1126.0
+        },
+        {
+          "spawn_index": 3,
+          "episodes": 6,
+          "wins": 0,
+          "hit_buildings": 6,
+          "mean_building_damage": 3935.0,
+          "mean_progress": 1048.0
+        },
+        {
+          "spawn_index": 4,
+          "episodes": 6,
+          "wins": 0,
+          "hit_buildings": 6,
+          "mean_building_damage": 3060.0,
+          "mean_progress": 1055.3333333333333
+        }
+      ],
+      "report": "runs/navigation-pilot-20260908/evaluation/unseen-frozen_sample.json",
+      "report_sha256": "a59bcb98847cf85a4dcfca3119c1e96b9f53a46e47fcaedb195aea2f0c09497e",
+      "map_sha256": "258426af6ee45cece5789f02ced8dff215b2db1e130471c766a9eb9c2c6628bf",
+      "policy_sha256": "9f806867f0aaf21d6f01eb743841c78f03f83145ef3fd2868f2851b8635f954a"
+    },
+    {
+      "group": "unseen",
+      "policy": "flow",
+      "episodes": 32,
+      "wins": 6,
+      "win_rate_95ci": [
+        0.08889544689565954,
+        0.3530915520137596
+      ],
+      "hit_rate": 1.0,
+      "mean_building_damage": 4325.28125,
+      "mean_building_value": 148.75,
+      "seed": 200001,
+      "frac": 1.0,
+      "spawns": [
+        [
+          135,
+          119
+        ],
+        [
+          70,
+          135
+        ],
+        [
+          35,
+          88
+        ],
+        [
+          72,
+          35
+        ],
+        [
+          135,
+          52
+        ]
+      ],
+      "by_spawn": [
+        {
+          "spawn_index": 0,
+          "episodes": 6,
+          "wins": 0,
+          "hit_buildings": 6,
+          "mean_building_damage": 4067.0,
+          "mean_progress": 1325.0
+        },
+        {
+          "spawn_index": 1,
+          "episodes": 7,
+          "wins": 0,
+          "hit_buildings": 7,
+          "mean_building_damage": 4890.0,
+          "mean_progress": 1190.0
+        },
+        {
+          "spawn_index": 2,
+          "episodes": 7,
+          "wins": 0,
+          "hit_buildings": 7,
+          "mean_building_damage": 3985.0,
+          "mean_progress": 1044.0
+        },
+        {
+          "spawn_index": 3,
+          "episodes": 6,
+          "wins": 0,
+          "hit_buildings": 6,
+          "mean_building_damage": 4345.0,
+          "mean_progress": 1070.0
+        },
+        {
+          "spawn_index": 4,
+          "episodes": 6,
+          "wins": 6,
+          "hit_buildings": 6,
+          "mean_building_damage": 4302.0,
+          "mean_progress": 1328.0
+        }
+      ],
+      "report": "runs/navigation-pilot-20260908/evaluation/unseen-flow.json",
+      "report_sha256": "f3ab086bb75fa52a26853e07c6c32d5eea83253eafc670247749f382771e71b6",
+      "map_sha256": "258426af6ee45cece5789f02ced8dff215b2db1e130471c766a9eb9c2c6628bf",
+      "policy_sha256": null
+    }
+  ]
+}

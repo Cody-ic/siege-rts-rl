@@ -1,0 +1,1524 @@
+{
+  "evaluated_code": "94ce96264c9448099377d8928c077a886651a65f",
+  "platform": "Windows CPU",
+  "torch": "2.14.0+cpu",
+  "episodes_per_item": 32,
+  "seed": 100001,
+  "frac": 1,
+  "max_ticks": 2400,
+  "ticks_per_step": 6,
+  "envs": 8,
+  "native_threads": 4,
+  "torch_threads": 1,
+  "map": "game/data/maps/pool/gen_01001000.json",
+  "defender": "scripted",
+  "note": "Single map and single training seed; frozen_sample is one independent stream per episode. Timings include diagnostic overhead and are not training benchmarks.",
+  "source_policy_sha256": {
+    "legacy\\economic-defender.pt": "490897330b46b04f3f6e55f5eb5fe417e543d7dc968dcb3ca74a03a44327eb21",
+    "legacy\\economic-empty.pt": "286a9eb0c6cf884fc56a64f407382d235eb26a61400f9b92f63677635f9f887e",
+    "legacy\\victory-defender.pt": "3ca365a8dc4c50c5e780771916333c6b5335baa196170289825d6e63c73dfe10",
+    "pilot\\economic-defender\\policy.pt": "a4459ac7c65d0ea533f413250e2f7d54b737ac7d5094943f438deef47d48eb08",
+    "pilot\\economic-empty\\policy.pt": "eff69c3496aada54631497138bafdc0260ffab08df7459e8ca1ee0693d8a9464",
+    "pilot\\victory-defender\\policy.pt": "2bd8b30b6a259a64670ead54037523c29182ad4039365e4fa7e8b2eda888c452"
+  },
+  "matching_server_reports": [
+    {
+      "name": "pilot-economic",
+      "episodes": 32,
+      "matching_outcome_step_and_tallies": 32
+    },
+    {
+      "name": "pilot-victory",
+      "episodes": 32,
+      "matching_outcome_step_and_tallies": 32
+    },
+    {
+      "name": "legacy-victory",
+      "episodes": 32,
+      "matching_outcome_step_and_tallies": 32
+    },
+    {
+      "name": "flow",
+      "episodes": 32,
+      "matching_outcome_step_and_tallies": 32
+    }
+  ],
+  "results": [
+    {
+      "name": "pilot-economic",
+      "policy": "frozen_argmax",
+      "wins": 0,
+      "episodes": 32,
+      "hit_rate": 0.25,
+      "damage": 877.5,
+      "seconds": 43.59793069999432,
+      "per_spawn": [
+        {
+          "spawn_index": 0,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 8,
+          "mean_building_damage": 3510.0,
+          "mean_progress": 1053.0,
+          "top_actions": [
+            [
+              "AtkWall",
+              20520
+            ],
+            [
+              "MoveN",
+              8280
+            ],
+            [
+              "Stop",
+              0
+            ]
+          ],
+          "mean_confidence": 0.34551411776906915,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 1.0,
+          "against": 0.0,
+          "ignored_attack": 0.0,
+          "first_contact": [
+            113,
+            113,
+            113,
+            113,
+            113,
+            113,
+            113,
+            113
+          ]
+        },
+        {
+          "spawn_index": 1,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": -908.0,
+          "top_actions": [
+            [
+              "MoveN",
+              17480
+            ],
+            [
+              "MoveE",
+              7760
+            ],
+            [
+              "MoveSE",
+              1832
+            ]
+          ],
+          "mean_confidence": 0.25049227974481053,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.17722222222222223,
+          "against": 0.305,
+          "ignored_attack": null,
+          "first_contact": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "spawn_index": 2,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": -954.0,
+          "top_actions": [
+            [
+              "MoveSE",
+              19512
+            ],
+            [
+              "MoveN",
+              8448
+            ],
+            [
+              "MoveE",
+              840
+            ]
+          ],
+          "mean_confidence": 0.31785971529367896,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.37222222222222223,
+          "against": 0.5780555555555555,
+          "ignored_attack": null,
+          "first_contact": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "spawn_index": 3,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": -933.0,
+          "top_actions": [
+            [
+              "MoveSE",
+              14144
+            ],
+            [
+              "MoveN",
+              11616
+            ],
+            [
+              "MoveSW",
+              3040
+            ]
+          ],
+          "mean_confidence": 0.3856784242308802,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.10583333333333333,
+          "against": 0.48583333333333334,
+          "ignored_attack": null,
+          "first_contact": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        }
+      ],
+      "report_sha256": "52fd6ffedbcbc1581cccd0a2a5ccafe03d31cabe31c3f5689ff5853fe2797996"
+    },
+    {
+      "name": "pilot-economic",
+      "policy": "frozen_sample",
+      "wins": 0,
+      "episodes": 32,
+      "hit_rate": 0.0,
+      "damage": 0.0,
+      "seconds": 45.39664359999733,
+      "per_spawn": [
+        {
+          "spawn_index": 0,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": -90.875,
+          "top_actions": [
+            [
+              "MoveN",
+              9421
+            ],
+            [
+              "MoveE",
+              5174
+            ],
+            [
+              "MoveSE",
+              4601
+            ]
+          ],
+          "mean_confidence": 0.3337412190199312,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.30916481892091646,
+          "against": 0.372690317812269,
+          "ignored_attack": 0.02702702702702703,
+          "first_contact": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "spawn_index": 1,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": 253.875,
+          "top_actions": [
+            [
+              "MoveN",
+              5886
+            ],
+            [
+              "MoveE",
+              4503
+            ],
+            [
+              "MoveSE",
+              4158
+            ]
+          ],
+          "mean_confidence": 0.20147822230433424,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.41457400804187844,
+          "against": 0.2835141491540854,
+          "ignored_attack": null,
+          "first_contact": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "spawn_index": 2,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": -521.625,
+          "top_actions": [
+            [
+              "MoveN",
+              6711
+            ],
+            [
+              "MoveSE",
+              4794
+            ],
+            [
+              "MoveE",
+              4238
+            ]
+          ],
+          "mean_confidence": 0.2794744947247414,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.3806191526584012,
+          "against": 0.4062904084582034,
+          "ignored_attack": null,
+          "first_contact": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "spawn_index": 3,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": -932.625,
+          "top_actions": [
+            [
+              "MoveN",
+              8522
+            ],
+            [
+              "MoveSE",
+              5925
+            ],
+            [
+              "MoveE",
+              4201
+            ]
+          ],
+          "mean_confidence": 0.36882645310006207,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.2188739389895845,
+          "against": 0.4109492568293858,
+          "ignored_attack": null,
+          "first_contact": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        }
+      ],
+      "report_sha256": "90ead3b5d60c75a1faa9a0c9ebe561f4aaa5e3ac0dca6f7e13cc4d79290029bc"
+    },
+    {
+      "name": "pilot-victory",
+      "policy": "frozen_argmax",
+      "wins": 0,
+      "episodes": 32,
+      "hit_rate": 0.25,
+      "damage": 1331.25,
+      "seconds": 42.8049960999997,
+      "per_spawn": [
+        {
+          "spawn_index": 0,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": -666.0,
+          "top_actions": [
+            [
+              "MoveN",
+              21440
+            ],
+            [
+              "MoveSE",
+              5880
+            ],
+            [
+              "MoveE",
+              1440
+            ]
+          ],
+          "mean_confidence": 0.17053622050417794,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.2777777777777778,
+          "against": 0.2747222222222222,
+          "ignored_attack": null,
+          "first_contact": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "spawn_index": 1,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 8,
+          "mean_building_damage": 5325.0,
+          "mean_progress": 1087.0,
+          "top_actions": [
+            [
+              "MoveE",
+              19968
+            ],
+            [
+              "MoveN",
+              1088
+            ],
+            [
+              "MoveSE",
+              856
+            ]
+          ],
+          "mean_confidence": 0.1749975388451281,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.6988555078683834,
+          "against": 0.22210300429184548,
+          "ignored_attack": 1.0,
+          "first_contact": [
+            119,
+            119,
+            119,
+            119,
+            119,
+            119,
+            119,
+            119
+          ]
+        },
+        {
+          "spawn_index": 2,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": -462.0,
+          "top_actions": [
+            [
+              "Stop",
+              16688
+            ],
+            [
+              "MoveE",
+              5048
+            ],
+            [
+              "MoveN",
+              3432
+            ]
+          ],
+          "mean_confidence": 0.24637621043870847,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.01453104359313078,
+          "against": 0.05217965653896962,
+          "ignored_attack": null,
+          "first_contact": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "spawn_index": 3,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": -897.0,
+          "top_actions": [
+            [
+              "MoveN",
+              17904
+            ],
+            [
+              "MoveS",
+              10864
+            ],
+            [
+              "MoveSE",
+              32
+            ]
+          ],
+          "mean_confidence": 0.15927738347815143,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.0,
+          "against": 0.008055555555555555,
+          "ignored_attack": null,
+          "first_contact": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        }
+      ],
+      "report_sha256": "a80242b1f412367f8af3cf6cb94c740d8c89afc2e871af7ccfbec360bc33b704"
+    },
+    {
+      "name": "pilot-victory",
+      "policy": "frozen_sample",
+      "wins": 0,
+      "episodes": 32,
+      "hit_rate": 0.0,
+      "damage": 0.0,
+      "seconds": 45.125207999997656,
+      "per_spawn": [
+        {
+          "spawn_index": 0,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": 205.875,
+          "top_actions": [
+            [
+              "MoveN",
+              5226
+            ],
+            [
+              "MoveW",
+              3396
+            ],
+            [
+              "MoveSE",
+              3364
+            ]
+          ],
+          "mean_confidence": 0.17660424943961617,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.41873864119716947,
+          "against": 0.32202931054483586,
+          "ignored_attack": 0.7435897435897436,
+          "first_contact": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "spawn_index": 1,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": 692.0,
+          "top_actions": [
+            [
+              "MoveE",
+              4506
+            ],
+            [
+              "MoveSE",
+              4415
+            ],
+            [
+              "MoveNE",
+              3686
+            ]
+          ],
+          "mean_confidence": 0.17128248835965576,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.4901077752117013,
+          "against": 0.2627790608160123,
+          "ignored_attack": null,
+          "first_contact": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "spawn_index": 2,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": -279.0,
+          "top_actions": [
+            [
+              "MoveSE",
+              4415
+            ],
+            [
+              "MoveE",
+              3970
+            ],
+            [
+              "MoveNE",
+              3731
+            ]
+          ],
+          "mean_confidence": 0.21388647279081247,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.3953351164254248,
+          "against": 0.348568281938326,
+          "ignored_attack": null,
+          "first_contact": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "spawn_index": 3,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": -723.0,
+          "top_actions": [
+            [
+              "MoveN",
+              6273
+            ],
+            [
+              "MoveW",
+              3438
+            ],
+            [
+              "MoveE",
+              3273
+            ]
+          ],
+          "mean_confidence": 0.2165805767947394,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.31609571885476473,
+          "against": 0.35736580478594276,
+          "ignored_attack": null,
+          "first_contact": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        }
+      ],
+      "report_sha256": "a9f3f973784267de79bfc90dff350060157260f02470e9fffbe8b90785f37949"
+    },
+    {
+      "name": "legacy-victory",
+      "policy": "frozen_argmax",
+      "wins": 0,
+      "episodes": 32,
+      "hit_rate": 0.0,
+      "damage": 0.0,
+      "seconds": 42.94760369999858,
+      "per_spawn": [
+        {
+          "spawn_index": 0,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": 393.0,
+          "top_actions": [
+            [
+              "MoveNW",
+              13088
+            ],
+            [
+              "MoveSE",
+              5456
+            ],
+            [
+              "MoveS",
+              3592
+            ]
+          ],
+          "mean_confidence": 0.3489339853864577,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.5933770883054893,
+          "against": 0.3493436754176611,
+          "ignored_attack": null,
+          "first_contact": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "spawn_index": 1,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": 819.0,
+          "top_actions": [
+            [
+              "MoveE",
+              9808
+            ],
+            [
+              "MoveS",
+              5272
+            ],
+            [
+              "MoveN",
+              3848
+            ]
+          ],
+          "mean_confidence": 0.3854208096323742,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.34069097888675626,
+          "against": 0.07773512476007678,
+          "ignored_attack": null,
+          "first_contact": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "spawn_index": 2,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": 826.0,
+          "top_actions": [
+            [
+              "MoveS",
+              7800
+            ],
+            [
+              "Stop",
+              6232
+            ],
+            [
+              "MoveSW",
+              5152
+            ]
+          ],
+          "mean_confidence": 0.36737282718635267,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.5639844026940801,
+          "against": 0.13753987947536334,
+          "ignored_attack": null,
+          "first_contact": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "spawn_index": 3,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": 144.0,
+          "top_actions": [
+            [
+              "Stop",
+              26352
+            ],
+            [
+              "MoveW",
+              1504
+            ],
+            [
+              "MoveNW",
+              616
+            ]
+          ],
+          "mean_confidence": 0.3429687531540791,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.8660130718954249,
+          "against": 0.0,
+          "ignored_attack": null,
+          "first_contact": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        }
+      ],
+      "report_sha256": "761fb1084ca4379d6e21889a5b7235bdc14fa6d3f78195e654ad6d8d9d265b77"
+    },
+    {
+      "name": "legacy-victory",
+      "policy": "frozen_sample",
+      "wins": 0,
+      "episodes": 32,
+      "hit_rate": 0.0,
+      "damage": 0.0,
+      "seconds": 41.68172429999686,
+      "per_spawn": [
+        {
+          "spawn_index": 0,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": -113.25,
+          "top_actions": [
+            [
+              "MoveNW",
+              6098
+            ],
+            [
+              "Stop",
+              4477
+            ],
+            [
+              "MoveS",
+              3736
+            ]
+          ],
+          "mean_confidence": 0.32986015686765313,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.4263454343625375,
+          "against": 0.3732681001521194,
+          "ignored_attack": null,
+          "first_contact": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "spawn_index": 1,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": 673.875,
+          "top_actions": [
+            [
+              "MoveE",
+              6067
+            ],
+            [
+              "Stop",
+              4122
+            ],
+            [
+              "MoveSE",
+              3427
+            ]
+          ],
+          "mean_confidence": 0.36036822226933307,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.5064835075775995,
+          "against": 0.26513493800145876,
+          "ignored_attack": null,
+          "first_contact": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "spawn_index": 2,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": 820.875,
+          "top_actions": [
+            [
+              "MoveS",
+              6697
+            ],
+            [
+              "MoveSW",
+              5468
+            ],
+            [
+              "Stop",
+              3331
+            ]
+          ],
+          "mean_confidence": 0.35313226504923984,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.5790176292748047,
+          "against": 0.20778200950174722,
+          "ignored_attack": null,
+          "first_contact": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "spawn_index": 3,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": 827.625,
+          "top_actions": [
+            [
+              "MoveW",
+              6608
+            ],
+            [
+              "Stop",
+              4954
+            ],
+            [
+              "MoveSW",
+              4409
+            ]
+          ],
+          "mean_confidence": 0.4773184091142482,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.6154071961754592,
+          "against": 0.2177304369705611,
+          "ignored_attack": null,
+          "first_contact": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        }
+      ],
+      "report_sha256": "a346283a7b5720f0ee1bdceeda5bcf2a6132dc7ca70213d1fafe610f8ad707fe"
+    },
+    {
+      "name": "untrained",
+      "policy": "frozen_argmax",
+      "wins": 0,
+      "episodes": 32,
+      "hit_rate": 0.0,
+      "damage": 0.0,
+      "seconds": 45.252476699999534,
+      "per_spawn": [
+        {
+          "spawn_index": 0,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": -909.0,
+          "top_actions": [
+            [
+              "MoveSW",
+              18216
+            ],
+            [
+              "MoveNE",
+              10584
+            ],
+            [
+              "Stop",
+              0
+            ]
+          ],
+          "mean_confidence": 0.1356592988409102,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.3675,
+          "against": 0.6325,
+          "ignored_attack": null,
+          "first_contact": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "spawn_index": 1,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": -897.0,
+          "top_actions": [
+            [
+              "MoveSW",
+              17856
+            ],
+            [
+              "MoveNE",
+              10944
+            ],
+            [
+              "Stop",
+              0
+            ]
+          ],
+          "mean_confidence": 0.13639684142130945,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.38,
+          "against": 0.62,
+          "ignored_attack": null,
+          "first_contact": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "spawn_index": 2,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": -921.0,
+          "top_actions": [
+            [
+              "MoveSW",
+              23760
+            ],
+            [
+              "MoveNE",
+              5040
+            ],
+            [
+              "Stop",
+              0
+            ]
+          ],
+          "mean_confidence": 0.12486915910409556,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.33,
+          "against": 0.665,
+          "ignored_attack": null,
+          "first_contact": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "spawn_index": 3,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": 147.0,
+          "top_actions": [
+            [
+              "MoveSW",
+              16440
+            ],
+            [
+              "MoveNE",
+              12312
+            ],
+            [
+              "MoveS",
+              48
+            ]
+          ],
+          "mean_confidence": 0.15314576148986817,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.5602777777777778,
+          "against": 0.005,
+          "ignored_attack": 1.0,
+          "first_contact": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        }
+      ],
+      "report_sha256": "d20d1a4ca84f392f296f1038150529f95bec465298e5d1bffb5e64327af1de9a"
+    },
+    {
+      "name": "untrained",
+      "policy": "frozen_sample",
+      "wins": 0,
+      "episodes": 32,
+      "hit_rate": 0.0,
+      "damage": 0.0,
+      "seconds": 45.765732499996375,
+      "per_spawn": [
+        {
+          "spawn_index": 0,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": -17.75,
+          "top_actions": [
+            [
+              "MoveS",
+              3412
+            ],
+            [
+              "MoveNE",
+              3249
+            ],
+            [
+              "MoveSE",
+              3240
+            ]
+          ],
+          "mean_confidence": 0.11464929979009968,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.3762719794144021,
+          "against": 0.38219813637958594,
+          "ignored_attack": null,
+          "first_contact": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "spawn_index": 1,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": 11.5,
+          "top_actions": [
+            [
+              "MoveSW",
+              3393
+            ],
+            [
+              "MoveNE",
+              3268
+            ],
+            [
+              "MoveS",
+              3267
+            ]
+          ],
+          "mean_confidence": 0.11512065032393567,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.37223568023755566,
+          "against": 0.3753223411737126,
+          "ignored_attack": null,
+          "first_contact": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "spawn_index": 2,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": 18.75,
+          "top_actions": [
+            [
+              "Stop",
+              3339
+            ],
+            [
+              "MoveS",
+              3334
+            ],
+            [
+              "MoveSW",
+              3298
+            ]
+          ],
+          "mean_confidence": 0.1149913833474016,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.38529515729939906,
+          "against": 0.37048819763559954,
+          "ignored_attack": null,
+          "first_contact": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "spawn_index": 3,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 0,
+          "mean_building_damage": 0.0,
+          "mean_progress": -54.125,
+          "top_actions": [
+            [
+              "MoveSW",
+              3307
+            ],
+            [
+              "MoveS",
+              3291
+            ],
+            [
+              "MoveNE",
+              3249
+            ]
+          ],
+          "mean_confidence": 0.11462701542277096,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 0.3727716013263117,
+          "against": 0.3734737663350887,
+          "ignored_attack": 0.8571428571428571,
+          "first_contact": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        }
+      ],
+      "report_sha256": "3dff96dc0ce91407578c769d20ce9756aadb2d4afe64840ce7ce868e9eb154c7"
+    },
+    {
+      "name": "flow",
+      "policy": "flow",
+      "wins": 0,
+      "episodes": 32,
+      "hit_rate": 1.0,
+      "damage": 2859.0,
+      "seconds": 24.227118199996767,
+      "per_spawn": [
+        {
+          "spawn_index": 0,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 8,
+          "mean_building_damage": 3355.0,
+          "mean_progress": 1062.0,
+          "top_actions": [
+            [
+              "AtkWall",
+              17352
+            ],
+            [
+              "MoveN",
+              8208
+            ],
+            [
+              "MoveSW",
+              2376
+            ]
+          ],
+          "mean_confidence": null,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 1.0,
+          "against": 0.0,
+          "ignored_attack": 0.0,
+          "first_contact": [
+            124,
+            124,
+            124,
+            124,
+            124,
+            124,
+            124,
+            124
+          ]
+        },
+        {
+          "spawn_index": 1,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 8,
+          "mean_building_damage": 5420.0,
+          "mean_progress": 1233.0,
+          "top_actions": [
+            [
+              "AtkWall",
+              10968
+            ],
+            [
+              "MoveE",
+              8208
+            ],
+            [
+              "AtkBld",
+              2296
+            ]
+          ],
+          "mean_confidence": null,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 1.0,
+          "against": 0.0,
+          "ignored_attack": 0.0,
+          "first_contact": [
+            132,
+            132,
+            132,
+            132,
+            132,
+            132,
+            132,
+            132
+          ]
+        },
+        {
+          "spawn_index": 2,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 8,
+          "mean_building_damage": 1144.0,
+          "mean_progress": 1053.0,
+          "top_actions": [
+            [
+              "MoveS",
+              6264
+            ],
+            [
+              "MoveSE",
+              3024
+            ],
+            [
+              "AtkWall",
+              2896
+            ]
+          ],
+          "mean_confidence": null,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 1.0,
+          "against": 0.0,
+          "ignored_attack": 0.0,
+          "first_contact": [
+            128,
+            128,
+            128,
+            128,
+            128,
+            128,
+            128,
+            128
+          ]
+        },
+        {
+          "spawn_index": 3,
+          "episodes": 8,
+          "wins": 0,
+          "hit_buildings": 8,
+          "mean_building_damage": 1517.0,
+          "mean_progress": 1066.0,
+          "top_actions": [
+            [
+              "MoveW",
+              8176
+            ],
+            [
+              "AtkWall",
+              3064
+            ],
+            [
+              "MoveNW",
+              784
+            ]
+          ],
+          "mean_confidence": null,
+          "no_flow": 0.0,
+          "no_move": 0.0,
+          "aligned": 1.0,
+          "against": 0.0,
+          "ignored_attack": 0.0,
+          "first_contact": [
+            124,
+            124,
+            124,
+            124,
+            124,
+            124,
+            124,
+            124
+          ]
+        }
+      ],
+      "report_sha256": "42be1c731800b8326d0233eb40cefe0a33cf31daa9b464c5caaf16def3f36793"
+    }
+  ]
+}

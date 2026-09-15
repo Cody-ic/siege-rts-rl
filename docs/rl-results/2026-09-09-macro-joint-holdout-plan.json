@@ -1,0 +1,25 @@
+{
+  "checkpoints": {
+    "runs/macro-joint-initial-20260909/latest.pt": "5ce76b351ebda43cc58611ffb80442b7125bb691fc892881a462db3678c635ff",
+    "runs/macro-joint-20260909/frozen-update32.pt": "d51f11fd52fe17c20898870eb4711c212f6d344333bed83060b8799697411c86"
+  },
+  "maps": {
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01002000.json": "258426af6ee45cece5789f02ced8dff215b2db1e130471c766a9eb9c2c6628bf",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01003000.json": "1eca9b886a26f424b8039fb4665a8d4ca056b145672d54e9a060a03d453c737d"
+  },
+  "seeds": [
+    301,
+    302
+  ],
+  "max_wave": 6,
+  "max_ticks": 100000,
+  "period": 20,
+  "mode": "sample",
+  "attacker": {
+    "kind": "frozen-tactical",
+    "sha256": "2e62e27f1b2b7002e9e727a09a58f0357909cc0ee01ee76e1db0477bdf52c7c3",
+    "identity": "9554465781158682901"
+  },
+  "selection": "Preselected final update32 versus unchanged initialization; both fixed before these evaluations",
+  "scope": "two maps excluded from this defender training and recorded macro development experiments; four new map-seed pairs"
+}

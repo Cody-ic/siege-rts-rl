@@ -1,0 +1,64 @@
+{
+  "model_sha256": "c003030c0d2576f7f174dc21c83644df5ca872a8a7392cad184d5d394b83db9d",
+  "metadata": {
+    "rts.format": "tactical-policy-2",
+    "rts.obs_version": "2",
+    "rts.obs_fingerprint": "13173046946482585016",
+    "rts.stats_fingerprint": "11216185766869374687",
+    "rts.cells_layout": "NHWC",
+    "rts.actions": "13",
+    "rts.agent_semantics": "squad-leader-broadcast-v1",
+    "rts.unit_types": "5,6,7,10,8",
+    "rts.min_level": "1",
+    "rts.max_level": "4",
+    "rts.ticks_per_step": "6",
+    "rts.source_sha256": "0d1b286e16d5583a3a93c6fb7f00501e2f6721f29395ca7f270ecf5b47026af3",
+    "rts.training_simulation_fingerprint": "61abbb70028f3dcd30f41ace3d9ba6af3cc3d50909505f130e7ad9421d53dba5",
+    "rts.validation_simulation_fingerprint": "7c46c04e8a23557f240825238a2fd941506719035b45c5abaa1b3d50c8f5f6ca",
+    "rts.goal_semantics": "macro-flow-v1"
+  },
+  "checks": [
+    {
+      "agents": 1,
+      "max_abs_error": 1.1444091796875e-05,
+      "actions_equal": true
+    },
+    {
+      "agents": 9,
+      "max_abs_error": 1.9073486328125e-05,
+      "actions_equal": true
+    },
+    {
+      "agents": 32,
+      "max_abs_error": 1.9073486328125e-05,
+      "actions_equal": true
+    }
+  ],
+  "cpp_actions_equal": true,
+  "cpp_mean_inference_ms": 1.880687,
+  "cpp_model_identity": "13733679120098567926",
+  "torch": "2.14.0+cpu",
+  "onnx": "1.22.0",
+  "onnxruntime": "1.29.0",
+  "validation_map": "game/data/maps/pool/gen_01001000.json",
+  "trajectory_observations": 108,
+  "trajectories": [
+    {
+      "level": 1,
+      "steps": 301
+    },
+    {
+      "level": 4,
+      "steps": 293
+    }
+  ],
+  "goal_mode": "known-economy",
+  "economy_goal_validation_rows": 50,
+  "observed_unit_types": [
+    5,
+    6,
+    7,
+    8,
+    10
+  ]
+}

@@ -709,6 +709,19 @@ rts::UnitAction DemoBattle::flow_step(rts::UnitId id) {
                                       : a;
 }
 
+std::array<std::size_t,3> DemoBattle::tactical_goal_diagnostics() const {
+    std::array<std::size_t,3> result{econ_goals_.size(),0,0};
+    if(!policy_ || w_.phase()!=rts::WavePhase::Assault) return result;
+    std::vector<rts::UnitId> leaders;
+    w_.enumerate_squads(rts::Side::Attacker,leaders);
+    for(auto id:leaders) {
+        if(!policy_->supports(w_.unit_type(id),w_.unit_level(id))) continue;
+        ++result[2];
+        if(policy_->supports_macro_goals() && !econ_goals_.empty() && squad_goal_of(id)==1) ++result[1];
+    }
+    return result;
+}
+
 // 这一队该读哪张 field。**目前是脚本的固定分派**（生波时定，见 `spawn_wave`）；
 // RL 宏观层接管时它变成一个每波一次的离散动作，而下面这一层一行都不用改
 // ——那正是「编队动作 = 选目标集」这个形状的全部好处。
@@ -1045,7 +1058,30 @@ void DemoBattle::issue_actions() {
     // 上，所以那条路排除。代价要认下来：画面上不会出现整齐的三人小队，
     // 编队是「共享意图、各自走」。那种视觉编队要换回 waypoint A*。
 
+    learned_squads_ = 0;
+    if (policy_ && w_.phase()==rts::WavePhase::Assault) {
+        std::vector<std::uint8_t> goals;
+        if(policy_->supports_macro_goals()) {
+            goals.reserve(ids_.size());
+            for(auto id:ids_) goals.push_back(static_cast<std::uint8_t>(squad_goal_of(id)));
+        }
+        learned_squads_ = apply_tactical_policy(w_,*policy_,ids_,acts_,goals,econ_goals_);
+    }
     w_.submit_actions(rts::Side::Attacker, acts_.data(), acts_.size());
+}
+
+void DemoBattle::set_tactical_policy(std::shared_ptr<TacticalPolicy> policy) {
+    if (w_.now()!=0) throw std::runtime_error("Set tactical policy before advancing the battle");
+    if (policy && policy->stats_fingerprint()!=w_.stats().fingerprint())
+        throw std::runtime_error("Tactical policy stats do not match this battle");
+    policy_=std::move(policy);
+}
+void DemoBattle::set_defender_policy(std::shared_ptr<MacroPolicy> policy) {
+    if(w_.now()!=0) throw std::runtime_error("Set defender policy before advancing battle");
+    if(policy && policy->stats_fingerprint()!=w_.stats().fingerprint())
+        throw std::runtime_error("Defender policy stats do not match battle");
+    defender_policy_=std::move(policy);
+    defender_rng_=rts::Rng(w_.seed()^0x646566656e646572ull);
 }
 
 void DemoBattle::enable_developer() {
@@ -1064,6 +1100,11 @@ void DemoBattle::developer_wave(int wave) {
 void DemoBattle::update(int ticks) {
     for (int k = 0; k < ticks; ++k) {
         if (defeated_) return;   // 败局定格：世界停在最后一帧
+        if(defender_policy_ && w_.now()%defender_policy_->period()==0) {
+            const auto command=defender_policy_->decide(w_.view(rts::Side::Defender),summon_accepted_now(),&defender_rng_);
+            // Policy actions are regenerated on replay, not duplicated as human events.
+            w_.submit(rts::Side::Defender,&command,1);
+        }
         if (w_.phase() == rts::WavePhase::Build && build_left_ > 0) {
             --build_left_;
         } else if (w_.phase() == rts::WavePhase::Build) {
@@ -1106,7 +1147,7 @@ void DemoBattle::update(int ticks) {
             issue_actions();   // 新生成的单位当拍拿到动作，不呆等一个决策周期
             since_decision_ = 0;
         }
-        if (since_decision_ >= rts::kDecisionPeriodMax) {
+        if (since_decision_ >= (policy_ ? policy_->ticks_per_step() : rts::kDecisionPeriodMax)) {
             issue_actions();
             since_decision_ = 0;
         }

@@ -1,0 +1,49 @@
+import json
+from pathlib import Path
+import sys
+sys.path.insert(0,str(Path('train').resolve()))
+import torch
+import rts_native as native
+from checkpointing import sha256,atomic_json
+from macro_evaluate import load_policy,evaluate_case
+from macro_opponent import load_opponent,check_opponent
+
+plan_path=Path('docs/rl-results/2026-09-09-macro-league-evaluation-plan.json')
+if sys.argv[1]=='prepare':
+    training=json.loads(Path('docs/rl-results/2026-09-09-macro-league-trial-plan.json').read_text())
+    frozen=json.loads(Path('docs/rl-results/2026-09-09-macro-league-training.json').read_text())
+    models={'baseline':training['initialization'],'candidate':frozen['checkpoint']}
+    maps=[f'game/data/maps/pool/gen_{m}.json' for m in ('01002000','01003000','01007000','01009000')]
+    files=dict(training['files'])
+    for path in [*models.values(),*maps]:files[path]=sha256(path)
+    plan=dict(models=models,maps=maps,seeds=[1801,1902],period=20,max_wave=6,max_ticks=30000,
+        opponents=training['config']['attacker_pool'],stats=training['config']['stats'],
+        source_simulations={'baseline':training['config']['init_from_simulation'],'candidate':native.SIMULATION_FINGERPRINT},
+        simulation=native.SIMULATION_FINGERPRINT,files=files,
+        mode='sample',selection='Final update64; no checkpoint reselection',
+        gate='For each opponent separately, candidate total defender waves survived and six-wave completions must be >= baseline. Preserve all per-case regressions. No default promotion from training reward.',
+        scope='Two defender checkpoints x three immutable opponents x four held-out maps x two fresh seeds: 48 full native campaigns. Python sampling; native deployment still needs its own verification.')
+    with plan_path.open('x') as f:json.dump(plan,f,indent=2)
+    print(plan_path)
+else:
+    torch.set_num_threads(1)
+    plan=json.loads(plan_path.read_text())
+    for path,digest in plan['files'].items():assert sha256(path)==digest,path
+    assert native.SIMULATION_FINGERPRINT==plan['simulation']
+    arm=sys.argv[1];assert arm in plan['models']
+    policy,_,cfg=load_policy(plan['models'][arm],plan['stats'],plan['source_simulations'][arm])
+    root=Path('runs/macro-league-evaluation-20260909');root.mkdir(exist_ok=True)
+    for i,opponent_path in enumerate(plan['opponents']):
+        opponent,identity=load_opponent(opponent_path,plan['stats'])
+        for map_path in plan['maps']:
+            for seed in plan['seeds']:
+                out=root/f'opponent{i}-{Path(map_path).stem}-seed{seed}-{arm}.json'
+                assert not out.exists(),out
+                print(f'{arm}, opponent {i}, {Path(map_path).stem}, seed {seed}',flush=True)
+                row=evaluate_case(map_path,plan['stats'],seed,policy,plan['period'],plan['max_wave'],plan['max_ticks'],False,opponent)
+                check_opponent(opponent_path,identity)
+                assert sha256(plan['models'][arm])==plan['files'][plan['models'][arm]]
+                row.update(arm=arm,opponent_index=i,opponent=identity,plan_sha256=sha256(plan_path),
+                           checkpoint_sha256=plan['files'][plan['models'][arm]],complete=True)
+                atomic_json(out,row)
+                print(json.dumps(row),flush=True)

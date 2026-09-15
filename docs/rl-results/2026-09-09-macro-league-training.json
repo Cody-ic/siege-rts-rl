@@ -1,0 +1,162 @@
+{
+  "plan_sha256": "9ca19c09b26fce1904d7fd295a755b887ffc224b2caa459b602cefbf3f9a6163",
+  "files_verified": true,
+  "checkpoint": "runs\\macro-league-20260909\\frozen-update64.pt",
+  "sha256": "01e685c1602ee3b275c3b74a383c28f62f8e917ad4da625cdfa020b0255e35de",
+  "updates": 64,
+  "decisions": 8192,
+  "simulation_ticks": 163540,
+  "completed_campaigns": [
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01001000.json",
+      "seed": 1,
+      "ticks": 2636,
+      "waves_survived": 0,
+      "defeated": true,
+      "opponent_index": 0
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01004000.json",
+      "seed": 2,
+      "ticks": 2564,
+      "waves_survived": 0,
+      "defeated": true,
+      "opponent_index": 0
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01005000.json",
+      "seed": 3,
+      "ticks": 7900,
+      "waves_survived": 2,
+      "defeated": true,
+      "opponent_index": 0
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01006001.json",
+      "seed": 4,
+      "ticks": 2528,
+      "waves_survived": 0,
+      "defeated": true,
+      "opponent_index": 0
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01001000.json",
+      "seed": 5,
+      "ticks": 23145,
+      "waves_survived": 7,
+      "defeated": true,
+      "opponent_index": 1
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01004000.json",
+      "seed": 6,
+      "ticks": 2874,
+      "waves_survived": 0,
+      "defeated": true,
+      "opponent_index": 1
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01005000.json",
+      "seed": 7,
+      "ticks": 10583,
+      "waves_survived": 3,
+      "defeated": true,
+      "opponent_index": 1
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01006001.json",
+      "seed": 8,
+      "ticks": 13680,
+      "waves_survived": 4,
+      "defeated": true,
+      "opponent_index": 1
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01001000.json",
+      "seed": 9,
+      "ticks": 19775,
+      "waves_survived": 6,
+      "defeated": true,
+      "opponent_index": 2
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01004000.json",
+      "seed": 10,
+      "ticks": 8725,
+      "waves_survived": 2,
+      "defeated": true,
+      "opponent_index": 2
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01005000.json",
+      "seed": 11,
+      "ticks": 8034,
+      "waves_survived": 2,
+      "defeated": true,
+      "opponent_index": 2
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01006001.json",
+      "seed": 12,
+      "ticks": 20196,
+      "waves_survived": 6,
+      "defeated": true,
+      "opponent_index": 2
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01001000.json",
+      "seed": 13,
+      "ticks": 2604,
+      "waves_survived": 0,
+      "defeated": true,
+      "opponent_index": 0
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01004000.json",
+      "seed": 14,
+      "ticks": 2517,
+      "waves_survived": 0,
+      "defeated": true,
+      "opponent_index": 0
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01005000.json",
+      "seed": 15,
+      "ticks": 7013,
+      "waves_survived": 2,
+      "defeated": true,
+      "opponent_index": 0
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01006001.json",
+      "seed": 16,
+      "ticks": 12207,
+      "waves_survived": 4,
+      "defeated": true,
+      "opponent_index": 0
+    }
+  ],
+  "coverage": {
+    "gen_01001000/opponent0": 2,
+    "gen_01004000/opponent0": 2,
+    "gen_01005000/opponent0": 2,
+    "gen_01006001/opponent0": 2,
+    "gen_01001000/opponent1": 1,
+    "gen_01004000/opponent1": 1,
+    "gen_01005000/opponent1": 1,
+    "gen_01006001/opponent1": 1,
+    "gen_01001000/opponent2": 1,
+    "gen_01004000/opponent2": 1,
+    "gen_01005000/opponent2": 1,
+    "gen_01006001/opponent2": 1
+  },
+  "current_campaign": {
+    "hash": 2088724672438568276,
+    "tick": 16559,
+    "wave": 6,
+    "opponent_index": 1,
+    "command_count": 829
+  },
+  "all_recorded_losses_finite": true,
+  "scope": "Fixed final checkpoint, complete map/opponent coverage. Training performance is not evaluation quality."
+}

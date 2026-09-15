@@ -1,0 +1,357 @@
+{
+  "start_steps": 11776,
+  "end_steps": 15872,
+  "updates_observed": 8,
+  "losses_finite": true,
+  "model_finite": true,
+  "contract": {
+    "obs_version": 2,
+    "obs_fingerprint": 13173046946482585016,
+    "actions": 13,
+    "max_agents": 32,
+    "map_sha256": "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+    "stats_sha256": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+    "map_pool_sha256": [
+      "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+      "d11740be256d2666dc66318255efa4a7912744f47917f745ab920c572f56df45",
+      "7c43e2030fde2389cfc0784fd25410f21969e4b3f27911de798857e109f9a18d",
+      "7f32afd88e5dfdaea06cae08a9df2bf53d0169f7d9f3fbf89c909214b6fdd160"
+    ],
+    "simulation_fingerprint": "61abbb70028f3dcd30f41ace3d9ba6af3cc3d50909505f130e7ad9421d53dba5",
+    "native_build_mode": "Release",
+    "learner_version": 6,
+    "learner_sha256": {
+      "ppo.py": "0ef89e267c07d443854c4595ef5f7699318323f494b93e5b03fb371c1c96b96d",
+      "learning.py": "04c647de5551ba2642fcb61f738b729d4b10c020e85f1908d35f3b7e2fef46a4",
+      "rollout.py": "77b792a2ef89de002807681b5c89fd9f774b1dcfe029968d130c60e107e4398a",
+      "checkpointing.py": "a6f1fa75d77ad8d85899d781dd991905d3e4464dd8c5d5add35c1774095cf9bc",
+      "stable_kl.py": "ca7cd18ffb5a9c199278ea42d735168a79b9b375c65d91ecf7ee3d9ed3b44b8c"
+    }
+  },
+  "progress": {
+    "env_steps": 15872,
+    "updates": 31,
+    "stage": 0,
+    "frac": 1.0,
+    "wins": 15,
+    "timeouts": 13,
+    "eliminated": 1,
+    "completed": 29,
+    "completed_steps": 9867,
+    "curriculum_resets": 0,
+    "resume_resets": 24,
+    "active_partial_episodes": 8,
+    "next_episode": 61,
+    "stage_episodes": 29,
+    "fresh_episode_indices": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    "recent_returns": [
+      2690.0414944452314,
+      2677.5063998126006,
+      702.35829780719,
+      735.2355962154941,
+      632.7816009258682,
+      1041.9192026455983,
+      591.3456952617152,
+      612.8198014763467,
+      2740.42519943316,
+      738.8252970282158,
+      256.13900370796046,
+      2519.959206696793,
+      851.9054016185191,
+      1004.0370829269202,
+      687.1384011845678,
+      720.0344977882207,
+      2710.284903421069,
+      2554.389098980522,
+      2528.221490381613,
+      2629.267803374949,
+      2455.030700922858,
+      2716.8592006133317,
+      2637.31789836576,
+      2626.8384958274064,
+      2994.0251994013615,
+      679.1990060353592,
+      610.7104950461036,
+      2640.1431037840007,
+      2937.543595436193
+    ],
+    "stage_hits": {
+      "minimum": 100,
+      "batches": [
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          6,
+          6
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          3,
+          3
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    "stage_wins": {
+      "minimum": 100,
+      "batches": [
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          6,
+          0
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          3,
+          0
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    "stage_outcomes": {
+      "minimum": 100,
+      "batches": [
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          6,
+          6
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          3,
+          3
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    "elapsed_seconds": 150.69133060000604
+  },
+  "scope": "Post-fix stability observation, not proof of unique original failure cause or policy improvement"
+}

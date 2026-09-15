@@ -61,6 +61,7 @@ def run(args):
             ('run_root','milestones','threads','torch_threads','device')}
     plan['contract'] = contract(R,Cfg())
     plan['evaluation_sha256'] = sha256(ROOT/'train/evaluate.py')
+    plan['diagnostics_sha256'] = sha256(ROOT/'train/diagnostics.py')
     plan_path = root/'plan.json'
     if plan_path.exists():
         if json.loads(plan_path.read_text(encoding='utf-8')) != plan:

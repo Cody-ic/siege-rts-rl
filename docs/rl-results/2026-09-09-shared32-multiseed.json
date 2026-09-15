@@ -1,0 +1,624 @@
+{
+  "plan_sha256": "c0d0f0b590fab60d9ebe152ccd9bab9b9c8ea54c9394fd79a6f7e8f124da4d8d",
+  "plan_files_verified": true,
+  "episodes_per_arm": 64,
+  "seeds": {
+    "1201": {
+      "1": {
+        "summary": {
+          "baseline": {
+            "wins": 2,
+            "building_value": 2205.0,
+            "losses": 30070.0
+          },
+          "candidate": {
+            "wins": 1,
+            "building_value": 2775.0,
+            "losses": 25750.0
+          }
+        },
+        "pairs": [
+          {
+            "map": "game/data/maps/pool/gen_01010001.json",
+            "seed": 1201000,
+            "win_delta": 0,
+            "building_value_delta": -70.0,
+            "losses_delta": 210.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01011000.json",
+            "seed": 1201001,
+            "win_delta": 0,
+            "building_value_delta": 150.0,
+            "losses_delta": -1460.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01012000.json",
+            "seed": 1201002,
+            "win_delta": 0,
+            "building_value_delta": 210.0,
+            "losses_delta": 190.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01008000.json",
+            "seed": 1201003,
+            "win_delta": 0,
+            "building_value_delta": 15.0,
+            "losses_delta": 0.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01010001.json",
+            "seed": 1201004,
+            "win_delta": 0,
+            "building_value_delta": 215.0,
+            "losses_delta": 190.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01011000.json",
+            "seed": 1201005,
+            "win_delta": -1,
+            "building_value_delta": -110.0,
+            "losses_delta": -3440.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01012000.json",
+            "seed": 1201006,
+            "win_delta": 0,
+            "building_value_delta": 110.0,
+            "losses_delta": -10.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01008000.json",
+            "seed": 1201007,
+            "win_delta": 0,
+            "building_value_delta": 50.0,
+            "losses_delta": 0.0
+          }
+        ]
+      },
+      "4": {
+        "summary": {
+          "baseline": {
+            "wins": 4,
+            "building_value": 2535.0,
+            "losses": 34298.0
+          },
+          "candidate": {
+            "wins": 6,
+            "building_value": 3335.0,
+            "losses": 30208.0
+          }
+        },
+        "pairs": [
+          {
+            "map": "game/data/maps/pool/gen_01010001.json",
+            "seed": 1201000,
+            "win_delta": 1,
+            "building_value_delta": -10.0,
+            "losses_delta": -1969.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01011000.json",
+            "seed": 1201001,
+            "win_delta": 0,
+            "building_value_delta": 150.0,
+            "losses_delta": 992.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01012000.json",
+            "seed": 1201002,
+            "win_delta": 0,
+            "building_value_delta": 200.0,
+            "losses_delta": -321.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01008000.json",
+            "seed": 1201003,
+            "win_delta": 0,
+            "building_value_delta": -30.0,
+            "losses_delta": 0.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01010001.json",
+            "seed": 1201004,
+            "win_delta": 1,
+            "building_value_delta": 610.0,
+            "losses_delta": -1377.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01011000.json",
+            "seed": 1201005,
+            "win_delta": 0,
+            "building_value_delta": 0.0,
+            "losses_delta": -566.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01012000.json",
+            "seed": 1201006,
+            "win_delta": 0,
+            "building_value_delta": -120.0,
+            "losses_delta": -849.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01008000.json",
+            "seed": 1201007,
+            "win_delta": 0,
+            "building_value_delta": 0.0,
+            "losses_delta": 0.0
+          }
+        ]
+      }
+    },
+    "1302": {
+      "1": {
+        "summary": {
+          "baseline": {
+            "wins": 4,
+            "building_value": 3330.0,
+            "losses": 21900.0
+          },
+          "candidate": {
+            "wins": 3,
+            "building_value": 3270.0,
+            "losses": 17190.0
+          }
+        },
+        "pairs": [
+          {
+            "map": "game/data/maps/pool/gen_01010001.json",
+            "seed": 1302000,
+            "win_delta": 0,
+            "building_value_delta": 40.0,
+            "losses_delta": 1260.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01011000.json",
+            "seed": 1302001,
+            "win_delta": -1,
+            "building_value_delta": -110.0,
+            "losses_delta": -3440.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01012000.json",
+            "seed": 1302002,
+            "win_delta": 0,
+            "building_value_delta": 110.0,
+            "losses_delta": -10.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01008000.json",
+            "seed": 1302003,
+            "win_delta": 0,
+            "building_value_delta": 50.0,
+            "losses_delta": 0.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01010001.json",
+            "seed": 1302004,
+            "win_delta": 0,
+            "building_value_delta": -70.0,
+            "losses_delta": 210.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01011000.json",
+            "seed": 1302005,
+            "win_delta": 0,
+            "building_value_delta": 110.0,
+            "losses_delta": 600.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01012000.json",
+            "seed": 1302006,
+            "win_delta": 0,
+            "building_value_delta": 40.0,
+            "losses_delta": -930.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01008000.json",
+            "seed": 1302007,
+            "win_delta": 0,
+            "building_value_delta": -230.0,
+            "losses_delta": -2400.0
+          }
+        ]
+      },
+      "4": {
+        "summary": {
+          "baseline": {
+            "wins": 6,
+            "building_value": 3435.0,
+            "losses": 24109.0
+          },
+          "candidate": {
+            "wins": 7,
+            "building_value": 3525.0,
+            "losses": 20235.0
+          }
+        },
+        "pairs": [
+          {
+            "map": "game/data/maps/pool/gen_01010001.json",
+            "seed": 1302000,
+            "win_delta": 0,
+            "building_value_delta": 40.0,
+            "losses_delta": 528.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01011000.json",
+            "seed": 1302001,
+            "win_delta": 0,
+            "building_value_delta": 0.0,
+            "losses_delta": -566.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01012000.json",
+            "seed": 1302002,
+            "win_delta": 0,
+            "building_value_delta": -120.0,
+            "losses_delta": -849.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01008000.json",
+            "seed": 1302003,
+            "win_delta": 0,
+            "building_value_delta": 0.0,
+            "losses_delta": 0.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01010001.json",
+            "seed": 1302004,
+            "win_delta": 1,
+            "building_value_delta": -10.0,
+            "losses_delta": -1969.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01011000.json",
+            "seed": 1302005,
+            "win_delta": 0,
+            "building_value_delta": 180.0,
+            "losses_delta": 566.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01012000.json",
+            "seed": 1302006,
+            "win_delta": 0,
+            "building_value_delta": 0.0,
+            "losses_delta": 566.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01008000.json",
+            "seed": 1302007,
+            "win_delta": 0,
+            "building_value_delta": 0.0,
+            "losses_delta": -2150.0
+          }
+        ]
+      }
+    },
+    "1403": {
+      "1": {
+        "summary": {
+          "baseline": {
+            "wins": 5,
+            "building_value": 3355.0,
+            "losses": 18860.0
+          },
+          "candidate": {
+            "wins": 5,
+            "building_value": 3395.0,
+            "losses": 14720.0
+          }
+        },
+        "pairs": [
+          {
+            "map": "game/data/maps/pool/gen_01010001.json",
+            "seed": 1403000,
+            "win_delta": 0,
+            "building_value_delta": 215.0,
+            "losses_delta": 190.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01011000.json",
+            "seed": 1403001,
+            "win_delta": 0,
+            "building_value_delta": 110.0,
+            "losses_delta": 600.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01012000.json",
+            "seed": 1403002,
+            "win_delta": 0,
+            "building_value_delta": 40.0,
+            "losses_delta": -930.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01008000.json",
+            "seed": 1403003,
+            "win_delta": 0,
+            "building_value_delta": -230.0,
+            "losses_delta": -2400.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01010001.json",
+            "seed": 1403004,
+            "win_delta": 0,
+            "building_value_delta": 40.0,
+            "losses_delta": 1260.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01011000.json",
+            "seed": 1403005,
+            "win_delta": 0,
+            "building_value_delta": 0.0,
+            "losses_delta": 0.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01012000.json",
+            "seed": 1403006,
+            "win_delta": 0,
+            "building_value_delta": -40.0,
+            "losses_delta": -2010.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01008000.json",
+            "seed": 1403007,
+            "win_delta": 0,
+            "building_value_delta": -95.0,
+            "losses_delta": -850.0
+          }
+        ]
+      },
+      "4": {
+        "summary": {
+          "baseline": {
+            "wins": 6,
+            "building_value": 3320.0,
+            "losses": 17314.0
+          },
+          "candidate": {
+            "wins": 8,
+            "building_value": 3870.0,
+            "losses": 13119.0
+          }
+        },
+        "pairs": [
+          {
+            "map": "game/data/maps/pool/gen_01010001.json",
+            "seed": 1403000,
+            "win_delta": 1,
+            "building_value_delta": 610.0,
+            "losses_delta": -1377.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01011000.json",
+            "seed": 1403001,
+            "win_delta": 0,
+            "building_value_delta": 180.0,
+            "losses_delta": 566.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01012000.json",
+            "seed": 1403002,
+            "win_delta": 0,
+            "building_value_delta": 0.0,
+            "losses_delta": 566.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01008000.json",
+            "seed": 1403003,
+            "win_delta": 0,
+            "building_value_delta": 0.0,
+            "losses_delta": -2150.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01010001.json",
+            "seed": 1403004,
+            "win_delta": 0,
+            "building_value_delta": 40.0,
+            "losses_delta": 528.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01011000.json",
+            "seed": 1403005,
+            "win_delta": 0,
+            "building_value_delta": 0.0,
+            "losses_delta": 0.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01012000.json",
+            "seed": 1403006,
+            "win_delta": 1,
+            "building_value_delta": -160.0,
+            "losses_delta": -2535.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01008000.json",
+            "seed": 1403007,
+            "win_delta": 0,
+            "building_value_delta": -120.0,
+            "losses_delta": 207.0
+          }
+        ]
+      }
+    },
+    "1504": {
+      "1": {
+        "summary": {
+          "baseline": {
+            "wins": 3,
+            "building_value": 2645.0,
+            "losses": 25500.0
+          },
+          "candidate": {
+            "wins": 3,
+            "building_value": 2925.0,
+            "losses": 21440.0
+          }
+        },
+        "pairs": [
+          {
+            "map": "game/data/maps/pool/gen_01010001.json",
+            "seed": 1504000,
+            "win_delta": 0,
+            "building_value_delta": -70.0,
+            "losses_delta": 210.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01011000.json",
+            "seed": 1504001,
+            "win_delta": 0,
+            "building_value_delta": 0.0,
+            "losses_delta": 0.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01012000.json",
+            "seed": 1504002,
+            "win_delta": 0,
+            "building_value_delta": -40.0,
+            "losses_delta": -2010.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01008000.json",
+            "seed": 1504003,
+            "win_delta": 0,
+            "building_value_delta": -95.0,
+            "losses_delta": -850.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01010001.json",
+            "seed": 1504004,
+            "win_delta": 0,
+            "building_value_delta": 215.0,
+            "losses_delta": 190.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01011000.json",
+            "seed": 1504005,
+            "win_delta": 0,
+            "building_value_delta": 150.0,
+            "losses_delta": -1460.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01012000.json",
+            "seed": 1504006,
+            "win_delta": 0,
+            "building_value_delta": 120.0,
+            "losses_delta": 0.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01008000.json",
+            "seed": 1504007,
+            "win_delta": 0,
+            "building_value_delta": 0.0,
+            "losses_delta": -140.0
+          }
+        ]
+      },
+      "4": {
+        "summary": {
+          "baseline": {
+            "wins": 5,
+            "building_value": 2730.0,
+            "losses": 23336.0
+          },
+          "candidate": {
+            "wins": 8,
+            "building_value": 3320.0,
+            "losses": 20635.0
+          }
+        },
+        "pairs": [
+          {
+            "map": "game/data/maps/pool/gen_01010001.json",
+            "seed": 1504000,
+            "win_delta": 1,
+            "building_value_delta": -10.0,
+            "losses_delta": -1969.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01011000.json",
+            "seed": 1504001,
+            "win_delta": 0,
+            "building_value_delta": 0.0,
+            "losses_delta": 0.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01012000.json",
+            "seed": 1504002,
+            "win_delta": 1,
+            "building_value_delta": -160.0,
+            "losses_delta": -2535.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01008000.json",
+            "seed": 1504003,
+            "win_delta": 0,
+            "building_value_delta": -120.0,
+            "losses_delta": 207.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01010001.json",
+            "seed": 1504004,
+            "win_delta": 1,
+            "building_value_delta": 610.0,
+            "losses_delta": -1377.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01011000.json",
+            "seed": 1504005,
+            "win_delta": 0,
+            "building_value_delta": 150.0,
+            "losses_delta": 992.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01012000.json",
+            "seed": 1504006,
+            "win_delta": 0,
+            "building_value_delta": 120.0,
+            "losses_delta": 1698.0
+          },
+          {
+            "map": "game/data/maps/pool/gen_01008000.json",
+            "seed": 1504007,
+            "win_delta": 0,
+            "building_value_delta": 0.0,
+            "losses_delta": 283.0
+          }
+        ]
+      }
+    }
+  },
+  "report_files": {
+    "runs/shared32-multiseed-20260909/seed1201/lowlevel1-baseline.json": "8f51cb37b4bc074fae9a1b43eb2e6d776ee28efeab431ffe5a69f5e3d111c944",
+    "runs/shared32-multiseed-20260909/seed1201/lowlevel1-candidate.json": "653c3ce05433f185cbf5bd6d91c6a3412057d12d9dee2fa6720829131f170f96",
+    "runs/shared32-multiseed-20260909/seed1201/lowlevel4-baseline.json": "2dad49fc5ad4487e140031dbd6a1729a901b59f4c77f333667fb66895c114957",
+    "runs/shared32-multiseed-20260909/seed1201/lowlevel4-candidate.json": "8e653aa8b8c3f46e2ab1ced0e292d104021a9c607093b9a4bd5df8c97e81425d",
+    "runs/shared32-multiseed-20260909/seed1302/lowlevel1-baseline.json": "925e231888ec7e37bfedc74433e3094d4b88ad7fb822d79820d1a627a75eef10",
+    "runs/shared32-multiseed-20260909/seed1302/lowlevel1-candidate.json": "dd36616e02a841ae13e92ff48dba0870635d4c865fc8dca8237afddf2a24df14",
+    "runs/shared32-multiseed-20260909/seed1302/lowlevel4-baseline.json": "531effa21a93934cc359f14c4746e77ca5d36018496823469ac65a13f9439a90",
+    "runs/shared32-multiseed-20260909/seed1302/lowlevel4-candidate.json": "1d1d88014a5c58395f8136864643f8c08e8efa55fa555a642887bcc5bc79499b",
+    "runs/shared32-multiseed-20260909/seed1403/lowlevel1-baseline.json": "45193c93fae672aeaec6f3116285b5e697975c048268f804b4e8f25bd3959858",
+    "runs/shared32-multiseed-20260909/seed1403/lowlevel1-candidate.json": "8152dc3c426ca2f09ca42aa0636fc7b6e200830b03d58bc615cd288f75a17ba0",
+    "runs/shared32-multiseed-20260909/seed1403/lowlevel4-baseline.json": "378e7a34b378c0a4bf7af28a61207f7269b3fd06ad50d572bdefbb2b3c7f7f31",
+    "runs/shared32-multiseed-20260909/seed1403/lowlevel4-candidate.json": "aa82a8d4daf4201bdbe74a73dc81b6c8b63e7fc4bf548fe61ab0a113bcf28260",
+    "runs/shared32-multiseed-20260909/seed1504/lowlevel1-baseline.json": "3e641ed169142c55cf6d3dbae0557afdfd3b38f030b1be6553ccd83ad6472afb",
+    "runs/shared32-multiseed-20260909/seed1504/lowlevel1-candidate.json": "f68b0c59dddeba5c8e0ad794a173809ff4ae3a670971be04d861c1ccce22bda5",
+    "runs/shared32-multiseed-20260909/seed1504/lowlevel4-baseline.json": "94bb004b6684c161651a876b3d789d390f705ce6b36a478913200f2057c7f2e2",
+    "runs/shared32-multiseed-20260909/seed1504/lowlevel4-candidate.json": "fd8e2dd2e02f802ae026c1ebc1afd1e6b6a782ec418fab46c37621ea981f2d9b"
+  },
+  "totals": {
+    "baseline": {
+      "wins": 35,
+      "building_value": 23555.0,
+      "losses": 195387.0
+    },
+    "candidate": {
+      "wins": 41,
+      "building_value": 26415.0,
+      "losses": 163297.0
+    }
+  },
+  "gate_passed": true,
+  "scope": "Four fresh evaluation seeds after candidate freeze; maps excluded from training but previously evaluated with other seeds",
+  "limitations": "Paired frozen low-level battles only; not full-game generalization or statistical proof. All seed/level regressions retained."
+}

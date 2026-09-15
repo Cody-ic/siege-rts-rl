@@ -1,0 +1,61 @@
+{
+  "arms": [
+    "baseline",
+    "candidate"
+  ],
+  "levels": [
+    1,
+    4
+  ],
+  "envs": 8,
+  "maps": [
+    "01010001",
+    "01011000",
+    "01012000",
+    "01008000"
+  ],
+  "prepare_ticks": 900,
+  "max_ticks": 2400,
+  "selection": "frozen_argmax",
+  "tactical_goals": "split-economy",
+  "models": {
+    "baseline": "runs/prepared-final-20260909/candidate.pt",
+    "candidate": "runs\\critic-isolation-shared-20260909\\frozen-update64.pt"
+  },
+  "scope": "Four fresh evaluation seeds after candidate freeze; maps excluded from training but previously evaluated with other seeds",
+  "files": {
+    "train/ppo.py": "0b1ccf6dba8c36951b9cec3842ec5daa238885d1da4bc9d444524f0ca8d9e995",
+    "train/learning.py": "04c647de5551ba2642fcb61f738b729d4b10c020e85f1908d35f3b7e2fef46a4",
+    "train/rollout.py": "77b792a2ef89de002807681b5c89fd9f774b1dcfe029968d130c60e107e4398a",
+    "train/checkpointing.py": "91adb6096c250baf2fe973d3607814b6fef37e7010adc8c3fb8e68eb82fc1cf6",
+    "train/stable_kl.py": "ca7cd18ffb5a9c199278ea42d735168a79b9b375c65d91ecf7ee3d9ed3b44b8c",
+    "build-split-training/bindings/Release/rts_native.cp313-win_amd64.pyd": "fa1655c3122710a35788efc12d77ca050b2552f4a0c5cdb27b49c554d003146d",
+    "runs/prepared-final-20260909/candidate.pt": "b556e8e3ff216d5fc3dc8e960fed12c2ccce79f318472cc6be8cff6c90550276",
+    "game/data/stats_placeholder.json": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+    "game/data/maps/pool/gen_01001000.json": "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+    "game/data/maps/pool/gen_01004000.json": "d11740be256d2666dc66318255efa4a7912744f47917f745ab920c572f56df45",
+    "game/data/maps/pool/gen_01005000.json": "7c43e2030fde2389cfc0784fd25410f21969e4b3f27911de798857e109f9a18d",
+    "game/data/maps/pool/gen_01006001.json": "7f32afd88e5dfdaea06cae08a9df2bf53d0169f7d9f3fbf89c909214b6fdd160",
+    "runs\\critic-isolation-shared-20260909\\frozen-update64.pt": "34aec58b655572e0751f6317b04d7b93e4d537a7ca9d00ad002d4f70661cd008",
+    "runs\\critic-isolation-independent-20260909\\frozen-update64.pt": "b6a69fb610f25f4fcb192ebf797855c6f37ede2dd00ce1277df4d235f5bba657",
+    "train/goal_coverage.py": "66c2f345d04cf07daad9e3898f2c8b98c287be17dd7dcdfc3507b24815a1a861",
+    "train/compare_goal_evaluations.py": "868dd8707440b0d297cb2c5b2775811538a49a39ef4fde974504216e4562c6aa",
+    "game/data/maps/pool/gen_01002000.json": "258426af6ee45cece5789f02ced8dff215b2db1e130471c766a9eb9c2c6628bf",
+    "game/data/maps/pool/gen_01003000.json": "1eca9b886a26f424b8039fb4665a8d4ca056b145672d54e9a060a03d453c737d",
+    "game/data/maps/pool/gen_01007000.json": "65f8ed3f8102fba260e8bc2b9a0b386bb3b2d0ae66081e4008f520e10f0463fd",
+    "game/data/maps/pool/gen_01009000.json": "09a441043b8e1bfdfe9b6405fdd60c0bb1cef5f943049fd4f03ccc8bde680ebf",
+    "game/data/maps/pool/gen_01010001.json": "75330c033aef2663eb6ad46d746d99bd9a853ea8b559c63c8e5df9f56bf7ee0e",
+    "game/data/maps/pool/gen_01011000.json": "11e930e51e0e75e961c0a3188aab81a07b892e03be35095fa62374b9b796d523",
+    "game/data/maps/pool/gen_01012000.json": "ca8443d13a77fcdb39eb67767c9c31f69ede95f14825f1c8f154a58849bb3e62",
+    "game/data/maps/pool/gen_01008000.json": "7cd3ef88926ad5089df91b020743c8472fbf03dff311d1db00e06c596e231aeb"
+  },
+  "seeds": [
+    1201,
+    1302,
+    1403,
+    1504
+  ],
+  "gate": "Aggregate candidate wins and building value >= baseline; losses <= baseline. Report each seed and level, including regressions. No repeated checkpoint selection.",
+  "policy": "frozen_argmax",
+  "candidate_selection": "Frozen shared update64 selected by prior matched development comparison, not independent critic"
+}

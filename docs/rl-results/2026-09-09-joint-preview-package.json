@@ -1,0 +1,11 @@
+{
+  "archive_sha256": "8d1825deb1d0c692a03a602fb226a38fc345d28b1d4ab62fbecf6e66dec79b3d",
+  "archive_bytes": 36562762,
+  "verified_files": 521,
+  "runtime_commit": "285cbd136bef32edd209b4890c8848eb6f1f8d3d",
+  "tick": 1200,
+  "asset_root": "runs/rl-joint-preview-20260909",
+  "outside_repository_working_directory": true,
+  "screenshot_sha256": "ebbbe93f34c5f873013247837b505ec0658bcd7a2739aa77e01cda2b967da8bf",
+  "fresh_windows_verified": false
+}

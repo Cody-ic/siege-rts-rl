@@ -1,0 +1,17 @@
+{
+  "attacker_identity": "6346968484515317153",
+  "defender_identity": "17228096830293534042",
+  "checkpoints": [
+    {"continuation_checks": 30, "final_tick": 1380, "saved_goal_counts": [0, 0, 6], "saved_tick": 1200},
+    {"continuation_checks": 30, "final_tick": 6534, "saved_goal_counts": [2, 1, 7], "saved_tick": 6354}
+  ],
+  "defeated": true,
+  "economy_goal_exercised": true,
+  "economy_restore_checked": true,
+  "peak_known_economy_targets": 2,
+  "peak_supported_economy_squads": 1,
+  "peak_supported_squads": 7,
+  "snapshot_and_replay_exact": true,
+  "tick": 8232,
+  "wave": 3
+}

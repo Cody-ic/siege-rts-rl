@@ -34,11 +34,13 @@
 // 共用任何一块都是数据竞争，而它不会报错——只会让同一个种子跑两遍得到
 // 两份不同的数据（`batched_env.hpp` 文件头把这条列为最要防的失败形态）。
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <vector>
 
 #include "game/defender_macro.hpp"
+#include "defender_profiles.hpp"
 #include "game/defender_script.hpp"
 #include "game/map_data.hpp"
 #include "rts/types.hpp"
@@ -49,6 +51,32 @@ namespace bindings {
 // 逐局一份的守方大脑 + 缓冲。`operator()` 就是那个钩子。
 class ScriptedDefender {
 public:
+    std::unique_ptr<rts::World> prepare(rts::WorldInit init, int i, int ticks,
+                                      int decision_ticks) {
+        // Preserve the exact requested roster, but do not expose it to defenders
+        // or let it take tower damage during preparation.
+        std::vector<rts::UnitInit> attackers;
+        std::vector<rts::UnitInit> defenders;
+        for (const auto& unit : init.units) {
+            (rts::side_of(unit.type) == rts::Side::Attacker ? attackers : defenders).push_back(unit);
+        }
+        init.units = std::move(defenders);
+        auto world = std::make_unique<rts::World>(std::move(init));
+        for (int elapsed = 0; elapsed < ticks;) {
+            (*this)(*world, i);
+            const int step = std::min(decision_ticks, ticks - elapsed);
+            world->advance(step);
+            elapsed += step;
+        }
+        for (const auto& unit : attackers)
+            world->spawn_unit(unit.type, unit.pos, unit.level, unit.hp, unit.max_hp, unit.squad);
+        world->begin_assault();
+        (void)world->take_tally(rts::Side::Attacker);
+        (void)world->take_tally(rts::Side::Defender);
+        // The same per-slot brain continues into combat: do not discard its
+        // construction quotas, orders or RNG after preparing the city.
+        return world;
+    }
     // `n` = 批大小。`seed` 给每局的脚本 RNG 错开（`DefenderScript` 内部有
     // `Rng`，同一个种子会让所有局的随机决策完全同步——那不是错，但会让
     // 一批 256 局的多样性凭空少一维）。
@@ -56,12 +84,18 @@ public:
                      const game::MacroParams& mp = {},
                      const game::ScriptParams& sp = {},
                      int macro_period_steps = 1)
-        : map_(map), mp_(mp), sp_(sp), seed_(seed),
+        : ScriptedDefender(std::vector<game::MapData>{map},n,seed,mp,sp,macro_period_steps) {}
+
+    ScriptedDefender(const std::vector<game::MapData>& maps, int n, std::uint64_t seed,
+                     const game::MacroParams& mp = {}, const game::ScriptParams& sp = {},
+                     int macro_period_steps = 1, std::vector<game::MacroParams> profiles = {})
+        : maps_(maps), mp_(mp), sp_(sp), profiles_(std::move(profiles)), seed_(seed),
           macro_period_(macro_period_steps < 1 ? 1 : macro_period_steps) {
+        if(maps_.empty()) throw rts::ContractError("ScriptedDefender requires at least one map");
         per_.reserve(static_cast<std::size_t>(n));
         for (int i = 0; i < n; ++i) {
             per_.push_back(std::make_unique<Per>(
-                map, mp, sp, seed + static_cast<std::uint64_t>(i) * 7919u));
+                maps_.front(), mp, sp, seed + static_cast<std::uint64_t>(i) * 7919u));
         }
     }
 
@@ -78,7 +112,13 @@ public:
         // reset_one replaces World but does not recreate this captured callback.
         // Reset at tick zero, including the first episode, using world seed rather
         // than batch index so frozen evaluation is independent of batching.
-        if (w.now() == 0) reset(i, map_, seed_ ^ w.seed(), mp_, sp_);
+        // Training assigns map index = world seed modulo the map pool size.
+        // The same rule applies after reset_one, independent of batch slot.
+        if (w.now() == 0) {
+            // Whole map cycle per profile; independent of worker/batch slot.
+            const auto& params=profiles_.empty()?mp_:profiles_[defender_profile_index(w.seed(),maps_.size(),profiles_.size())];
+            reset(i, maps_[w.seed()%maps_.size()], seed_ ^ w.seed(), params, sp_);
+        }
         Per& s = *per_[static_cast<std::size_t>(i)];
 
         // ——宏观：建 / 修 / 招 / 升 / 清野——
@@ -142,9 +182,10 @@ private:
     // 搬动本身是安全的，但钩子在多线程里按下标取引用 ⇒ **绝不能让
     // 那些引用因为一次扩容而失效**。指针稳定这条比省一层间接重要。
     std::vector<std::unique_ptr<Per>> per_;
-    game::MapData map_;
+    std::vector<game::MapData> maps_;
     game::MacroParams mp_;
     game::ScriptParams sp_;
+    std::vector<game::MacroParams> profiles_;
     std::uint64_t seed_;
     int macro_period_ = 1;
 };

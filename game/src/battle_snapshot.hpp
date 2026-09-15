@@ -117,6 +117,7 @@ struct SnapshotCodec {
             f("scout_rolled_",v.scout_rolled_);
             f("defeated_",v.defeated_);
             f("since_decision_",v.since_decision_);
+            if(v.defender_policy_) f("defender_rng_",v.defender_rng_);
         }
         else if constexpr(std::is_same_v<U,DefenderScript>) {
             f("p_",v.p_);

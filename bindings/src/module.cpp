@@ -32,6 +32,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <string>
@@ -40,15 +41,41 @@
 #include "game/map_loader.hpp"
 #include "game/stats_loader.hpp"
 #include "game/world_builder.hpp"
+#include "game/attacker_macro.hpp"
+#include "game/training_campaign.hpp"
+#include "game/training_goals.hpp"
+#include "game/rl_policy.hpp"
+#include "game/macro_policy.hpp"
+#include "game/macro_observation.hpp"
 #include "scripted_defender.hpp"
+#include "defender_profiles.hpp"
 #include "rts/action.hpp"
 #include "rts/batched_env.hpp"
 #include "rts/obs.hpp"
 #include "rts/roster.hpp"
+#include "rts/combat_math.hpp"
 
 namespace py = pybind11;
 
 namespace {
+
+using EncodedCommands = std::vector<std::tuple<int,int,int,int>>;
+std::vector<rts::Command> parse_campaign_commands(const EncodedCommands& commands) {
+    std::vector<rts::Command> parsed;
+    parsed.reserve(commands.size());
+    for(const auto& [kind,slot,what,level]:commands) {
+        if(kind<0 || kind>=rts::kCommandKindCount || slot<0 || slot>rts::kNoSlot ||
+           what<0 || what>255 || level<1 || level>255)
+            throw rts::ContractError("Invalid campaign command encoding");
+        rts::Command command;
+        command.kind=static_cast<rts::CommandKind>(kind);
+        command.slot=static_cast<std::uint16_t>(slot);
+        command.what=static_cast<std::uint8_t>(what);
+        command.level=static_cast<std::uint8_t>(level);
+        parsed.push_back(command);
+    }
+    return parsed;
+}
 
 struct WorldFactory {
     game::MapData map;
@@ -68,7 +95,8 @@ struct WorldFactory {
             if (rts::side_of(ut) != rts::Side::Attacker) {
                 throw rts::ContractError("WorldFactory: attacker side required");
             }
-            const auto hp = stats.of(ut).max_hp;
+            const auto hp = rts::apply_permille(stats.of(ut).max_hp,
+                {rts::level_permille(lvl,stats.global.hp_permille_per_level)});
             const auto squad = sq < 0 ? rts::kNoSquad : static_cast<std::uint16_t>(sq);
             init.units.push_back(rts::UnitInit{ut, rts::Vec2{x, y}, lvl, hp, hp, squad});
         }
@@ -105,6 +133,174 @@ auto as_cspan(const Arr& a) {
 }  // namespace
 
 PYBIND11_MODULE(rts_native, m) {
+    m.def("defender_profile_index",&bindings::defender_profile_index,
+          py::arg("world_seed"),py::arg("map_count"),py::arg("profile_count"));
+    py::list command_names;
+    for(int i=0;i<rts::kCommandKindCount;++i)
+        command_names.append(std::string(rts::ident_of(static_cast<rts::CommandKind>(i))));
+    m.attr("COMMAND_KIND_NAMES")=command_names;
+    auto macro_obs=m.def_submodule("macro_obs","Defender-only regional observation contract");
+    macro_obs.attr("VERSION")=game::kMacroObsVersion;
+    macro_obs.attr("GRID")=game::kMacroGrid;
+    macro_obs.attr("CELL_NAMES")=game::macro_cell_names();
+    macro_obs.attr("GLOBAL_NAMES")=game::macro_global_names();
+    macro_obs.attr("DETAIL_NAMES")=game::macro_detail_names();
+    // This is a full game, not a WorldInit approximation. Returned hashes are
+    // diagnostics, never policy observations. Macro observation packing follows
+    // the defender's own information boundary separately.
+    const auto transition = [](const game::CampaignTransition& value) {
+        py::dict out;
+        out["ticks"]=value.ticks;
+        out["wave_advanced"]=value.wave_advanced;
+        out["defeated"]=value.defeated;
+        py::dict coverage;
+        coverage["model_eligible_unit_ticks"]=value.model_eligible_unit_ticks;
+        coverage["script_combat_unit_ticks"]=value.script_combat_unit_ticks;
+        out["controller_coverage"]=coverage;
+        const auto tally=[](const rts::World::Tally& t) {
+            py::dict d;
+            d["dmg_to_units"]=t.dmg_to_units;d["dmg_to_blds"]=t.dmg_to_blds;
+            d["units_killed"]=t.units_killed;d["blds_destroyed"]=t.blds_destroyed;
+            d["bld_value"]=t.bld_value;d["scouts_killed"]=t.scouts_killed;d["losses"]=t.losses;
+            d["scout_units_killed"]=t.scout_units_killed;
+            d["masons_killed"]=t.masons_killed;
+            d["phoenix_losses"]=t.phoenix_losses;
+            d["enemy_unit_gold"]=t.enemy_unit_gold;
+            d["repair_wood_spent"]=t.repair_wood_spent;
+            d["friendly_unit_damage"]=t.friendly_unit_damage;
+            d["friendly_units_killed"]=t.friendly_units_killed;
+            for (std::size_t type=0; type<rts::kUnitTypeCount; ++type) {
+                d[std::string(rts::BatchedEnv::kTallyNames[15+type]).c_str()]=t.enemy_unit_levels[type];
+                d[std::string(rts::BatchedEnv::kTallyNames[26+type]).c_str()]=t.own_unit_levels[type];
+            }
+            d["destroyed_stone"]=t.destroyed_stone;d["destroyed_wood"]=t.destroyed_wood;
+            d["destroyed_income_stone"]=t.destroyed_income_stone;
+            d["destroyed_income_wood"]=t.destroyed_income_wood;
+            d["destroyed_income_gold"]=t.destroyed_income_gold;
+            return d;
+        };
+        out["attacker_tally"]=tally(value.attacker);
+        out["defender_tally"]=tally(value.defender);
+        return out;
+    };
+    py::class_<rts::Rng>(m,"PolicyRng")
+        .def(py::init<std::uint64_t>(),py::arg("seed"))
+        .def_property("state",&rts::Rng::state,[](rts::Rng& rng,rts::Rng::State state) {
+            if(std::all_of(state.begin(),state.end(),[](auto v){return v==0;}))
+                throw std::invalid_argument("Policy RNG state must not be all zero");
+            rng.set_state(state);
+        });
+    py::class_<game::MacroPolicy>(m,"DefenderPolicy")
+        .def(py::init<const std::string&,const std::string&>(),py::arg("directory"),py::arg("stats_path"))
+        .def_property_readonly("period",&game::MacroPolicy::period)
+        .def_property_readonly("identity",&game::MacroPolicy::identity)
+        .def("decide",[](game::MacroPolicy& policy,const game::TrainingCampaign& campaign,rts::Rng* rng) {
+            const auto c=policy.decide(campaign.world().view(rts::Side::Defender),campaign.summon_allowed(),rng);
+            return py::make_tuple(static_cast<int>(c.kind),c.slot,c.what,c.level);
+        },py::arg("campaign"),py::arg("rng")=nullptr);
+    py::class_<game::TacticalPolicy,std::shared_ptr<game::TacticalPolicy>>(m,"FrozenAttacker")
+        .def(py::init([](const std::string& model,const std::string& stats) {
+            return std::make_shared<game::TacticalPolicy>(model,
+                game::StatsLoader::from_file(stats).fingerprint());
+        }),py::arg("model_path"),py::arg("stats_path"))
+        .def_static("runtime_available",&game::TacticalPolicy::runtime_available)
+        .def_property_readonly("identity",&game::TacticalPolicy::identity);
+    py::class_<game::TrainingCampaign>(m,"TrainingCampaign")
+        .def(py::init([](const std::string& map,const std::string& stats,std::uint64_t seed,
+                         std::shared_ptr<game::TacticalPolicy> attacker) {
+            return std::make_unique<game::TrainingCampaign>(game::MapLoader::from_file(map),
+                game::StatsLoader::from_file(stats),seed,20,game::MacroParams{},std::move(attacker));
+        }),py::arg("map_path"),py::arg("stats_path"),py::arg("seed")=1,
+           py::arg("attacker")=nullptr)
+        .def("fork",&game::TrainingCampaign::fork)
+        .def("defender_detail",[](const game::TrainingCampaign& c) {
+            const auto view=c.world().view(rts::Side::Defender);
+            const auto packed=game::pack_macro_detail(view);
+            py::array_t<float> result({view.height(),view.width(),game::kMacroDetailChannels});
+            std::copy(packed.begin(),packed.end(),result.mutable_data());
+            return result;
+        })
+        .def("teacher_command",[](const game::TrainingCampaign& c) {
+            const auto command=c.teacher_command();
+            return py::make_tuple(static_cast<int>(command.kind),command.slot,command.what,command.level);
+        })
+        .def_property_readonly("map_shape",[](const game::TrainingCampaign& c) {
+            const auto v=c.world().view(rts::Side::Defender);
+            return py::make_tuple(v.height(),v.width());
+        })
+        .def("candidates",[](const game::TrainingCampaign& c) {
+            std::vector<rts::Command> commands;
+            {py::gil_scoped_release nogil;
+             commands=game::macro_candidates(c.world().view(rts::Side::Defender),c.summon_allowed());}
+            py::array_t<int> result({static_cast<py::ssize_t>(commands.size()),py::ssize_t{4}});
+            auto* data=result.mutable_data();
+            for(const auto& command:commands) {
+                *data++=static_cast<int>(command.kind);*data++=command.slot;
+                *data++=command.what;*data++=command.level;
+            }
+            return result;
+        })
+        .def("diagnostic_city",[](const game::TrainingCampaign& c) {
+            const auto v=c.world().view(rts::Side::Defender);
+            py::dict city;
+            city["stone"]=v.stock()[static_cast<std::size_t>(rts::Resource::Stone)];
+            city["wood"]=v.stock()[static_cast<std::size_t>(rts::Resource::Wood)];
+            city["gold"]=v.stock()[static_cast<std::size_t>(rts::Resource::Gold)];
+            city["wave"]=v.wave();
+            city["assault"]=v.phase()==rts::WavePhase::Assault;
+            city["unit_level_cap"]=v.unit_level_cap();
+            city["population"]=v.defender_pop();
+            city["population_cap"]=v.defender_pop_cap();
+            city["keep_level"]=0;
+            city["keep_hp"]=0;
+            city["keep_max_hp"]=0;
+            city["keep_hp_fraction"]=0.0;
+            for(std::size_t i=0;i<v.bld_alive().size();++i) {
+                if(!v.bld_alive()[i] || v.bld_type()[i]!=rts::BldType::Keep) continue;
+                city["keep_level"]=v.bld_level()[i];
+                city["keep_hp"]=v.bld_hp()[i];
+                city["keep_max_hp"]=v.bld_max_hp()[i];
+                city["keep_hp_fraction"]=static_cast<double>(v.bld_hp()[i])/
+                    static_cast<double>(std::max<std::int64_t>(1,v.bld_max_hp()[i]));
+                break;
+            }
+            return city;
+        },"Read-only audit snapshot in native units, separate from normalized policy observations")
+        .def("defender_observation",[](const game::TrainingCampaign& c) {
+            const auto packed=game::pack_macro_observation(c.world().view(rts::Side::Defender));
+            py::array_t<float> cells({game::kMacroGrid,game::kMacroGrid,game::kMacroChannels});
+            py::array_t<float> global(game::kMacroGlobals);
+            std::copy(packed.cells.begin(),packed.cells.end(),cells.mutable_data());
+            std::copy(packed.global.begin(),packed.global.end(),global.mutable_data());
+            return py::make_tuple(cells,global);
+        })
+        .def("command_mask",[](const game::TrainingCampaign& c,const EncodedCommands& commands) {
+            const auto parsed=parse_campaign_commands(commands);
+            py::array_t<bool> mask(static_cast<py::ssize_t>(parsed.size()));
+            const auto view=c.world().view(rts::Side::Defender);
+            for(std::size_t i=0;i<parsed.size();++i)
+                mask.mutable_data()[i]=game::macro_command_legal(view,parsed[i],c.summon_allowed());
+            return mask;
+        },py::arg("commands"))
+        .def_property_readonly("wave",[](const game::TrainingCampaign& c){return c.world().wave();})
+        .def_property_readonly("tick",[](const game::TrainingCampaign& c){return c.world().now();})
+        .def_property_readonly("diagnostic_state_hash",[](const game::TrainingCampaign& c){return c.world().state_hash();})
+        .def("advance_scripted",[transition](game::TrainingCampaign& c,int ticks) {
+            game::CampaignTransition result;
+            {py::gil_scoped_release nogil;result=c.advance_scripted(ticks);}
+            return transition(result);
+        },py::arg("max_ticks")=20)
+        .def("advance",[transition](game::TrainingCampaign& c,int ticks,
+             const EncodedCommands& commands) {
+            const auto parsed=parse_campaign_commands(commands);
+            game::CampaignTransition result;
+            {py::gil_scoped_release nogil;result=c.advance(ticks,parsed);}
+            return transition(result);
+        },py::arg("max_ticks"),py::arg("commands"));
+    m.def("squad_cap",[](int type) {
+        if(type<0 || type>=rts::kUnitTypeCount) throw rts::ContractError("Invalid unit type");
+        return game::squad_cap_of(static_cast<rts::UnitType>(type));
+    });
     m.attr("SIMULATION_FINGERPRINT") = RTS_SIMULATION_FINGERPRINT;
     m.attr("BUILD_MODE") = RTS_NATIVE_BUILD_MODE;
     m.doc() = "siege-rts-rl 的原生仿真（不变量 3：in-process，不走 IPC）";
@@ -266,7 +462,23 @@ PYBIND11_MODULE(rts_native, m) {
         .def(py::init([](std::vector<rts::WorldInit> worlds, rts::Side side,
                          int ticks_per_step, int threads, int max_ticks_per_episode,
                          const std::string& defender_map, int defender_seed,
-                         int defender_macro_period, rts::ObsNorms norms) {
+                         int defender_macro_period, rts::ObsNorms norms,
+                         const std::vector<std::string>& defender_maps,
+                         int defender_prepare_ticks, const std::string& tactical_goals,
+                         const std::vector<std::string>& defender_profiles) {
+                 std::vector<game::MacroParams> profiles;
+                 for(const auto& name:defender_profiles) profiles.push_back(bindings::defender_profile(name));
+                 if(!profiles.empty() && defender_map.empty() && defender_maps.empty())
+                     throw rts::ContractError("Defender profiles require a scripted defender");
+                 if(tactical_goals!="keep" && tactical_goals!="known-economy" && tactical_goals!="split-economy")
+                     throw rts::ContractError("Unknown tactical goal mode");
+                 if(tactical_goals!="keep" && side!=rts::Side::Attacker)
+                     throw rts::ContractError("Economy goals require attacker side");
+                 if (defender_prepare_ticks < 0 || defender_prepare_ticks > 2400)
+                     throw rts::ContractError("defender_prepare_ticks must be in [0,2400]");
+                 if (defender_prepare_ticks && (ticks_per_step <= 0 ||
+                     (defender_map.empty() && defender_maps.empty())))
+                     throw rts::ContractError("Preparation requires a scripted defender and positive decision period");
                  rts::BatchedEnvInit bi;
                  bi.worlds = std::move(worlds);
                  bi.side = side;
@@ -274,6 +486,10 @@ PYBIND11_MODULE(rts_native, m) {
                  bi.threads = threads;
                  bi.max_ticks_per_episode = max_ticks_per_episode;
                  bi.norms = norms;
+                 if(tactical_goals=="known-economy")
+                     bi.goal_hook=[](const rts::WorldView& view, std::span<const rts::UnitId> leaders, int) {
+                         return game::known_economy_training_goals(view,leaders);
+                     };
                  // **接上真正的守方**（`scripted_defender.hpp`）。
                  //
                  // 给了地图路径就接、不给就不接（默认不接 = 此前的行为，
@@ -285,15 +501,36 @@ PYBIND11_MODULE(rts_native, m) {
                  // 不复用 `make_world_init` 那次是因为那一层只返回
                  // `WorldInit`、不返回 `MapData`，而 `DefenderMacro` 要的
                  // 是后者（它构造时要算环半径与候选塔位）。一次性开销。
-                 if (!defender_map.empty()) {
-                     const game::MapData dm = game::MapLoader::from_file(defender_map);
+                 if (!defender_map.empty() && !defender_maps.empty())
+                     throw rts::ContractError("Choose defender_map or defender_maps, not both");
+                 if (!defender_map.empty() || !defender_maps.empty()) {
+                     std::vector<game::MapData> maps;
+                     if(!defender_map.empty()) maps.push_back(game::MapLoader::from_file(defender_map));
+                     for(const auto& path:defender_maps) maps.push_back(game::MapLoader::from_file(path));
                      auto brain = std::make_shared<bindings::ScriptedDefender>(
-                         dm, static_cast<int>(bi.worlds.size()),
+                         maps, static_cast<int>(bi.worlds.size()),
                          static_cast<std::uint64_t>(defender_seed),
                          game::MacroParams{}, game::ScriptParams{},
-                         defender_macro_period);
+                         defender_macro_period,profiles);
                      bi.opponent_hook = [brain](rts::World& w, int i) {
                          (*brain)(w, i);
+                     };
+                     if (defender_prepare_ticks) {
+                         bi.world_factory = [brain, defender_prepare_ticks, ticks_per_step](rts::WorldInit init, int i) {
+                             return brain->prepare(std::move(init), i, defender_prepare_ticks, ticks_per_step);
+                         };
+                     }
+                 }
+                 if(tactical_goals=="split-economy") {
+                     auto goals=std::make_shared<std::vector<game::SplitEconomyTrainingGoals>>(bi.worlds.size());
+                     auto prepare=std::move(bi.world_factory);
+                     bi.world_factory=[goals,prepare](rts::WorldInit init,int i) {
+                         auto world=prepare ? prepare(std::move(init),i) : std::make_unique<rts::World>(std::move(init));
+                         (*goals)[static_cast<std::size_t>(i)].reset(*world);
+                         return world;
+                     };
+                     bi.goal_hook=[goals](const rts::WorldView& view,std::span<const rts::UnitId> leaders,int i) {
+                         return (*goals)[static_cast<std::size_t>(i)](view,leaders);
                      };
                  }
                  return std::make_unique<rts::BatchedEnv>(std::move(bi));
@@ -305,6 +542,10 @@ PYBIND11_MODULE(rts_native, m) {
              py::arg("defender_seed") = 20260907,
              py::arg("defender_macro_period") = 1,
              py::arg("norms") = rts::ObsNorms{},
+             py::arg("defender_maps") = std::vector<std::string>{},
+             py::arg("defender_prepare_ticks") = 0,
+             py::arg("tactical_goals") = "keep",
+             py::arg("defender_profiles") = std::vector<std::string>{},
              "defender_map 给了就**接上真正的守方**（game::DefenderScript + "
              "DefenderMacro，逐局各一份）。**不给 = 对侧一动不动**——那是 "
              "2026-09-07 之前的行为，而它让 enemy_* 那几条观测通道十万局零"
@@ -397,6 +638,8 @@ PYBIND11_MODULE(rts_native, m) {
             "列的顺序 = obs.TALLY_NAMES。权重不在 C++ 侧——那是训练超参，"
             "这一层只给「发生了什么」。")
         .def_property_readonly("potentials", &rts::BatchedEnv::potentials)
+        .def_property_readonly("goal_diagnostics", &rts::BatchedEnv::goal_diagnostics)
+        .def_property_readonly("goal_groups", &rts::BatchedEnv::goal_groups)
         .def_property_readonly("episode_ends", [](const rts::BatchedEnv& e) {
             const auto ends = e.episode_ends();
             return std::vector<rts::BatchedEnv::EpisodeEnd>(ends.begin(), ends.end());

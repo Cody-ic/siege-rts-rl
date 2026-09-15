@@ -1,0 +1,1676 @@
+{
+  "plan": "docs\\rl-results\\2026-09-09-defender-profiles-ab-plan.json",
+  "plan_sha256": "28ea67c1e38b5ab5d455a7b63c189e745f76cf781366c4676d58872fc53a4db8",
+  "commit": "ab0f1c98a15e1a325328570ea498bf4fd20993b4",
+  "environment": {
+    "host": "amax (shared GPU server, CPU only for this experiment)",
+    "toolchain": "GCC 13.3 / Python 3.12.11 / PyTorch 2.8.0+cu128",
+    "native": "build-Release under the PR worktree; simulation fingerprint recorded by each run's pipeline.json contract"
+  },
+  "arms": {
+    "control-s1": {
+      "fit_policy_sha256": "f05c7c5d9452a26c9e8e1507d88a13737e3353a565cb87b7e5bb7d37e9c1fefe",
+      "ppo_policy_sha256": "6331eb44496f1b03aabaac5f41247390b69b867e5f644a16eb80094ea777f5ef",
+      "defender_profiles": [],
+      "reference_coef": 1.0,
+      "ent_coef": 0.01,
+      "value_features": "detached",
+      "training_completed": 193,
+      "training_coverage_by_style": {
+        "original": {
+          "completed": 193,
+          "wins": 132
+        }
+      },
+      "ppo_metrics": {
+        "updates": 64,
+        "env_steps": 65536,
+        "entropy_first": 0.010755076131317765,
+        "entropy_last": 0.007522963511291891,
+        "approx_kl_max": 0.0006195788064360386,
+        "clip_fraction_max": 0.005913996836170554,
+        "policy_loss_abs_max": 0.0007461744660284264,
+        "reference_kl_last": 3.799957349315264e-05,
+        "reference_coef": 1.0
+      },
+      "weight_drift_from_imitation": {
+        "max_abs": 0.322224497795105,
+        "mean_abs": 7.335449746624316e-05
+      },
+      "reports": {
+        "eval-0-level1-frozen_argmax-balanced.json": "548a9f56192ac730679046592cdbdbea36b54600a6fa96bc899fe53755073388",
+        "eval-0-level1-frozen_argmax-fortified.json": "7e6d2b5f3e9428ae36ce327059062d3844d37488fffa33a1fb7eae4aef1fcebc",
+        "eval-0-level1-frozen_argmax-mobile.json": "3a9cbab691876b0f3697c835b9aebf3483909a4cf82ce0a0f11a1a96403e7adf",
+        "eval-0-level1-frozen_sample-balanced.json": "9bf294e2d5eb49948671b41537aec843eb0d1bedc2bc2cd8fa0cb6e7897548cb",
+        "eval-0-level1-frozen_sample-fortified.json": "07cc033c604b565c2f7b1d002852c26e1f325e221bce0df1c858d44d96c07bfe",
+        "eval-0-level1-frozen_sample-mobile.json": "04aa996ac2ee138ddae58d14edd9ce1f6cea6598e7cb093c4975b96b8325e579",
+        "eval-0-level16-frozen_argmax-balanced.json": "0d53d5fca05770b91a5e6fb6cd3b93fd221d628807179d031c6e6fef7757a07a",
+        "eval-0-level16-frozen_argmax-fortified.json": "e4448b2fe2c132e6acaa1379bdf512a19ea91cfb682abcc3a53d6b3b7a329633",
+        "eval-0-level16-frozen_argmax-mobile.json": "b4fd93230a754ca3693f01414fd65d0ffac78f21541e082abc57b638616da56d",
+        "eval-0-level16-frozen_sample-balanced.json": "3f44318e3792d455d68d2d18b1695d820cd5443d4255f8af422531ac6aac20a2",
+        "eval-0-level16-frozen_sample-fortified.json": "309a3cc67192743b767838406261ff6668495716cb05f9e124e0c7e942d202be",
+        "eval-0-level16-frozen_sample-mobile.json": "61378e8db3952543802e4177d9901cfdf9486a8b8c0f5f69837896dffec10c67",
+        "eval-0-level4-frozen_argmax-balanced.json": "49d0455eb775bc6436c481ce17a45b6be8aae08409cf324b51c9c3105a585b28",
+        "eval-0-level4-frozen_argmax-fortified.json": "a227ab2009b665442d9c14889643ba6954852b63d05ddbb08a400858b53c23cf",
+        "eval-0-level4-frozen_argmax-mobile.json": "b79e483d4f8c31dd24f55472a65201e48b82559e4ef2ab6a1dffbc154024ad75",
+        "eval-0-level4-frozen_sample-balanced.json": "3f83c48d951e5caf2062fd95b9724f74248f4eb1139a5f321530220bcd8bebee",
+        "eval-0-level4-frozen_sample-fortified.json": "53cbcba738f74e8e7ced895c70b0c92040c10104a04307c600b1331717494eaa",
+        "eval-0-level4-frozen_sample-mobile.json": "4aac9b6c4284a74875c41f3286c3a772f52ea19707b5120603286c144d4d66d5",
+        "eval-0-level8-frozen_argmax-balanced.json": "cb5a7d0e4fb99e67913cd364ba8ab66b2a6b31bc501a987323530a4bef35afa5",
+        "eval-0-level8-frozen_argmax-fortified.json": "8891fc54e3543b6635da4fc8216baa732206f50afa90ccbdb5f965e306ec4526",
+        "eval-0-level8-frozen_argmax-mobile.json": "40f02b5f45aad417d078dd36ce0c0d140dfd807d2a7d480e07c36c824361d174",
+        "eval-0-level8-frozen_sample-balanced.json": "9c02b85725fa971ae20de45cde4704c8cb515feb925626bbc9e810424be6f825",
+        "eval-0-level8-frozen_sample-fortified.json": "c8f16a07d9c6504d62b227c7b356f19bbd54a51df5c33fa8521b90e63ebda3b3",
+        "eval-0-level8-frozen_sample-mobile.json": "5b55430145bddfd86caaacdf9a686ff9c9266958ecb6f73e328767f16bba6959",
+        "eval-1-level1-frozen_argmax-balanced.json": "345f9616c37063a6958420c55caefa07e24aa426ba7f4844a1de13c9cbd117d6",
+        "eval-1-level1-frozen_argmax-fortified.json": "6d0961e3152e0102e55fc8509b3757ea4642cf0219babe3a4a6afcc680a96d5e",
+        "eval-1-level1-frozen_argmax-mobile.json": "d028c03973353be9f0195c7079771d54f986b2c680436a725a5bbfe9f47c8d9f",
+        "eval-1-level1-frozen_sample-balanced.json": "8a99f8d27c5ff6af2f316e70800b7c1d2007733458f8d41f0a723a18780afa0d",
+        "eval-1-level1-frozen_sample-fortified.json": "2e85dae686147fee239be494c9c321fedf5318a7267b1a91b017058fad964f6c",
+        "eval-1-level1-frozen_sample-mobile.json": "d3b4709fec9531ce2a456e42f2a39368c3171754f3a1da0a02db6789324ef048",
+        "eval-1-level16-frozen_argmax-balanced.json": "b44cbdbf68433ae41c9ab1e99c84c07001ac8e41863307441b1921a730b82d91",
+        "eval-1-level16-frozen_argmax-fortified.json": "a5ee02de9aa3ac451b77bbde6d7c1ce188c11ff1cf68a0be22574712198aca67",
+        "eval-1-level16-frozen_argmax-mobile.json": "5892e495efdd11593c729c490190488b8de6a52eb2774f4925b73f3df5bb9d8f",
+        "eval-1-level16-frozen_sample-balanced.json": "612417fdf73a5364eb1a0035f1e64453610fce343076b2a13a4bdd09893296b2",
+        "eval-1-level16-frozen_sample-fortified.json": "7bd75c2230e3771142c46aa0afc94cee4d797670f01d3d1c332ed78a0b9df80c",
+        "eval-1-level16-frozen_sample-mobile.json": "1373911d011ffa21e96270e97277b21b91c43fce099fced5dd8c27fb46d4c993",
+        "eval-1-level4-frozen_argmax-balanced.json": "6aeefda0c043c8547712bd7d25f4c6dc1ed16cbf89e85c6011e3055079f78e3f",
+        "eval-1-level4-frozen_argmax-fortified.json": "308bc49335bbecc062a0b3048fd02602cb6bcf102111166749bf0540d2010bc2",
+        "eval-1-level4-frozen_argmax-mobile.json": "673cd4de4faa002e0e399377d7aac3cff18e11b259389b487ad6e6c8b048dcb9",
+        "eval-1-level4-frozen_sample-balanced.json": "da2a19c5f2d9c9c021aaa1c5e7f678aac97a3989a6ec880a24c0059bf5a8c660",
+        "eval-1-level4-frozen_sample-fortified.json": "78cbf46c13e9270a9cfde43993ab37062916bf7489e214a073759edc2b9bc827",
+        "eval-1-level4-frozen_sample-mobile.json": "f4db90dedfed08419811803140742da1384ec94cbda13c59a587a7334aabd296",
+        "eval-1-level8-frozen_argmax-balanced.json": "284856a7446419116a2006b3c39288e95254a180fd6270ba53d4535b69691697",
+        "eval-1-level8-frozen_argmax-fortified.json": "3d1bdf726e0da9c6f5933999a4f9f0413420cd5bf2a959bbb885a904ca78b0c0",
+        "eval-1-level8-frozen_argmax-mobile.json": "cc4c9827f7228ae0370256a3bb3ffbf36184d40344b7457b67d51b640eafa2b7",
+        "eval-1-level8-frozen_sample-balanced.json": "cba95f56180aaa4e64a52575777001e1c4274f6cd0b05cc9ca58a25df1776371",
+        "eval-1-level8-frozen_sample-fortified.json": "068dc65f7399f992a80e60b85f1bd91e8ff359e149b59bcfc03925dfc74d85b8",
+        "eval-1-level8-frozen_sample-mobile.json": "8796f5181b054c823e4ee5623869d700548bcfff41c5840c1a954a1ee860ac9d",
+        "eval-2-level1-frozen_argmax-balanced.json": "beab210af5e24684c2c9df878cb0ddfa0c74f058e7d7a92cbe4e97ff1af78566",
+        "eval-2-level1-frozen_argmax-fortified.json": "e85b1921ae7329e12ebc1b4d02f346afa0e21ed51a216b4c322188c4728baca9",
+        "eval-2-level1-frozen_argmax-mobile.json": "18abbe4ef2cb6183e9c625e767961e26a99606867f20d3e99978b06672f900ff",
+        "eval-2-level1-frozen_sample-balanced.json": "1cc649c2217c7ab9fb38f7252118273499e90dcfb3d76a5fe0b0955d4819ad7e",
+        "eval-2-level1-frozen_sample-fortified.json": "1eee8bbdf50f3f3b4f0f82e2f1e80ad2b024305bdf78cd6ab6ce3f9c3faa8b42",
+        "eval-2-level1-frozen_sample-mobile.json": "4574c156b8687a9e934275a5012f7b352eeb86577357249a65707d82cba38e4e",
+        "eval-2-level16-frozen_argmax-balanced.json": "db910ffb5815a4cc816a2feb5a362fb6e944c0083126b11fe0bc8bb9738350fd",
+        "eval-2-level16-frozen_argmax-fortified.json": "92932eb1364322df5d3d23019a0a1e04470c5b0d4e9eb03c9ae9299760a6322d",
+        "eval-2-level16-frozen_argmax-mobile.json": "8f9f965abc9428aa5a53b018c1750b844e91be7e5d9cb5e60ece78f9d6146800",
+        "eval-2-level16-frozen_sample-balanced.json": "07115a5c04e215a5db4ec7d37721217495a2f10dc4963716b165ca9ba9f83847",
+        "eval-2-level16-frozen_sample-fortified.json": "7bd8dfe7df8842703fda69afd7b9fcd1b58ec3a4599bf3a13b10deddd113506b",
+        "eval-2-level16-frozen_sample-mobile.json": "78f6b7b36eb727e5ea6c3ed176775cccded92d343afbcda68d5b004690f8c31a",
+        "eval-2-level4-frozen_argmax-balanced.json": "50f698203346d6d2b99ea3132868138650489d6bfa23093415c37de3788aff29",
+        "eval-2-level4-frozen_argmax-fortified.json": "ce473bc0a880b9cfd7cfd8a8db87c276fd1c1fa2e6366fc5c92139bf25d21bfc",
+        "eval-2-level4-frozen_argmax-mobile.json": "e50ea20adc5060a99c7c9060579fa9e05d5a5d43e629ab20f557d67df20751d6",
+        "eval-2-level4-frozen_sample-balanced.json": "dc6ea7ae79ffdcefc6df76b677471d1b5894d190516176dff9eaf688b233f5ea",
+        "eval-2-level4-frozen_sample-fortified.json": "fc9dcbf0bb288a43a029b11a592eff2bf80201f8bdd15ba8911098f8bdf5203f",
+        "eval-2-level4-frozen_sample-mobile.json": "82a5b5298c42fd6ac167be31c925224643cda2f14d9d50ec3c8fdf8732ff8e5a",
+        "eval-2-level8-frozen_argmax-balanced.json": "1cb1826e94ee02d7a57d3d23e5ff0efcf84e440b88920693d307bad4059a4b50",
+        "eval-2-level8-frozen_argmax-fortified.json": "02e39f47fdeab41e4b22c7111e4b33df1b778aa5b89cc6f9a088c8d527edde81",
+        "eval-2-level8-frozen_argmax-mobile.json": "c98d26ce9bc0c8116df428725db24ab241ae3b5e8dabec5eaca0ce579a3f86b9",
+        "eval-2-level8-frozen_sample-balanced.json": "772a9ed6bf9efa53aae8ee03b7b9933e36a4bd73087be065e3767f910612d8cb",
+        "eval-2-level8-frozen_sample-fortified.json": "b0ac01773f5359e093b3fa8f177fe1a70b2c56121e998f3c540c3afa16667f37",
+        "eval-2-level8-frozen_sample-mobile.json": "83c450516c18c9878d2b3d24a0d8aac3843eeb1e97548663ebfa379a06258678"
+      }
+    },
+    "control-s2": {
+      "fit_policy_sha256": "d4621abc3a57107e78db19f8c0ee3ab9b3889ec3bc6ae7a16d8357bab09980a4",
+      "ppo_policy_sha256": "3069912da73fb9e8f42511e213db22b58b62f38e304732184efb034167d04eef",
+      "defender_profiles": [],
+      "reference_coef": 1.0,
+      "ent_coef": 0.01,
+      "value_features": "detached",
+      "training_completed": 193,
+      "training_coverage_by_style": {
+        "original": {
+          "completed": 193,
+          "wins": 123
+        }
+      },
+      "ppo_metrics": {
+        "updates": 64,
+        "env_steps": 65536,
+        "entropy_first": 0.013848902308382094,
+        "entropy_last": 0.005577835458097979,
+        "approx_kl_max": 0.0022989800947925687,
+        "clip_fraction_max": 0.009226360853062943,
+        "policy_loss_abs_max": 0.0010535642414826185,
+        "reference_kl_last": 5.57189317760276e-05,
+        "reference_coef": 1.0
+      },
+      "weight_drift_from_imitation": {
+        "max_abs": 0.26735106110572815,
+        "mean_abs": 7.131680616794178e-05
+      },
+      "reports": {
+        "eval-0-level1-frozen_argmax-balanced.json": "f1336d8b3a616b0d85040044a98bc373ed80183e95bad9173ebbe41e877fcbc9",
+        "eval-0-level1-frozen_argmax-fortified.json": "a1f926c382c358ca5e35e9f4d8a45a1fe0bc70dd24e6c479e22472708413ac22",
+        "eval-0-level1-frozen_argmax-mobile.json": "d36a522f742f6000170e9b2c9ab1f09ebfad25c58f9c7e5be0a673f76186363a",
+        "eval-0-level1-frozen_sample-balanced.json": "ac15ba80809cabb4300cc96515d5416df36f06b8d27910bef2221d1a9e85bf42",
+        "eval-0-level1-frozen_sample-fortified.json": "747c759eddd8d0ea1d04d0a8f44fb203e71013c965b374c1017fa36d91013354",
+        "eval-0-level1-frozen_sample-mobile.json": "1b9c09700dd11e44003c49a881c3d8bfa28623d5ceadcc8d7d43d7b690e7df10",
+        "eval-0-level16-frozen_argmax-balanced.json": "cc2876b0632cfc888e1c7d2c3d0fb53404c3095cba530b9968a1d6597d03eba7",
+        "eval-0-level16-frozen_argmax-fortified.json": "982034d9951e476ba62fc671b2acbdfca9783ba015d650cfd4f26e56e43ae767",
+        "eval-0-level16-frozen_argmax-mobile.json": "dc7c0c3c7e246e5c938aabf7ffa59871c26223f471efa46144274e997cc0185e",
+        "eval-0-level16-frozen_sample-balanced.json": "59b504edece4a4ffcd1155065ceff77a4b3d7cbf090d968462bb546599dcdd0c",
+        "eval-0-level16-frozen_sample-fortified.json": "94d35cc3620598a6550d3daf6e0fad8c0da1a0cc1f8120f2c9522a9f36961ec0",
+        "eval-0-level16-frozen_sample-mobile.json": "47fb4b4624cf2c658b9838b5d1832c10fb65cfbbe6bef3c403e989f01388b506",
+        "eval-0-level4-frozen_argmax-balanced.json": "866ba68b8311fc65edcea6766ca5cf3711873c2c5f2d71255234945171e808ff",
+        "eval-0-level4-frozen_argmax-fortified.json": "d8a910e96db4e64698c15bb3790a7cfb21a9ffa3a9eda255867d2ff5e7dff076",
+        "eval-0-level4-frozen_argmax-mobile.json": "9c79cdf2559e58e685d2956d65e23a2bc7a62ea3c47a73197a50dc3060dc9118",
+        "eval-0-level4-frozen_sample-balanced.json": "5f752fe9c988e6ab92bbbd1e293e5c6ad99fb997b35bf3bc3534739318acc44b",
+        "eval-0-level4-frozen_sample-fortified.json": "2901654362a761cdd0b5a3ed6399cb3e509cb864bcd8e8ad9710a44fe9885ae4",
+        "eval-0-level4-frozen_sample-mobile.json": "d00249690c4308dd42c2a84b9b779dccacff97c80ff95819fa6363ca589358e4",
+        "eval-0-level8-frozen_argmax-balanced.json": "c7975a08818e93988b0c154c363aacd8b2a6bb9e64360fc2548684fdcbe84e4c",
+        "eval-0-level8-frozen_argmax-fortified.json": "ece05f974d8fe67984af8d0729ed9b724ac86f3186b3be85786b855f61a7654c",
+        "eval-0-level8-frozen_argmax-mobile.json": "876954ae878635ff38604e62ee2469bde966c760ac82e40dbf5f8dfcd0b9ba76",
+        "eval-0-level8-frozen_sample-balanced.json": "71a18999fffb167a7f38c116201841aff04e12123b007b2b48054e15e6c82fdf",
+        "eval-0-level8-frozen_sample-fortified.json": "c83d2fbc930fcc7e0a0bafffb38e88f8e3e4b43c7376de48e25055a38b706aa2",
+        "eval-0-level8-frozen_sample-mobile.json": "a71e25bb607e6312ec2e2ad28028e47021b62e3b8e32df4335142bc828e5d568",
+        "eval-1-level1-frozen_argmax-balanced.json": "57a33b387ff9886b6e84b2cddb03ec17e82862bcaf5946b90bdefe8e88d7ab4d",
+        "eval-1-level1-frozen_argmax-fortified.json": "db0d60bda81870daa17fb04ee9534617e7c5bdfd99349c55b1646b1167626efe",
+        "eval-1-level1-frozen_argmax-mobile.json": "1b2634c1428cb37482da503b9e1b949be08f6eceea95ecfc04f7e6394bccb5c0",
+        "eval-1-level1-frozen_sample-balanced.json": "366ffc418a2ef70fae6da9c2a1d22e819d83b73de67a2fb680d5364cd8a45245",
+        "eval-1-level1-frozen_sample-fortified.json": "b9c6df94fbd43aed8d416cf9aa3352cd732772f9008afa7f1a5514b5cdf104a0",
+        "eval-1-level1-frozen_sample-mobile.json": "094754657714d8e599fd443298cbe1f7c18ac6804ad6ec4645a0b2ed173547b3",
+        "eval-1-level16-frozen_argmax-balanced.json": "fdb5abeec825fdca373e12cfcfa4b3aa20b20764eaf6148d9d26bc0c73b8635b",
+        "eval-1-level16-frozen_argmax-fortified.json": "a8f622186a4cb1ded2d6afae6e7d4709e68c81f65f85481ad2e16fbfa629f0c9",
+        "eval-1-level16-frozen_argmax-mobile.json": "beaf6b1dad0adfb71a98e89cfbdbdef7099c47f120f4e9485733cfee2efd9c70",
+        "eval-1-level16-frozen_sample-balanced.json": "c79ee0048c8b49d21b9a7306884fa3de5fd7de03dc92e2c0ee2533fb964dfe3a",
+        "eval-1-level16-frozen_sample-fortified.json": "e3f9753b3837edb25ea3555861574d39a5937e54363a610c81f28a865dddd879",
+        "eval-1-level16-frozen_sample-mobile.json": "9fa6d9090cc5c07b2ac3c584893026776b589739f336c919abbd962b927dfe19",
+        "eval-1-level4-frozen_argmax-balanced.json": "b66101cb4ba6a3dceffe88ade9b22f9f0a51b6420a4ced01e9dfa3c7587b92dc",
+        "eval-1-level4-frozen_argmax-fortified.json": "64af8e4d055e44197145bdffcc23a3f3ff2b920ed77faa20491cb7adeaf984ef",
+        "eval-1-level4-frozen_argmax-mobile.json": "445b130b42b91aaa1bd7cf79cb3594e555a1eebd923e4ce73b4ed0a751a2ea1e",
+        "eval-1-level4-frozen_sample-balanced.json": "789f22d9923481d1b927853fd420a48e36c146edbc75002c28a95ac17a866892",
+        "eval-1-level4-frozen_sample-fortified.json": "e6a6ef5cdd279b077103664bb44cf7c825b3d7a28f8cc5628a4fe9755fbae099",
+        "eval-1-level4-frozen_sample-mobile.json": "56137e606718380286ac00d3b518a58185a9cb505acec235b1882fd4e755d835",
+        "eval-1-level8-frozen_argmax-balanced.json": "b4f5dab3f3b49f12650ce01985b91520daf53a2d951de5551ae8af2106a78662",
+        "eval-1-level8-frozen_argmax-fortified.json": "88ec0f22243a6eb67d46bd64a95e9a3bffff643d05023e1fa6175a9d07463bf4",
+        "eval-1-level8-frozen_argmax-mobile.json": "be1226d085b1fd3b0eb92eac37a1cce5855d9dc3d805b0a7984a5b1ecc1c4704",
+        "eval-1-level8-frozen_sample-balanced.json": "6d07c3bb777aa4c4df80acb0d70ce36ae0a244c375a7af1de91b2d0ca1691fda",
+        "eval-1-level8-frozen_sample-fortified.json": "14be7897f05e35ca82a3e6761611f4a51ffcd6b43130d441294eaa43ee5086c2",
+        "eval-1-level8-frozen_sample-mobile.json": "5d0abf6db77814a8b43820e1bbba7cfd550b7781a26e91cc99353282682eb8c8",
+        "eval-2-level1-frozen_argmax-balanced.json": "af53a93e5473393e70790c7dc315a94b860156ec2b3d3bb80352253c7f0863f0",
+        "eval-2-level1-frozen_argmax-fortified.json": "03532964fa56f7875ba3f51c654fa1f9a921f9d8b9d1e71638201c97195ed8bf",
+        "eval-2-level1-frozen_argmax-mobile.json": "dfd0faeecc56885751ee7839d8ceffd66f8965809f3bbdbd00be47b2a789ef63",
+        "eval-2-level1-frozen_sample-balanced.json": "cae0936408496b975cf72ac086b0a60a40ea61d4d298c5528e28c6cabf8719e2",
+        "eval-2-level1-frozen_sample-fortified.json": "9dd7af6b992d072db8f01b2f76e95a39b53b8a939896f5e0954147f8086421f8",
+        "eval-2-level1-frozen_sample-mobile.json": "d2384f8bb21a52dda1510dd2589ce7865a20a50b24ced415d8902f6ab5b8bd1e",
+        "eval-2-level16-frozen_argmax-balanced.json": "0886042a0e4b05017e4860b36ccf8ad9560d402957ead883036e9261eab15237",
+        "eval-2-level16-frozen_argmax-fortified.json": "e878f10790c31e93d82120f41bc5c0017b21d8db61c69c78dae69ff4026c1819",
+        "eval-2-level16-frozen_argmax-mobile.json": "0226099b0e1688dc29b89323def05a7ebe75a6d74f4eafb1754cd382641db772",
+        "eval-2-level16-frozen_sample-balanced.json": "33d4b58c1072d295cf4dd6534649d2512610a13231f637e81a57092b84a19850",
+        "eval-2-level16-frozen_sample-fortified.json": "7d0a11ebcb2162942c174b48899e8d9687500cbfcc3303f8dd97300467328124",
+        "eval-2-level16-frozen_sample-mobile.json": "c85a99c10549870b6e979b2c20b3f4350fdef591f0deb68979ee901a2f45d41b",
+        "eval-2-level4-frozen_argmax-balanced.json": "e211cf27d355c44c30f913449d12b3cc81c012e068f3bdf4642e53a5a1132c3e",
+        "eval-2-level4-frozen_argmax-fortified.json": "7fb61507cf088a8a75c1e13068d298dae7f878efb26fe53d7c9871738384884f",
+        "eval-2-level4-frozen_argmax-mobile.json": "92e3ca26008acbbec03d71d9ffec8c5b45eea2f5c15206d0b7603f96d14a3b6e",
+        "eval-2-level4-frozen_sample-balanced.json": "25d0404c76fca4f2654a330b15f78e4db5f5bb1f75ef737186c9f5d21a090cb3",
+        "eval-2-level4-frozen_sample-fortified.json": "e641f70cdf2131bdb45a5dbcb1f1fa03a2c5448c274845b3419d43422ee68320",
+        "eval-2-level4-frozen_sample-mobile.json": "1220bb9293b3b0d0ea07cfadcdc443ccf3cc7e7e27229c4ed1458aec66e309f4",
+        "eval-2-level8-frozen_argmax-balanced.json": "cc8abd9ee3d5fcd51f2316f54dd5397c9a4e141a08c01dbb0d9be6505a834150",
+        "eval-2-level8-frozen_argmax-fortified.json": "9cfd2dd3d11c4339191808a6b90f91d0ba9aa3b3e039d56a6d3b733c8405476e",
+        "eval-2-level8-frozen_argmax-mobile.json": "21c37530eb0b8aa7a4a3714c17f9d75ca5f30a13099cccbe46f6e94003eccb0b",
+        "eval-2-level8-frozen_sample-balanced.json": "fe276f149c477f52cfaa0ff25c86e01c768b66d4dac837138a23adf06789dde6",
+        "eval-2-level8-frozen_sample-fortified.json": "d56e2b549bb076e0155145a7bbf1d68a25f7e1a2da81da4467e38cc953591dd5",
+        "eval-2-level8-frozen_sample-mobile.json": "eda8d6fc188a80cb32314148de770c4139055428cd41895cab4fc70383d18bfb"
+      }
+    },
+    "profiles-s1": {
+      "fit_policy_sha256": "f05c7c5d9452a26c9e8e1507d88a13737e3353a565cb87b7e5bb7d37e9c1fefe",
+      "ppo_policy_sha256": "275fce1d31d5e71e9776de5fc241246a2b7d7a6ffd623cb0d70605fe55e2bd05",
+      "defender_profiles": [
+        "balanced",
+        "fortified",
+        "mobile"
+      ],
+      "reference_coef": 1.0,
+      "ent_coef": 0.01,
+      "value_features": "detached",
+      "training_completed": 192,
+      "training_coverage_by_style": {
+        "balanced": {
+          "completed": 72,
+          "wins": 43
+        },
+        "mobile": {
+          "completed": 48,
+          "wins": 32
+        },
+        "fortified": {
+          "completed": 72,
+          "wins": 49
+        }
+      },
+      "ppo_metrics": {
+        "updates": 64,
+        "env_steps": 65536,
+        "entropy_first": 0.010755076131317765,
+        "entropy_last": 0.007596761279273778,
+        "approx_kl_max": 0.0008097859699773835,
+        "clip_fraction_max": 0.005913996836170554,
+        "policy_loss_abs_max": 0.00042349215244452676,
+        "reference_kl_last": 2.89046088255418e-05,
+        "reference_coef": 1.0
+      },
+      "weight_drift_from_imitation": {
+        "max_abs": 0.30515795946121216,
+        "mean_abs": 7.271228376584275e-05
+      },
+      "reports": {
+        "eval-0-level1-frozen_argmax-balanced.json": "76c73f204358820878118835b7cdc23f8fcaa8e0167fc7a04920c81a658bdbaf",
+        "eval-0-level1-frozen_argmax-fortified.json": "575a1fdc0a4e4e017f72cb6602fcbbcbdb4fff9de276d2cb588c45444b46a38d",
+        "eval-0-level1-frozen_argmax-mobile.json": "7bb3978aadfb0979420fffd0ed031139205fe022ed6bab6ef06246ebddb8c237",
+        "eval-0-level1-frozen_sample-balanced.json": "9d66c1f032dae977b2be517dd086cd133f5e08f557d747dbb030195a071ea5db",
+        "eval-0-level1-frozen_sample-fortified.json": "ae8a81dc6a4771f35001adf2f995387dbc60f55b12a4fe4cd4f4890bfebbdc10",
+        "eval-0-level1-frozen_sample-mobile.json": "3ad408bc8a3879eb886f369f4e2b25e0c538a72c2eff7e3ab5fe0682b7e51519",
+        "eval-0-level16-frozen_argmax-balanced.json": "37dd173a97cde45a3f8e8e3c1f4cd3eccc2f5a8cd2648900bafe4d58d94cf7d2",
+        "eval-0-level16-frozen_argmax-fortified.json": "791b05243988df5f8175380e207b85ad2ac331139dee57c3137e3d4278e2b7dd",
+        "eval-0-level16-frozen_argmax-mobile.json": "7b366481db90fd160c6f323da49c85e30e5e058e298f5d6c7f88032a60f82bb8",
+        "eval-0-level16-frozen_sample-balanced.json": "11b1ea3eafe18a4309311dab956ab802abaeacdb87bd50519b13cd439a35387f",
+        "eval-0-level16-frozen_sample-fortified.json": "0250037202ee175ca7f04d03e2851929db3e7e1ea138f1fb69fdaeba0d924360",
+        "eval-0-level16-frozen_sample-mobile.json": "20ca5651eaea1614ea78fac28656c3098a1bd50dc8116b4161eb70cd69b67ac9",
+        "eval-0-level4-frozen_argmax-balanced.json": "ce5977ed796ff61fd6c80e4251deaaec6c749a0dee79a2b6ba992928aebe6305",
+        "eval-0-level4-frozen_argmax-fortified.json": "07fd4e6cf5c3c85219c256e2a976aea24ad63db22b067ec2fbe3d5ac4f3b7789",
+        "eval-0-level4-frozen_argmax-mobile.json": "baaa9f002cba753f1027d12f0c585d1ba34bb6af2ddc8d9a39eb4f210d37d3cd",
+        "eval-0-level4-frozen_sample-balanced.json": "649d250330b22df71b799f04d5a150d922ed3c9d77762bbaf69ff2061a527c9f",
+        "eval-0-level4-frozen_sample-fortified.json": "e332984dd838e7c06f9d24f7949660358ebb84d3aba398e2a811f74f4494dc0f",
+        "eval-0-level4-frozen_sample-mobile.json": "36d2714d340aa5a2ed9476460f78e2bc0a4d98654db227731bd88a810b5656db",
+        "eval-0-level8-frozen_argmax-balanced.json": "6b503f54532c1dfe2ce3e2670ab07ae44c4ad4403d5196900f0746a9b8122c32",
+        "eval-0-level8-frozen_argmax-fortified.json": "0421be968624e55a341f266a11131011a48c62a72c55b9a80d0d1c258b912057",
+        "eval-0-level8-frozen_argmax-mobile.json": "d611e7b3c7f9edaf0cd44b2a9487b39e5a7771362653eb16ab7bc77f9876bb6a",
+        "eval-0-level8-frozen_sample-balanced.json": "9e9d708d5c61be7136257ab234b5118843695b18343cdfd0e5490021a136e8c4",
+        "eval-0-level8-frozen_sample-fortified.json": "3b78912ae037dd08af0141323d8889c3bad10266665e35f32367af0d5fa7b8e3",
+        "eval-0-level8-frozen_sample-mobile.json": "2c78f49881b8e3725fe586c3ee3ebd745ef8c876f9d1e87cf1d608639a8c36fb",
+        "eval-1-level1-frozen_argmax-balanced.json": "1413b6200f8c5edab35730c9097c71d2ebc297aa32d2449ca2b1a1fc9254c284",
+        "eval-1-level1-frozen_argmax-fortified.json": "c6cbe0fce56124c7e6fa69cf7515fbb6e3e1a5d0e07e780d86c11437c4a4ecb7",
+        "eval-1-level1-frozen_argmax-mobile.json": "d206a415a0ae20bfcb2d18ec54e718952696eeeb8950287623587670c51ff00e",
+        "eval-1-level1-frozen_sample-balanced.json": "69a833495fe87c2656f7213568c58eabee0b0b0d565ef1e849f21712e35148a6",
+        "eval-1-level1-frozen_sample-fortified.json": "87b395d5a93632367af79e368b33e4e9475fad583363160e5711e415c4cd9af3",
+        "eval-1-level1-frozen_sample-mobile.json": "1cc9f283f6dcdb6a97a4aa070e2e780c360f1c454c46fa42eb7a07906a3b4255",
+        "eval-1-level16-frozen_argmax-balanced.json": "1ca0af5ccbb5bbca2d93f8e724f16f42055df14d754c64804e6827d9c5d81249",
+        "eval-1-level16-frozen_argmax-fortified.json": "aa35126f2879d7c6fe2a4229921b063389b0fd645981256a77c65ff9c38c15a0",
+        "eval-1-level16-frozen_argmax-mobile.json": "a623f7e95f667b52678cf5b3e7de3c78752bd5566f0f4977b51ecddbed5e61b9",
+        "eval-1-level16-frozen_sample-balanced.json": "7a75f4135f1d6aec217b80c285a7ef8b943e3121213899dad78f6fd4cebd3a88",
+        "eval-1-level16-frozen_sample-fortified.json": "63d28305f8f75e084837066ce104707e57669dab1c3b7a39d95daee4e067d61c",
+        "eval-1-level16-frozen_sample-mobile.json": "9b425c5fdc27f65acb31b80d4a797a56886ecb34b5458a8247b517cf443f1ff8",
+        "eval-1-level4-frozen_argmax-balanced.json": "92e644c70a1d37389252ba82596b5226dd6cd205a4be3c2fc5f32bc5cc6c50ea",
+        "eval-1-level4-frozen_argmax-fortified.json": "e1528ac2e9f64e6a9558136cf9153efea0a2583c462bb9f9aa0c714e814b4dc8",
+        "eval-1-level4-frozen_argmax-mobile.json": "954cbb77c8b4bb979741a8b98e36f6f0b0007a4c1783e9a480823c2cee37b374",
+        "eval-1-level4-frozen_sample-balanced.json": "bfd9c8d0d82a9a44bf0a6d8ab5f95b7c5edb0024bcece33d9e275e1ff64041af",
+        "eval-1-level4-frozen_sample-fortified.json": "74eafe60909267dba90f03fd2b9121b42ab8e460f5689f0339c7e2af5e85d78d",
+        "eval-1-level4-frozen_sample-mobile.json": "d6b1a0b392766cbe5b6dbe703f21803a0a3129b4789d03f589a72abcca50af2a",
+        "eval-1-level8-frozen_argmax-balanced.json": "c5620248a1d64bf902873a07ba915c9c0ad2cc5cddfa1098b393ce8bdfeea48c",
+        "eval-1-level8-frozen_argmax-fortified.json": "5a52dc8676444a2c263a3483a8059840f7656e9dda026c52de77a35ed095be8e",
+        "eval-1-level8-frozen_argmax-mobile.json": "3636e5fe17d41037a3662982eb28e8fcd3125749b554886435413cc3e0d93f4a",
+        "eval-1-level8-frozen_sample-balanced.json": "0bc2f2b22040c657f38d41a8732e01aa799cfa77319ef490fd834462b6653e7e",
+        "eval-1-level8-frozen_sample-fortified.json": "eec8ebb43c968183c315b2705f8721f7be16facbe8790b4b8c90e32c05f4afd1",
+        "eval-1-level8-frozen_sample-mobile.json": "994ce402d75617f2cecebac5fc9b4c656829aed781c0d73cef2cfb824b0011f2",
+        "eval-2-level1-frozen_argmax-balanced.json": "ea3d669bd66f657bc1b488305e3620750d862e6a89c19349b690fa6198b70465",
+        "eval-2-level1-frozen_argmax-fortified.json": "4b30bbbba866b11403fe7275d186f7649af85bdfbdc99dd3aac6288bd7be1109",
+        "eval-2-level1-frozen_argmax-mobile.json": "f2d1a0a8cb2303099b6984a1e395cd0d3dfca8fb2c626457efbef446e9bd155c",
+        "eval-2-level1-frozen_sample-balanced.json": "c39915a2b95f755516f58b164c23ec7048b3274bd8220adcfb0de2e7eb1403f4",
+        "eval-2-level1-frozen_sample-fortified.json": "1f5bbd717e3c7cf5d47bfeb0f2a59b79bef4a425a72e0e1de9d18ec5de422a07",
+        "eval-2-level1-frozen_sample-mobile.json": "462986aa4b3638172738843340586253e4f2795103a3080117f534c1f8187b23",
+        "eval-2-level16-frozen_argmax-balanced.json": "442cd88afcb6fa00c369e33fd36678a26ebe0d3b6f6ed9ef71642c763838c5a2",
+        "eval-2-level16-frozen_argmax-fortified.json": "8841ae026417716ba4927393cb3b62f3b43e5829e2f3bc3d09ee39fd64354a16",
+        "eval-2-level16-frozen_argmax-mobile.json": "9b9944dbaa92635ba497382b763f7bb5090c51e8e9ada9d43f78a09179d6fd9b",
+        "eval-2-level16-frozen_sample-balanced.json": "0f5371db778d5b4970764597a5a3eed7384d4e3c5eb2be451cd139e7e059c6be",
+        "eval-2-level16-frozen_sample-fortified.json": "5fe0bc680c1ffbf9d4585e0ef778bc251e9c68a9fd3f4af3d494462767c4fd3a",
+        "eval-2-level16-frozen_sample-mobile.json": "7f5427efe800df638ab31af4bbb2af23fde1075eec0fe469cb747214851a189a",
+        "eval-2-level4-frozen_argmax-balanced.json": "c1f8fd47d24b3ea8a08bb3c5790aa78751fcea7914e19612604bf245faad9b5f",
+        "eval-2-level4-frozen_argmax-fortified.json": "ed427d7ad204f715f167b7885c547797f8e89a536f18cf82b918242c4420ddbe",
+        "eval-2-level4-frozen_argmax-mobile.json": "1e8f6f342b311dc896270e40662fcdef59ecd708d27d70a8605f78334f09bff8",
+        "eval-2-level4-frozen_sample-balanced.json": "0c4728a7694d15dab43db7488e6604ca773f4e31594945f44f304b0aabc6c90e",
+        "eval-2-level4-frozen_sample-fortified.json": "a787dac3e0e9e631b20d41afa0241a27cf6b0b654559cdc86f1ca1f5b731e470",
+        "eval-2-level4-frozen_sample-mobile.json": "32d2945400fc2a018fec12ed1fe111f29538ff177fd3ab65bd9e46bbdd0a82e4",
+        "eval-2-level8-frozen_argmax-balanced.json": "1fc4b8ecd42af3bd18f0af9cc5e65b97d2229aff5f5f7d19fd0b1aeb01945c14",
+        "eval-2-level8-frozen_argmax-fortified.json": "c42cee4d0462f632eebe63bcbb8b41a1300a6562ea5ff3a9e32f0d1fe4265a6d",
+        "eval-2-level8-frozen_argmax-mobile.json": "cd4c3aff03f3587b66e080ca0a0219366fc9d5386431a305563ca098d4bf9b02",
+        "eval-2-level8-frozen_sample-balanced.json": "335e39bfe3271bf23d0a3811a71cd5af4f069a60b743ceb2149dc46394ec2174",
+        "eval-2-level8-frozen_sample-fortified.json": "6ed819dea38337a3b91e996c47cd2217ee5e2ca349c43bcc81162c1fab940e2b",
+        "eval-2-level8-frozen_sample-mobile.json": "c58f287f187b21a77fcd40e41668f27ff7e178550d64cf2ab7235130d7e7a832"
+      }
+    },
+    "profiles-s2": {
+      "fit_policy_sha256": "d4621abc3a57107e78db19f8c0ee3ab9b3889ec3bc6ae7a16d8357bab09980a4",
+      "ppo_policy_sha256": "6de3f6be2495c7fccdc0456406f39540c015b081bd6d6077c9a43ecc5a118126",
+      "defender_profiles": [
+        "balanced",
+        "fortified",
+        "mobile"
+      ],
+      "reference_coef": 1.0,
+      "ent_coef": 0.01,
+      "value_features": "detached",
+      "training_completed": 193,
+      "training_coverage_by_style": {
+        "balanced": {
+          "completed": 60,
+          "wins": 40
+        },
+        "fortified": {
+          "completed": 77,
+          "wins": 45
+        },
+        "mobile": {
+          "completed": 56,
+          "wins": 35
+        }
+      },
+      "ppo_metrics": {
+        "updates": 64,
+        "env_steps": 65536,
+        "entropy_first": 0.013848285307176411,
+        "entropy_last": 0.007418270892230794,
+        "approx_kl_max": 0.0025438350618571803,
+        "clip_fraction_max": 0.008366898211534135,
+        "policy_loss_abs_max": 0.0007114377604069411,
+        "reference_kl_last": 6.900432731526962e-05,
+        "reference_coef": 1.0
+      },
+      "weight_drift_from_imitation": {
+        "max_abs": 0.27368152141571045,
+        "mean_abs": 6.932483976312559e-05
+      },
+      "reports": {
+        "eval-0-level1-frozen_argmax-balanced.json": "d59e75bce96403ce1e94d31949f29acbd56edb3ae5c97cdd8988f6bdee5322b1",
+        "eval-0-level1-frozen_argmax-fortified.json": "ec389cfc8fb9558500df94b0b65bcd8707c88c4f591fffc7683877f87067f567",
+        "eval-0-level1-frozen_argmax-mobile.json": "e027c85b36557c68088d0e12f0f2b51fb492e9ca69fa5bfecc7808002bdb1a98",
+        "eval-0-level1-frozen_sample-balanced.json": "11d640dcc4a489439b1b4f092d7a20cd252bc3c5f05c02d560b4db02ae24726f",
+        "eval-0-level1-frozen_sample-fortified.json": "6497d08059cf5961e9e518a4538a9b325bcf6ad28fbb1752fce6f52cfb7339ed",
+        "eval-0-level1-frozen_sample-mobile.json": "dd313097bd1b0a7c72562f01a7fd9ad59e303b56b647b8d3294a9622c8f200f1",
+        "eval-0-level16-frozen_argmax-balanced.json": "2ca8976fe5567ebf121a51fede65dfbc2dd8567277adf90b5a7331ae8316729c",
+        "eval-0-level16-frozen_argmax-fortified.json": "11b657397cddbf53d7173282da4259cc9d59dc7e4872e005c374a40a13f09a84",
+        "eval-0-level16-frozen_argmax-mobile.json": "b7746a926b581382ad1bb6616424861ceace66d33fe8803cf4205af671d0a525",
+        "eval-0-level16-frozen_sample-balanced.json": "820fe8095754bb063571b124db57562bc8aabc2c644eba01dd499ddc22ea6b89",
+        "eval-0-level16-frozen_sample-fortified.json": "e522e66bec2d9a10ead111f9a723045537a0cace5b10dc6298f2707a50448672",
+        "eval-0-level16-frozen_sample-mobile.json": "51716df2dcd22d3608cde76af5451e2f3b26b1550cf11ad1f3f77a1ef29d6533",
+        "eval-0-level4-frozen_argmax-balanced.json": "01d900007398dd76ec35231e4a868147260c3deb4af981e367fd79ffab3daaa5",
+        "eval-0-level4-frozen_argmax-fortified.json": "9aed45660305f91bea05899093d6b1700b31eb0d2efada820e943d3d19792c23",
+        "eval-0-level4-frozen_argmax-mobile.json": "f0a95a97b72814b1bd51f17fe8f7e19f0b7cf065baa8f5d1e3fc0079b02cf75b",
+        "eval-0-level4-frozen_sample-balanced.json": "1fa0882daa6af248cfacc4617f169fa387bd4b1654796a0eee17aea9c0ed6fb7",
+        "eval-0-level4-frozen_sample-fortified.json": "5c5875fec8b8a6cf74ff807e1cf1b3d90281ca779a650807398c2f07d156feb9",
+        "eval-0-level4-frozen_sample-mobile.json": "82e0c0ff23eff968fb125fbbdd5f9011dba38514dd85360add824dd09cd9fed4",
+        "eval-0-level8-frozen_argmax-balanced.json": "6ab0e43be4b1bc04eef6dbab6d1473baa28d86a31636ce128c2f6c67a4457d0f",
+        "eval-0-level8-frozen_argmax-fortified.json": "adc67eed54cfb3b6d4d3e4f33b58df41efa328c4c2df3b052b3d3b9223455c59",
+        "eval-0-level8-frozen_argmax-mobile.json": "9c8ddb442da75849e08ca9e1daac0ca4f8d8191396997f77b7026a3d72dd3ac9",
+        "eval-0-level8-frozen_sample-balanced.json": "a2bd3e9d30258e4f5b198e75b26af22055ee46a3a91cf42eab3ec1ccf5bb29c9",
+        "eval-0-level8-frozen_sample-fortified.json": "3f103f605ce560d3033fd0646029337aed38c51fadea8440800de77bb92fb210",
+        "eval-0-level8-frozen_sample-mobile.json": "2858ad2577f6ba0c52d2a62833a945439254285fc7082cc4f804300413dd996d",
+        "eval-1-level1-frozen_argmax-balanced.json": "3a6bfe6119b36a8070ea888926d798facb2a40dfde4222c4176cf7188727c590",
+        "eval-1-level1-frozen_argmax-fortified.json": "2b9f3306d53c62523589e71540e1aa2d892b313a4727464a986ea572dcd21014",
+        "eval-1-level1-frozen_argmax-mobile.json": "1cfb952a9d3b7282c89b9829f7da159f67c996544fab25aa3ef9b926b0d98427",
+        "eval-1-level1-frozen_sample-balanced.json": "99c28bc24750cc147c5883e52734d1ba090acf1346e452e69ad447ddb5bf10d1",
+        "eval-1-level1-frozen_sample-fortified.json": "73156043217cba81ca01b156e198064631205b195fc87c6739d6ead788f83c1f",
+        "eval-1-level1-frozen_sample-mobile.json": "cc17f108b46c460ba9b085b6d846acdbe760a980b2f713af74b7aa6cd6792148",
+        "eval-1-level16-frozen_argmax-balanced.json": "275048fcf6f40bf26710fd4f40d63e60fa96adbf3f2ec6bf6440bdbeb02c13a4",
+        "eval-1-level16-frozen_argmax-fortified.json": "b065cf2075748701cfdde40bd9a4262713e373e8c3aaeefa743a28a3d6ba4a1d",
+        "eval-1-level16-frozen_argmax-mobile.json": "a379483633c42640a8494b8d8b4b19d93a32289908319c561e77002153250f56",
+        "eval-1-level16-frozen_sample-balanced.json": "eb7c58186976979f58d428fe6a4ba8e1014e7c0a989bcf9039060546e82f0d5c",
+        "eval-1-level16-frozen_sample-fortified.json": "ae814b0d784d809b982053ebd5dcabaa5fceb987f2db6bf2789d144dae5d72ed",
+        "eval-1-level16-frozen_sample-mobile.json": "aecc4c9440e63edd13ea9452eea1993d8193334b7a6843f3a734834ce5604770",
+        "eval-1-level4-frozen_argmax-balanced.json": "c58f53175921bf237fb0ae37f14ad23071c8a779cc70d3dd4fd222ab4ee3c93c",
+        "eval-1-level4-frozen_argmax-fortified.json": "f1a673a8e992cdc67df978b2121e697b7f88e3f7644094b1285803ca6359fb3c",
+        "eval-1-level4-frozen_argmax-mobile.json": "e9cf4ea27d78a773d6a9d2e85e8769024f914d8302544f57def408a594bd79f2",
+        "eval-1-level4-frozen_sample-balanced.json": "e010f7ec1bc556586adb6bac7be07d1e154eb09d252d4ff5f365aa71774eee9c",
+        "eval-1-level4-frozen_sample-fortified.json": "b1e7305c25ccd129dd77d1eede1966424f7b734e2449c3afe7ac5e71abf37dc5",
+        "eval-1-level4-frozen_sample-mobile.json": "26a1a5cb8cbf1f7d6014d4075ddc4666e252a8278060ec14ee64f16253f934b2",
+        "eval-1-level8-frozen_argmax-balanced.json": "1bb042b38fe0092dfab4d4b0406e806befd381bc53a592e9ad0ee99ce33ac31f",
+        "eval-1-level8-frozen_argmax-fortified.json": "b281a3028ecec50a682788aee08a0e432266b80a44659516a971bb163e72b5ad",
+        "eval-1-level8-frozen_argmax-mobile.json": "b182f3ed6fc1e0405208735b0bad74d686162bae8a596d43d6e96448a0707110",
+        "eval-1-level8-frozen_sample-balanced.json": "85a018c75d4bb04df405ce150110f1e72a08219a2530e770c1ca1065067b0ecf",
+        "eval-1-level8-frozen_sample-fortified.json": "dd428762cca8460fc7c265a0cb3a6114f48fd7db47f0691b442527fe77ecf6ae",
+        "eval-1-level8-frozen_sample-mobile.json": "cb707b185cc6693d67460127d13e750b4ead0e23dd401573f0cb628e0afec07d",
+        "eval-2-level1-frozen_argmax-balanced.json": "3320dd3a87db82f5a57dbb913bd3571830a4187cd8a68dcdf06971e217c7f632",
+        "eval-2-level1-frozen_argmax-fortified.json": "6e646a3e13d4ddbda4e27d538a8a6655a3f5287b2ceec532b8d16e47f5e832a1",
+        "eval-2-level1-frozen_argmax-mobile.json": "be56e277a4ca1b6ebaf1fc03e93be46388dd566f3df06a2076b593d36d11c257",
+        "eval-2-level1-frozen_sample-balanced.json": "7dd29ddfa97c49f5389c24a9ab24a790bf71b1b40d1bd1e96794aaca054c91d8",
+        "eval-2-level1-frozen_sample-fortified.json": "cc5620492db3d80189e41ad5d97a97d514bde546d40c85b9b15220cf58b4f838",
+        "eval-2-level1-frozen_sample-mobile.json": "894b48fb572b2e2322664702a8a346d3b33d5d4a981740be1d9989952ca32f42",
+        "eval-2-level16-frozen_argmax-balanced.json": "b53edc37c88542af205814a4c7572bda59c75db0f0eafe1732bdb98565d53a21",
+        "eval-2-level16-frozen_argmax-fortified.json": "25bf8d09ba07f1c1befedf02d99f620a1bb9e32e24b707d392aa1d4c9cff0d82",
+        "eval-2-level16-frozen_argmax-mobile.json": "00b5e1e1766eb7ce0ce9d1dd66d00e3baa0ad46c6e187b1d9204f22fcdd4beea",
+        "eval-2-level16-frozen_sample-balanced.json": "7aada1578462f4660ac6f2a3431880499685c6d2960a2d9b37ecd18c547cedf5",
+        "eval-2-level16-frozen_sample-fortified.json": "015978647b1b1ddf88e56ca81201f82bd3c345e04977e13b248841dfcc4bdcb2",
+        "eval-2-level16-frozen_sample-mobile.json": "3cb1b8c9771ebc028872cb5ea8446999694e35a858710b899720353de8f9e94d",
+        "eval-2-level4-frozen_argmax-balanced.json": "a6e318378fa7c45e8de5fd5439daef25a27a3d713928ac08ffb735ac3f30aa70",
+        "eval-2-level4-frozen_argmax-fortified.json": "97cc75963fe7349e3ac95a965de452594a1dedb9513451dadd30587283031407",
+        "eval-2-level4-frozen_argmax-mobile.json": "fe835ca8979a1c4ce2f23e1c82b7dfbfcaf9cf70e5646d171fbcd81cfee49843",
+        "eval-2-level4-frozen_sample-balanced.json": "cf09a40d8312888b37aee40aea411d190222b02032509a47e8553b4c2b827223",
+        "eval-2-level4-frozen_sample-fortified.json": "d1daf64588ddc148aa5b780c1c2f7f14a25d36dda39d1d3eb97464a4fa50bb83",
+        "eval-2-level4-frozen_sample-mobile.json": "fa29166dc45c85c93575e88c9b37b14b26961328d6679fed01ea049da251815d",
+        "eval-2-level8-frozen_argmax-balanced.json": "cfaa6dd77bb701e8f7680510402164f96c3c00bcd8d9e9c0f9426779231d037e",
+        "eval-2-level8-frozen_argmax-fortified.json": "f1fe55790337b212cd4f34cab407ac5140fae9f19b681326cbbfae0170c66f2e",
+        "eval-2-level8-frozen_argmax-mobile.json": "6fb48ad305e34eb3921a99a2bde6d29e513560802230a9f1ca1f358b34ebb92b",
+        "eval-2-level8-frozen_sample-balanced.json": "801eec443cc0e80d7e22a0dadeded04210b5f643ae7e0ddf187dfd757335593a",
+        "eval-2-level8-frozen_sample-fortified.json": "2a6c75e56105daf428b5663233c99231603f25f1e75ed6e72db991ad4af2535d",
+        "eval-2-level8-frozen_sample-mobile.json": "4912ea6278ce475b3cc0d65387cc0b1ad713fa4c830382d8063f39f52ced0988"
+      }
+    }
+  },
+  "imitation_init_identical_across_arms": {
+    "1": true,
+    "2": true
+  },
+  "comparison": {
+    "plan_sha256": "28ea67c1e38b5ab5d455a7b63c189e745f76cf781366c4676d58872fc53a4db8",
+    "models": {
+      "control-s1": "6331eb44496f1b03aabaac5f41247390b69b867e5f644a16eb80094ea777f5ef",
+      "control-s2": "3069912da73fb9e8f42511e213db22b58b62f38e304732184efb034167d04eef",
+      "profiles-s1": "275fce1d31d5e71e9776de5fc241246a2b7d7a6ffd623cb0d70605fe55e2bd05",
+      "profiles-s2": "6de3f6be2495c7fccdc0456406f39540c015b081bd6d6077c9a43ecc5a118126"
+    },
+    "by_style": {
+      "frozen_argmax/balanced": {
+        "1": {
+          "control": {
+            "wins": 285,
+            "episodes": 384,
+            "mean_building_value": 397.3307291666667,
+            "hit_rate": 1.0
+          },
+          "profiles": {
+            "wins": 285,
+            "episodes": 384,
+            "mean_building_value": 401.6666666666667,
+            "hit_rate": 1.0
+          },
+          "win_delta": 0,
+          "value_delta": 4.3359375,
+          "passes": true
+        },
+        "2": {
+          "control": {
+            "wins": 284,
+            "episodes": 384,
+            "mean_building_value": 437.0572916666667,
+            "hit_rate": 1.0
+          },
+          "profiles": {
+            "wins": 284,
+            "episodes": 384,
+            "mean_building_value": 428.2552083333333,
+            "hit_rate": 1.0
+          },
+          "win_delta": 0,
+          "value_delta": -8.802083333333371,
+          "passes": false
+        }
+      },
+      "frozen_argmax/fortified": {
+        "1": {
+          "control": {
+            "wins": 291,
+            "episodes": 384,
+            "mean_building_value": 373.7369791666667,
+            "hit_rate": 1.0
+          },
+          "profiles": {
+            "wins": 291,
+            "episodes": 384,
+            "mean_building_value": 378.203125,
+            "hit_rate": 1.0
+          },
+          "win_delta": 0,
+          "value_delta": 4.466145833333314,
+          "passes": true
+        },
+        "2": {
+          "control": {
+            "wins": 283,
+            "episodes": 384,
+            "mean_building_value": 408.8802083333333,
+            "hit_rate": 1.0
+          },
+          "profiles": {
+            "wins": 291,
+            "episodes": 384,
+            "mean_building_value": 394.2708333333333,
+            "hit_rate": 1.0
+          },
+          "win_delta": 8,
+          "value_delta": -14.609375,
+          "passes": false
+        }
+      },
+      "frozen_argmax/mobile": {
+        "1": {
+          "control": {
+            "wins": 285,
+            "episodes": 384,
+            "mean_building_value": 395.4036458333333,
+            "hit_rate": 1.0
+          },
+          "profiles": {
+            "wins": 292,
+            "episodes": 384,
+            "mean_building_value": 399.7395833333333,
+            "hit_rate": 1.0
+          },
+          "win_delta": 7,
+          "value_delta": 4.3359375,
+          "passes": true
+        },
+        "2": {
+          "control": {
+            "wins": 284,
+            "episodes": 384,
+            "mean_building_value": 435.1302083333333,
+            "hit_rate": 1.0
+          },
+          "profiles": {
+            "wins": 284,
+            "episodes": 384,
+            "mean_building_value": 426.328125,
+            "hit_rate": 1.0
+          },
+          "win_delta": 0,
+          "value_delta": -8.802083333333314,
+          "passes": false
+        }
+      },
+      "frozen_sample/balanced": {
+        "1": {
+          "control": {
+            "wins": 289,
+            "episodes": 384,
+            "mean_building_value": 386.6536458333333,
+            "hit_rate": 1.0
+          },
+          "profiles": {
+            "wins": 289,
+            "episodes": 384,
+            "mean_building_value": 384.6223958333333,
+            "hit_rate": 1.0
+          },
+          "win_delta": 0,
+          "value_delta": -2.03125,
+          "passes": false
+        },
+        "2": {
+          "control": {
+            "wins": 287,
+            "episodes": 384,
+            "mean_building_value": 424.5442708333333,
+            "hit_rate": 1.0
+          },
+          "profiles": {
+            "wins": 285,
+            "episodes": 384,
+            "mean_building_value": 425.8072916666667,
+            "hit_rate": 1.0
+          },
+          "win_delta": -2,
+          "value_delta": 1.2630208333333712,
+          "passes": false
+        }
+      },
+      "frozen_sample/fortified": {
+        "1": {
+          "control": {
+            "wins": 289,
+            "episodes": 384,
+            "mean_building_value": 364.5572916666667,
+            "hit_rate": 1.0
+          },
+          "profiles": {
+            "wins": 289,
+            "episodes": 384,
+            "mean_building_value": 362.265625,
+            "hit_rate": 1.0
+          },
+          "win_delta": 0,
+          "value_delta": -2.2916666666666856,
+          "passes": false
+        },
+        "2": {
+          "control": {
+            "wins": 292,
+            "episodes": 384,
+            "mean_building_value": 394.765625,
+            "hit_rate": 1.0
+          },
+          "profiles": {
+            "wins": 289,
+            "episodes": 384,
+            "mean_building_value": 394.2708333333333,
+            "hit_rate": 1.0
+          },
+          "win_delta": -3,
+          "value_delta": -0.4947916666666856,
+          "passes": false
+        }
+      },
+      "frozen_sample/mobile": {
+        "1": {
+          "control": {
+            "wins": 290,
+            "episodes": 384,
+            "mean_building_value": 388.203125,
+            "hit_rate": 1.0
+          },
+          "profiles": {
+            "wins": 290,
+            "episodes": 384,
+            "mean_building_value": 386.5625,
+            "hit_rate": 1.0
+          },
+          "win_delta": 0,
+          "value_delta": -1.640625,
+          "passes": false
+        },
+        "2": {
+          "control": {
+            "wins": 286,
+            "episodes": 384,
+            "mean_building_value": 422.7734375,
+            "hit_rate": 1.0
+          },
+          "profiles": {
+            "wins": 286,
+            "episodes": 384,
+            "mean_building_value": 424.1145833333333,
+            "hit_rate": 1.0
+          },
+          "win_delta": 0,
+          "value_delta": 1.3411458333333144,
+          "passes": true
+        }
+      }
+    },
+    "regressions": [
+      {
+        "seed": 2,
+        "map": "game/data/maps/pool/gen_01008000.json",
+        "level": 4,
+        "mode": "frozen_argmax",
+        "style": "balanced",
+        "control": {
+          "wins": 12,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 345.15625
+        },
+        "profiles": {
+          "wins": 12,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 337.65625
+        }
+      },
+      {
+        "seed": 2,
+        "map": "game/data/maps/pool/gen_01008000.json",
+        "level": 16,
+        "mode": "frozen_argmax",
+        "style": "balanced",
+        "control": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 370.625
+        },
+        "profiles": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 350.0
+        }
+      },
+      {
+        "seed": 2,
+        "map": "game/data/maps/pool/gen_01009000.json",
+        "level": 8,
+        "mode": "frozen_argmax",
+        "style": "balanced",
+        "control": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 477.5
+        },
+        "profiles": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 350.0
+        }
+      },
+      {
+        "seed": 2,
+        "map": "game/data/maps/pool/gen_01009000.json",
+        "level": 16,
+        "mode": "frozen_argmax",
+        "style": "balanced",
+        "control": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 507.5
+        },
+        "profiles": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 495.0
+        }
+      },
+      {
+        "seed": 2,
+        "map": "game/data/maps/pool/gen_01008000.json",
+        "level": 4,
+        "mode": "frozen_argmax",
+        "style": "fortified",
+        "control": {
+          "wins": 12,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 299.21875
+        },
+        "profiles": {
+          "wins": 12,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 291.71875
+        }
+      },
+      {
+        "seed": 2,
+        "map": "game/data/maps/pool/gen_01008000.json",
+        "level": 8,
+        "mode": "frozen_argmax",
+        "style": "fortified",
+        "control": {
+          "wins": 19,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 323.75
+        },
+        "profiles": {
+          "wins": 19,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 299.6875
+        }
+      },
+      {
+        "seed": 2,
+        "map": "game/data/maps/pool/gen_01008000.json",
+        "level": 16,
+        "mode": "frozen_argmax",
+        "style": "fortified",
+        "control": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 324.6875
+        },
+        "profiles": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 317.1875
+        }
+      },
+      {
+        "seed": 2,
+        "map": "game/data/maps/pool/gen_01009000.json",
+        "level": 8,
+        "mode": "frozen_argmax",
+        "style": "fortified",
+        "control": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 487.5
+        },
+        "profiles": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 360.0
+        }
+      },
+      {
+        "seed": 2,
+        "map": "game/data/maps/pool/gen_01009000.json",
+        "level": 16,
+        "mode": "frozen_argmax",
+        "style": "fortified",
+        "control": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 490.0
+        },
+        "profiles": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 477.5
+        }
+      },
+      {
+        "seed": 2,
+        "map": "game/data/maps/pool/gen_01008000.json",
+        "level": 4,
+        "mode": "frozen_argmax",
+        "style": "mobile",
+        "control": {
+          "wins": 12,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 345.15625
+        },
+        "profiles": {
+          "wins": 12,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 337.65625
+        }
+      },
+      {
+        "seed": 2,
+        "map": "game/data/maps/pool/gen_01008000.json",
+        "level": 16,
+        "mode": "frozen_argmax",
+        "style": "mobile",
+        "control": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 370.625
+        },
+        "profiles": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 350.0
+        }
+      },
+      {
+        "seed": 2,
+        "map": "game/data/maps/pool/gen_01009000.json",
+        "level": 8,
+        "mode": "frozen_argmax",
+        "style": "mobile",
+        "control": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 477.5
+        },
+        "profiles": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 350.0
+        }
+      },
+      {
+        "seed": 2,
+        "map": "game/data/maps/pool/gen_01009000.json",
+        "level": 16,
+        "mode": "frozen_argmax",
+        "style": "mobile",
+        "control": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 507.5
+        },
+        "profiles": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 495.0
+        }
+      },
+      {
+        "seed": 1,
+        "map": "game/data/maps/pool/gen_01008000.json",
+        "level": 1,
+        "mode": "frozen_sample",
+        "style": "balanced",
+        "control": {
+          "wins": 10,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 332.5
+        },
+        "profiles": {
+          "wins": 10,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 327.5
+        }
+      },
+      {
+        "seed": 1,
+        "map": "game/data/maps/pool/gen_01008000.json",
+        "level": 4,
+        "mode": "frozen_sample",
+        "style": "balanced",
+        "control": {
+          "wins": 12,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 353.28125
+        },
+        "profiles": {
+          "wins": 12,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 347.03125
+        }
+      },
+      {
+        "seed": 1,
+        "map": "game/data/maps/pool/gen_01008000.json",
+        "level": 8,
+        "mode": "frozen_sample",
+        "style": "balanced",
+        "control": {
+          "wins": 22,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 357.1875
+        },
+        "profiles": {
+          "wins": 22,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 350.3125
+        }
+      },
+      {
+        "seed": 1,
+        "map": "game/data/maps/pool/gen_01009000.json",
+        "level": 4,
+        "mode": "frozen_sample",
+        "style": "balanced",
+        "control": {
+          "wins": 30,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 387.8125
+        },
+        "profiles": {
+          "wins": 30,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 377.5
+        }
+      },
+      {
+        "seed": 1,
+        "map": "game/data/maps/pool/gen_01009000.json",
+        "level": 8,
+        "mode": "frozen_sample",
+        "style": "balanced",
+        "control": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 372.5
+        },
+        "profiles": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 362.1875
+        }
+      },
+      {
+        "seed": 2,
+        "map": "game/data/maps/pool/gen_01007000.json",
+        "level": 8,
+        "mode": "frozen_sample",
+        "style": "balanced",
+        "control": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 514.0625
+        },
+        "profiles": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 507.34375
+        }
+      },
+      {
+        "seed": 2,
+        "map": "game/data/maps/pool/gen_01007000.json",
+        "level": 16,
+        "mode": "frozen_sample",
+        "style": "balanced",
+        "control": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 513.75
+        },
+        "profiles": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 506.875
+        }
+      },
+      {
+        "seed": 2,
+        "map": "game/data/maps/pool/gen_01008000.json",
+        "level": 4,
+        "mode": "frozen_sample",
+        "style": "balanced",
+        "control": {
+          "wins": 12,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 346.25
+        },
+        "profiles": {
+          "wins": 12,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 340.78125
+        }
+      },
+      {
+        "seed": 2,
+        "map": "game/data/maps/pool/gen_01008000.json",
+        "level": 16,
+        "mode": "frozen_sample",
+        "style": "balanced",
+        "control": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 370.625
+        },
+        "profiles": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 369.375
+        }
+      },
+      {
+        "seed": 2,
+        "map": "game/data/maps/pool/gen_01009000.json",
+        "level": 4,
+        "mode": "frozen_sample",
+        "style": "balanced",
+        "control": {
+          "wins": 29,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 470.9375
+        },
+        "profiles": {
+          "wins": 27,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 460.46875
+        }
+      },
+      {
+        "seed": 1,
+        "map": "game/data/maps/pool/gen_01008000.json",
+        "level": 1,
+        "mode": "frozen_sample",
+        "style": "fortified",
+        "control": {
+          "wins": 12,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 264.6875
+        },
+        "profiles": {
+          "wins": 12,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 259.6875
+        }
+      },
+      {
+        "seed": 1,
+        "map": "game/data/maps/pool/gen_01008000.json",
+        "level": 4,
+        "mode": "frozen_sample",
+        "style": "fortified",
+        "control": {
+          "wins": 12,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 307.8125
+        },
+        "profiles": {
+          "wins": 12,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 301.09375
+        }
+      },
+      {
+        "seed": 1,
+        "map": "game/data/maps/pool/gen_01008000.json",
+        "level": 8,
+        "mode": "frozen_sample",
+        "style": "fortified",
+        "control": {
+          "wins": 21,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 315.625
+        },
+        "profiles": {
+          "wins": 21,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 308.75
+        }
+      },
+      {
+        "seed": 1,
+        "map": "game/data/maps/pool/gen_01008000.json",
+        "level": 16,
+        "mode": "frozen_sample",
+        "style": "fortified",
+        "control": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 344.6875
+        },
+        "profiles": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 341.25
+        }
+      },
+      {
+        "seed": 1,
+        "map": "game/data/maps/pool/gen_01009000.json",
+        "level": 4,
+        "mode": "frozen_sample",
+        "style": "fortified",
+        "control": {
+          "wins": 30,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 370.3125
+        },
+        "profiles": {
+          "wins": 30,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 360.0
+        }
+      },
+      {
+        "seed": 1,
+        "map": "game/data/maps/pool/gen_01009000.json",
+        "level": 8,
+        "mode": "frozen_sample",
+        "style": "fortified",
+        "control": {
+          "wins": 31,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 367.5
+        },
+        "profiles": {
+          "wins": 31,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 360.625
+        }
+      },
+      {
+        "seed": 2,
+        "map": "game/data/maps/pool/gen_01007000.json",
+        "level": 4,
+        "mode": "frozen_sample",
+        "style": "fortified",
+        "control": {
+          "wins": 24,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 495.3125
+        },
+        "profiles": {
+          "wins": 24,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 491.25
+        }
+      },
+      {
+        "seed": 2,
+        "map": "game/data/maps/pool/gen_01007000.json",
+        "level": 8,
+        "mode": "frozen_sample",
+        "style": "fortified",
+        "control": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 505.0
+        },
+        "profiles": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 498.59375
+        }
+      },
+      {
+        "seed": 2,
+        "map": "game/data/maps/pool/gen_01007000.json",
+        "level": 16,
+        "mode": "frozen_sample",
+        "style": "fortified",
+        "control": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 471.5625
+        },
+        "profiles": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 464.375
+        }
+      },
+      {
+        "seed": 2,
+        "map": "game/data/maps/pool/gen_01008000.json",
+        "level": 4,
+        "mode": "frozen_sample",
+        "style": "fortified",
+        "control": {
+          "wins": 12,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 300.3125
+        },
+        "profiles": {
+          "wins": 12,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 294.84375
+        }
+      },
+      {
+        "seed": 2,
+        "map": "game/data/maps/pool/gen_01008000.json",
+        "level": 8,
+        "mode": "frozen_sample",
+        "style": "fortified",
+        "control": {
+          "wins": 23,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 310.0
+        },
+        "profiles": {
+          "wins": 22,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 310.9375
+        }
+      },
+      {
+        "seed": 2,
+        "map": "game/data/maps/pool/gen_01009000.json",
+        "level": 4,
+        "mode": "frozen_sample",
+        "style": "fortified",
+        "control": {
+          "wins": 25,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 449.375
+        },
+        "profiles": {
+          "wins": 23,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 438.75
+        }
+      },
+      {
+        "seed": 1,
+        "map": "game/data/maps/pool/gen_01008000.json",
+        "level": 1,
+        "mode": "frozen_sample",
+        "style": "mobile",
+        "control": {
+          "wins": 8,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 314.375
+        },
+        "profiles": {
+          "wins": 8,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 309.375
+        }
+      },
+      {
+        "seed": 1,
+        "map": "game/data/maps/pool/gen_01008000.json",
+        "level": 4,
+        "mode": "frozen_sample",
+        "style": "mobile",
+        "control": {
+          "wins": 14,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 353.28125
+        },
+        "profiles": {
+          "wins": 14,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 347.03125
+        }
+      },
+      {
+        "seed": 1,
+        "map": "game/data/maps/pool/gen_01008000.json",
+        "level": 8,
+        "mode": "frozen_sample",
+        "style": "mobile",
+        "control": {
+          "wins": 23,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 357.1875
+        },
+        "profiles": {
+          "wins": 23,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 350.3125
+        }
+      },
+      {
+        "seed": 1,
+        "map": "game/data/maps/pool/gen_01009000.json",
+        "level": 4,
+        "mode": "frozen_sample",
+        "style": "mobile",
+        "control": {
+          "wins": 30,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 387.8125
+        },
+        "profiles": {
+          "wins": 30,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 380.9375
+        }
+      },
+      {
+        "seed": 1,
+        "map": "game/data/maps/pool/gen_01009000.json",
+        "level": 8,
+        "mode": "frozen_sample",
+        "style": "mobile",
+        "control": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 362.5
+        },
+        "profiles": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 359.0625
+        }
+      },
+      {
+        "seed": 2,
+        "map": "game/data/maps/pool/gen_01007000.json",
+        "level": 8,
+        "mode": "frozen_sample",
+        "style": "mobile",
+        "control": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 514.0625
+        },
+        "profiles": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 507.34375
+        }
+      },
+      {
+        "seed": 2,
+        "map": "game/data/maps/pool/gen_01007000.json",
+        "level": 16,
+        "mode": "frozen_sample",
+        "style": "mobile",
+        "control": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 513.75
+        },
+        "profiles": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 506.875
+        }
+      },
+      {
+        "seed": 2,
+        "map": "game/data/maps/pool/gen_01008000.json",
+        "level": 4,
+        "mode": "frozen_sample",
+        "style": "mobile",
+        "control": {
+          "wins": 13,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 346.25
+        },
+        "profiles": {
+          "wins": 13,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 340.78125
+        }
+      },
+      {
+        "seed": 2,
+        "map": "game/data/maps/pool/gen_01008000.json",
+        "level": 16,
+        "mode": "frozen_sample",
+        "style": "mobile",
+        "control": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 370.625
+        },
+        "profiles": {
+          "wins": 32,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 369.375
+        }
+      },
+      {
+        "seed": 2,
+        "map": "game/data/maps/pool/gen_01009000.json",
+        "level": 4,
+        "mode": "frozen_sample",
+        "style": "mobile",
+        "control": {
+          "wins": 28,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 470.9375
+        },
+        "profiles": {
+          "wins": 27,
+          "episodes": 32,
+          "hit_rate": 1.0,
+          "value": 460.46875
+        }
+      }
+    ],
+    "gate": {
+      "balanced": false,
+      "fortified": false,
+      "mobile": false
+    },
+    "gate_primary_mode": "frozen_argmax",
+    "passed": false,
+    "weakest_style": {
+      "style": "balanced",
+      "min_win_delta": 0
+    },
+    "scope": "Held-out maps, frozen final policy.pt per arm, one report per style. A pass here is a development signal at 65,536 PPO steps, not deployment evidence; per-case regressions are listed regardless of the overall verdict."
+  },
+  "probes": {
+    "cases": {
+      "map0-l1-argmax-balanced": "gen_01007000 level 1 frozen_argmax vs balanced, seed 100001",
+      "map1-l4-argmax-mobile": "gen_01008000 level 4 frozen_argmax vs mobile, seed 200001"
+    },
+    "results": {
+      "fit-only": {
+        "map0-l1-argmax-balanced": {
+          "wins": 24,
+          "mean_building_value": 453.75,
+          "identical_to_fit": 32,
+          "sha256": "2f484d465fe9ca63b5535b96c0beb9fb8d827b9bc181d6da4ff0b8d96bc861c4"
+        },
+        "map1-l4-argmax-mobile": {
+          "wins": 19,
+          "mean_building_value": 362.8125,
+          "identical_to_fit": 32,
+          "sha256": "56d4771784dd9de7d8e13b6b90beaeab9f0833447be4fe288e626f3177c62192"
+        }
+      },
+      "control-s1": {
+        "map0-l1-argmax-balanced": {
+          "wins": 24,
+          "mean_building_value": 453.75,
+          "identical_to_fit": 32,
+          "sha256": "548a9f56192ac730679046592cdbdbea36b54600a6fa96bc899fe53755073388"
+        },
+        "map1-l4-argmax-mobile": {
+          "wins": 12,
+          "mean_building_value": 362.8125,
+          "identical_to_fit": 25,
+          "sha256": "673cd4de4faa002e0e399377d7aac3cff18e11b259389b487ad6e6c8b048dcb9"
+        }
+      },
+      "profiles-s1": {
+        "map0-l1-argmax-balanced": {
+          "wins": 24,
+          "mean_building_value": 453.75,
+          "identical_to_fit": 32,
+          "sha256": "76c73f204358820878118835b7cdc23f8fcaa8e0167fc7a04920c81a658bdbaf"
+        },
+        "map1-l4-argmax-mobile": {
+          "wins": 19,
+          "mean_building_value": 362.8125,
+          "identical_to_fit": 32,
+          "sha256": "954cbb77c8b4bb979741a8b98e36f6f0b0007a4c1783e9a480823c2cee37b374"
+        }
+      },
+      "probe-ref0": {
+        "map0-l1-argmax-balanced": {
+          "wins": 16,
+          "mean_building_value": 327.5,
+          "identical_to_fit": 8,
+          "sha256": "907b5ed0bf93a6a4b214f6b8ca00af78ca0b6bc00fa48e3e1dbf6e06d3807053"
+        },
+        "map1-l4-argmax-mobile": {
+          "wins": 13,
+          "mean_building_value": 227.34375,
+          "identical_to_fit": 7,
+          "sha256": "28f3799549f315df9638254d2808cea123f46418eebba22593948541f5567975"
+        }
+      },
+      "probe-ref0-ent05": {
+        "map0-l1-argmax-balanced": {
+          "wins": 0,
+          "mean_building_value": 213.75,
+          "identical_to_fit": 0,
+          "sha256": "5691c7384e7f9db7695375da3c957d8925e12363ed787f33cf95aa2955595ecb"
+        },
+        "map1-l4-argmax-mobile": {
+          "wins": 0,
+          "mean_building_value": 279.375,
+          "identical_to_fit": 0,
+          "sha256": "45ddc3814eb054b58c94d60ceac65d0b46909c25bb3713bd7eb25578ae423a27"
+        }
+      }
+    }
+  },
+  "recipe_probes": {
+    "probe-ref0": {
+      "init": "control-s1/fit/policy.pt",
+      "reference_coef": 0.0,
+      "ent_coef": 0.01,
+      "ppo_policy_sha256": "e43d65bc6b01504ededf36bfa9aeca1aa9b0ee78275473b9065307167111c532",
+      "ppo_metrics": {
+        "updates": 64,
+        "env_steps": 65536,
+        "entropy_first": 0.011044445098377764,
+        "entropy_last": 0.13388849282637239,
+        "approx_kl_max": 0.01292608235962689,
+        "clip_fraction_max": 0.07900792942382395,
+        "policy_loss_abs_max": 0.003000004164649017,
+        "reference_kl_last": 0.0,
+        "reference_coef": 0.0
+      },
+      "weight_drift_from_imitation": {
+        "max_abs": 0.28175175189971924,
+        "mean_abs": 0.0001280352415063308
+      }
+    },
+    "probe-ref0-ent05": {
+      "init": "control-s1/fit/policy.pt",
+      "reference_coef": 0.0,
+      "ent_coef": 0.05,
+      "ppo_policy_sha256": "64157b246b561c7fa1896cdb660e7ee7f6d3b3f37a4169d5dffb93c877ff3e6c",
+      "ppo_metrics": {
+        "updates": 64,
+        "env_steps": 65536,
+        "entropy_first": 0.012679070117883384,
+        "entropy_last": 0.10629450203850865,
+        "approx_kl_max": 0.016572677239309996,
+        "clip_fraction_max": 0.09301978308940306,
+        "policy_loss_abs_max": 0.005785913700868867,
+        "reference_kl_last": 0.0,
+        "reference_coef": 0.0
+      },
+      "weight_drift_from_imitation": {
+        "max_abs": 0.191336527466774,
+        "mean_abs": 0.00019585272165729154
+      }
+    }
+  },
+  "finding": "The pre-registered comparison is null by construction at this recipe: with reference_coef=1 on a near-deterministic imitation init (entropy ~0.01), 65,536 PPO steps leave the argmax policy almost unchanged, so both arms play the imitation teacher. Removing the reference term lets PPO move the policy (entropy 0.01 -> 0.13) but the moved policy is worse on both probe cases; adding entropy bonus 0.05 collapses it to 0/32. Style rotation cannot be evaluated until the learner actually improves on its initialisation.",
+  "not_claimed": "No statement about style rotation at larger budgets or other recipes; no real multi-wave games; no deployment."
+}

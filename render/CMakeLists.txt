@@ -98,6 +98,7 @@ rts_set_warnings(render_lib)
 
 add_executable(rts_render src/main.cpp src/cli_entry.cpp)
 target_link_libraries(rts_render PRIVATE render_lib)
+rts_copy_onnx_runtime(rts_render)
 rts_set_warnings(rts_render)
 
 # 截图模式的冒烟测试。

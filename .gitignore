@@ -37,6 +37,8 @@ wandb/
 *.pt
 *.pth
 *.onnx
+# Tiny deterministic test fixture; contains no trained model weights.
+!game/testdata/rl_constant.onnx
 *.tfevents.*
 
 # ---- 编辑器 / 系统 ----

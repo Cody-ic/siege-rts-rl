@@ -1,0 +1,18 @@
+{
+  "simulation": "3f052594874eaa751a1e55268081a2d055884c4bad3241e22142c3871281bbb6",
+  "check_sha256": "31457e89b9d4c35768d18b7d5a78b1beef6371ea35a867299bae62958806631f",
+  "model_identity": "17228096830293534042",
+  "replayed_commands": 64,
+  "matched_new_commands": 64,
+  "exact_rng_and_world": true,
+  "distinct_command_kinds": [
+    0,
+    1,
+    2,
+    4,
+    8,
+    9
+  ],
+  "game_save_integrated": false,
+  "scope": "two independent Python hosts invoking C++ inference; explicit RNG and command replay, not game save format"
+}

@@ -15,6 +15,10 @@ Alt+F12 开发者模式开放全部日记及两种结局预览，不写入普通
 
 对局墙/门的朝向、拐角及驻墙拾取读取活建筑（含工地），静态查看器仍读取地图。建造模式用 B 或底部按钮进入、Tab 换建筑，墙/木栅拖线、Shift 换轴；鼠标只拾取地面，右键/Esc 退出，放置后保持模式且不框选单位。具体操作和验证见 `docs/construction-interactions.md`。
 
+## 2026-09-14 RL 奖励候选
+
+新增可选 attrition-v1，不修改默认 legacy。规则、候选价值表及未解决范围见 docs/rl-reward-profiles.md。该文覆盖候选配方与旧奖励说明的差异；数值等待公平对照，不作为游戏平衡定案。
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## 2026-09-08 试玩反馈定版（优先于下文旧配平推导）

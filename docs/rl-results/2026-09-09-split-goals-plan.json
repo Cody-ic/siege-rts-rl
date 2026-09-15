@@ -1,0 +1,30 @@
+{
+  "purpose": "Frozen same-policy target assignment comparison, no optimizer updates",
+  "modes": [
+    "known-economy",
+    "split-economy"
+  ],
+  "seed": 1,
+  "maps": [
+    "01001000",
+    "01004000",
+    "01005000",
+    "01006001"
+  ],
+  "levels": [
+    4
+  ],
+  "environments": 8,
+  "prepare_ticks": 900,
+  "max_ticks": 2400,
+  "checkpoint": "runs/prepared-final-20260909/candidate.pt",
+  "files": {
+    "train/ppo.py": "d3dc15438ebd94037df1b1dcd7c01df004df9b1b1e8a2f1d761ccee9a5ebda50",
+    "train/goal_coverage.py": "66c2f345d04cf07daad9e3898f2c8b98c287be17dd7dcdfc3507b24815a1a861",
+    "game/include/game/training_goals.hpp": "c63f9ae9f3bfd6373168106d2f9c2610519c8fc2aa283033cf464b806008f017",
+    "bindings/src/module.cpp": "a1c49149e572610fd7b5e9b2fc772802150a7469afec8ffb4e83c6be6c242117",
+    "build-split-training/bindings/Release/rts_native.cp313-win_amd64.pyd": "fa1655c3122710a35788efc12d77ca050b2552f4a0c5cdb27b49c554d003146d",
+    "runs/prepared-final-20260909/candidate.pt": "b556e8e3ff216d5fc3dc8e960fed12c2ccce79f318472cc6be8cff6c90550276"
+  },
+  "interpretation": "Development diagnostic of assignment distribution. Not independent evidence for a trained candidate."
+}

@@ -1,0 +1,61 @@
+{
+  "kind": "stable-reference-kl-only",
+  "source_checkpoint": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\runs\\economy-goal-pilot-20260909\\latest.pt",
+  "source_sha256": "d1976130a3fd50d525c57c76d7b7a078b2cd5d5812e44263f974eb0b78f18c95",
+  "old_contract": {
+    "obs_version": 2,
+    "obs_fingerprint": 13173046946482585016,
+    "actions": 13,
+    "max_agents": 32,
+    "map_sha256": "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+    "stats_sha256": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+    "map_pool_sha256": [
+      "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+      "d11740be256d2666dc66318255efa4a7912744f47917f745ab920c572f56df45",
+      "7c43e2030fde2389cfc0784fd25410f21969e4b3f27911de798857e109f9a18d",
+      "7f32afd88e5dfdaea06cae08a9df2bf53d0169f7d9f3fbf89c909214b6fdd160"
+    ],
+    "simulation_fingerprint": "61abbb70028f3dcd30f41ace3d9ba6af3cc3d50909505f130e7ad9421d53dba5",
+    "native_build_mode": "Release",
+    "learner_version": 6,
+    "learner_sha256": {
+      "ppo.py": "cc225c21337f93ad46ef7778bf74e6ff12ee5df2334bac5bd71db50d0a34dd76",
+      "learning.py": "04c647de5551ba2642fcb61f738b729d4b10c020e85f1908d35f3b7e2fef46a4",
+      "rollout.py": "77b792a2ef89de002807681b5c89fd9f774b1dcfe029968d130c60e107e4398a",
+      "checkpointing.py": "e52000af6ac46c222628c957384cb49e09b5402edf4369c24017c0bc9536fa04"
+    }
+  },
+  "new_contract": {
+    "obs_version": 2,
+    "obs_fingerprint": 13173046946482585016,
+    "actions": 13,
+    "max_agents": 32,
+    "map_sha256": "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+    "stats_sha256": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+    "map_pool_sha256": [
+      "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+      "d11740be256d2666dc66318255efa4a7912744f47917f745ab920c572f56df45",
+      "7c43e2030fde2389cfc0784fd25410f21969e4b3f27911de798857e109f9a18d",
+      "7f32afd88e5dfdaea06cae08a9df2bf53d0169f7d9f3fbf89c909214b6fdd160"
+    ],
+    "simulation_fingerprint": "61abbb70028f3dcd30f41ace3d9ba6af3cc3d50909505f130e7ad9421d53dba5",
+    "native_build_mode": "Release",
+    "learner_version": 6,
+    "learner_sha256": {
+      "ppo.py": "0ef89e267c07d443854c4595ef5f7699318323f494b93e5b03fb371c1c96b96d",
+      "learning.py": "04c647de5551ba2642fcb61f738b729d4b10c020e85f1908d35f3b7e2fef46a4",
+      "rollout.py": "77b792a2ef89de002807681b5c89fd9f774b1dcfe029968d130c60e107e4398a",
+      "checkpointing.py": "a6f1fa75d77ad8d85899d781dd991905d3e4464dd8c5d5add35c1774095cf9bc",
+      "stable_kl.py": "ca7cd18ffb5a9c199278ea42d735168a79b9b375c65d91ecf7ee3d9ed3b44b8c"
+    }
+  },
+  "boundary": "Model, Adam, RNG and progress retained; active native episodes still restart",
+  "retained": {
+    "model": true,
+    "optimizer": true,
+    "reference_model": true,
+    "rng": true,
+    "progress": true,
+    "config": true
+  }
+}

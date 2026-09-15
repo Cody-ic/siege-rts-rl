@@ -1,0 +1,50 @@
+{
+  "arms": [
+    "baseline",
+    "candidate"
+  ],
+  "levels": [
+    1,
+    4,
+    8,
+    16
+  ],
+  "seed": 709,
+  "envs": 8,
+  "maps": [
+    "01002000",
+    "01003000",
+    "01007000",
+    "01009000"
+  ],
+  "prepare_ticks": 900,
+  "max_ticks": 2400,
+  "selection": "frozen_argmax",
+  "tactical_goals": "split-economy",
+  "models": {
+    "baseline": "runs/prepared-final-20260909/candidate.pt",
+    "candidate": "runs\\split-economy-training-20260909\\frozen-update128.pt"
+  },
+  "scope": "Reused development comparison; not independent holdout",
+  "files": {
+    "train/ppo.py": "d3dc15438ebd94037df1b1dcd7c01df004df9b1b1e8a2f1d761ccee9a5ebda50",
+    "train/learning.py": "04c647de5551ba2642fcb61f738b729d4b10c020e85f1908d35f3b7e2fef46a4",
+    "train/rollout.py": "77b792a2ef89de002807681b5c89fd9f774b1dcfe029968d130c60e107e4398a",
+    "train/checkpointing.py": "a6f1fa75d77ad8d85899d781dd991905d3e4464dd8c5d5add35c1774095cf9bc",
+    "train/stable_kl.py": "ca7cd18ffb5a9c199278ea42d735168a79b9b375c65d91ecf7ee3d9ed3b44b8c",
+    "build-split-training/bindings/Release/rts_native.cp313-win_amd64.pyd": "fa1655c3122710a35788efc12d77ca050b2552f4a0c5cdb27b49c554d003146d",
+    "runs/prepared-final-20260909/candidate.pt": "b556e8e3ff216d5fc3dc8e960fed12c2ccce79f318472cc6be8cff6c90550276",
+    "game/data/stats_placeholder.json": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+    "game/data/maps/pool/gen_01001000.json": "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+    "game/data/maps/pool/gen_01004000.json": "d11740be256d2666dc66318255efa4a7912744f47917f745ab920c572f56df45",
+    "game/data/maps/pool/gen_01005000.json": "7c43e2030fde2389cfc0784fd25410f21969e4b3f27911de798857e109f9a18d",
+    "game/data/maps/pool/gen_01006001.json": "7f32afd88e5dfdaea06cae08a9df2bf53d0169f7d9f3fbf89c909214b6fdd160",
+    "runs\\split-economy-training-20260909\\frozen-update128.pt": "710c2843873ef86ea293017405ae876a57522b83476a9687081ea753420869b8",
+    "train/goal_coverage.py": "66c2f345d04cf07daad9e3898f2c8b98c287be17dd7dcdfc3507b24815a1a861",
+    "train/compare_goal_evaluations.py": "868dd8707440b0d297cb2c5b2775811538a49a39ef4fde974504216e4562c6aa",
+    "game/data/maps/pool/gen_01002000.json": "258426af6ee45cece5789f02ced8dff215b2db1e130471c766a9eb9c2c6628bf",
+    "game/data/maps/pool/gen_01003000.json": "1eca9b886a26f424b8039fb4665a8d4ca056b145672d54e9a060a03d453c737d",
+    "game/data/maps/pool/gen_01007000.json": "65f8ed3f8102fba260e8bc2b9a0b386bb3b2d0ae66081e4008f520e10f0463fd",
+    "game/data/maps/pool/gen_01009000.json": "09a441043b8e1bfdfe9b6405fdd60c0bb1cef5f943049fd4f03ccc8bde680ebf"
+  }
+}
