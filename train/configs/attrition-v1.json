@@ -1,0 +1,21 @@
+{
+  "unit_scale": 0.1,
+  "stone": 1.0,
+  "wood": 1.0,
+  "gold": 1.0,
+  "repair_scale": 1.0,
+  "income_periods": 2.0,
+  "unit_values": {
+    "Archer": 60.0,
+    "Spear": 70.0,
+    "Ranger": 90.0,
+    "Scout": 30.0,
+    "Mason": 60.0,
+    "Ghoul": 50.0,
+    "Shade": 70.0,
+    "Knight": 100.0,
+    "Phoenix": 200.0,
+    "Wraith": 40.0,
+    "Ram": 140.0
+  }
+}

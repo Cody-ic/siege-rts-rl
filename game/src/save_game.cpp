@@ -100,7 +100,7 @@ std::unique_ptr<DemoBattle> restore_battle(const BattleArchive& a,const RestoreP
     require(a.attempt>0 && a.attempt<1000000,"存档局次无效");
     require(a.choice==ChronicleChoice::None || (a.wave>=70 && (a.choice==ChronicleChoice::Guard || a.choice==ChronicleChoice::Release)),"存档结局无效");
     rts::Tick checked_tick=0;
-    for(const auto& e:a.events) {require(e.tick>=checked_tick && e.tick<=a.tick && e.kind>=0 && e.kind<=2,"存档操作时间无效");checked_tick=e.tick;}
+    for(const auto& e:a.events) {require(e.tick>=checked_tick && e.tick<=a.tick && e.kind>=0 && e.kind<=3,"存档操作时间无效");checked_tick=e.tick;}
     bool snapshot_restored=false;
     if(!a.snapshot.empty()) {
         try {
@@ -136,6 +136,7 @@ std::unique_ptr<DemoBattle> restore_battle(const BattleArchive& a,const RestoreP
         if(event.kind==0) battle->submit_defender(&event.command,1);
         else if(event.kind==1) battle->issue_move_order(event.ids,event.target);
         else if(event.kind==2) battle->issue_garrison_order(event.ids,event.target);
+        else if(event.kind==3) battle->issue_forced_work(event.ids,event.target);
         else throw std::runtime_error("存档操作类型无效");
     }
     advance_to(a.tick);
@@ -220,20 +221,27 @@ BattleArchive read_archive(const std::filesystem::path& file) {
     }
     require(a.tick>=0 && a.tick<=kMaxSaveTicks,"存档时长越界");return a;
 }
-int read_journal_progress(const std::filesystem::path& file) {
+JournalProgress read_journal(const std::filesystem::path& file) {
     auto backup=file;backup+=".bak";
-    if(!std::filesystem::exists(file) && !std::filesystem::exists(backup)) return 1;
+    if(!std::filesystem::exists(file) && !std::filesystem::exists(backup)) return {};
     const auto read=[](const std::filesystem::path& path) {
         const auto j=load_json(path);
-        require(j.at("format")=="siege-journal" && j.at("version")==1,"日记记录版本不兼容");
-        const int wave=j.at("highest_wave").get<int>();require(wave>=1 && wave<=1000000,"日记记录波次无效");return wave;
+        const int version=j.at("version").get<int>();
+        require(j.at("format")=="siege-journal" && (version==1 || version==2),"日记记录版本不兼容");
+        JournalProgress result;result.highest_wave=j.at("highest_wave").get<int>();
+        require(result.highest_wave>=1 && result.highest_wave<=1000000,"日记记录波次无效");
+        if(version==2) result.appendices={j.at("white_feather").get<bool>(),j.at("loss_list").get<bool>()};
+        return result;
     };
     try {return read(file);} catch(const std::exception&) {return read(backup);}
 }
-void write_journal_progress(const std::filesystem::path& file,int highest_wave) {
-    require(highest_wave>=1 && highest_wave<=1000000,"日记波次越界");
-    const int old=read_journal_progress(file);
-    if(highest_wave<=old && std::filesystem::exists(file)) return;
-    atomic_json(file,{{"format","siege-journal"},{"version",1},{"highest_wave",std::max(old,highest_wave)}});
+void write_journal(const std::filesystem::path& file,JournalProgress progress) {
+    require(progress.highest_wave>=1 && progress.highest_wave<=1000000,"日记波次越界");
+    const auto old=read_journal(file);progress.merge(old);
+    if(progress==old && std::filesystem::exists(file)) return;
+    atomic_json(file,{{"format","siege-journal"},{"version",2},{"highest_wave",progress.highest_wave},
+        {"white_feather",progress.appendices.white_feather},{"loss_list",progress.appendices.loss_list}});
 }
+int read_journal_progress(const std::filesystem::path& file) {return read_journal(file).highest_wave;}
+void write_journal_progress(const std::filesystem::path& file,int highest_wave) {write_journal(file,{highest_wave,{}});}
 }

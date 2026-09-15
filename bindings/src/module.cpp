@@ -169,6 +169,14 @@ PYBIND11_MODULE(rts_native, m) {
             d["repair_wood_spent"]=t.repair_wood_spent;
             d["friendly_unit_damage"]=t.friendly_unit_damage;
             d["friendly_units_killed"]=t.friendly_units_killed;
+            for (std::size_t type=0; type<rts::kUnitTypeCount; ++type) {
+                d[std::string(rts::BatchedEnv::kTallyNames[15+type]).c_str()]=t.enemy_unit_levels[type];
+                d[std::string(rts::BatchedEnv::kTallyNames[26+type]).c_str()]=t.own_unit_levels[type];
+            }
+            d["destroyed_stone"]=t.destroyed_stone;d["destroyed_wood"]=t.destroyed_wood;
+            d["destroyed_income_stone"]=t.destroyed_income_stone;
+            d["destroyed_income_wood"]=t.destroyed_income_wood;
+            d["destroyed_income_gold"]=t.destroyed_income_gold;
             return d;
         };
         out["attacker_tally"]=tally(value.attacker);

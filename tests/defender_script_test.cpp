@@ -106,6 +106,66 @@ void run(rts::World& w, game::DefenderScript& s, int ticks,
 
 }  // namespace
 
+TEST_CASE("Forced work reaches danger and expires with its job or identity", "[script]") {
+    auto init = sarena(24, 9);
+    init.stats.unit[static_cast<std::size_t>(rts::UnitType::Ghoul)].damage = 0;
+    rts::World w(init);
+    const auto worker = w.spawn_unit(rts::UnitType::Mason, {2.5f, 4.5f}, 1, 10000, 10000);
+    const auto job = w.place_bld(rts::BldType::Tower, {12, 4}, 100, 100, 300);
+    w.spawn_unit(rts::UnitType::Ghoul, {14.5f, 4.5f}, 1, 10000, 10000);
+    game::DefenderScript script({}, 7);
+    const rts::UnitId ids[] = {worker};
+    SECTION("Ordinary move remains safe; forced work actually completes the job") {
+        script.issue_move_order(ids, {12, 4});
+        run(w, script, 100);
+        REQUIRE(w.unit_pos(worker).x < 10.5f);
+        REQUIRE(script.issue_forced_work(w.view(rts::Side::Defender), ids, {12, 4}));
+        run(w, script, 100);
+        REQUIRE(w.unit_pos(worker).x >= 10.5f);
+        REQUIRE(script.forced_work_active(w.view(rts::Side::Defender), worker));
+        run(w, script, 400);
+        REQUIRE_FALSE(script.forced_work_active(w.view(rts::Side::Defender), worker));
+        REQUIRE(w.view(rts::Side::Defender).bld_work_left()[job.index()] == 0);
+        REQUIRE(w.unit_pos(worker).x < 10.5f);
+    }
+    SECTION("Reused worker slot does not inherit forced work") {
+        REQUIRE(script.issue_forced_work(w.view(rts::Side::Defender), ids, {12, 4}));
+        w.kill_unit(worker);
+        const auto replacement = w.spawn_unit(rts::UnitType::Mason, {2.5f, 4.5f}, 1, 10000, 10000);
+        REQUIRE(replacement.index() == worker.index());
+        REQUIRE_FALSE(script.forced_work_active(w.view(rts::Side::Defender), replacement));
+        run(w, script, 100);
+        REQUIRE(w.unit_pos(replacement).x < 10.5f);
+    }
+    SECTION("Destroyed building is not replaced by a new job in the same slot") {
+        REQUIRE(script.issue_forced_work(w.view(rts::Side::Defender), ids, {12, 4}));
+        w.destroy_bld(job);
+        const auto replacement = w.place_bld(rts::BldType::Tower, {12, 4}, 100, 100, 300);
+        REQUIRE(replacement.index() == job.index());
+        REQUIRE_FALSE(script.forced_work_active(w.view(rts::Side::Defender), worker));
+        run(w, script, 100);
+        REQUIRE(w.unit_pos(worker).x < 10.5f);
+    }
+}
+
+TEST_CASE("Worker builds outside during assault when route and site are safe", "[script]") {
+    auto init=sarena(24,13);
+    rts::World w(init);
+    // A city ring with an east gate, and a job well outside the ring.
+    for(int x=2;x<=8;++x) for(int y=2;y<=10;++y) {
+        if(x!=2 && x!=8 && y!=2 && y!=10) continue;
+        w.place_bld(x==8 && y==6?rts::BldType::Gate:rts::BldType::Wall,
+                    {static_cast<std::int16_t>(x),static_cast<std::int16_t>(y)},40,40);
+    }
+    const auto worker=w.spawn_unit(rts::UnitType::Mason,{5.5f,6.5f},1,12,12);
+    const auto job=w.place_bld(rts::BldType::Tower,{14,6},100,100,300);
+    w.begin_assault();
+    game::DefenderScript script({},7);
+    run(w,script,160);
+    CHECK(w.unit_pos(worker).x>8.5f);
+    CHECK(w.view(rts::Side::Defender).bld_work_left()[job.index()]<300);
+}
+
 // ——克制表三条：每条一手一个对照——
 
 TEST_CASE("弓手拉扯：追兵永远够不着，反被一路放风筝打死", "[script]") {

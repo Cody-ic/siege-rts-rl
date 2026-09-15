@@ -4,7 +4,7 @@
 namespace game {
 namespace {
 rts::World::Tally difference(const rts::World::Tally& a,const rts::World::Tally& b) {
-    return {a.dmg_to_units-b.dmg_to_units,a.dmg_to_blds-b.dmg_to_blds,
+    rts::World::Tally result{a.dmg_to_units-b.dmg_to_units,a.dmg_to_blds-b.dmg_to_blds,
         a.units_killed-b.units_killed,a.blds_destroyed-b.blds_destroyed,
         a.bld_value-b.bld_value,a.scouts_killed-b.scouts_killed,a.losses-b.losses,
         a.scout_units_killed-b.scout_units_killed,
@@ -14,6 +14,16 @@ rts::World::Tally difference(const rts::World::Tally& a,const rts::World::Tally&
         a.repair_wood_spent-b.repair_wood_spent,
         a.friendly_unit_damage-b.friendly_unit_damage,
         a.friendly_units_killed-b.friendly_units_killed};
+    for (std::size_t i=0; i<rts::kUnitTypeCount; ++i) {
+        result.enemy_unit_levels[i]=a.enemy_unit_levels[i]-b.enemy_unit_levels[i];
+        result.own_unit_levels[i]=a.own_unit_levels[i]-b.own_unit_levels[i];
+    }
+    result.destroyed_stone=a.destroyed_stone-b.destroyed_stone;
+    result.destroyed_wood=a.destroyed_wood-b.destroyed_wood;
+    result.destroyed_income_stone=a.destroyed_income_stone-b.destroyed_income_stone;
+    result.destroyed_income_wood=a.destroyed_income_wood-b.destroyed_income_wood;
+    result.destroyed_income_gold=a.destroyed_income_gold-b.destroyed_income_gold;
+    return result;
 }
 }
 TrainingCampaign::TrainingCampaign(const MapData& map,const rts::StatsTable& stats,

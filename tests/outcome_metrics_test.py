@@ -22,6 +22,15 @@ class OutcomeMetricsTest(unittest.TestCase):
         rows = [dict(tally=dict(dmg_to_blds=0, blds_destroyed=0, phoenix_losses=1)),
                 dict(tally=dict(dmg_to_blds=0, blds_destroyed=0))]
         self.assertIsNone(summarize_outcomes(rows)['mean']['phoenix_losses'])
+        self.assertIsNone(summarize_outcomes(rows)['mean']['destroyed_stone'])
+
+    def test_new_raw_exchange_fields_are_averaged_without_prices(self):
+        rows = [dict(tally=dict(dmg_to_blds=0, blds_destroyed=0,
+                               enemy_Mason_levels=level, destroyed_stone=30))
+                for level in (1, 3)]
+        means = summarize_outcomes(rows)['mean']
+        self.assertEqual(means['enemy_Mason_levels'], 2)
+        self.assertEqual(means['destroyed_stone'], 30)
 
 
 if __name__ == '__main__':

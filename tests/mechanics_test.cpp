@@ -96,12 +96,15 @@ TEST_CASE("Audit kills distinguish mason scout and phoenix retirement", "[mech][
         CHECK(tally.masons_killed == (type == rts::UnitType::Mason ? 1 : 0));
         CHECK(tally.scout_units_killed == (type == rts::UnitType::Scout ? 1 : 0));
         CHECK(tally.enemy_unit_gold == expected);
+        CHECK(tally.enemy_unit_levels[static_cast<std::size_t>(type)] == 4);
+        CHECK(w.peek_tally(rts::Side::Defender).own_unit_levels[static_cast<std::size_t>(type)] == 4);
         CHECK(w.take_tally(rts::Side::Attacker).enemy_unit_gold == 0);
     }
     rts::World w(arena());
     const auto retired = w.spawn_unit(rts::UnitType::Phoenix, {5.5f, 4.5f}, 1, 24, 24);
     w.kill_unit(retired); // Runtime retirement removes units without combat damage.
     CHECK(w.peek_tally(rts::Side::Attacker).phoenix_losses == 0);
+    CHECK(w.peek_tally(rts::Side::Attacker).own_unit_levels[static_cast<std::size_t>(rts::UnitType::Phoenix)] == 0);
     const auto killed = w.spawn_unit(rts::UnitType::Phoenix, {5.5f, 4.5f}, 1, 1, 24);
     w.place_bld(rts::BldType::Flak, {4, 4}, 40, 40);
     w.advance(8);
@@ -153,6 +156,9 @@ TEST_CASE("Friendly splash has no enemy reward and retains own losses", "[mech][
     CHECK(attack.friendly_unit_damage == 1);
     CHECK(attack.friendly_units_killed == 1);
     CHECK(attack.losses == 30);
+    CHECK(attack.own_unit_levels[static_cast<std::size_t>(rts::UnitType::Ghoul)] == 1);
+    CHECK(attack.enemy_unit_levels[static_cast<std::size_t>(rts::UnitType::Ghoul)] == 0);
+    CHECK(attack.enemy_unit_levels[static_cast<std::size_t>(rts::UnitType::Ranger)] == 1);
     CHECK(w.peek_tally(rts::Side::Defender).losses == 18);
     CHECK(w.peek_tally(rts::Side::Attacker).friendly_unit_damage == 0);
     CHECK(w.peek_tally(rts::Side::Attacker).friendly_units_killed == 0);
@@ -615,5 +621,44 @@ TEST_CASE("完工城门：守方地面单位穿门而过，攻方在门前被拦
         w.advance(10);
         REQUIRE(w.unit_pos(r).x < 5.0f);
         REQUIRE(w.bld_hp(site) == 24);
+    }
+}
+
+TEST_CASE("Destroyed investment includes completed upgrades and unlocked production", "[mech][audit]") {
+    for (const bool unlocked : {false, true}) {
+        auto init = arena();
+        auto& quarry = bs(init.stats, rts::BldType::Quarry);
+        quarry.max_hp=100;
+        quarry.cost_stone=30; quarry.cost_wood=40; quarry.upgrade_cost_stone=50;
+        quarry.upgrade_cost_wood=60; quarry.income_amount=9;
+        init.stats.global.income_period_ticks=100;
+        init.resources.push_back({{5,4},rts::Resource::Stone,unlocked ? 1 : 99});
+        init.stats.global.mason_work_radius=2.0f;
+        bs(init.stats,rts::BldType::Keep).upgrade_ticks=1;
+        quarry.upgrade_ticks=1;
+        us(init.stats,rts::UnitType::Ghoul).damage=10000;
+        init.buildings.push_back({rts::BldType::Quarry,{5,4},1,100});
+        rts::World w(init);
+        w.set_stock(rts::Resource::Stone,10000); w.set_stock(rts::Resource::Wood,10000);
+        const auto mason=w.spawn_unit(rts::UnitType::Mason,{0.5f,0.5f},1,30,30);
+        rts::Command upgrade;
+        upgrade.kind=rts::CommandKind::Upgrade; upgrade.side=rts::Side::Defender;
+        upgrade.slot=rts::slot_of(w.keep_pos(),w.width());
+        for (int i=0; i<4; ++i) {w.submit(rts::Side::Defender,&upgrade,1);w.advance(10);}
+        w.kill_unit(mason);
+        const auto builder=w.spawn_unit(rts::UnitType::Mason,{5.5f,4.5f},1,30,30);
+        upgrade.slot=rts::slot_of({5,4},w.width());
+        for (int i=0; i<2; ++i) {w.submit(rts::Side::Defender,&upgrade,1);w.advance(10);}
+        REQUIRE(w.bld_level(w.bld_at({5,4}))==3);
+        w.kill_unit(builder);
+        w.spawn_unit(rts::UnitType::Ghoul,{4.5f,4.5f},1,30,30);
+        act(w,rts::Side::Attacker,{rts::UnitAction::AtkBld}); w.advance(8);
+        const auto tally=w.take_tally(rts::Side::Attacker);
+        REQUIRE(tally.blds_destroyed==1);
+        CHECK(tally.destroyed_stone==30+w.bld_upgrade_cost_stone(rts::BldType::Quarry,1)+w.bld_upgrade_cost_stone(rts::BldType::Quarry,2));
+        CHECK(tally.destroyed_wood==40+w.bld_upgrade_cost_wood(rts::BldType::Quarry,1)+w.bld_upgrade_cost_wood(rts::BldType::Quarry,2));
+        CHECK(tally.destroyed_income_stone==(unlocked ? 9 : 0));
+        CHECK(tally.destroyed_income_wood==0);
+        CHECK(w.take_tally(rts::Side::Attacker).destroyed_stone==0);
     }
 }

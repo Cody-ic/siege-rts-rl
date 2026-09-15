@@ -1,3 +1,4 @@
+#include "rts/cli_args.hpp"
 // 可重复的建筑射击画面：使用真实 World 与 SceneRenderer，输出前摇/释放/飞行帧。
 #include "render/scene_renderer.hpp"
 #include "game/battle_scene.hpp"
@@ -10,11 +11,12 @@
 #include <string>
 
 int main(int argc,char** argv) {
+    const auto args = rts::utf8_args(argc, argv);
     if(argc!=5) return 2;
-    const auto map=game::MapLoader::from_file(argv[1]);
+    const auto map=game::MapLoader::from_file(args[1].c_str());
     rts::WorldInit init;init.width=map.width();init.height=map.height();
     init.terrain.assign(static_cast<std::size_t>(init.width*init.height),rts::Terrain::Plain);
-    init.keep={4,6};init.stats=game::StatsLoader::from_file(argv[2]);
+    init.keep={4,6};init.stats=game::StatsLoader::from_file(args[2].c_str());
     init.buildings={{rts::BldType::Keep,{4,6},10000,10000},
                     {rts::BldType::Flak,{5,6},10000,10000},
                     {rts::BldType::Tower,{8,6},10000,10000}};
@@ -26,7 +28,7 @@ int main(int argc,char** argv) {
     if(!IsWindowReady()) return 3;
     int result=0;
     {
-        render::SpriteAtlas atlas(argv[3]);game::IsoProjection proj(atlas.px_per_tile());
+        render::SpriteAtlas atlas(args[3].c_str());game::IsoProjection proj(atlas.px_per_tile());
         render::SceneRenderer renderer(atlas,proj);
         const auto target=proj.grid_to_screen({7,5});
         Camera2D camera{{600,550},{target.x,target.y},0,0.55f};
@@ -43,7 +45,7 @@ int main(int argc,char** argv) {
             EndTextureMode();
             auto image=LoadImageFromTexture(texture.texture);ImageFlipVertical(&image);
             int length=0;auto* bytes=ExportImageToMemory(image,".png",&length);
-            const auto file=std::string(argv[4])+"-"+std::to_string(tick)+".png";
+            const auto file=std::string(args[4].c_str())+"-"+std::to_string(tick)+".png";
             if(!bytes || length<=0 || !rts::write_file_bytes(file,bytes,static_cast<std::size_t>(length))) result=4;
             if(bytes) MemFree(bytes);UnloadImage(image);
         }

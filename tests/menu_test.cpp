@@ -313,6 +313,7 @@ TEST_CASE("剧情伪通关冻结本局且不能从菜单恢复", "[menu]") {
     // 不运行七十波战斗，也不为生产 UI 增加任意修改世界的接口。
     auto& world=const_cast<rts::World&>(shell.battle()->world());
     for(int wave=1;wave<70;++wave) world.begin_next_wave(1);
+    REQUIRE(game::chronicle_unlocked(world.wave())==8);
     REQUIRE_FALSE(shell.should_advance());
     SECTION("放下武器结束本局，返回和 Resume 都不能继续") {
         const auto tick=world.now();
@@ -332,6 +333,7 @@ TEST_CASE("剧情伪通关冻结本局且不能从菜单恢复", "[menu]") {
     }
     shell.apply(game::MenuAction::Restart);
     REQUIRE(shell.battle()->world().wave()==1);
+    REQUIRE(game::chronicle_unlocked(shell.battle()->world().wave())==1);
     REQUIRE(shell.chronicle().choice()==game::ChronicleChoice::None);
     REQUIRE(shell.should_advance());
 }

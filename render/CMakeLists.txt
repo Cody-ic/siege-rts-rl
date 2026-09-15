@@ -109,6 +109,19 @@ rts_set_warnings(rts_render)
 # 查的是「跑得通且真画出了东西」：退出码 0 + 导出的 PNG 存在且非空。
 # 没有它的话，渲染层的任何回归都只能靠人开窗看才能发现。
 if(RTS_BUILD_TESTS)
+    add_test(NAME render_placement_preview COMMAND rts_render --placement-preview
+        --map "${CMAKE_SOURCE_DIR}/game/data/demo_skirmish.json"
+        --stats "${CMAKE_SOURCE_DIR}/game/data/stats_placeholder.json"
+        --sprites "${CMAKE_SOURCE_DIR}/tools/sprite_gen/out_3d"
+        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/placement-preview.png" --size 1500 1000)
+    add_executable(wall_probe src/wall_probe.cpp)
+    target_link_libraries(wall_probe PRIVATE render_lib)
+    rts_set_warnings(wall_probe)
+    add_test(NAME render_live_wall_shot COMMAND wall_probe
+        "${CMAKE_SOURCE_DIR}/game/data/demo_skirmish.json"
+        "${CMAKE_SOURCE_DIR}/game/data/stats_placeholder.json"
+        "${CMAKE_SOURCE_DIR}/tools/sprite_gen/out_3d"
+        "${CMAKE_CURRENT_BINARY_DIR}/live-wall.png")
     add_executable(presentation_probe src/presentation_probe.cpp)
     target_link_libraries(presentation_probe PRIVATE render_lib)
     rts_set_warnings(presentation_probe)
@@ -335,6 +348,33 @@ if(RTS_BUILD_TESTS)
                 --screenshot "${CMAKE_CURRENT_BINARY_DIR}/journal_ending_${_ending}.png" --size 960 540)
     endforeach()
     add_test(NAME render_journal_requires_screenshot COMMAND rts_render --journal-page 7)
+    foreach(_appendix RANGE 1 2)
+        add_test(NAME render_appendix_${_appendix}
+            COMMAND rts_render --journal-appendix ${_appendix} --size 1100 700
+                --screenshot "${CMAKE_CURRENT_BINARY_DIR}/appendix_${_appendix}.png")
+        add_test(NAME render_appendix_bottom_${_appendix}
+            COMMAND rts_render --journal-appendix ${_appendix} --journal-bottom --size 960 540
+                --screenshot "${CMAKE_CURRENT_BINARY_DIR}/appendix_bottom_${_appendix}.png")
+    endforeach()
+    add_test(NAME render_appendix_white_feather_locked
+        COMMAND rts_render --journal-appendix 1 --journal-feather-locked --size 960 540
+            --screenshot "${CMAKE_CURRENT_BINARY_DIR}/appendix_locked.png")
+    add_test(NAME render_appendix_requires_screenshot COMMAND rts_render --journal-appendix 1)
+    set_tests_properties(render_appendix_requires_screenshot PROPERTIES WILL_FAIL TRUE)
+    foreach(_width IN ITEMS 800 960 1100)
+        add_test(NAME render_appendix_emphasis_${_width}
+            COMMAND rts_render --journal-appendix 2 --journal-emphasis --size ${_width} 540
+                --screenshot "${CMAKE_CURRENT_BINARY_DIR}/appendix_emphasis_${_width}.png")
+    endforeach()
+    add_test(NAME render_appendix_emphasis_requires_appendix COMMAND rts_render --journal-emphasis)
+    set_tests_properties(render_appendix_emphasis_requires_appendix PROPERTIES WILL_FAIL TRUE)
+    foreach(_notice RANGE 1 3)
+        add_test(NAME render_appendix_notice_${_notice}
+            COMMAND rts_render --journal-appendix 2 --appendix-notice ${_notice} --size 640 540
+                --screenshot "${CMAKE_CURRENT_BINARY_DIR}/appendix_notice_${_notice}.png")
+    endforeach()
+    add_test(NAME render_appendix_notice_requires_screenshot COMMAND rts_render --appendix-notice 1)
+    set_tests_properties(render_appendix_notice_requires_screenshot PROPERTIES WILL_FAIL TRUE)
     set_tests_properties(render_journal_requires_screenshot PROPERTIES WILL_FAIL TRUE)
     add_test(NAME render_journal_rejects_ninth COMMAND rts_render --journal-page 8 --screenshot never_ninth.png)
     set_tests_properties(render_journal_rejects_ninth PROPERTIES WILL_FAIL TRUE)

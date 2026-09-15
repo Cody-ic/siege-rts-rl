@@ -66,23 +66,7 @@ from stable_kl import masked_reference_kl
 #     `bld_value` 小两三个数量级，而不是「差不多大小」。
 #   * `losses` 为负，但**也小**：攻方是亡灵、「不在乎伤亡」，用命换缺口是
 #     正当打法（花名册里 `Ram` 那条）。惩罚太重会训出畏战。
-REWARD_W = {
-    "dmg_to_units": 0.002,   # shaping，小
-    "dmg_to_blds": 0.004,    # shaping，小（比对单位略高：拆墙才是目的）
-    "units_killed": 0.05,    # shaping，小
-    "blds_destroyed": 0.0,   # 已由 bld_value 表达，别重复计一次
-    "bld_value": 1.0,        # **有原则的推导**：= 重建成本，见上
-    "scouts_killed": 3.0,    # 适中常量，见上
-    "losses": -0.001,        # 负但小，见上
-    "scout_units_killed": 0.0,  # audit only; calibrate before assigning rewards
-    "masons_killed": 0.0,  # audit only; calibrate before assigning rewards
-    "phoenix_losses": 0.0,  # audit only; calibrate before assigning rewards
-    "enemy_unit_gold": 0.0,  # audit only; calibrate before assigning rewards
-    "opponent_repair_wood_spent": 0.0,  # audit only; calibrate before assigning rewards
-    "friendly_unit_damage": 0.0,  # no positive credit for friendly fire
-    "friendly_units_killed": 0.0,  # own combat deaths remain charged through losses
-    "progress": 0.0,       # 只作位移日志，不把未折扣的距离差当奖励
-}
+from reward_profiles import LEGACY_WEIGHTS as REWARD_W, recipe, weights_for
 
 
 # Phi = 当前存活攻方到堡垒的负距离和。死亡造成的势跳变保留，
@@ -116,6 +100,8 @@ class Cfg:
     seed: int = 1
     # Keep the documented attrition objective by default. Victory-only is an
     # explicit comparison, not a silent rewrite of the game design contract.
+    reward_profile: str = "legacy"
+    reward_config: str = ""
     reward_mode: str = "economic"
     win_reward: float = 2000.0  # tunable starting value, NOT an anti-delay bound
     # ——课程学习（2026-09-06）——
@@ -333,6 +319,7 @@ def validate(cfg):
     if cfg.defender_prepare_ticks and tuple(cfg.curriculum) != (1.0,):
         raise ValueError('defender_prepare_ticks requires curriculum=(1.0,) to preserve spawn clearance')
     task_reward(0, False, cfg.reward_mode, cfg.win_reward)
+    weights_for(R.obs.TALLY_NAMES,cfg.reward_profile,cfg.reward_config)
 
 
 def make_env(cfg, n, frac, start=0, episode_indices=None):
@@ -532,7 +519,7 @@ def train(cfg, args, saved, *, gradient_observer=None):
     actions = np.zeros((cfg.envs, mu), np.uint8)
     done = np.zeros(cfg.envs, np.uint8)
     tally = np.zeros((cfg.envs, R.obs.TALLY_FIELDS), np.float32)
-    weights = np.array([REWARD_W[name] for name in R.obs.TALLY_NAMES], np.float32)
+    weights = np.array(weights_for(R.obs.TALLY_NAMES,cfg.reward_profile,cfg.reward_config), np.float32)
     dmg_index = R.obs.TALLY_NAMES.index('dmg_to_blds')
     value_index = R.obs.TALLY_NAMES.index('bld_value')
     ep_ret, ep_hit = np.zeros(cfg.envs), np.zeros(cfg.envs)
@@ -575,6 +562,8 @@ def train(cfg, args, saved, *, gradient_observer=None):
                               progress=progress(), rng=rng_state(), status=status))
 
     atomic_json(folder / 'config.json', asdict(cfg))
+    atomic_json(folder / 'reward-recipe.json', dict(recipe(cfg.reward_profile,cfg.reward_config),
+        reward_mode=cfg.reward_mode,win_reward=cfg.win_reward,potential_weight=POTENTIAL_W,gamma=cfg.gamma))
     # A recoverable initial point exists even if the first rollout crashes.
     if not saved:
         save('running')

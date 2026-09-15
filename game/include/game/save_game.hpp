@@ -9,7 +9,8 @@
 namespace game {
 // 优先恢复完整快照（含脚本/RNG/波次机）；损坏时回退操作日志，末态哈希必须一致。
 // 修改 DemoBattle 的规则/默认参数时须提升兼容版本；旧档保留并明确报错。
-inline constexpr int kSaveVersion=3;
+// v6 unifies Phoenix, worker and policy state; earlier branch saves stay isolated.
+inline constexpr int kSaveVersion=6;
 struct BattleArchive {
     std::string map_json,stats_json,snapshot;
     std::string tactical_policy_identity;
@@ -29,6 +30,8 @@ void write_archive(const std::filesystem::path& file,const BattleArchive& archiv
 BattleArchive read_archive(const std::filesystem::path& file);
 void preserve_incompatible_archive(const std::filesystem::path& file);
 int read_journal_progress(const std::filesystem::path& file);
+JournalProgress read_journal(const std::filesystem::path& file);
+void write_journal(const std::filesystem::path& file,JournalProgress progress);
 void write_journal_progress(const std::filesystem::path& file,int highest_wave);
 std::filesystem::path default_save_directory();
 std::filesystem::path policy_save_directory(const std::filesystem::path& base,

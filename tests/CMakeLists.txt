@@ -189,6 +189,10 @@ add_test(NAME rts_tests_all COMMAND rts_tests)
 # 把 CLAUDE.md 的确定性禁令变成一条真的会红的测试，而不是只写在文档里。
 # 两条：一条扫 rts_core/，一条是检查器自己的自检——后者防的是"检查器退化成永远绿"。
 find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME smiler_html_is_current
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/export_smiler.py" --check)
+endif()
 
 # 找不到 Python3 时**默认让配置失败**，而不是打一句 message(WARNING) 就过去。
 #
@@ -211,6 +215,8 @@ endif()
 if(Python3_FOUND)
     add_test(NAME outcome_metrics
              COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/outcome_metrics_test.py")
+    add_test(NAME reward_profiles
+             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/reward_profiles_test.py")
     add_test(NAME training_math
              COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/training_math_test.py")
     add_test(NAME compare_goal_evaluations

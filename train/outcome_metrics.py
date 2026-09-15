@@ -1,4 +1,5 @@
 """Raw outcome summaries, deliberately independent of reward weights."""
+from reward_profiles import NEW_FIELDS
 
 
 def summarize_outcomes(rows):
@@ -6,7 +7,7 @@ def summarize_outcomes(rows):
         raise ValueError('Outcome summary requires completed episodes')
     names = ('blds_destroyed', 'units_killed', 'scout_units_killed', 'masons_killed',
              'phoenix_losses', 'enemy_unit_gold', 'opponent_repair_wood_spent', 'losses',
-             'friendly_unit_damage', 'friendly_units_killed')
+             'friendly_unit_damage', 'friendly_units_killed') + NEW_FIELDS
     # Missing diagnostics in historical reports are unknown, never zero.
     means = {name: (sum(row['tally'][name] for row in rows) / len(rows)
                    if all(name in row['tally'] for row in rows) else None)

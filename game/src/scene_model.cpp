@@ -40,6 +40,18 @@ bool is_wall_cell(const MapData& map, int x, int y) noexcept {
     return map.in_bounds(x, y) && map.wall_at(x, y) != nullptr;
 }
 
+bool is_wall_cell(const rts::WorldView& view, int x, int y,
+                   std::span<const rts::GridPos> planned, rts::BldType connecting_type) noexcept {
+    if (x < 0 || y < 0 || x >= view.width() || y >= view.height()) return false;
+    const rts::GridPos cell{static_cast<std::int16_t>(x),static_cast<std::int16_t>(y)};
+    if (std::find(planned.begin(), planned.end(), cell) != planned.end()) return true;
+    const auto building = view.bld_at(cell);
+    if (!building.valid()) return false;
+    const auto type = view.bld_type()[building.index()];
+    return type == rts::BldType::Wall || type == rts::BldType::Gate ||
+        (connecting_type == rts::BldType::Fence && type == rts::BldType::Fence);
+}
+
 }  // namespace
 
 std::string_view to_string(Facing f) noexcept {
@@ -141,6 +153,19 @@ bool SceneModel::is_wall_corner(const MapData& map, rts::GridPos p) noexcept {
     const int y = p.j;
     const bool along_i = is_wall_cell(map, x - 1, y) || is_wall_cell(map, x + 1, y);
     const bool along_j = is_wall_cell(map, x, y - 1) || is_wall_cell(map, x, y + 1);
+    return along_i && along_j;
+}
+
+Facing SceneModel::run_direction(const rts::WorldView& view, rts::GridPos p,
+                                 std::span<const rts::GridPos> planned, rts::BldType connecting_type) noexcept {
+    return is_wall_cell(view, p.i - 1, p.j, planned, connecting_type) || is_wall_cell(view, p.i + 1, p.j, planned, connecting_type)
+        ? Facing::NE : Facing::SE;
+}
+
+bool SceneModel::is_wall_corner(const rts::WorldView& view, rts::GridPos p,
+                                std::span<const rts::GridPos> planned, rts::BldType connecting_type) noexcept {
+    const bool along_i = is_wall_cell(view, p.i - 1, p.j, planned, connecting_type) || is_wall_cell(view, p.i + 1, p.j, planned, connecting_type);
+    const bool along_j = is_wall_cell(view, p.i, p.j - 1, planned, connecting_type) || is_wall_cell(view, p.i, p.j + 1, planned, connecting_type);
     return along_i && along_j;
 }
 

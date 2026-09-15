@@ -113,7 +113,7 @@ class CampaignInputTest(unittest.TestCase):
         output = root/'report'
         calls = []
         def evaluate(map_path, stats, seed, attacker, *limits):
-            self.assertEqual(Path(map_path).parent, output/'inputs')
+            self.assertEqual(Path(map_path).parent.resolve(), (output/'inputs').resolve())
             self.assertEqual(Path(map_path).read_bytes(), b'map.json')
             self.assertEqual(Path(stats).read_bytes(), b'stats.json')
             calls.append((seed, attacker is not None))
@@ -123,7 +123,7 @@ class CampaignInputTest(unittest.TestCase):
             return dict(map=map_path, seed=seed, initial_hash=seed,
                         end='wave_limit', final_wave=7)
         def policy(model, stats):
-            self.assertEqual(Path(model).parent, output/'inputs')
+            self.assertEqual(Path(model).parent.resolve(), (output/'inputs').resolve())
             self.assertEqual(Path(model).read_bytes(), b'model.onnx')
             self.assertEqual(Path(stats).read_bytes(), b'stats.json')
             return object()

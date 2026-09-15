@@ -50,6 +50,7 @@
 #include <array>
 
 #include "rts/types.hpp"
+#include <span>
 #include "rts/world_view.hpp"
 
 namespace game {
@@ -97,6 +98,16 @@ bool can_place_hint(const rts::WorldView& view, rts::BldType bt, rts::GridPos ce
 bool can_afford_build(const rts::WorldView& view, rts::BldType bt);
 
 rts::Command build_command(rts::BldType bt, rts::GridPos cell, int map_width);
+
+// Inclusive axis-aligned drag, ordered from the pressed cell. Ties choose i.
+std::vector<rts::GridPos> build_line(rts::GridPos start, rts::GridPos end, bool other_axis);
+struct BuildPreview {
+    rts::GridPos cell;
+    bool legal = false;
+    bool affordable = false;
+};
+std::vector<BuildPreview> preview_build(const rts::WorldView& view, rts::BldType type,
+                                      std::span<const rts::GridPos> cells);
 
 // ——征兵——
 //

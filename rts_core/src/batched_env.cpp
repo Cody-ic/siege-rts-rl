@@ -497,6 +497,15 @@ void BatchedEnv::take_tally(std::span<float> out) {
         out[o + 12] = static_cast<float>(other.repair_wood_spent);
         out[o + 13] = static_cast<float>(t.friendly_unit_damage);
         out[o + 14] = static_cast<float>(t.friendly_units_killed);
+        for (std::size_t type = 0; type < kUnitTypeCount; ++type) {
+            out[o + 15 + type] = static_cast<float>(t.enemy_unit_levels[type]);
+            out[o + 26 + type] = static_cast<float>(t.own_unit_levels[type]);
+        }
+        out[o + 37] = static_cast<float>(t.destroyed_stone);
+        out[o + 38] = static_cast<float>(t.destroyed_wood);
+        out[o + 39] = static_cast<float>(t.destroyed_income_stone);
+        out[o + 40] = static_cast<float>(t.destroyed_income_wood);
+        out[o + 41] = static_cast<float>(t.destroyed_income_gold);
         p_->progress[ui] = 0.0;
     }
 }
