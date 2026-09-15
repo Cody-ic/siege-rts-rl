@@ -1,0 +1,44 @@
+{
+  "simulation": "3fba3e619cadd7e3f661007be46b46dd51cd5d210169693e6f37b38f87f36e55",
+  "opponent": {
+    "kind": "frozen-tactical",
+    "sha256": "2e62e27f1b2b7002e9e727a09a58f0357909cc0ee01ee76e1db0477bdf52c7c3",
+    "identity": "9554465781158682901"
+  },
+  "check_sha256": "8cdd0a7b5439123c0356dbbba8aaa45daff27dc7a2b0571624bf6a594cb0e46b",
+  "fork_tick": 1800,
+  "learned_campaign": {
+    "commands": [
+      [
+        0,
+        65535,
+        0,
+        1
+      ],
+      [
+        8,
+        2584,
+        0,
+        1
+      ],
+      [
+        8,
+        21353,
+        0,
+        1
+      ],
+      [
+        8,
+        22450,
+        0,
+        1
+      ]
+    ],
+    "hash": 17996002624241565188,
+    "tick": 2000,
+    "wave": 1
+  },
+  "exact_resume": true,
+  "policy_changes_battle": true,
+  "changed_opponent_rejected": true
+}

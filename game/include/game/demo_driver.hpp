@@ -26,6 +26,8 @@
 #include "rts/rng.hpp"
 #include "rts/stats.hpp"
 #include "game/attacker_macro.hpp"
+#include "game/rl_policy.hpp"
+#include "game/macro_policy.hpp"
 #include "rts/world.hpp"
 
 namespace game {
@@ -159,6 +161,15 @@ public:
     // 波次循环也在这里驱动：建造倒计时 → 生波 → 攻方清空 → 下一波。
     // **败局（Keep 被拆）后世界定格**——再 update 也不推进，好让人看清最后一帧。
     void update(int ticks);
+    void set_tactical_policy(std::shared_ptr<TacticalPolicy> policy);
+    void set_defender_policy(std::shared_ptr<MacroPolicy> policy);
+    std::string defender_policy_identity() const { return defender_policy_?defender_policy_->identity():std::string{}; }
+    rts::Rng::State defender_policy_rng() const noexcept { return defender_rng_.state(); }
+    std::string tactical_policy_identity() const { return policy_ ? policy_->identity() : std::string{}; }
+    std::size_t learned_squads() const noexcept { return learned_squads_; }
+    // Read-only coverage: remembered economy targets, policy-supported economy
+    // squads, all policy-supported squads in the current assault.
+    std::array<std::size_t,3> tactical_goal_diagnostics() const;
 
     const rts::World& world() const noexcept { return w_; }
     bool developer() const noexcept {return w_.developer();}
@@ -214,12 +225,39 @@ public:
     }
     struct PlayerEvent {
         rts::Tick tick=0;
-        int kind=0; // 0 command, 1 move, 2 garrison
+        int kind=0; // 0 command, 1 move, 2 garrison, 3 forced work
         rts::Command command{};
         std::vector<rts::UnitId> ids;
         rts::GridPos target{};
     };
     const std::vector<PlayerEvent>& player_events() const noexcept { return player_events_; }
+
+    // ——不死鸟的跨波状态（2026-09-10，#170）——
+    //
+    // 只读，给测试、runner 与 #171 的彩蛋判据看。**跨波身份不在 `World` 里**
+    // （见私有段那条注释），所以没有这几个访问器就完全观察不到——同
+    // `wave_scouted()` 当初的处境。
+    struct PhoenixRecord {
+        int id = 0;             // 跨波身份号（`next_phoenix_id_` 发的）
+        int waves_alive = 0;    // 连续存活了几波（撤离一次 +1，被击落即出局）
+    };
+    //
+    // 撤离成功、下一波会回来的那些。`waves_alive` 是**连续**存活波数，
+    // 被击落即出局归零——#171《一跃》数的就是它。
+    const std::vector<PhoenixRecord>& phoenix_roster() const noexcept {
+        return phoenix_roster_;
+    }
+    bool earned_white_feather() const noexcept {return white_feather_;}
+    // 被击落、正在等重生的那些：{身份号, 还差几波}。
+    const std::vector<std::pair<int,int>>& phoenix_respawn() const noexcept {
+        return phoenix_respawn_;
+    }
+    // 场上这只不死鸟的跨波身份号（不是不死鸟或没有身份则 −1）。
+    int phoenix_identity(rts::UnitId id) const noexcept {
+        const std::size_t ui = id.index();
+        return w_.alive(id) && w_.unit_type(id) == rts::UnitType::Phoenix && ui < phoenix_id_of_.size()
+            ? phoenix_id_of_[ui] : -1;
+    }
     void submit_defender(const rts::Command* cmds, std::size_t count) {
         for (std::size_t i = 0; i < count; ++i) {
             // 护栏期内的 Summon 不进 World（见上）。交互层的「已提前召唤」
@@ -241,6 +279,14 @@ public:
         script_.issue_move_order(ids, target);
         player_events_.push_back({w_.now(),1,{},std::vector<rts::UnitId>(ids.begin(),ids.end()),target});
     }
+    bool issue_forced_work(std::span<const rts::UnitId> ids, rts::GridPos target) {
+        if (!script_.issue_forced_work(w_.view(rts::Side::Defender), ids, target)) return false;
+        player_events_.push_back({w_.now(),3,{},std::vector<rts::UnitId>(ids.begin(),ids.end()),target});
+        return true;
+    }
+    bool forced_work_active(rts::UnitId id) const {
+        return script_.forced_work_active(w_.view(rts::Side::Defender), id);
+    }
     void issue_garrison_order(std::span<const rts::UnitId> ids,
                               rts::GridPos wall_cell) {
         script_.issue_garrison_order(ids, wall_cell);
@@ -248,6 +294,10 @@ public:
     }
 
 private:
+    std::shared_ptr<TacticalPolicy> policy_;
+    std::shared_ptr<MacroPolicy> defender_policy_;
+    rts::Rng defender_rng_{1};
+    std::size_t learned_squads_ = 0;
     std::vector<PlayerEvent> player_events_;
     void issue_actions();
     void spawn_wave();
@@ -258,6 +308,16 @@ private:
     void withdraw_noncombat_attackers();
     // 超时收场：把场上所有攻方单位撤走（本波打不动了，残兵撤退）。
     void withdraw_all_attackers();
+    // 飞回最近的集结点。`Wraith`（看完就撤）与 `Phoenix`（掉血就撤）共用。
+    rts::UnitAction retreat_action(rts::UnitId id) const;
+    // 这只不死鸟该撤了吗（血量低于阈值，或本波已无地面战斗单位）。见 .cpp。
+    bool phoenix_should_withdraw(rts::UnitId id, bool any_ground_combat) const;
+    // 每拍查一次「有没有正在撤的不死鸟到了集结点」，到了就离场。
+    void tick_phoenix_withdrawal();
+    // 换波时结算不死鸟的去留（重生倒计时 / 击落入队 / 花名册）。见 .cpp。
+    void settle_phoenix_roster();
+    // 把这只不死鸟记进花名册并移出世界。**撤不是死**：超时收场那条路也走它。
+    void retire_phoenix(rts::UnitId id);
     rts::UnitAction greedy_move(rts::UnitId id, rts::Vec2 target) const;
     // 攻方推进：按 flow field 取下一步（机制第六批的消费侧）。field 指向
     // 被墙占着的格是正常输出——移动机制把那一步变成自动破坏，「绕远走缺口
@@ -322,6 +382,39 @@ private:
     // 本波生波时攻方以为守方长什么样（`AttackerMacro::read_intel` 的产物）。
     // 存下来是给测试与 runner 看的——否则「攻方读到了什么」只能从编成反推。
     AttackerIntel wave_intel_{};
+
+    // ——不死鸟的跨波身份（2026-09-10，#170）——
+    //
+    // `CLAUDE.md`「空中单位」给 `Phoenix` 定了四条结构约束，其中两条此前从未
+    // 落地：**跨波留存**与**击落后 N 波重生**。后果不只是彩蛋没法挂
+    // （#171）——`配平工作交接.md` §2.10 实测它 58/60 波出场、只被击落 12 次，
+    // 而守方全程只有 2 座 `Flak` ⇒ 「AA 的机会成本」那个两难从未成立过；
+    // `攻守配平的数学模型.md` §5.1 还量出塔损耗是**阶跃**（0 或全灭）而不是
+    // 渐进，成因正是它不会走：要么被 AA 清掉、要么 AA 被清掉后无人能挡。
+    // 会撤的不死鸟才是设计说的「手术刀」（点一座塔、掉血就走、下一波再来）。
+    //
+    // **身份号只在 `game/` 里**，`World` 的 `UnitId` 每次重生都是新的——同
+    // `squad_of_` 不进 `World` 的先例，`rts_core` 一行不动。
+    //
+    // **等级与血量刻意不跨波带**（2026-09-10 组内定）：回来的不死鸟是**当波
+    // 名义等级、满血**。理由是代价该放在哪——`CLAUDE.md` 原文说「击落一次
+    // 意味着攻方**数波内失去空中打击能力**」，所以惩罚定义在**重生延迟**上，
+    // 而不是让老鸟随波次相对变弱。若保留出生等级，第 10 波的 12 级鸟到第 30
+    // 波只有当波 31 级新鸟的 67% 血伤 ⇒ 它变成编成里的死重，且 #171《一跃》
+    // 那条「放它活 N 波」会自我拆台（越活越弱 ⇒ 越难保住，而不是越难忍住）。
+    //
+    // 于是这条记录只需要**身份**与**连续存活波数**——后者正是《一跃》要数的
+    // （`PhoenixRecord` 声明在公开段，因为访问器要返回它）。
+    //
+    // 撤离成功、下一波回来的那些（固定序：按撤离先后）。
+    std::vector<PhoenixRecord> phoenix_roster_;
+    // 被击落的：{身份号, 还差几波重生}。数到 0 那一波以**满血**回来。
+    std::vector<std::pair<int,int>> phoenix_respawn_;
+    // 场上每只不死鸟的身份号，按单位槽位下标存（同 `squad_of_` 那套记账）。
+    // −1 = 这个槽位上不是不死鸟（或已被复用）。
+    std::vector<int> phoenix_id_of_;
+    int next_phoenix_id_ = 0;
+    bool white_feather_ = false;
     AttackerIntel recon_intel_{};
     WavePlan wave_plan_{},baseline_plan_{};
     // ——斥候侦查的本波状态（逐波重置）——

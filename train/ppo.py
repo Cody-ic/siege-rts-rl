@@ -49,6 +49,7 @@ import torch.nn as nn
 
 import rts_native as R
 from learning import CompletionWindow, potential_reward, task_reward
+from stable_kl import masked_reference_kl
 
 # ——奖励权重。**只有这一处有权重**，C++ 侧只给计数——
 #
@@ -65,16 +66,7 @@ from learning import CompletionWindow, potential_reward, task_reward
 #     `bld_value` 小两三个数量级，而不是「差不多大小」。
 #   * `losses` 为负，但**也小**：攻方是亡灵、「不在乎伤亡」，用命换缺口是
 #     正当打法（花名册里 `Ram` 那条）。惩罚太重会训出畏战。
-REWARD_W = {
-    "dmg_to_units": 0.002,   # shaping，小
-    "dmg_to_blds": 0.004,    # shaping，小（比对单位略高：拆墙才是目的）
-    "units_killed": 0.05,    # shaping，小
-    "blds_destroyed": 0.0,   # 已由 bld_value 表达，别重复计一次
-    "bld_value": 1.0,        # **有原则的推导**：= 重建成本，见上
-    "scouts_killed": 3.0,    # 适中常量，见上
-    "losses": -0.001,        # 负但小，见上
-    "progress": 0.0,       # 只作位移日志，不把未折扣的距离差当奖励
-}
+from reward_profiles import LEGACY_WEIGHTS as REWARD_W, recipe, weights_for
 
 
 # Phi = 当前存活攻方到堡垒的负距离和。死亡造成的势跳变保留，
@@ -101,10 +93,15 @@ class Cfg:
     minibatches: int = 4
     ent_coef: float = 0.01
     vf_coef: float = 0.5
+    value_features: str = "shared"  # independent also separates value features, Adam and clipping
+    credit_assignment: str = "individual"  # team keeps credit across squad death, not world termination
+    reference_coef: float = 0.0     # optional KL(reference || policy), explicit warm starts only
     max_grad_norm: float = 0.5
     seed: int = 1
     # Keep the documented attrition objective by default. Victory-only is an
     # explicit comparison, not a silent rewrite of the game design contract.
+    reward_profile: str = "legacy"
+    reward_config: str = ""
     reward_mode: str = "economic"
     win_reward: float = 2000.0  # tunable starting value, NOT an anti-delay bound
     # ——课程学习（2026-09-06）——
@@ -141,6 +138,10 @@ class Cfg:
     promote_outcome_at: float = 0.25
     promote_window: int = 100
     map_path: str = "game/data/maps/pool/gen_01001000.json"
+    map_pool: tuple = ()  # Optional ordered training pool; world seed selects map.
+    roster: str = "ghouls"  # ghouls (legacy control) or mixed combat squads
+    tactical_goals: str = "keep"  # known-economy uses only fog-remembered harvesting buildings
+    levels: tuple = (1,)
     # ——**接不接真正的守方**（2026-09-07）——
     #
     # 默认 **接**。不接时对侧一动不动，而那是 40M 那轮的局面：
@@ -155,6 +156,8 @@ class Cfg:
     # 资源点，而它的动作是波次级的（建造要几百 tick）⇒ 不必逐拍跑。
     # **单兵那一半不受它节流**（登墙意愿必须每拍重发）。
     defender_macro_period: int = 4
+    defender_prepare_ticks: int = 0  # optional real construction before attackers spawn
+    defender_profiles: tuple[str, ...] = ()  # empty preserves the original single script
     stats_path: str = "game/data/stats_placeholder.json"
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -185,16 +188,45 @@ class Policy(nn.Module):
         self.actor = nn.Linear(256, n_act)
         self.critic = nn.Linear(256, 1)
 
-    def forward(self, cells, self_v, glob):
+    def forward(self, cells, self_v, glob, *, detach_value=False):
         # cells: (N, C, K, K)；self_v: (N, S)；glob: (N, G)
         z = self.conv(cells)
         h = self.trunk(torch.cat([z, self_v, glob], dim=1))
-        return self.actor(h), self.critic(h).squeeze(-1)
+        return self.actor(h), self.critic(h.detach() if detach_value else h).squeeze(-1)
+
+
+class IndependentValue(nn.Module):
+    """Copy initial value features without consuming RNG or sharing parameters."""
+    def __init__(self, policy):
+        super().__init__()
+        import copy
+        self.conv=copy.deepcopy(policy.conv)
+        self.trunk=copy.deepcopy(policy.trunk)
+        self.critic=copy.deepcopy(policy.critic)
+
+    def forward(self,cells,own,glob):
+        h=self.trunk(torch.cat([self.conv(cells),own,glob],dim=1))
+        return self.critic(h).squeeze(-1)
 
 
 @lru_cache(maxsize=8)
 def world_factory(map_path, stats_path):
     return R.WorldFactory(map_path, stats_path), R.map_sites(map_path)
+
+
+def episode_map(cfg, episode):
+    paths=cfg.map_pool or (cfg.map_path,)
+    return paths[(cfg.seed*1000+episode)%len(paths)]
+
+
+def episode_spec(cfg, episode):
+    """The same deterministic assignment for construction and coverage records."""
+    path=episode_map(cfg,episode)
+    _,sites=world_factory(path,cfg.stats_path)
+    spawns=list(sites['spawns'])
+    if not spawns:raise ValueError(f'{path}: no attacker spawns')
+    episode_round=episode//max(1,len(cfg.map_pool))
+    return path,cfg.levels[(episode_round//len(spawns))%len(cfg.levels)],(cfg.seed+episode_round)%len(spawns)
 
 
 def make_worlds(cfg: Cfg, n: int, frac: float = 1.0, start: int = 0) -> list:
@@ -213,17 +245,19 @@ def make_worlds(cfg: Cfg, n: int, frac: float = 1.0, start: int = 0) -> list:
     （env-step/s 好看、loss 在降、回报恒 nan 因为一局都没结束）。
     这是「摆错地方不报错」那一类静默失败，所以坐标不许写死。
     """
-    gh = R.obs.UNIT_TYPE_NAMES.index("Ghoul")
-    factory, sites = world_factory(cfg.map_path, cfg.stats_path)
-    spawns = list(sites["spawns"])
-    if not spawns:
-        raise SystemExit(f"{cfg.map_path} 没有集结点——攻方无处生成")
-    squads, per = 9, 3      # 9 支 × 3 = 27 个单位，编队数 9 < MAX_UNITS_PER_ENV
+    names=['Ghoul']*9 if cfg.roster=='ghouls' else ['Ghoul']*3+['Shade']*2+['Knight']*2+['Ram','Phoenix']
+    types=[R.obs.UNIT_TYPE_NAMES.index(name) for name in names]
     out = []
     for i in range(start, start + n):
+        path,level,spawn_index=episode_spec(cfg,i)
+        factory,sites=world_factory(path,cfg.stats_path)
+        spawns=list(sites['spawns'])
+        if not spawns:raise ValueError(f'{path}: no attacker spawns')
+        # Traverse maps, then entrances, then levels. Using i % count for all
+        # three would permanently pair a map with one entrance/level.
         # 每局挑一个集结点（轮换）。**宏观层还没上**，所以这里是轮换而不是
         # 决策——CLAUDE.md「战术层必须先跑通，不要两层同时上」。
-        sx, sy = spawns[(cfg.seed + i) % len(spawns)]
+        sx, sy = spawns[spawn_index]
         # **课程**：把出生点沿「集结点 → keep」的直线拉近 `frac` 倍。
         # frac = 1.0 是真实距离；小 frac 让随机策略也能撞到目标、拿到
         # 第一次奖励。行军距离是训练侧的课程旋钮，不是设计改动——
@@ -232,19 +266,42 @@ def make_worlds(cfg: Cfg, n: int, frac: float = 1.0, start: int = 0) -> list:
         sx = kx + (sx - kx) * frac
         sy = ky + (sy - ky) * frac
         atk = []
-        for q in range(squads):
+        for q,unit_type in enumerate(types):
+            per=3 if cfg.roster=='ghouls' else R.squad_cap(unit_type)
             for m in range(per):
                 # 7×7 环上错开落位（同 `spawn_wave` 的做法）：同坐标生成会
                 # 让单位挤在一起。
                 dx = (q % 3) - 1 + m * 0.3
                 dy = (q // 3) - 1
-                atk.append((gh, sx + 0.5 + dx, sy + 0.5 + dy, 1, q))
+                atk.append((unit_type, sx + 0.5 + dx, sy + 0.5 + dy, level, q))
         out.append(factory.make(seed=cfg.seed * 1000 + i,
-                                     nominal_level=1, attackers=atk))
+                                     nominal_level=level, attackers=atk))
     return out
 
 
 def validate(cfg):
+    if cfg.defender_profiles and (not cfg.defender or
+            len(set(cfg.defender_profiles))!=len(cfg.defender_profiles) or
+            any(p not in ('balanced','fortified','mobile') for p in cfg.defender_profiles)):
+        raise ValueError('defender_profiles requires a defender and unique known profile names')
+    if cfg.tactical_goals not in ('keep','known-economy','split-economy'):
+        raise ValueError('tactical_goals must be keep, known-economy or split-economy')
+    if not 0 <= cfg.defender_prepare_ticks <= 2400 or (cfg.defender_prepare_ticks and not cfg.defender):
+        raise ValueError('defender_prepare_ticks requires a defender and must be in [0,2400]')
+    if cfg.roster not in ('ghouls','mixed'):
+        raise ValueError('roster must be ghouls or mixed')
+    if not cfg.levels or any(not isinstance(lv,int) or lv<1 or lv>1000 for lv in cfg.levels):
+        raise ValueError('levels must be integers in [1,1000]')
+    if len(set(cfg.levels))!=len(cfg.levels) or len(set(cfg.map_pool))!=len(cfg.map_pool):
+        raise ValueError('Duplicate map/level entries bias the sampling distribution')
+    if cfg.credit_assignment not in ('individual', 'team'):
+        raise ValueError('credit_assignment must be individual or team')
+    if cfg.credit_assignment == 'team' and cfg.value_features != 'independent':
+        raise ValueError('team credit requires --value-features independent')
+    if cfg.value_features not in ('shared','detached','independent'):
+        raise ValueError('value_features must be shared, detached or independent')
+    if not np.isfinite(cfg.reference_coef) or cfg.reference_coef < 0:
+        raise ValueError('reference_coef must be finite and nonnegative')
     for name in ('envs', 'ticks_per_step', 'rollout', 'total_steps', 'epochs',
                  'minibatches', 'torch_threads', 'max_ticks', 'promote_window',
                  'defender_macro_period', 'save_every'):
@@ -259,16 +316,28 @@ def validate(cfg):
         raise ValueError('curriculum fractions must be in (0,1]')
     if tuple(sorted(set(cfg.curriculum))) != tuple(cfg.curriculum):
         raise ValueError('curriculum must be strictly increasing')
+    if cfg.defender_prepare_ticks and tuple(cfg.curriculum) != (1.0,):
+        raise ValueError('defender_prepare_ticks requires curriculum=(1.0,) to preserve spawn clearance')
     task_reward(0, False, cfg.reward_mode, cfg.win_reward)
+    weights_for(R.obs.TALLY_NAMES,cfg.reward_profile,cfg.reward_config)
 
 
-def make_env(cfg, n, frac, start=0):
-    return R.BatchedEnv(make_worlds(cfg, n, frac, start), side=R.Side.Attacker,
-                        defender_map=cfg.map_path if cfg.defender else '',
+def make_env(cfg, n, frac, start=0, episode_indices=None):
+    if cfg.defender_prepare_ticks and frac != 1.0:
+        raise ValueError('defender_prepare_ticks requires frac=1.0 to preserve spawn clearance')
+    maps={'defender_maps':list(cfg.map_pool)} if cfg.defender and cfg.map_pool else {}
+    if cfg.defender_profiles: maps['defender_profiles']=list(cfg.defender_profiles)
+    if cfg.tactical_goals != 'keep': maps['tactical_goals']=cfg.tactical_goals
+    worlds=(make_worlds(cfg,n,frac,start) if episode_indices is None else
+            [make_worlds(cfg,1,frac,index)[0] for index in episode_indices])
+    if len(worlds)!=n: raise ValueError('Episode index count must match environments')
+    return R.BatchedEnv(worlds, side=R.Side.Attacker,
+                        defender_map=cfg.map_path if cfg.defender and not cfg.map_pool else '',
                         defender_seed=cfg.seed * 31 + 7,
                         defender_macro_period=cfg.defender_macro_period,
+                        defender_prepare_ticks=cfg.defender_prepare_ticks,
                         ticks_per_step=cfg.ticks_per_step, threads=cfg.threads,
-                        max_ticks_per_episode=cfg.max_ticks)
+                        max_ticks_per_episode=cfg.max_ticks,**maps)
 
 
 class Observer:
@@ -295,17 +364,19 @@ class Observer:
                 (self.masks.reshape(-1)[rows, None] & self.bits) != 0)
 
 
-def policy_forward(net, observation, device):
+def policy_forward(net, observation, device, value_net=None):
     rows, c, s, g, legal = observation
     if len(rows) == 0:
         return None, torch.empty(0, device=device)
-    logits, value = net(torch.from_numpy(c).to(device).permute(0, 3, 1, 2),
-                        torch.from_numpy(s).to(device), torch.from_numpy(g).to(device))
+    inputs=(torch.from_numpy(c).to(device).permute(0,3,1,2),torch.from_numpy(s).to(device),torch.from_numpy(g).to(device))
+    logits, value = net(*inputs)
+    if value_net is not None:value=value_net(*inputs)
     logits = logits.masked_fill(~torch.from_numpy(legal).to(device), float('-inf'))
     return torch.distributions.Categorical(logits=logits), value
 
 
-def train(cfg, args, saved):
+def train(cfg, args, saved, *, gradient_observer=None):
+    import team_credit
     import random
     import signal
     from checkpointing import FORMAT, atomic_json, contract, load_weights, repair_metrics, restore_rng, rng_state, save_run, sha256
@@ -342,6 +413,7 @@ def train(cfg, args, saved):
     step_count = updates = wins = timeouts = eliminated = completed = completed_steps = 0
     curriculum_resets = resume_resets = stage_episodes = 0
     next_episode = 0
+    completed_coverage = {}
     elapsed_before = 0.0
     stage_ret = deque(maxlen=50)
     stage_hits = CompletionWindow(cfg.promote_window)
@@ -358,6 +430,7 @@ def train(cfg, args, saved):
         resume_resets = p['resume_resets']
         elapsed_before = p['elapsed_seconds']
         next_episode = p['next_episode']
+        completed_coverage = p['completed_coverage']
         stage_episodes = p['stage_episodes']
         stage_ret.extend(p['recent_returns'])
         stage_hits.load_state_dict(p['stage_hits'])
@@ -374,10 +447,53 @@ def train(cfg, args, saved):
         print('Warm start: policy weights retained; new optimizer, counters and curriculum. '
               'Old rewards and win rates are not carried into this run.', flush=True)
 
+    value_net=value_opt=None
+    if cfg.value_features=='independent' and cfg.credit_assignment != 'team':
+        value_net=IndependentValue(net).to(dev)
+        value_opt=torch.optim.Adam(value_net.parameters(),lr=cfg.lr,eps=1e-5)
+        net.critic.requires_grad_(False)
+        if saved:
+            if not isinstance(saved.get('value_model'),dict) or not isinstance(saved.get('value_optimizer'),dict):
+                raise ValueError('Missing independent value checkpoint state')
+            value_net.load_state_dict(saved['value_model'])
+            value_opt.load_state_dict(saved['value_optimizer'])
+
+    team_net = team_opt = None
+    if cfg.credit_assignment == 'team':
+        team_net = team_credit.TeamValue(R.obs.CHANNEL_COUNT, R.obs.SELF_COUNT, R.obs.GLOBAL_COUNT).to(dev)
+        team_opt = torch.optim.Adam(team_net.parameters(), lr=cfg.lr, eps=1e-5)
+        net.critic.requires_grad_(False)
+        if saved:
+            team_net.load_state_dict(saved['team_model'])
+            team_opt.load_state_dict(saved['team_optimizer'])
+
+    reference = None
+    if cfg.reference_coef:
+        import copy
+        if not saved and not args.init_weights:
+            raise ValueError('Reference regularization requires explicit --init-weights')
+        # Deepcopy consumes no RNG; paired runs retain the same sampling stream.
+        reference = copy.deepcopy(net).eval().requires_grad_(False)
+        if saved:
+            if not isinstance(saved.get('reference_model'),dict):
+                raise ValueError('Missing reference policy in resumable checkpoint')
+            reference.load_state_dict(saved['reference_model'])
+        if any(not torch.isfinite(v).all() for v in reference.state_dict().values()):
+            raise ValueError('Nonfinite reference policy')
+
     frac = cfg.curriculum[stage]
     world_factory.cache_clear()
-    env = make_env(cfg, cfg.envs, frac, next_episode)
-    next_episode += cfg.envs
+    fresh=saved['progress'].get('fresh_episode_indices',[None]*cfg.envs) if saved else [None]*cfg.envs
+    if len(fresh)!=cfg.envs: raise ValueError('Checkpoint episode index count mismatch')
+    episode_indices=[]
+    for index in fresh:
+        if index is None:
+            index=next_episode
+            next_episode+=1
+        elif not isinstance(index,int) or isinstance(index,bool) or not 0<=index<next_episode:
+            raise ValueError('Invalid checkpoint fresh episode index')
+        episode_indices.append(index)
+    env = make_env(cfg, cfg.envs, frac, episode_indices=episode_indices)
     obs = Observer(env)
     mu, n, T = obs.mu, cfg.envs * obs.mu, cfg.rollout
     capacity = sum(env.unit_counts)
@@ -395,11 +511,15 @@ def train(cfg, args, saved):
     buf_v = torch.zeros((T, n), device=dev)
     buf_r = torch.zeros((T, cfg.envs), device=dev)
     buf_d = torch.zeros((T, cfg.envs), device=dev)
+    buf_next_potential = torch.zeros((T, cfg.envs), device=dev)
+    if team_net is not None:
+        team_inputs = torch.zeros((T, cfg.envs, team_net.size), device=dev)
+        team_values = torch.zeros((T, cfg.envs), device=dev)
     keys = np.zeros((T + 1, cfg.envs, mu), np.int64)
     actions = np.zeros((cfg.envs, mu), np.uint8)
     done = np.zeros(cfg.envs, np.uint8)
     tally = np.zeros((cfg.envs, R.obs.TALLY_FIELDS), np.float32)
-    weights = np.array([REWARD_W[name] for name in R.obs.TALLY_NAMES], np.float32)
+    weights = np.array(weights_for(R.obs.TALLY_NAMES,cfg.reward_profile,cfg.reward_config), np.float32)
     dmg_index = R.obs.TALLY_NAMES.index('dmg_to_blds')
     value_index = R.obs.TALLY_NAMES.index('bld_value')
     ep_ret, ep_hit = np.zeros(cfg.envs), np.zeros(cfg.envs)
@@ -420,9 +540,11 @@ def train(cfg, args, saved):
         return dict(env_steps=step_count, updates=updates, stage=stage, frac=frac,
                     wins=wins, timeouts=timeouts, eliminated=eliminated,
                     completed=completed, completed_steps=completed_steps,
+                    completed_coverage=completed_coverage,
                     curriculum_resets=curriculum_resets, resume_resets=resume_resets,
                     active_partial_episodes=int(np.count_nonzero(ep_steps)),
                     next_episode=next_episode, stage_episodes=stage_episodes,
+                    fresh_episode_indices=[index if ep_steps[i]==0 else None for i,index in enumerate(episode_indices)],
                     recent_returns=list(stage_ret), stage_hits=stage_hits.state_dict(),
                     stage_wins=stage_wins.state_dict(),
                     stage_outcomes=stage_outcomes.state_dict(),
@@ -432,9 +554,16 @@ def train(cfg, args, saved):
         save_run(folder, dict(format=FORMAT, config=asdict(cfg), contract=signature,
                               initialization=initialization,
                               model=net.state_dict(), optimizer=opt.state_dict(),
+                              value_model=value_net.state_dict() if value_net is not None else None,
+                              value_optimizer=value_opt.state_dict() if value_opt is not None else None,
+                              team_model=team_net.state_dict() if team_net is not None else None,
+                              team_optimizer=team_opt.state_dict() if team_opt is not None else None,
+                              reference_model=reference.state_dict() if reference is not None else None,
                               progress=progress(), rng=rng_state(), status=status))
 
     atomic_json(folder / 'config.json', asdict(cfg))
+    atomic_json(folder / 'reward-recipe.json', dict(recipe(cfg.reward_profile,cfg.reward_config),
+        reward_mode=cfg.reward_mode,win_reward=cfg.win_reward,potential_weight=POTENTIAL_W,gamma=cfg.gamma))
     # A recoverable initial point exists even if the first rollout crashes.
     if not saved:
         save('running')
@@ -442,16 +571,25 @@ def train(cfg, args, saved):
         while step_count < cfg.total_steps and not stop[0]:
             sample_start = time.perf_counter()
             roll_tally = np.zeros(R.obs.TALLY_FIELDS, np.float64)
+            goal_exposure = 0
+            goal_squads = 0
             buf_v.zero_()
             # The final update uses only collected samples, with no uninitialized tail.
             horizon = min(T, max(1, (cfg.total_steps - step_count + cfg.envs - 1) // cfg.envs))
             for t in range(horizon):
                 observation = obs.read()
                 rows = observation[0]
+                if cfg.tactical_goals != 'keep':
+                    goal_counts=np.asarray(env.goal_diagnostics)
+                    goal_exposure+=int(np.count_nonzero(goal_counts[:,1]))
+                    goal_squads+=int(goal_counts[:,1].sum())
                 keys[t] = obs.keys
                 storage.store(t, *observation)
                 with torch.no_grad():
-                    dist, value = policy_forward(net, observation, dev)
+                    if team_net is not None:
+                        team_inputs[t] = torch.from_numpy(team_credit.features(obs)).to(dev)
+                        team_values[t] = team_net(team_inputs[t])
+                    dist, value = policy_forward(net, observation, dev,value_net)
                     actions.fill(0)
                     if dist is not None:
                         act = dist.sample()
@@ -468,6 +606,7 @@ def train(cfg, args, saved):
                 rew = rew + won * cfg.win_reward + POTENTIAL_W * (cfg.gamma * after * (1-done) - phi)
                 buf_r[t] = torch.from_numpy(rew).to(dev)
                 buf_d[t] = torch.from_numpy(done.astype(np.float32)).to(dev)
+                buf_next_potential[t] = torch.from_numpy(POTENTIAL_W * after * (1-done)).to(dev)
                 roll_tally += tally.sum(0)
                 ep_ret += rew
                 ep_hit += tally[:, dmg_index]
@@ -479,6 +618,23 @@ def train(cfg, args, saved):
                 stage_wins.add(won[finished])
                 stage_outcomes.add(won[finished] | (ep_value[finished] > 0))
                 for i in finished:
+                    path,level,spawn_index=episode_spec(cfg,episode_indices[int(i)])
+                    key=json.dumps([path,level,spawn_index,stage],separators=(',',':'))
+                    profile=None
+                    if cfg.defender_profiles:
+                        world_seed=cfg.seed*1000+episode_indices[int(i)]
+                        profile=cfg.defender_profiles[R.defender_profile_index(world_seed,max(1,len(cfg.map_pool)),len(cfg.defender_profiles))]
+                        key=json.dumps([path,level,spawn_index,stage,profile],separators=(',',':'))
+                    coverage=completed_coverage.setdefault(key,dict(map=path,level=level,
+                        spawn_index=spawn_index,stage=stage,frac=frac,completed=0,wins=0,
+                        timeouts=0,eliminated=0,decisions=0,building_value=0.0))
+                    if profile is not None: coverage['defender_profile']=profile
+                    coverage['completed']+=1
+                    coverage['wins']+=int(won[i])
+                    coverage['timeouts']+=int(ends[i]==R.EpisodeEnd.Timeout)
+                    coverage['eliminated']+=int(ends[i]==R.EpisodeEnd.AttackersEliminated)
+                    coverage['decisions']+=int(ep_steps[i])
+                    coverage['building_value']+=float(ep_value[i])
                     wins += int(won[i])
                     timeouts += int(ends[i] == R.EpisodeEnd.Timeout)
                     eliminated += int(ends[i] == R.EpisodeEnd.AttackersEliminated)
@@ -489,20 +645,34 @@ def train(cfg, args, saved):
                     ep_ret[i] = ep_hit[i] = ep_steps[i] = 0
                     ep_value[i] = 0
                     env.reset_one(int(i), make_worlds(cfg, 1, frac, next_episode)[0])
+                    episode_indices[int(i)]=next_episode
                     next_episode += 1
                 phi = np.asarray(env.potentials)
             with torch.no_grad():
                 end_obs = obs.read()
                 keys[horizon] = obs.keys
-                _, value = policy_forward(net, end_obs, dev)
+                _, value = policy_forward(net, end_obs, dev,value_net)
                 next_v = torch.zeros(n, device=dev)
                 next_v[end_obs[0]] = value
+                if team_net is not None:
+                    next_team_value = team_net(torch.from_numpy(team_credit.features(obs)).to(dev))
             if torch.device(dev).type == 'cuda':
                 torch.cuda.synchronize()
             sample_seconds = time.perf_counter() - sample_start
             update_start = time.perf_counter()
-            adv = advantages(buf_v[:horizon], buf_r[:horizon], buf_d[:horizon],
-                             keys[:horizon+1], next_v, cfg.gamma, cfg.gae_lambda)
+            if team_net is not None:
+                # This remains the finite single-wave task: timeout/elimination
+                # are world terminations. Do not pretend a fresh city continues it.
+                successor_values = torch.cat((team_values[1:horizon], next_team_value[None]), dim=0)
+                team_adv = team_credit.advantages(team_values[:horizon], buf_r[:horizon],
+                    successor_values, buf_d[:horizon].bool(), torch.zeros_like(buf_d[:horizon]).bool(),
+                    cfg.gamma, cfg.gae_lambda)
+                team_targets = team_adv + team_values[:horizon]
+                adv = team_adv.repeat_interleave(mu, dim=1)
+            else:
+                adv = advantages(buf_v[:horizon], buf_r[:horizon], buf_d[:horizon],
+                                 keys[:horizon+1], next_v, cfg.gamma, cfg.gae_lambda,
+                                 buf_next_potential[:horizon])
             ret = adv + buf_v[:horizon]
             packed, native = storage.indices(horizon, n)
             count = len(packed)
@@ -514,6 +684,7 @@ def train(cfg, args, saved):
             minibatch = max(1, (count + cfg.minibatches - 1) // cfg.minibatches)
             order = np.arange(count)
             losses, kls, clips, entropies = [], [], [], []
+            policy_losses, value_losses, reference_kls = [], [], []
             stopped_kl = False
             for epoch in range(cfg.epochs):
                 np.random.shuffle(order)
@@ -521,10 +692,13 @@ def train(cfg, args, saved):
                     chosen = order[offset:offset+minibatch]
                     jc = torch.from_numpy(packed[chosen])
                     j = torch.as_tensor(native[chosen], device=dev)
-                    logits, value = net(storage.c.flatten(0, 1)[jc].to(dev).permute(0, 3, 1, 2),
-                                        storage.s.flatten(0, 1)[jc].to(dev),
-                                        storage.g.flatten(0, 1)[jc].to(dev))
-                    logits = logits.masked_fill(~storage.m.flatten(0, 1)[jc].to(dev), float('-inf'))
+                    cells = storage.c.flatten(0, 1)[jc].to(dev).permute(0, 3, 1, 2)
+                    own = storage.s.flatten(0, 1)[jc].to(dev)
+                    glob = storage.g.flatten(0, 1)[jc].to(dev)
+                    legal = storage.m.flatten(0, 1)[jc].to(dev)
+                    logits, value = net(cells,own,glob,detach_value=cfg.value_features=='detached')
+                    if value_net is not None:value=value_net(cells,own,glob)
+                    logits = logits.masked_fill(~legal, float('-inf'))
                     dist = torch.distributions.Categorical(logits=logits)
                     logratio = dist.log_prob(a[j]) - lp[j]
                     ratio = logratio.exp()
@@ -537,21 +711,45 @@ def train(cfg, args, saved):
                     advantage = (advantage-advantage.mean()) / (advantage.std(unbiased=False)+1e-8)
                     pg = -torch.min(ratio * advantage,
                                     ratio.clamp(1-cfg.clip, 1+cfg.clip) * advantage).mean()
-                    vf = .5 * (value-b_ret[j]).square().mean()
+                    vf = (.5 * (value-b_ret[j]).square().mean() if team_net is None
+                          else torch.zeros((), device=dev))
                     entropy = dist.entropy().mean()
                     loss = pg + cfg.vf_coef * vf - cfg.ent_coef * entropy
+                    ref_kl = None
+                    if reference is not None:
+                        with torch.no_grad():
+                            ref_logits,_ = reference(cells,own,glob)
+                        ref_kl = masked_reference_kl(ref_logits,logits,legal).mean()
+                        loss = loss + cfg.reference_coef * ref_kl
                     if not torch.isfinite(loss):
                         raise FloatingPointError('Non-finite PPO loss; last good checkpoint retained')
+                    if gradient_observer is not None:
+                        # Offline diagnostics may inspect the existing graph;
+                        # ordinary training has no observer or extra backward pass.
+                        gradient_observer(net,loss-cfg.vf_coef*vf,cfg.vf_coef*vf)
                     opt.zero_grad(set_to_none=True)
+                    if value_opt is not None:value_opt.zero_grad(set_to_none=True)
                     loss.backward()
                     nn.utils.clip_grad_norm_(net.parameters(), cfg.max_grad_norm, error_if_nonfinite=True)
+                    if value_net is not None:
+                        nn.utils.clip_grad_norm_(value_net.parameters(),cfg.max_grad_norm,error_if_nonfinite=True)
                     opt.step()
+                    if value_opt is not None:value_opt.step()
                     losses.append(float(loss.detach()))
                     kls.append(float(kl.detach()))
                     clips.append(float(((ratio-1).abs() > cfg.clip).float().mean().detach()))
                     entropies.append(float(entropy.detach()))
+                    policy_losses.append(float(pg.detach()))
+                    value_losses.append(float(vf.detach()))
+                    if ref_kl is not None:
+                        reference_kls.append(float(ref_kl.detach()))
                 if stopped_kl:
                     break
+            team_value_loss = None
+            if team_net is not None:
+                team_value_loss = team_credit.update(team_net, team_opt,
+                    team_inputs[:horizon].reshape(-1, team_net.size), team_targets.reshape(-1),
+                    cfg.epochs, cfg.vf_coef, cfg.max_grad_norm)
             # GAE and update finished against old task before a curriculum reset.
             trained_stage, trained_frac = stage, frac
             promoted = False
@@ -569,6 +767,7 @@ def train(cfg, args, saved):
                 stage_outcomes.clear()
                 stage_episodes = 0
                 for i, world in enumerate(make_worlds(cfg, cfg.envs, frac, next_episode)):
+                    episode_indices[i]=next_episode+i
                     env.reset_one(i, world)
                 next_episode += cfg.envs
                 ep_steps.fill(0)
@@ -588,12 +787,22 @@ def train(cfg, args, saved):
                        env_steps_per_second=(step_count-session_start_step)/max(elapsed,1e-9),
                        live_agent_steps=count, observation_bytes=storage.bytes,
                        loss=float(np.mean(losses)) if losses else None,
+                       policy_loss=float(np.mean(policy_losses)) if policy_losses else None,
+                       value_loss=float(np.mean(value_losses)) if value_losses else None,
+                       reference_kl=float(np.mean(reference_kls)) if reference_kls else None,
+                       reference_coef=cfg.reference_coef,
+                       credit_assignment=cfg.credit_assignment,
+                       team_value_loss=team_value_loss,
+                       team_value_samples=horizon*cfg.envs if team_net is not None else 0,
+                       economy_goal_environment_steps=goal_exposure,
+                       economy_goal_squad_steps=goal_squads,
                        approx_kl=float(np.mean(kls)) if kls else None,
                        clip_fraction=float(np.mean(clips)) if clips else None,
                        entropy=float(np.mean(entropies)) if entropies else None,
                        kl_early_stop=stopped_kl, wins=wins, timeouts=timeouts,
                        optimizer_minibatches=len(losses),
                        eliminated=eliminated, completed=completed,
+                       completed_coverage=completed_coverage,
                        hit_rate=stage_hits.rate, window_win_rate=stage_wins.rate,
                        outcome_rate=stage_outcomes.rate,
                        window_count=stage_hits.count,
@@ -632,6 +841,10 @@ def main():
             ap.add_argument('--no-defender', action='store_true', default=None)
         elif name == 'curriculum':
             ap.add_argument('--curriculum', type=lambda s: tuple(float(x) for x in s.split(',')))
+        elif name in ('map_pool','defender_profiles'):
+            ap.add_argument('--'+name.replace('_','-'),type=lambda s:tuple(s.split(',')))
+        elif name == 'levels':
+            ap.add_argument('--levels',type=lambda s:tuple(int(x) for x in s.split(',')))
         else:
             ap.add_argument('--'+name.replace('_','-'), type=type(value), default=None)
     ap.add_argument('--run-dir', default='runs/attacker')
@@ -651,6 +864,9 @@ def main():
             raise ValueError('Run directory contains a previous run; use --resume auto or a new --run-dir')
         cfg = Cfg(**saved['config']) if saved else default
         cfg.curriculum = tuple(cfg.curriculum)
+        cfg.map_pool = tuple(cfg.map_pool)
+        cfg.defender_profiles = tuple(cfg.defender_profiles)
+        cfg.levels = tuple(cfg.levels)
         runtime = {'total_steps', 'device', 'threads', 'torch_threads', 'save_every'}
         for field in fields(default):
             name = field.name

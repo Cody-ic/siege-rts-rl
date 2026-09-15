@@ -1,0 +1,22 @@
+[
+  {
+    "level": 1,
+    "case_records_exact": true,
+    "report_sha256": "b6db683b772d447cffbd05ffbe6c4dea942e4caea2bcce7090bd0ed1d57fc48c"
+  },
+  {
+    "level": 4,
+    "case_records_exact": true,
+    "report_sha256": "02c34cd6d223b5edfdfb87a704ce23e4f98d6b2ad026562ce2d7489df67cc79b"
+  },
+  {
+    "level": 8,
+    "case_records_exact": true,
+    "report_sha256": "4a80a9fd04f5666f00a8b3ab45e4dd4c09c73ce545fc5c5fd6b445398f6c9101"
+  },
+  {
+    "level": 16,
+    "case_records_exact": true,
+    "report_sha256": "01ca86e23b464811ccebb0e0a139d1ef2229ea0c85692b97e145c41ddd95110d"
+  }
+]

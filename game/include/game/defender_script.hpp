@@ -80,6 +80,9 @@ struct ManualOrder {
     // 它的目标——`Handle` 的 tag/generation 机制原是防「拿地址/下标当 key」
     // 那类 bug，这里是它被 `game/` 自己的每单位状态复用，同一条纪律。
     std::uint16_t generation = 0;
+    bool forced = false;
+    std::uint32_t building = 0; // Generational identity, not just a cell/slot.
+    bool upgrade = false;
 };
 
 // 斥候巡逻的当前目标集结点。**承诺到「看过」为止**：目标一旦选定就走到底，
@@ -132,6 +135,9 @@ public:
     // 的分界。优先于一切自主默认；到达目标格后自动清除，回归自主。
     // 对已上墙的单位同时是「下来」：登墙意愿清空，世界放人，再走过去。
     void issue_move_order(std::span<const rts::UnitId> ids, rts::GridPos target);
+    bool issue_forced_work(const rts::WorldView& view, std::span<const rts::UnitId> ids,
+                           rts::GridPos target);
+    bool forced_work_active(const rts::WorldView& view, rts::UnitId id) const;
 
     // 同上，但目标是**驻进 `wall_cell` 那段墙**（右键点墙的落点）：走位到
     // 墙边 + 登墙意愿一起给，登墙本身照旧由 `tick_garrison` 解算。登顶后

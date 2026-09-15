@@ -94,6 +94,7 @@ struct Options {
     int max_ticks = 0;   // 0 = 不限
     int limit = 0;       // 只跑字典序前 n 张图，0 = 全部（冒烟/快速本地跑用）
     std::string out_path;   // 空 = stdout
+    std::string rl_policy_path;
     bool compact = false;
     bool help = false;
     // **守方宏观决策层**（`game::DefenderMacro`）。默认关，于是
@@ -134,6 +135,10 @@ struct Options {
     int slots_cap = game::WaveCurve{}.slots_cap;
     int phoenix_per_waves = game::WaveCurve{}.phoenix_per_waves;
     int phoenix_cap = game::WaveCurve{}.phoenix_cap;
+    // 撤离与重生（2026-09-10，#170）。阈值 0 = 永不因掉血而撤，即落地之前的
+    // 「出了必死」行为——**A/B 的对照臂就靠它**，不必另编一个二进制。
+    int phoenix_withdraw_hp_permille = game::WaveCurve{}.phoenix_withdraw_hp_permille;
+    int phoenix_respawn_waves = game::WaveCurve{}.phoenix_respawn_waves;
 };
 
 void print_help() {
@@ -148,6 +153,7 @@ void print_help() {
         "用法: calibration_runner [选项]\n"
         "\n"
         "  --maps <目录>     地图目录，*.json 按字典序全部参与（默认 <data>/maps/pool）\n"
+        "  --rl-policy <ONNX>  Evaluate an exported tactical policy in real multi-wave games\n"
         "  --seeds <列表>    逗号分隔的种子（默认 1,2,3）\n"
         "  --max-waves <n>   每局最多波数，跑完或堡垒陷落即停（默认 20）\n"
         "  --max-ticks <n>   每局 tick 上限，0 = 不限（默认 0）\n"
@@ -182,10 +188,12 @@ void print_help() {
         "  --slots-base <x> --slots-per-wave <x> 编成位线性项\n"
         "  --slots-cap <n>                       编成位硬顶，0 = 不封顶\n"
         "  --phoenix-per-waves <n> --phoenix-cap <n>  空军放开节奏与上限\n"
+        "  --phoenix-withdraw-hp <permille>      掉到这个血量比就撤，0 = 永不撤\n"
+        "  --phoenix-respawn-waves <n>           被击落后等几波重生\n"
         "  --build-ticks <n> --first-build-ticks <n>  建造阶段时长\n"
         "\n"
-        "注：--seeds 1,2,3 目前等于同一局跑三遍——攻方一条随机分支都没有\n"
-        "（编成按曲线、方向按取余），实测 36/36 局同图同结果。见本工具 README。\n";
+        "注：旧版本曾同图多种子结果相同；当前守方拉扯与侦查会使用种子，\n"
+        "请同时覆盖地图和种子，勿将旧校准结论当成当前行为。见本工具 README。\n";
 }
 
 bool parse_args(const std::vector<std::string>& args, Options& out) {
@@ -199,7 +207,10 @@ bool parse_args(const std::vector<std::string>& args, Options& out) {
     };
     for (int i = 1; i < argc; ++i) {
         const std::string a = args[static_cast<std::size_t>(i)];
-        if (a == "--help" || a == "-h") {
+        if (a == "--rl-policy") {
+            out.rl_policy_path=need(i,"--rl-policy");
+            if(out.rl_policy_path.empty()) return false;
+        } else if (a == "--help" || a == "-h") {
             out.help = true;
         } else if (a == "--maps") {
             const std::string v = need(i, "--maps");
@@ -315,6 +326,14 @@ bool parse_args(const std::vector<std::string>& args, Options& out) {
             const std::string vv = need(i, "--phoenix-cap");
             if (vv.empty()) return false;
             out.phoenix_cap = std::atoi(vv.c_str());
+        } else if (a == "--phoenix-withdraw-hp") {
+            const std::string vv = need(i, "--phoenix-withdraw-hp");
+            if (vv.empty()) return false;
+            out.phoenix_withdraw_hp_permille = std::atoi(vv.c_str());
+        } else if (a == "--phoenix-respawn-waves") {
+            const std::string vv = need(i, "--phoenix-respawn-waves");
+            if (vv.empty()) return false;
+            out.phoenix_respawn_waves = std::atoi(vv.c_str());
         } else if (a == "--macro-recall") {
             const std::string vv = need(i, "--macro-recall");
             if (vv.empty()) return false;
@@ -645,6 +664,7 @@ struct RunRecord {
     bool truncated = false;   // 被 --max-ticks 截断
     int final_wave = 0;
     int total_ticks = 0;
+    int peak_learned_squads = -1;  // -1 keeps legacy script-only JSON unchanged.
     std::vector<WaveRecord> waves;
 };
 
@@ -1371,6 +1391,7 @@ void write_run(Json& j, const RunRecord& r) {
     j.str(r.map_file);
     j.key("seed");
     j.val(r.seed);
+    if(r.peak_learned_squads>=0) {j.key("peak_learned_squads");j.val(r.peak_learned_squads);}
     j.key("defeated");
     j.val(r.defeated);
     j.key("truncated");
@@ -1428,6 +1449,11 @@ int main(int argc, char** argv) {
 
     const rts::StatsTable stats = game::StatsLoader::from_file(
         std::string(GAME_DATA_DIR) + "/stats_placeholder.json");
+    std::shared_ptr<game::TacticalPolicy> tactical_policy;
+    if(!opt.rl_policy_path.empty()) {
+        try {tactical_policy=std::make_shared<game::TacticalPolicy>(opt.rl_policy_path,stats.fingerprint());}
+        catch(const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
+    }
 
     // ——跑——
     std::vector<MapInfo> maps;
@@ -1459,6 +1485,8 @@ int main(int argc, char** argv) {
             curve.slots_cap = opt.slots_cap;
             curve.phoenix_per_waves = opt.phoenix_per_waves;
             curve.phoenix_cap = opt.phoenix_cap;
+            curve.phoenix_withdraw_hp_permille = opt.phoenix_withdraw_hp_permille;
+            curve.phoenix_respawn_waves = opt.phoenix_respawn_waves;
             if (opt.power_form == "linear") {
                 curve.power_form = game::WaveCurve::PowerForm::Linear;
             } else if (opt.power_form == "log") {
@@ -1470,6 +1498,7 @@ int main(int argc, char** argv) {
             setup.pop_cap_base = opt.pop_base;
             setup.pop_cap_per_keep_level = opt.pop_per_keep;
             game::DemoBattle battle(map, stats, seed, timing, curve, setup);
+            battle.set_tactical_policy(tactical_policy);
             BattleRecorder rec(map, battle);
             rec.observe();   // 开第 1 波（t=0 已在集结）
 
@@ -1477,6 +1506,7 @@ int main(int argc, char** argv) {
             run.map_file = file;
             run.seed = seed;
             run.truncated = false;
+            if(tactical_policy) run.peak_learned_squads=0;
             int ticks = 0;
             // 守方宏观决策层（可选）。**它经 `submit_defender` 入队**，与人类玩家
             // 同一条路，所以不绕开任何机制、也不做玩家做不到的事。
@@ -1523,6 +1553,7 @@ int main(int argc, char** argv) {
                     }
                 }
                 battle.update(1);
+                if(tactical_policy) run.peak_learned_squads=std::max(run.peak_learned_squads,static_cast<int>(battle.learned_squads()));
                 rec.observe();
                 ++ticks;
             }
@@ -1584,6 +1615,7 @@ int main(int argc, char** argv) {
     j.val(static_cast<std::int64_t>(stats.fingerprint()));
     j.key("max_waves");
     j.val(opt.max_waves);
+    if(tactical_policy) {j.key("tactical_policy_identity");j.str(tactical_policy->identity());}
     j.key("max_ticks");
     j.val(opt.max_ticks);
     // 回显本次跑用的攻方曲线、波次节奏与守方旋钮。
@@ -1605,6 +1637,8 @@ int main(int argc, char** argv) {
     j.key("slots_cap");             j.val(opt.slots_cap);
     j.key("phoenix_per_waves");     j.val(opt.phoenix_per_waves);
     j.key("phoenix_cap");           j.val(opt.phoenix_cap);
+    j.key("phoenix_withdraw_hp_permille"); j.val(opt.phoenix_withdraw_hp_permille);
+    j.key("phoenix_respawn_waves"); j.val(opt.phoenix_respawn_waves);
     j.key("macro");                 j.val(opt.macro ? 1 : 0);
     j.key("macro_period");          j.val(opt.macro_period);
     j.key("macro_recall");          j.val(opt.macro_recall);

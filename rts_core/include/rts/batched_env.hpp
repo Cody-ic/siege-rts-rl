@@ -48,6 +48,13 @@
 
 namespace rts {
 
+// Native macro intent for one observation batch. Groups are parallel to the
+// supplied squad leaders: 0 = keep, 1 = economy. Empty groups mean all keep.
+struct BatchedGoals {
+    std::vector<std::uint8_t> groups;
+    std::vector<GridPos> economy;
+};
+
 // 一批环境的构型。
 struct BatchedEnvInit {
     // 每一局的初始局面。**长度即批大小**，且各局可以不同——按波次分层采样
@@ -105,6 +112,16 @@ struct BatchedEnvInit {
     // `std::function` 而不是一个虚接口，正是为了让「在 C++ 里组装」成为
     // 最省事的用法。
     std::function<void(World&, int)> opponent_hook;
+    // Optional native reset factory. Higher layers may prepare a city before
+    // an episode starts, without making core depend on game scripts. Called on
+    // initial construction and every reset; must return a non-null world.
+    std::function<std::unique_ptr<World>(WorldInit, int)> world_factory;
+    // Optional read-only, native-only target provider. Called once per world
+    // during observe, on worker threads; no Python callbacks or shared mutation.
+    // The fog-filtered view prevents granting this hook extra world access.
+    // Also conditions potentials() on the same targets. Episode/attrition tally
+    // semantics are unchanged; progress remains a keep-distance diagnostic.
+    std::function<BatchedGoals(const WorldView&, std::span<const UnitId>, int)> goal_hook;
     // 线程数。0 = 由实现挑（硬件并发数，上限批大小）。
     // **它不影响结果**，只影响墙钟时间——见文件头。
     int threads = 0;
@@ -180,18 +197,26 @@ public:
     void agent_keys(std::span<std::int64_t> out) const;
 
     // progress 只作位移诊断：仅累计两端都活着的单位，不作为奖励。
-    // 真正的势函数是所有当前存活单位到堡垒的负距离和。
+    // 势函数是所有当前存活单位到所分配目标的最近负距离和；默认目标为堡垒。
     // train/ 用同一个 gamma 算 gamma*Phi(next)-Phi(now)，终局势置零。
     std::vector<double> potentials() const;
+    // Read-only coverage diagnostics per world: known economic targets and
+    // live squad leaders actually assigned to them. Never a policy input.
+    std::vector<std::array<int,2>> goal_diagnostics() const;
+    // Effective targets in observe() leader order; missing economy falls back to 0.
+    std::vector<std::vector<std::uint8_t>> goal_groups() const;
 
     // Latched until reset. Keep destruction wins ties with the time limit.
     enum class EpisodeEnd : std::uint8_t { Running, KeepDestroyed, Timeout, AttackersEliminated };
     std::span<const EpisodeEnd> episode_ends() const noexcept;
 
-    static constexpr int kTallyFields = 8;
+    static constexpr int kTallyFields = 42;
     static constexpr std::array<std::string_view, kTallyFields> kTallyNames{
         {"dmg_to_units", "dmg_to_blds", "units_killed", "blds_destroyed",
-         "bld_value", "scouts_killed", "losses", "progress"}};
+         "bld_value", "scouts_killed", "losses", "progress",
+         "scout_units_killed", "masons_killed", "phoenix_losses", "enemy_unit_gold",
+         "opponent_repair_wood_spent", "friendly_unit_damage", "friendly_units_killed",
+         "enemy_Archer_levels", "enemy_Spear_levels", "enemy_Ranger_levels", "enemy_Scout_levels", "enemy_Mason_levels", "enemy_Ghoul_levels", "enemy_Shade_levels", "enemy_Knight_levels", "enemy_Phoenix_levels", "enemy_Wraith_levels", "enemy_Ram_levels", "own_Archer_levels", "own_Spear_levels", "own_Ranger_levels", "own_Scout_levels", "own_Mason_levels", "own_Ghoul_levels", "own_Shade_levels", "own_Knight_levels", "own_Phoenix_levels", "own_Wraith_levels", "own_Ram_levels", "destroyed_stone", "destroyed_wood", "destroyed_income_stone", "destroyed_income_wood", "destroyed_income_gold"}};
 
     // 把第 `i` 局换成一个新局面。终局之后由 `train/` 调。
     //

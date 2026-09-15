@@ -32,10 +32,14 @@ class RolloutStorage:
         return packed, native
 
 
-def advantages(values, rewards, dones, keys, next_value, gamma, gae_lambda):
+def advantages(values, rewards, dones, keys, next_value, gamma, gae_lambda, next_potential=None):
     """Match surviving squads across compacted rows; dead agents don't bootstrap
     from a different squad. A leader replacement keeps the same squad identity.
     keys: (T+1, envs, max_agents), zero is padding, dones: (T, envs).
+    next_potential is the weighted team potential AFTER each transition (zero
+    at world termination). PBRS must also terminate when an individual squad
+    dies; otherwise its truncated return retains a policy-dependent boundary
+    term from the surviving teammates. Unshaped team rewards are unchanged.
     """
     steps, envs, width = rewards.shape[0], keys.shape[1], keys.shape[2]
     matches = (keys[:-1, :, :, None] == keys[1:, :, None, :]) & (keys[:-1, :, :, None] != 0)
@@ -49,6 +53,8 @@ def advantages(values, rewards, dones, keys, next_value, gamma, gae_lambda):
         nv = next_value if t == steps - 1 else values[t + 1]
         row = successor[t]
         delta = rewards[t].repeat_interleave(width) + gamma * nv[row] * continuation[t] - values[t]
+        if next_potential is not None:
+            delta = delta - gamma * next_potential[t].repeat_interleave(width) * ~continuation[t]
         last = delta + gamma * gae_lambda * last[row] * continuation[t]
         result[t] = last
     return result

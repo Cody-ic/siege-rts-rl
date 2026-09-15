@@ -55,7 +55,8 @@ public:
     // `map` 与 `stats` 按值收下：**重开一局要重建世界，而重建要原始输入**。
     // 存引用的话，调用方一旦让那两个对象先死掉（渲染循环里它们本来就是局部变量），
     // 「重新开始」就会读到已析构的内存——而那是个只在第二局才现形的 bug。
-    GameShell(MapData map, rts::StatsTable stats, std::uint64_t base_seed);
+    GameShell(MapData map, rts::StatsTable stats, std::uint64_t base_seed,
+              std::shared_ptr<TacticalPolicy> policy = {},std::shared_ptr<MacroPolicy> defender = {});
 
     Screen screen() const noexcept { return screen_; }
     // 对局中的那一屏没有菜单（返回空的 `MenuModel`），所以调用方可以无条件问。
@@ -104,6 +105,8 @@ private:
     MapData map_;
     rts::StatsTable stats_;
     std::uint64_t base_seed_ = 0;
+    std::shared_ptr<TacticalPolicy> policy_;
+    std::shared_ptr<MacroPolicy> defender_policy_;
     std::optional<DemoBattle> battle_;
     Screen screen_ = Screen::Main;
     // 从哪一屏进的说明。**必须记住**，否则从暂停看完说明会掉回主菜单，

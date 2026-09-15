@@ -51,6 +51,10 @@ add_library(game STATIC
     src/menu_model.cpp
     src/game_shell.cpp
     src/save_game.cpp
+    src/rl_policy.cpp
+    src/training_campaign.cpp
+    src/macro_observation.cpp
+    src/macro_policy.cpp
     ${_game_self_contained_srcs}
 )
 
@@ -60,6 +64,43 @@ target_include_directories(game PUBLIC "${CMAKE_CURRENT_LIST_DIR}/include")
 # JSON 是 PRIVATE：**依赖到 map_loader.cpp 为止**，这正是本模块存在的意义之一
 # ——rts_core 与 render/ 都只看见 MapData，都不必引入 JSON。
 target_link_libraries(game PUBLIC rts_core PRIVATE nlohmann_json_hdr)
+target_compile_definitions(game PRIVATE RTS_WITH_ONNX=$<BOOL:${RTS_WITH_ONNX}>)
+if(RTS_WITH_ONNX)
+    target_link_libraries(game PRIVATE rts_onnx)
+endif()
+# Markdown bodies are the single source for the in-game appendix text.
+function(read_appendix filename variable)
+    set(path "${CMAKE_SOURCE_DIR}/docs/holy-city/${filename}")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${path}")
+    file(READ "${path}" body)
+    string(REPLACE "\r\n" "\n" body "${body}")
+    if(filename STREQUAL "微笑者_副官陆衡小传.md")
+        string(FIND "${body}" "## 一\n" marker)
+        set(prefix_length 0)
+    else()
+        string(FIND "${body}" "\n---\n" marker)
+        set(prefix_length 5)
+    endif()
+    if(marker LESS 0)
+        message(FATAL_ERROR "Appendix body marker missing: ${filename}")
+    endif()
+    math(EXPR start "${marker}+${prefix_length}")
+    string(SUBSTRING "${body}" ${start} -1 body)
+    if(NOT filename STREQUAL "微笑者_副官陆衡小传.md")
+        string(REPLACE "*" "" body "${body}")
+    endif()
+    string(STRIP "${body}" body)
+    string(REPLACE "\n---\n" "\n" body "${body}")
+    string(REGEX REPLACE "(^|\n)#+ " "\\1" body "${body}")
+    # Keep each literal below MSVC's size limit without changing the joined text.
+    string(REPLACE "\n\n" "\n\n)APPENDIX\"\nR\"APPENDIX(" body "${body}")
+    set(${variable} "${body}" PARENT_SCOPE)
+endfunction()
+read_appendix("一跃_菲尼克斯小传.md" LEAP_TEXT)
+read_appendix("微笑者_副官陆衡小传.md" SMILER_TEXT)
+configure_file("${CMAKE_SOURCE_DIR}/cmake/chronicle_appendices.hpp.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/game/chronicle_appendix_text.hpp" @ONLY)
+target_include_directories(game PUBLIC "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
 rts_set_warnings(game)
 

@@ -1,0 +1,19 @@
+{
+  "assigned_episodes": 3072,
+  "old_combinations": 120,
+  "new_combinations": 168,
+  "expected_combinations": 168,
+  "profile_tests_passed": 4,
+  "runtime_tests_passed": 38,
+  "default_world_hash_comparisons_exact": 480,
+  "simulation": "9158d2fb405160dafab1d2aa9385aeb82325c3bab799790bcca5074ada0665b5",
+  "files": {
+    "bindings/src/defender_profiles.hpp": "5a30f90bd1c8800416604843163a08b8fb316aab2c4bb28faa174393a8cfbdc7",
+    "bindings/src/scripted_defender.hpp": "d24e336954809f7ffe4028ca366724adcd841c5c31e4111943545a7e7893b8d9",
+    "bindings/src/module.cpp": "558ccbf0cc36559ede22ff37f45eb818322fbf7ede67016ea863c9df88a9a567",
+    "train/ppo.py": "930bf4f54d8b8f32cf5a7331d3890128d4f420c245d404b9896764adc5e36ed6",
+    "tests/defender_profiles_test.py": "90acd6db879c72122517d698d6fab372118c9ac93509c8b49a590a558fe7aa1f",
+    "build-defender-profiles/bindings/Release/rts_native.cp313-win_amd64.pyd": "b28995b6585cb866c4562214bbb7171581d288e1dd91cd1b604db71a8c528b8b"
+  },
+  "scope": "Assignment coverage, not 3072 simulated completed episodes. Real profile behavior, batch/reset and boundary recovery covered by four tests. No policy quality claim."
+}

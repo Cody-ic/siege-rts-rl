@@ -70,31 +70,51 @@ BattleArchive capture_battle(const GameShell& shell,std::string map_json,std::st
     require(!battle.developer(),"开发者对局不写入正式存档");
     require(battle.world().now()<=kMaxSaveTicks && battle.player_events().size()<=kMaxEvents,"对局超出当前存档容量");
     BattleArchive result;
+    result.tactical_policy_identity=battle.tactical_policy_identity();
+    result.defender_policy_identity=battle.defender_policy_identity();
+    if(!result.defender_policy_identity.empty()) result.defender_policy_rng=battle.defender_policy_rng();
     result.map_json=std::move(map_json);result.stats_json=std::move(stats_json);
     result.seed=battle.world().seed();result.hash=battle.world().state_hash();result.tick=battle.world().now();
     result.wave=battle.world().wave();result.attempt=shell.attempt();result.choice=shell.chronicle().choice();
     result.events=battle.player_events();result.snapshot=SnapshotCodec::capture(battle);
     rts::StateHash digest;digest.feed(result.snapshot.data(),result.snapshot.size());result.snapshot_hash=digest.value();return result;
 }
-std::unique_ptr<DemoBattle> restore_battle(const BattleArchive& a,const RestoreProgress& progress) {
+std::filesystem::path policy_save_directory(const std::filesystem::path& base,
+    const std::string& attacker,const std::string& defender) {
+    if(attacker.empty() && defender.empty()) return base;
+    auto result=base/"rl"/(attacker.empty()?"script":attacker);
+    if(!defender.empty()) result=result/"defender"/defender;
+    return result;
+}
+std::unique_ptr<DemoBattle> restore_battle(const BattleArchive& a,const RestoreProgress& progress,
+                                        std::shared_ptr<TacticalPolicy> policy,std::shared_ptr<MacroPolicy> defender) {
+    require(a.defender_policy_identity==(defender?defender->identity():std::string{}),
+            "Defender policy differs from saved battle; load original model");
+    require(a.tactical_policy_identity==(policy?policy->identity():std::string{}),
+            "Tactical policy differs from the saved battle; load the original model");
     require(a.tick>=0 && a.tick<=kMaxSaveTicks && a.events.size()<=kMaxEvents,"存档超出恢复范围");
     const auto map=MapLoader::from_string(a.map_json);
     auto battle=std::make_unique<DemoBattle>(map,StatsLoader::from_string(a.stats_json),a.seed);
+    battle->set_tactical_policy(policy);
+    battle->set_defender_policy(defender);
     require(a.attempt>0 && a.attempt<1000000,"存档局次无效");
     require(a.choice==ChronicleChoice::None || (a.wave>=70 && (a.choice==ChronicleChoice::Guard || a.choice==ChronicleChoice::Release)),"存档结局无效");
     rts::Tick checked_tick=0;
-    for(const auto& e:a.events) {require(e.tick>=checked_tick && e.tick<=a.tick && e.kind>=0 && e.kind<=2,"存档操作时间无效");checked_tick=e.tick;}
+    for(const auto& e:a.events) {require(e.tick>=checked_tick && e.tick<=a.tick && e.kind>=0 && e.kind<=3,"存档操作时间无效");checked_tick=e.tick;}
     bool snapshot_restored=false;
     if(!a.snapshot.empty()) {
         try {
             rts::StateHash digest;digest.feed(a.snapshot.data(),a.snapshot.size());
             require(digest.value()==a.snapshot_hash,"快照校验失败");
             SnapshotCodec::restore(*battle,a.snapshot,a.events);
+            require(!defender || battle->defender_policy_rng()==a.defender_policy_rng,"Defender RNG snapshot mismatch");
             require(battle->world().state_hash()==a.hash && battle->world().now()==a.tick && battle->world().wave()==a.wave,"快照校验失败");
             snapshot_restored=true;
         } catch(const std::exception& e) {
             std::fprintf(stderr,"snapshot fallback: %s\n",e.what());
             battle=std::make_unique<DemoBattle>(map,StatsLoader::from_string(a.stats_json),a.seed);
+            battle->set_tactical_policy(policy);
+            battle->set_defender_policy(defender);
         }
     }
     if(snapshot_restored) {
@@ -116,9 +136,11 @@ std::unique_ptr<DemoBattle> restore_battle(const BattleArchive& a,const RestoreP
         if(event.kind==0) battle->submit_defender(&event.command,1);
         else if(event.kind==1) battle->issue_move_order(event.ids,event.target);
         else if(event.kind==2) battle->issue_garrison_order(event.ids,event.target);
+        else if(event.kind==3) battle->issue_forced_work(event.ids,event.target);
         else throw std::runtime_error("存档操作类型无效");
     }
     advance_to(a.tick);
+    require(!defender || battle->defender_policy_rng()==a.defender_policy_rng,"Defender RNG replay mismatch");
     require(battle->world().state_hash()==a.hash && battle->world().wave()==a.wave,"存档校验不一致，未载入此局");
     require(a.attempt>0 && a.attempt<1000000,"存档局次无效");
     require(a.choice==ChronicleChoice::None || (a.wave>=70 && (a.choice==ChronicleChoice::Guard || a.choice==ChronicleChoice::Release)),"存档结局无效");
@@ -132,7 +154,11 @@ void write_archive(const std::filesystem::path& file,const BattleArchive& a) {
         events.push_back({{"tick",e.tick},{"kind",e.kind},{"cmd",{e.command.slot,static_cast<int>(e.command.kind),static_cast<int>(e.command.side),e.command.what,e.command.level}},
                           {"ids",ids},{"target",{e.target.i,e.target.j}}});
     }
-    atomic_json(file,{{"format","siege-save"},{"version",kSaveVersion},{"platform",rts::kPlatformFingerprint},
+    // Script-only saves remain v3. Old executables must reject RL saves instead
+    // of silently continuing them with a different controller.
+    atomic_json(file,{{"format","siege-save"},{"version",!a.defender_policy_identity.empty()?kSaveVersion+2:(a.tactical_policy_identity.empty()?kSaveVersion:kSaveVersion+1)},
+        {"defender_policy_identity",a.defender_policy_identity},{"defender_policy_rng",a.defender_policy_rng},
+        {"tactical_policy_identity",a.tactical_policy_identity},{"platform",rts::kPlatformFingerprint},
         {"world",rts::kWorldHashTag},{"map",a.map_json},{"stats",a.stats_json},{"seed",a.seed},{"hash",a.hash},
         {"tick",a.tick},{"wave",a.wave},{"attempt",a.attempt},{"choice",static_cast<int>(a.choice)},{"events",events},{"snapshot",a.snapshot},{"snapshot_hash",a.snapshot_hash}});
 }
@@ -149,9 +175,22 @@ void preserve_incompatible_archive(const std::filesystem::path& file) {
 
 BattleArchive read_archive(const std::filesystem::path& file) {
     const auto j=load_json(file);
-    require(j.at("format")=="siege-save" && j.at("version")==kSaveVersion,"存档版本不兼容");
+    require(j.at("format")=="siege-save" && (j.at("version")==kSaveVersion || j.at("version")==kSaveVersion+1 || j.at("version")==kSaveVersion+2),"存档版本不兼容");
     require(j.at("platform").get<std::string>()==rts::kPlatformFingerprint && j.at("world").get<std::string>()==rts::kWorldHashTag,"存档平台或仿真版本不兼容");
     BattleArchive a;
+    a.tactical_policy_identity=j.value("tactical_policy_identity",std::string{});
+    a.defender_policy_identity=j.value("defender_policy_identity",std::string{});
+    const int expected_version=!a.defender_policy_identity.empty()?kSaveVersion+2:(a.tactical_policy_identity.empty()?kSaveVersion:kSaveVersion+1);
+    require(j.at("version")==expected_version,"Invalid policy save version");
+    if(!a.defender_policy_identity.empty()) {
+        const auto& state=j.at("defender_policy_rng");
+        require(state.is_array() && state.size()==4,"Invalid defender RNG");
+        for(std::size_t i=0;i<4;++i) {
+            require(state[i].is_number_unsigned() && state[i].get<std::uint64_t>()<=UINT32_MAX,"Invalid defender RNG word");
+            a.defender_policy_rng[i]=state[i].get<std::uint32_t>();
+        }
+        require(std::any_of(a.defender_policy_rng.begin(),a.defender_policy_rng.end(),[](auto v){return v!=0;}),"Invalid zero defender RNG");
+    }
     a.snapshot_hash=j.value("snapshot_hash",std::uint64_t{0});
     a.snapshot=j.value("snapshot",std::string{});
     a.map_json=j.at("map").get<std::string>();a.stats_json=j.at("stats").get<std::string>();
@@ -182,20 +221,27 @@ BattleArchive read_archive(const std::filesystem::path& file) {
     }
     require(a.tick>=0 && a.tick<=kMaxSaveTicks,"存档时长越界");return a;
 }
-int read_journal_progress(const std::filesystem::path& file) {
+JournalProgress read_journal(const std::filesystem::path& file) {
     auto backup=file;backup+=".bak";
-    if(!std::filesystem::exists(file) && !std::filesystem::exists(backup)) return 1;
+    if(!std::filesystem::exists(file) && !std::filesystem::exists(backup)) return {};
     const auto read=[](const std::filesystem::path& path) {
         const auto j=load_json(path);
-        require(j.at("format")=="siege-journal" && j.at("version")==1,"日记记录版本不兼容");
-        const int wave=j.at("highest_wave").get<int>();require(wave>=1 && wave<=1000000,"日记记录波次无效");return wave;
+        const int version=j.at("version").get<int>();
+        require(j.at("format")=="siege-journal" && (version==1 || version==2),"日记记录版本不兼容");
+        JournalProgress result;result.highest_wave=j.at("highest_wave").get<int>();
+        require(result.highest_wave>=1 && result.highest_wave<=1000000,"日记记录波次无效");
+        if(version==2) result.appendices={j.at("white_feather").get<bool>(),j.at("loss_list").get<bool>()};
+        return result;
     };
     try {return read(file);} catch(const std::exception&) {return read(backup);}
 }
-void write_journal_progress(const std::filesystem::path& file,int highest_wave) {
-    require(highest_wave>=1 && highest_wave<=1000000,"日记波次越界");
-    const int old=read_journal_progress(file);
-    if(highest_wave<=old && std::filesystem::exists(file)) return;
-    atomic_json(file,{{"format","siege-journal"},{"version",1},{"highest_wave",std::max(old,highest_wave)}});
+void write_journal(const std::filesystem::path& file,JournalProgress progress) {
+    require(progress.highest_wave>=1 && progress.highest_wave<=1000000,"日记波次越界");
+    const auto old=read_journal(file);progress.merge(old);
+    if(progress==old && std::filesystem::exists(file)) return;
+    atomic_json(file,{{"format","siege-journal"},{"version",2},{"highest_wave",progress.highest_wave},
+        {"white_feather",progress.appendices.white_feather},{"loss_list",progress.appendices.loss_list}});
 }
+int read_journal_progress(const std::filesystem::path& file) {return read_journal(file).highest_wave;}
+void write_journal_progress(const std::filesystem::path& file,int highest_wave) {write_journal(file,{highest_wave,{}});}
 }

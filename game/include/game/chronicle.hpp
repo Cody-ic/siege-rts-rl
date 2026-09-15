@@ -503,13 +503,49 @@ constexpr std::size_t chronicle_unlocked(int wave) noexcept {
     for (const auto& e : kChronicle) if (wave >= e.wave) ++count;
     return count;
 }
-// Per-run narrative presentation is independent of permanently unlocked pages.
+// Narrative pages and milestone presentation belong to the current campaign.
 constexpr int chronicle_to_present(int previous_wave,int current_wave,bool developer) noexcept {
     return !developer && chronicle_unlocked(current_wave)>chronicle_unlocked(previous_wave)
         ? static_cast<int>(chronicle_unlocked(current_wave))-1 : -1;
 }
 
 enum class ChronicleChoice { None, Guard, Release };
+inline constexpr int kWhiteFeatherSurvivalWaves=10;
+inline constexpr int kSmilerUnlockWave=90;
+constexpr bool earns_white_feather(int consecutive_waves) noexcept {
+    return consecutive_waves>=kWhiteFeatherSurvivalWaves;
+}
+struct ChronicleAppendix {
+    bool white_feather=false, loss_list=false;
+    constexpr bool readable(int appendix,int highest_wave) const noexcept {
+        return appendix==1 ? white_feather && highest_wave>=60 : appendix==2 && loss_list;
+    }
+    bool operator==(const ChronicleAppendix&) const = default;
+};
+inline constexpr std::array<std::string_view,3> kAppendixNotices{
+    "触发彩蛋：一根白羽 · 按 J 查看",
+    "触发彩蛋：损失清单 · 按 J 查看",
+    "触发彩蛋：白羽与损失清单 · 按 J 查看"
+};
+constexpr std::string_view appendix_notice(ChronicleAppendix previous,ChronicleAppendix current) noexcept {
+    const bool feather=current.white_feather && !previous.white_feather;
+    const bool loss=current.loss_list && !previous.loss_list;
+    return feather && loss?kAppendixNotices[2]:feather?kAppendixNotices[0]:loss?kAppendixNotices[1]:std::string_view{};
+}
+struct JournalProgress {
+    int highest_wave=1;
+    ChronicleAppendix appendices;
+    constexpr void merge(const JournalProgress& other) noexcept {
+        if(other.highest_wave>highest_wave) highest_wave=other.highest_wave;
+        appendices.white_feather|=other.appendices.white_feather;
+        appendices.loss_list|=other.appendices.loss_list;
+    }
+    constexpr void observe(int wave,bool feather,ChronicleChoice choice,bool developer) noexcept {
+        if(developer) return;
+        merge({wave,{feather,wave>=kSmilerUnlockWave && choice==ChronicleChoice::Guard}});
+    }
+    bool operator==(const JournalProgress&) const = default;
+};
 class ChronicleDecision {
 public:
     ChronicleChoice choice() const noexcept { return choice_; }

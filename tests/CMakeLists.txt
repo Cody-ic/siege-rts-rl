@@ -1,4 +1,19 @@
 include(FetchContent)
+if(RTS_WITH_ONNX)
+    add_executable(tactical_game_check tactical_game_check.cpp)
+    target_link_libraries(tactical_game_check PRIVATE game nlohmann_json_hdr)
+    rts_set_warnings(tactical_game_check TESTS)
+    rts_copy_onnx_runtime(tactical_game_check)
+    # Explicit real-model integration check; no silently skipped CTest case.
+    add_executable(macro_game_check macro_game_check.cpp)
+    target_link_libraries(macro_game_check PRIVATE game)
+    rts_set_warnings(macro_game_check TESTS)
+    rts_copy_onnx_runtime(macro_game_check)
+    add_executable(macro_game_evaluate macro_game_evaluate.cpp)
+    target_link_libraries(macro_game_evaluate PRIVATE game nlohmann_json_hdr)
+    rts_set_warnings(macro_game_evaluate TESTS)
+    rts_copy_onnx_runtime(macro_game_evaluate)
+endif()
 
 # CMP0135（CMake 3.24 起）：URL 下载解压后用解压时间而非归档内的时间戳，
 # 否则 URL 变了但归档内时间戳更旧时不会重新构建。用 if(POLICY) 包住是因为顶层的
@@ -52,6 +67,11 @@ add_executable(rts_tests
     msvc_debug_to_stderr.cpp
     rng_test.cpp
     save_game_test.cpp
+    rl_policy_test.cpp
+    training_goals_test.cpp
+    macro_sampling_test.cpp
+    training_campaign_test.cpp
+    macro_observation_test.cpp
     battle_fixes_test.cpp
     hash_test.cpp
     types_test.cpp
@@ -87,6 +107,7 @@ add_executable(rts_tests
 )
 
 target_link_libraries(rts_tests PRIVATE rts_core game Catch2::Catch2WithMain)
+rts_copy_onnx_runtime(rts_tests)
 rts_set_warnings(rts_tests TESTS)
 
 # 夹具地图的路径作为编译期常量给测试，**不依赖 ctest 的工作目录**。
@@ -144,7 +165,7 @@ target_compile_definitions(rts_tests PRIVATE
 #     ./build/tests/Release/rts_tests "<用例名>"
 foreach(_tag rng hash types map scene iso names utf8path roster action command obs
         terrain fog world replay behavior stats mech econ garrison charge proj flow
-        script input menu assets demo obspack batchenv macro save battlefix)
+        script input menu assets demo obspack batchenv macro save battlefix rlpolicy)
     add_test(NAME rts_tests_${_tag} COMMAND rts_tests "[${_tag}]")
 endforeach()
 
@@ -168,6 +189,10 @@ add_test(NAME rts_tests_all COMMAND rts_tests)
 # 把 CLAUDE.md 的确定性禁令变成一条真的会红的测试，而不是只写在文档里。
 # 两条：一条扫 rts_core/，一条是检查器自己的自检——后者防的是"检查器退化成永远绿"。
 find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME smiler_html_is_current
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/export_smiler.py" --check)
+endif()
 
 # 找不到 Python3 时**默认让配置失败**，而不是打一句 message(WARNING) 就过去。
 #
@@ -188,8 +213,16 @@ if(NOT Python3_FOUND AND RTS_REQUIRE_DETERMINISM_GUARD)
 endif()
 
 if(Python3_FOUND)
+    add_test(NAME outcome_metrics
+             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/outcome_metrics_test.py")
+    add_test(NAME reward_profiles
+             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/reward_profiles_test.py")
     add_test(NAME training_math
              COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/training_math_test.py")
+    add_test(NAME compare_goal_evaluations
+             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/compare_goal_evaluations_test.py")
+    add_test(NAME compare_profile_evaluations
+             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/compare_profile_evaluations_test.py")
     set(_checker "${CMAKE_SOURCE_DIR}/tools/check_determinism_bans.py")
     # 扫 rts_core/ 与 game/ 两处。
     #

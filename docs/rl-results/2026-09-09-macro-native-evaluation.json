@@ -1,0 +1,463 @@
+{
+  "plan": {
+    "runner": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\build-onnx\\tests\\Release\\macro_game_evaluate.exe",
+    "models": {
+      "before": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\runs\\macro-joint-initial-20260909\\export-native-v2",
+      "after": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\runs\\macro-joint-20260909\\export-native-v2"
+    },
+    "stats": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\stats_placeholder.json",
+    "attacker": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\runs\\prepared-final-20260909\\export\\attacker.onnx",
+    "maps": [
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01002000.json",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01003000.json",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json"
+    ],
+    "seeds": [
+      501,
+      502
+    ],
+    "max_wave": 6,
+    "max_ticks": 100000,
+    "period": 20,
+    "files": {
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\build-onnx\\tests\\Release\\macro_game_evaluate.exe": "8bc6ef0045c219efd7423f5fc2c1b4d313974bcf73b1ac4c9a17d3ad905d4265",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\stats_placeholder.json": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\runs\\prepared-final-20260909\\export\\attacker.onnx": "2e62e27f1b2b7002e9e727a09a58f0357909cc0ee01ee76e1db0477bdf52c7c3",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01002000.json": "258426af6ee45cece5789f02ced8dff215b2db1e130471c766a9eb9c2c6628bf",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01003000.json": "1eca9b886a26f424b8039fb4665a8d4ca056b145672d54e9a060a03d453c737d",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json": "65f8ed3f8102fba260e8bc2b9a0b386bb3b2d0ae66081e4008f520e10f0463fd",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json": "09a441043b8e1bfdfe9b6405fdd60c0bb1cef5f943049fd4f03ccc8bde680ebf",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\build-onnx\\tests\\Release\\onnxruntime.dll": "69d8e6d3879a3b4001cdc74c8ed9ccc7e7f799a5b847059738323404519ec471",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\tests\\macro_game_evaluate.cpp": "bbc738545c50b774c43dbbfb41d6bbdf23d3cec2f27312a1c912d9ead7860604",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\train\\native_macro_evaluate.py": "7f602c6408501f2ce2b9b2bea3dd011f8d5160397c2eabdb866de345697944e2",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\runs\\macro-joint-initial-20260909\\export-native-v2\\manifest.json": "8f64f2abd2cae68666168e6f214cc2ed39259c0331ab93678d94f25304e5181a",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\runs\\macro-joint-initial-20260909\\export-native-v2\\encoder.onnx": "675fe74b31e74b6ba3b3a4688d677edd3cc153ede0deba4640e928b94fa92833",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\runs\\macro-joint-initial-20260909\\export-native-v2\\decoder.onnx": "baf5688ff9f41f8651642d157ad84747ce6c86848a5a6547301537632994d3c8",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\runs\\macro-joint-20260909\\export-native-v2\\manifest.json": "45a2f1065134c7098e221dba69f4cd45ee82b84521e0a4eb7c2d580bb7d7da9f",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\runs\\macro-joint-20260909\\export-native-v2\\encoder.onnx": "ffa89fe3ed4f8ceed6c8b7a1ac645868c5fd9331de7f3be0308ef87a28d46da2",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\runs\\macro-joint-20260909\\export-native-v2\\decoder.onnx": "a8f6c463f89f10ff02bf776447460822500e6cdbc3cf329aef7affb2653d81e4"
+    },
+    "scope": "Native game runtime validation on maps excluded from joint training; maps have prior evaluation history, seeds are new. Not interchangeable with PyTorch sampling."
+  },
+  "before": {
+    "plan_sha256": "b87256d822ee495a2a50d1587f5083a70aa7fd9e6bc6fcceda1fbd23d9eda1a4",
+    "arm": "before",
+    "mode": "native-game-categorical",
+    "complete": true,
+    "cases": [
+      {
+        "attacker_identity": "9554465781158682901",
+        "completed": false,
+        "defeated": true,
+        "defender_identity": "5180654328997923757",
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01002000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          4199437590,
+          2541600827,
+          2243119639,
+          4153168178
+        ],
+        "runtime_seconds": 59.7015655,
+        "seed": 501,
+        "state_hash": 7242142566979993997,
+        "tick": 14850,
+        "timeout": false,
+        "wave": 5,
+        "waves_survived": 4
+      },
+      {
+        "attacker_identity": "9554465781158682901",
+        "completed": false,
+        "defeated": true,
+        "defender_identity": "5180654328997923757",
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01002000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          1053915186,
+          1266927957,
+          2821586785,
+          1631991073
+        ],
+        "runtime_seconds": 79.511034,
+        "seed": 502,
+        "state_hash": 5601390249302932783,
+        "tick": 15966,
+        "timeout": false,
+        "wave": 6,
+        "waves_survived": 5
+      },
+      {
+        "attacker_identity": "9554465781158682901",
+        "completed": false,
+        "defeated": true,
+        "defender_identity": "5180654328997923757",
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01003000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          3168310413,
+          1582467894,
+          2097926603,
+          243319163
+        ],
+        "runtime_seconds": 43.2862923,
+        "seed": 501,
+        "state_hash": 9302342821266272743,
+        "tick": 9061,
+        "timeout": false,
+        "wave": 3,
+        "waves_survived": 2
+      },
+      {
+        "attacker_identity": "9554465781158682901",
+        "completed": false,
+        "defeated": true,
+        "defender_identity": "5180654328997923757",
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01003000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          3334335721,
+          1573545421,
+          3136832720,
+          1128031718
+        ],
+        "runtime_seconds": 35.5127428,
+        "seed": 502,
+        "state_hash": 2820722999980733209,
+        "tick": 8230,
+        "timeout": false,
+        "wave": 3,
+        "waves_survived": 2
+      },
+      {
+        "attacker_identity": "9554465781158682901",
+        "completed": false,
+        "defeated": true,
+        "defender_identity": "5180654328997923757",
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          383218929,
+          3271976911,
+          2568820561,
+          3476104153
+        ],
+        "runtime_seconds": 60.1557863,
+        "seed": 501,
+        "state_hash": 3193168487484794088,
+        "tick": 11572,
+        "timeout": false,
+        "wave": 4,
+        "waves_survived": 3
+      },
+      {
+        "attacker_identity": "9554465781158682901",
+        "completed": false,
+        "defeated": true,
+        "defender_identity": "5180654328997923757",
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          999409846,
+          992164769,
+          2677430757,
+          636356827
+        ],
+        "runtime_seconds": 79.4716697,
+        "seed": 502,
+        "state_hash": 510955144633337382,
+        "tick": 17816,
+        "timeout": false,
+        "wave": 6,
+        "waves_survived": 5
+      },
+      {
+        "attacker_identity": "9554465781158682901",
+        "completed": false,
+        "defeated": true,
+        "defender_identity": "5180654328997923757",
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          853925130,
+          1964496480,
+          1465929940,
+          2560001177
+        ],
+        "runtime_seconds": 47.6480863,
+        "seed": 501,
+        "state_hash": 18150499378440413752,
+        "tick": 13316,
+        "timeout": false,
+        "wave": 5,
+        "waves_survived": 4
+      },
+      {
+        "attacker_identity": "9554465781158682901",
+        "completed": false,
+        "defeated": true,
+        "defender_identity": "5180654328997923757",
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          3651631665,
+          3363740295,
+          3355354394,
+          356296817
+        ],
+        "runtime_seconds": 59.0657443,
+        "seed": 502,
+        "state_hash": 5807805824195858568,
+        "tick": 13619,
+        "timeout": false,
+        "wave": 5,
+        "waves_survived": 4
+      }
+    ]
+  },
+  "after": {
+    "plan_sha256": "b87256d822ee495a2a50d1587f5083a70aa7fd9e6bc6fcceda1fbd23d9eda1a4",
+    "arm": "after",
+    "mode": "native-game-categorical",
+    "complete": true,
+    "cases": [
+      {
+        "attacker_identity": "9554465781158682901",
+        "completed": false,
+        "defeated": true,
+        "defender_identity": "17228096830293534042",
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01002000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          3728332772,
+          191106536,
+          361530422,
+          3669359871
+        ],
+        "runtime_seconds": 53.1645591,
+        "seed": 501,
+        "state_hash": 7759180594103074942,
+        "tick": 11956,
+        "timeout": false,
+        "wave": 4,
+        "waves_survived": 3
+      },
+      {
+        "attacker_identity": "9554465781158682901",
+        "completed": true,
+        "defeated": false,
+        "defender_identity": "17228096830293534042",
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01002000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          1090167007,
+          2860892117,
+          264227438,
+          2907944772
+        ],
+        "runtime_seconds": 60.0806108,
+        "seed": 502,
+        "state_hash": 17752193060710207606,
+        "tick": 18070,
+        "timeout": false,
+        "wave": 7,
+        "waves_survived": 6
+      },
+      {
+        "attacker_identity": "9554465781158682901",
+        "completed": false,
+        "defeated": true,
+        "defender_identity": "17228096830293534042",
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01003000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          1610948683,
+          2349899703,
+          260286953,
+          1491336339
+        ],
+        "runtime_seconds": 42.6529517,
+        "seed": 501,
+        "state_hash": 10443061277017760746,
+        "tick": 8923,
+        "timeout": false,
+        "wave": 3,
+        "waves_survived": 2
+      },
+      {
+        "attacker_identity": "9554465781158682901",
+        "completed": false,
+        "defeated": true,
+        "defender_identity": "17228096830293534042",
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01003000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          517462439,
+          3977888479,
+          350662879,
+          3275512743
+        ],
+        "runtime_seconds": 65.8264898,
+        "seed": 502,
+        "state_hash": 6699347395035217174,
+        "tick": 14930,
+        "timeout": false,
+        "wave": 5,
+        "waves_survived": 4
+      },
+      {
+        "attacker_identity": "9554465781158682901",
+        "completed": false,
+        "defeated": true,
+        "defender_identity": "17228096830293534042",
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          3338469708,
+          1720795410,
+          1395987172,
+          4252608150
+        ],
+        "runtime_seconds": 60.946267,
+        "seed": 501,
+        "state_hash": 4705022785437567965,
+        "tick": 11866,
+        "timeout": false,
+        "wave": 4,
+        "waves_survived": 3
+      },
+      {
+        "attacker_identity": "9554465781158682901",
+        "completed": false,
+        "defeated": true,
+        "defender_identity": "17228096830293534042",
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          61676957,
+          3748965531,
+          1785199445,
+          3342126709
+        ],
+        "runtime_seconds": 64.3948616,
+        "seed": 502,
+        "state_hash": 7925890919697567267,
+        "tick": 17869,
+        "timeout": false,
+        "wave": 6,
+        "waves_survived": 5
+      },
+      {
+        "attacker_identity": "9554465781158682901",
+        "completed": false,
+        "defeated": true,
+        "defender_identity": "17228096830293534042",
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          705805400,
+          2481419911,
+          3664461039,
+          630200581
+        ],
+        "runtime_seconds": 49.3791629,
+        "seed": 501,
+        "state_hash": 3680542897908094627,
+        "tick": 10845,
+        "timeout": false,
+        "wave": 4,
+        "waves_survived": 3
+      },
+      {
+        "attacker_identity": "9554465781158682901",
+        "completed": true,
+        "defeated": false,
+        "defender_identity": "17228096830293534042",
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+        "policy_period": 20,
+        "policy_rng": [
+          1725095011,
+          2850652007,
+          2058103323,
+          717529135
+        ],
+        "runtime_seconds": 68.5050989,
+        "seed": 502,
+        "state_hash": 3284063821965945183,
+        "tick": 18600,
+        "timeout": false,
+        "wave": 7,
+        "waves_survived": 6
+      }
+    ]
+  },
+  "comparison": {
+    "cases": 8,
+    "before_mean": 3.625,
+    "after_mean": 4.0,
+    "before_completed": 0,
+    "after_completed": 2,
+    "improved": 3,
+    "worsened": 2,
+    "pairs": [
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01002000.json",
+        "seed": 501,
+        "before": 4,
+        "after": 3,
+        "delta": -1
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01002000.json",
+        "seed": 502,
+        "before": 5,
+        "after": 6,
+        "delta": 1
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01003000.json",
+        "seed": 501,
+        "before": 2,
+        "after": 2,
+        "delta": 0
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01003000.json",
+        "seed": 502,
+        "before": 2,
+        "after": 4,
+        "delta": 2
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+        "seed": 501,
+        "before": 3,
+        "after": 3,
+        "delta": 0
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+        "seed": 502,
+        "before": 5,
+        "after": 5,
+        "delta": 0
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+        "seed": 501,
+        "before": 4,
+        "after": 3,
+        "delta": -1
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+        "seed": 502,
+        "before": 4,
+        "after": 6,
+        "delta": 2
+      }
+    ]
+  },
+  "interpretation": "Native game sampling, eight paired cases; preliminary aggregate improvement with regressions, not a 70-wave or universal superiority claim."
+}

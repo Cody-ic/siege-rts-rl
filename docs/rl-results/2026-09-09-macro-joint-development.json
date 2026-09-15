@@ -1,0 +1,829 @@
+{
+  "training": {
+    "checkpoint_sha256": "d51f11fd52fe17c20898870eb4711c212f6d344333bed83060b8799697411c86",
+    "config": {
+      "maps": [
+        "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01001000.json",
+        "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01004000.json",
+        "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01005000.json",
+        "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01006001.json"
+      ],
+      "stats": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\stats_placeholder.json",
+      "seed": 1,
+      "rollout": 128,
+      "period": 20,
+      "epochs": 2,
+      "hidden": 64,
+      "learning_rate": 0.0003,
+      "gamma": 0.999,
+      "gae_lambda": 0.99,
+      "clip": 0.2,
+      "max_wave": 70,
+      "anchor_weight": 1.0,
+      "detach_critic_features": false,
+      "attacker_model": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\runs\\prepared-final-20260909\\export\\attacker.onnx",
+      "init_from_simulation": ""
+    },
+    "contract": {
+      "kind": "defender-macro-ppo-v1",
+      "simulation": "3fba3e619cadd7e3f661007be46b46dd51cd5d210169693e6f37b38f87f36e55",
+      "build": "Release",
+      "obs_version": 2,
+      "cells": [
+        "unit_Archer_count",
+        "unit_Archer_hp_fraction_sum",
+        "unit_Archer_level_sum",
+        "unit_Spear_count",
+        "unit_Spear_hp_fraction_sum",
+        "unit_Spear_level_sum",
+        "unit_Ranger_count",
+        "unit_Ranger_hp_fraction_sum",
+        "unit_Ranger_level_sum",
+        "unit_Scout_count",
+        "unit_Scout_hp_fraction_sum",
+        "unit_Scout_level_sum",
+        "unit_Mason_count",
+        "unit_Mason_hp_fraction_sum",
+        "unit_Mason_level_sum",
+        "unit_Ghoul_count",
+        "unit_Ghoul_hp_fraction_sum",
+        "unit_Ghoul_level_sum",
+        "unit_Shade_count",
+        "unit_Shade_hp_fraction_sum",
+        "unit_Shade_level_sum",
+        "unit_Knight_count",
+        "unit_Knight_hp_fraction_sum",
+        "unit_Knight_level_sum",
+        "unit_Phoenix_count",
+        "unit_Phoenix_hp_fraction_sum",
+        "unit_Phoenix_level_sum",
+        "unit_Wraith_count",
+        "unit_Wraith_hp_fraction_sum",
+        "unit_Wraith_level_sum",
+        "unit_Ram_count",
+        "unit_Ram_hp_fraction_sum",
+        "unit_Ram_level_sum",
+        "building_Keep_count",
+        "building_Keep_hp_fraction_sum",
+        "building_Keep_level_sum",
+        "building_Wall_count",
+        "building_Wall_hp_fraction_sum",
+        "building_Wall_level_sum",
+        "building_Gate_count",
+        "building_Gate_hp_fraction_sum",
+        "building_Gate_level_sum",
+        "building_Tower_count",
+        "building_Tower_hp_fraction_sum",
+        "building_Tower_level_sum",
+        "building_Flak_count",
+        "building_Flak_hp_fraction_sum",
+        "building_Flak_level_sum",
+        "building_Watch_count",
+        "building_Watch_hp_fraction_sum",
+        "building_Watch_level_sum",
+        "building_Barrack_count",
+        "building_Barrack_hp_fraction_sum",
+        "building_Barrack_level_sum",
+        "building_Fence_count",
+        "building_Fence_hp_fraction_sum",
+        "building_Fence_level_sum",
+        "building_Quarry_count",
+        "building_Quarry_hp_fraction_sum",
+        "building_Quarry_level_sum",
+        "building_Lumber_count",
+        "building_Lumber_hp_fraction_sum",
+        "building_Lumber_level_sum",
+        "building_Mine_count",
+        "building_Mine_hp_fraction_sum",
+        "building_Mine_level_sum",
+        "visible_fraction",
+        "explored_fraction",
+        "stone_sites",
+        "wood_sites",
+        "gold_sites"
+      ],
+      "globals": [
+        "stone",
+        "wood",
+        "gold",
+        "wave",
+        "assault",
+        "keep_hp_fraction",
+        "keep_level",
+        "unit_level_cap",
+        "population",
+        "population_cap"
+      ],
+      "detail": [
+        "buildable",
+        "obstacle",
+        "stone_site",
+        "wood_site",
+        "gold_site",
+        "building_Keep",
+        "building_Wall",
+        "building_Gate",
+        "building_Tower",
+        "building_Flak",
+        "building_Watch",
+        "building_Barrack",
+        "building_Fence",
+        "building_Quarry",
+        "building_Lumber",
+        "building_Mine",
+        "hp_fraction",
+        "level",
+        "built",
+        "upgrade_active",
+        "work_active",
+        "train_active",
+        "visible",
+        "explored"
+      ],
+      "detail_storage": "float16-before-inference",
+      "commands": [
+        "None",
+        "Build",
+        "Repair",
+        "Cancel",
+        "Train",
+        "Summon",
+        "Composition",
+        "PickSpawn",
+        "Clear",
+        "Upgrade",
+        "Demolish"
+      ],
+      "maps": [
+        "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+        "d11740be256d2666dc66318255efa4a7912744f47917f745ab920c572f56df45",
+        "7c43e2030fde2389cfc0784fd25410f21969e4b3f27911de798857e109f9a18d",
+        "7f32afd88e5dfdaea06cae08a9df2bf53d0169f7d9f3fbf89c909214b6fdd160"
+      ],
+      "stats": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+      "opponent": {
+        "kind": "frozen-tactical",
+        "sha256": "2e62e27f1b2b7002e9e727a09a58f0357909cc0ee01ee76e1db0477bdf52c7c3",
+        "identity": "9554465781158682901"
+      },
+      "sources": {
+        "macro_train.py": "4a9040fd0a05884c7b78a3e003eb055774ad1267dea6e38a7bb1a7b48d792e80",
+        "macro_policy.py": "a2f28829e9b8b2043c7f5426681bcf6368bac2565f8120d23a97f726d1b3d777",
+        "macro_opponent.py": "a987f3a5ce4786d791457cb6f69cbd16ec7f38bc3fb83896733c294a5b81ce8d",
+        "checkpointing.py": "e52000af6ac46c222628c957384cb49e09b5402edf4369c24017c0bc9536fa04"
+      }
+    },
+    "initialization": {
+      "kind": "macro-weights-warm-start",
+      "checkpoint_sha256": "5ce76b351ebda43cc58611ffb80442b7125bb691fc892881a462db3678c635ff",
+      "source_simulation": "3fba3e619cadd7e3f661007be46b46dd51cd5d210169693e6f37b38f87f36e55",
+      "target_simulation": "3fba3e619cadd7e3f661007be46b46dd51cd5d210169693e6f37b38f87f36e55"
+    },
+    "progress": {
+      "updates": 32,
+      "env_steps": 4096,
+      "episode": 8,
+      "waves_survived": 21,
+      "defeats": 8,
+      "history": [
+        {
+          "update": 1,
+          "loss": 0.00214938739372883,
+          "reward": 0.0,
+          "tick": 2560,
+          "wave": 1,
+          "episode": 0,
+          "reference_kl_estimate": 0.00020661363254914113
+        },
+        {
+          "update": 2,
+          "loss": 0.057817405089735985,
+          "reward": 1.0,
+          "tick": 5102,
+          "wave": 2,
+          "episode": 0,
+          "reference_kl_estimate": 0.00017780175007836574
+        },
+        {
+          "update": 3,
+          "loss": 0.02456293354043737,
+          "reward": 1.0,
+          "tick": 7656,
+          "wave": 3,
+          "episode": 0,
+          "reference_kl_estimate": 0.0009232589020401472
+        },
+        {
+          "update": 4,
+          "loss": 0.08608845545677468,
+          "reward": -1.0,
+          "tick": 2180,
+          "wave": 1,
+          "episode": 1,
+          "reference_kl_estimate": 0.0025512899255357713
+        },
+        {
+          "update": 5,
+          "loss": 0.1443325609434396,
+          "reward": -1.0,
+          "tick": 1840,
+          "wave": 1,
+          "episode": 2,
+          "reference_kl_estimate": 0.001010587994343004
+        },
+        {
+          "update": 6,
+          "loss": 0.08596073254011571,
+          "reward": 1.0,
+          "tick": 4400,
+          "wave": 2,
+          "episode": 2,
+          "reference_kl_estimate": 0.004271942250450023
+        },
+        {
+          "update": 7,
+          "loss": 0.2004747809842229,
+          "reward": -1.0,
+          "tick": 1420,
+          "wave": 1,
+          "episode": 3,
+          "reference_kl_estimate": 0.0010121015188317008
+        },
+        {
+          "update": 8,
+          "loss": 0.09760324501439754,
+          "reward": 1.0,
+          "tick": 3980,
+          "wave": 2,
+          "episode": 3,
+          "reference_kl_estimate": 0.00036003820261565345
+        },
+        {
+          "update": 9,
+          "loss": 0.1012737413875584,
+          "reward": 1.0,
+          "tick": 6540,
+          "wave": 3,
+          "episode": 3,
+          "reference_kl_estimate": 0.002647556470276813
+        },
+        {
+          "update": 10,
+          "loss": 0.0012868037156295031,
+          "reward": 0.0,
+          "tick": 9100,
+          "wave": 3,
+          "episode": 3,
+          "reference_kl_estimate": 0.0012046420113588918
+        },
+        {
+          "update": 11,
+          "loss": 0.029725712374784052,
+          "reward": 1.0,
+          "tick": 11660,
+          "wave": 4,
+          "episode": 3,
+          "reference_kl_estimate": 0.0007145529627101688
+        },
+        {
+          "update": 12,
+          "loss": 0.07247055578045547,
+          "reward": 1.0,
+          "tick": 14220,
+          "wave": 5,
+          "episode": 3,
+          "reference_kl_estimate": 0.02017847472599743
+        },
+        {
+          "update": 13,
+          "loss": 0.08880591008346528,
+          "reward": -1.0,
+          "tick": 2280,
+          "wave": 1,
+          "episode": 4,
+          "reference_kl_estimate": 0.00931475910471362
+        },
+        {
+          "update": 14,
+          "loss": 0.027902947389520705,
+          "reward": 1.0,
+          "tick": 4825,
+          "wave": 2,
+          "episode": 4,
+          "reference_kl_estimate": 0.000618777515017932
+        },
+        {
+          "update": 15,
+          "loss": 0.04027767339721322,
+          "reward": 1.0,
+          "tick": 7371,
+          "wave": 3,
+          "episode": 4,
+          "reference_kl_estimate": 0.000423672235676964
+        },
+        {
+          "update": 16,
+          "loss": 0.25271809520199895,
+          "reward": -1.0,
+          "tick": 1440,
+          "wave": 1,
+          "episode": 5,
+          "reference_kl_estimate": 0.0022757563224811107
+        },
+        {
+          "update": 17,
+          "loss": 0.0438280419439252,
+          "reward": 1.0,
+          "tick": 4000,
+          "wave": 2,
+          "episode": 5,
+          "reference_kl_estimate": 0.0008869801781044911
+        },
+        {
+          "update": 18,
+          "loss": 0.05157864004786461,
+          "reward": 1.0,
+          "tick": 6560,
+          "wave": 3,
+          "episode": 5,
+          "reference_kl_estimate": 0.011897803385569072
+        },
+        {
+          "update": 19,
+          "loss": 0.3656567307734804,
+          "reward": -1.0,
+          "tick": 500,
+          "wave": 1,
+          "episode": 6,
+          "reference_kl_estimate": 0.005583893788443539
+        },
+        {
+          "update": 20,
+          "loss": 0.001425724221917335,
+          "reward": 0.0,
+          "tick": 3060,
+          "wave": 1,
+          "episode": 6,
+          "reference_kl_estimate": 0.0006718822177914641
+        },
+        {
+          "update": 21,
+          "loss": 0.012078350002411753,
+          "reward": 1.0,
+          "tick": 5620,
+          "wave": 2,
+          "episode": 6,
+          "reference_kl_estimate": 0.001658539687432313
+        },
+        {
+          "update": 22,
+          "loss": 0.01474696135846898,
+          "reward": 1.0,
+          "tick": 8169,
+          "wave": 3,
+          "episode": 6,
+          "reference_kl_estimate": 0.008635740496743177
+        },
+        {
+          "update": 23,
+          "loss": 0.15455235791159794,
+          "reward": -1.0,
+          "tick": 2140,
+          "wave": 1,
+          "episode": 7,
+          "reference_kl_estimate": 0.005998150564572147
+        },
+        {
+          "update": 24,
+          "loss": 0.024598782183602452,
+          "reward": 1.0,
+          "tick": 4700,
+          "wave": 2,
+          "episode": 7,
+          "reference_kl_estimate": 0.0009323555916690429
+        },
+        {
+          "update": 25,
+          "loss": 0.02135705144610256,
+          "reward": 1.0,
+          "tick": 7258,
+          "wave": 3,
+          "episode": 7,
+          "reference_kl_estimate": 0.001054148904191976
+        },
+        {
+          "update": 26,
+          "loss": 0.07854160876013339,
+          "reward": 1.0,
+          "tick": 9818,
+          "wave": 4,
+          "episode": 7,
+          "reference_kl_estimate": 0.05162748381718302
+        },
+        {
+          "update": 27,
+          "loss": 0.0934196114894803,
+          "reward": 1.0,
+          "tick": 12378,
+          "wave": 5,
+          "episode": 7,
+          "reference_kl_estimate": 0.06499184694333082
+        },
+        {
+          "update": 28,
+          "loss": 0.3813324337825179,
+          "reward": -1.0,
+          "tick": 980,
+          "wave": 1,
+          "episode": 8,
+          "reference_kl_estimate": 0.012403630733174152
+        },
+        {
+          "update": 29,
+          "loss": 0.02708439330035617,
+          "reward": 1.0,
+          "tick": 3530,
+          "wave": 2,
+          "episode": 8,
+          "reference_kl_estimate": 0.0017310326809902576
+        },
+        {
+          "update": 30,
+          "loss": 0.02187941110128122,
+          "reward": 1.0,
+          "tick": 6072,
+          "wave": 3,
+          "episode": 8,
+          "reference_kl_estimate": 8.396040906100133e-05
+        },
+        {
+          "update": 31,
+          "loss": 0.04455490421878494,
+          "reward": 1.0,
+          "tick": 8632,
+          "wave": 4,
+          "episode": 8,
+          "reference_kl_estimate": 0.031204827236755717
+        },
+        {
+          "update": 32,
+          "loss": 0.01762088429131836,
+          "reward": 1.0,
+          "tick": 11190,
+          "wave": 5,
+          "episode": 8,
+          "reference_kl_estimate": 0.00487306475538854
+        }
+      ],
+      "simulation_ticks": 81776,
+      "finished_campaigns": [
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01001000.json",
+          "seed": 1,
+          "ticks": 8036,
+          "waves_survived": 2,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01004000.json",
+          "seed": 2,
+          "ticks": 2884,
+          "waves_survived": 0,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01005000.json",
+          "seed": 3,
+          "ticks": 5535,
+          "waves_survived": 1,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01006001.json",
+          "seed": 4,
+          "ticks": 14493,
+          "waves_survived": 4,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01001000.json",
+          "seed": 5,
+          "ticks": 8486,
+          "waves_survived": 2,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01004000.json",
+          "seed": 6,
+          "ticks": 8617,
+          "waves_survived": 2,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01005000.json",
+          "seed": 7,
+          "ticks": 8584,
+          "waves_survived": 2,
+          "defeated": true
+        },
+        {
+          "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01006001.json",
+          "seed": 8,
+          "ticks": 13951,
+          "waves_survived": 4,
+          "defeated": true
+        }
+      ]
+    },
+    "campaign_tick": 11190,
+    "campaign_wave": 5
+  },
+  "before": {
+    "checkpoint_sha256": "5ce76b351ebda43cc58611ffb80442b7125bb691fc892881a462db3678c635ff",
+    "simulation": "3fba3e619cadd7e3f661007be46b46dd51cd5d210169693e6f37b38f87f36e55",
+    "evaluator_sha256": "e3646d1d5449fa1e21d4468bf5607c944ced9f9e24f4399f7e4071d6732d4e0c",
+    "stats_sha256": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+    "maps": {
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json": "65f8ed3f8102fba260e8bc2b9a0b386bb3b2d0ae66081e4008f520e10f0463fd",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json": "09a441043b8e1bfdfe9b6405fdd60c0bb1cef5f943049fd4f03ccc8bde680ebf"
+    },
+    "seeds": [
+      101,
+      102
+    ],
+    "max_wave": 6,
+    "max_ticks": 100000,
+    "mode": "sample",
+    "policy_period": 20,
+    "training_period": 20,
+    "opponent": {
+      "kind": "frozen-tactical",
+      "sha256": "2e62e27f1b2b7002e9e727a09a58f0357909cc0ee01ee76e1db0477bdf52c7c3",
+      "identity": "9554465781158682901"
+    },
+    "script_internal_period": 20,
+    "training_maps": [
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01001000.json",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01004000.json",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01005000.json",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01006001.json"
+    ],
+    "arms": [
+      "learned"
+    ],
+    "complete": true,
+    "cases": [
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+        "seed": 101,
+        "tick": 12169,
+        "wave": 4,
+        "waves_survived": 3,
+        "defeated": true,
+        "completed": false,
+        "timeout": false,
+        "keep_hp_fraction": 0.0,
+        "commands": {
+          "Build": 6,
+          "None": 576,
+          "Train": 11,
+          "Repair": 15,
+          "Upgrade": 1
+        },
+        "state_hash": 4064059056889687124,
+        "arm": "learned"
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+        "seed": 102,
+        "tick": 12349,
+        "wave": 4,
+        "waves_survived": 3,
+        "defeated": true,
+        "completed": false,
+        "timeout": false,
+        "keep_hp_fraction": 0.0,
+        "commands": {
+          "Build": 9,
+          "None": 567,
+          "Clear": 1,
+          "Train": 14,
+          "Repair": 25,
+          "Upgrade": 2
+        },
+        "state_hash": 13795776906627466833,
+        "arm": "learned"
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+        "seed": 101,
+        "tick": 12103,
+        "wave": 4,
+        "waves_survived": 3,
+        "defeated": true,
+        "completed": false,
+        "timeout": false,
+        "keep_hp_fraction": 0.0,
+        "commands": {
+          "Build": 7,
+          "None": 507,
+          "Train": 14,
+          "Clear": 1,
+          "Upgrade": 57,
+          "Repair": 20
+        },
+        "state_hash": 13334428049485892377,
+        "arm": "learned"
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+        "seed": 102,
+        "tick": 15187,
+        "wave": 5,
+        "waves_survived": 4,
+        "defeated": true,
+        "completed": false,
+        "timeout": false,
+        "keep_hp_fraction": 0.0,
+        "commands": {
+          "Build": 5,
+          "None": 648,
+          "Clear": 3,
+          "Train": 17,
+          "Upgrade": 67,
+          "Repair": 20
+        },
+        "state_hash": 9888420380010004546,
+        "arm": "learned"
+      }
+    ]
+  },
+  "after": {
+    "checkpoint_sha256": "d51f11fd52fe17c20898870eb4711c212f6d344333bed83060b8799697411c86",
+    "simulation": "3fba3e619cadd7e3f661007be46b46dd51cd5d210169693e6f37b38f87f36e55",
+    "evaluator_sha256": "e3646d1d5449fa1e21d4468bf5607c944ced9f9e24f4399f7e4071d6732d4e0c",
+    "stats_sha256": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+    "maps": {
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json": "65f8ed3f8102fba260e8bc2b9a0b386bb3b2d0ae66081e4008f520e10f0463fd",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json": "09a441043b8e1bfdfe9b6405fdd60c0bb1cef5f943049fd4f03ccc8bde680ebf"
+    },
+    "seeds": [
+      101,
+      102
+    ],
+    "max_wave": 6,
+    "max_ticks": 100000,
+    "mode": "sample",
+    "policy_period": 20,
+    "training_period": 20,
+    "opponent": {
+      "kind": "frozen-tactical",
+      "sha256": "2e62e27f1b2b7002e9e727a09a58f0357909cc0ee01ee76e1db0477bdf52c7c3",
+      "identity": "9554465781158682901"
+    },
+    "script_internal_period": 20,
+    "training_maps": [
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01001000.json",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01004000.json",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01005000.json",
+      "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01006001.json"
+    ],
+    "arms": [
+      "learned"
+    ],
+    "complete": true,
+    "cases": [
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+        "seed": 101,
+        "tick": 15217,
+        "wave": 5,
+        "waves_survived": 4,
+        "defeated": true,
+        "completed": false,
+        "timeout": false,
+        "keep_hp_fraction": 0.0,
+        "commands": {
+          "Build": 5,
+          "None": 717,
+          "Train": 10,
+          "Repair": 29,
+          "Upgrade": 1
+        },
+        "state_hash": 782071357011839854,
+        "arm": "learned"
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+        "seed": 102,
+        "tick": 9391,
+        "wave": 3,
+        "waves_survived": 2,
+        "defeated": true,
+        "completed": false,
+        "timeout": false,
+        "keep_hp_fraction": 0.0,
+        "commands": {
+          "Build": 5,
+          "None": 438,
+          "Clear": 1,
+          "Train": 8,
+          "Repair": 18
+        },
+        "state_hash": 8926397105041360208,
+        "arm": "learned"
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+        "seed": 101,
+        "tick": 18600,
+        "wave": 7,
+        "waves_survived": 6,
+        "defeated": false,
+        "completed": true,
+        "timeout": false,
+        "keep_hp_fraction": 0.7277777791023254,
+        "commands": {
+          "Build": 13,
+          "None": 795,
+          "Train": 10,
+          "Clear": 3,
+          "Repair": 34,
+          "Upgrade": 75
+        },
+        "state_hash": 15388421658224275247,
+        "arm": "learned"
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+        "seed": 102,
+        "tick": 9043,
+        "wave": 3,
+        "waves_survived": 2,
+        "defeated": true,
+        "completed": false,
+        "timeout": false,
+        "keep_hp_fraction": 0.0,
+        "commands": {
+          "Build": 4,
+          "None": 374,
+          "Clear": 3,
+          "Train": 7,
+          "Upgrade": 49,
+          "Repair": 16
+        },
+        "state_hash": 8014664358172702534,
+        "arm": "learned"
+      }
+    ]
+  },
+  "comparison": {
+    "cases": 4,
+    "before_checkpoint": "5ce76b351ebda43cc58611ffb80442b7125bb691fc892881a462db3678c635ff",
+    "after_checkpoint": "d51f11fd52fe17c20898870eb4711c212f6d344333bed83060b8799697411c86",
+    "before_completed": 0,
+    "after_completed": 1,
+    "before_mean_waves": 3.25,
+    "after_mean_waves": 3.5,
+    "improved": 2,
+    "worsened": 2,
+    "pairs": [
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+        "seed": 101,
+        "before_waves": 3,
+        "after_waves": 4,
+        "delta": 1,
+        "before_completed": false,
+        "after_completed": false
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+        "seed": 102,
+        "before_waves": 3,
+        "after_waves": 2,
+        "delta": -1,
+        "before_completed": false,
+        "after_completed": false
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+        "seed": 101,
+        "before_waves": 3,
+        "after_waves": 6,
+        "delta": 3,
+        "before_completed": false,
+        "after_completed": true
+      },
+      {
+        "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+        "seed": 102,
+        "before_waves": 4,
+        "after_waves": 2,
+        "delta": -2,
+        "before_completed": false,
+        "after_completed": false
+      }
+    ]
+  }
+}

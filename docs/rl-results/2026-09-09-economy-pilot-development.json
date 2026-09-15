@@ -1,0 +1,501 @@
+{
+  "scope": "Matched development-set comparison; same goal-conditioned observation mode for both policies",
+  "baseline": {
+    "config": {
+      "threads": 4,
+      "torch_threads": 1,
+      "max_ticks": 2400,
+      "save_every": 1,
+      "target_kl": 0.03,
+      "envs": 8,
+      "ticks_per_step": 6,
+      "rollout": 64,
+      "total_steps": 200000,
+      "lr": 0.0003,
+      "gamma": 0.99,
+      "gae_lambda": 0.95,
+      "clip": 0.2,
+      "epochs": 4,
+      "minibatches": 4,
+      "ent_coef": 0.01,
+      "vf_coef": 0.5,
+      "value_features": "shared",
+      "reference_coef": 0.0,
+      "max_grad_norm": 0.5,
+      "seed": 1,
+      "reward_mode": "economic",
+      "win_reward": 2000.0,
+      "curriculum": [
+        1.0
+      ],
+      "promote_at": 0.6,
+      "promote_outcome_at": 0.25,
+      "promote_window": 100,
+      "map_path": "game/data/maps/pool/gen_01001000.json",
+      "map_pool": [
+        "game/data/maps/pool/gen_01001000.json",
+        "game/data/maps/pool/gen_01004000.json",
+        "game/data/maps/pool/gen_01005000.json",
+        "game/data/maps/pool/gen_01006001.json"
+      ],
+      "roster": "mixed",
+      "tactical_goals": "known-economy",
+      "levels": [
+        4,
+        8
+      ],
+      "defender": true,
+      "defender_macro_period": 4,
+      "defender_prepare_ticks": 900,
+      "stats_path": "game/data/stats_placeholder.json",
+      "device": "cpu"
+    },
+    "contract": {
+      "obs_version": 2,
+      "obs_fingerprint": 13173046946482585016,
+      "actions": 13,
+      "max_agents": 32,
+      "map_sha256": "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+      "stats_sha256": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+      "map_pool_sha256": [
+        "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+        "d11740be256d2666dc66318255efa4a7912744f47917f745ab920c572f56df45",
+        "7c43e2030fde2389cfc0784fd25410f21969e4b3f27911de798857e109f9a18d",
+        "7f32afd88e5dfdaea06cae08a9df2bf53d0169f7d9f3fbf89c909214b6fdd160"
+      ],
+      "simulation_fingerprint": "61abbb70028f3dcd30f41ace3d9ba6af3cc3d50909505f130e7ad9421d53dba5",
+      "native_build_mode": "Release",
+      "learner_version": 6,
+      "learner_sha256": {
+        "ppo.py": "cc225c21337f93ad46ef7778bf74e6ff12ee5df2334bac5bd71db50d0a34dd76",
+        "learning.py": "04c647de5551ba2642fcb61f738b729d4b10c020e85f1908d35f3b7e2fef46a4",
+        "rollout.py": "77b792a2ef89de002807681b5c89fd9f774b1dcfe029968d130c60e107e4398a",
+        "checkpointing.py": "e52000af6ac46c222628c957384cb49e09b5402edf4369c24017c0bc9536fa04"
+      }
+    },
+    "checkpoint_sha256": "b556e8e3ff216d5fc3dc8e960fed12c2ccce79f318472cc6be8cff6c90550276",
+    "policy": "frozen_argmax",
+    "rows": [
+      {
+        "environment": 0,
+        "observations": 297,
+        "economy_observations": 136,
+        "first_goal_tick": 258,
+        "peak_known_targets": 2,
+        "assigned_squad_observations": 1190,
+        "live_squad_observations": 2546,
+        "end": "EpisodeEnd.KeepDestroyed",
+        "ticks": 1782,
+        "tally": {
+          "dmg_to_units": 699.0,
+          "dmg_to_blds": 5647.0,
+          "units_killed": 1.0,
+          "blds_destroyed": 9.0,
+          "bld_value": 630.0,
+          "scouts_killed": 0.0,
+          "losses": 1160.0,
+          "progress": 976.0
+        }
+      },
+      {
+        "environment": 1,
+        "observations": 400,
+        "economy_observations": 310,
+        "first_goal_tick": 204,
+        "peak_known_targets": 3,
+        "assigned_squad_observations": 1136,
+        "live_squad_observations": 1561,
+        "end": "EpisodeEnd.Timeout",
+        "ticks": 2400,
+        "tally": {
+          "dmg_to_units": 44.0,
+          "dmg_to_blds": 7089.0,
+          "units_killed": 0.0,
+          "blds_destroyed": 13.0,
+          "bld_value": 670.0,
+          "scouts_killed": 0.0,
+          "losses": 5444.0,
+          "progress": 835.0
+        }
+      },
+      {
+        "environment": 2,
+        "observations": 290,
+        "economy_observations": 256,
+        "first_goal_tick": 204,
+        "peak_known_targets": 2,
+        "assigned_squad_observations": 1869,
+        "live_squad_observations": 2175,
+        "end": "EpisodeEnd.KeepDestroyed",
+        "ticks": 1740,
+        "tally": {
+          "dmg_to_units": 553.0,
+          "dmg_to_blds": 6145.0,
+          "units_killed": 7.0,
+          "blds_destroyed": 12.0,
+          "bld_value": 690.0,
+          "scouts_killed": 0.0,
+          "losses": 3527.0,
+          "progress": 940.0
+        }
+      },
+      {
+        "environment": 3,
+        "observations": 400,
+        "economy_observations": 153,
+        "first_goal_tick": 264,
+        "peak_known_targets": 3,
+        "assigned_squad_observations": 1377,
+        "live_squad_observations": 2475,
+        "end": "EpisodeEnd.Timeout",
+        "ticks": 2400,
+        "tally": {
+          "dmg_to_units": 600.0,
+          "dmg_to_blds": 3737.0,
+          "units_killed": 2.0,
+          "blds_destroyed": 11.0,
+          "bld_value": 590.0,
+          "scouts_killed": 0.0,
+          "losses": 4607.0,
+          "progress": 949.0
+        }
+      },
+      {
+        "environment": 4,
+        "observations": 400,
+        "economy_observations": 347,
+        "first_goal_tick": 300,
+        "peak_known_targets": 3,
+        "assigned_squad_observations": 2058,
+        "live_squad_observations": 2529,
+        "end": "EpisodeEnd.Timeout",
+        "ticks": 2400,
+        "tally": {
+          "dmg_to_units": 110.0,
+          "dmg_to_blds": 9761.0,
+          "units_killed": 0.0,
+          "blds_destroyed": 17.0,
+          "bld_value": 1110.0,
+          "scouts_killed": 0.0,
+          "losses": 3527.0,
+          "progress": 872.0
+        }
+      },
+      {
+        "environment": 5,
+        "observations": 323,
+        "economy_observations": 200,
+        "first_goal_tick": 306,
+        "peak_known_targets": 2,
+        "assigned_squad_observations": 1800,
+        "live_squad_observations": 2907,
+        "end": "EpisodeEnd.KeepDestroyed",
+        "ticks": 1938,
+        "tally": {
+          "dmg_to_units": 1043.0,
+          "dmg_to_blds": 7711.0,
+          "units_killed": 1.0,
+          "blds_destroyed": 13.0,
+          "bld_value": 670.0,
+          "scouts_killed": 0.0,
+          "losses": 643.0,
+          "progress": 972.0
+        }
+      },
+      {
+        "environment": 6,
+        "observations": 400,
+        "economy_observations": 284,
+        "first_goal_tick": 696,
+        "peak_known_targets": 3,
+        "assigned_squad_observations": 859,
+        "live_squad_observations": 1874,
+        "end": "EpisodeEnd.Timeout",
+        "ticks": 2400,
+        "tally": {
+          "dmg_to_units": 22.0,
+          "dmg_to_blds": 6530.0,
+          "units_killed": 0.0,
+          "blds_destroyed": 10.0,
+          "bld_value": 650.0,
+          "scouts_killed": 0.0,
+          "losses": 5444.0,
+          "progress": 832.0
+        }
+      },
+      {
+        "environment": 7,
+        "observations": 352,
+        "economy_observations": 181,
+        "first_goal_tick": 228,
+        "peak_known_targets": 3,
+        "assigned_squad_observations": 1429,
+        "live_squad_observations": 2488,
+        "end": "EpisodeEnd.KeepDestroyed",
+        "ticks": 2112,
+        "tally": {
+          "dmg_to_units": 913.0,
+          "dmg_to_blds": 6570.0,
+          "units_killed": 7.0,
+          "blds_destroyed": 12.0,
+          "bld_value": 640.0,
+          "scouts_killed": 0.0,
+          "losses": 3527.0,
+          "progress": 922.0
+        }
+      }
+    ],
+    "complete": true,
+    "seconds": 20.645442599998205,
+    "scope": "Development goal coverage, not independent policy improvement evaluation"
+  },
+  "candidate": {
+    "config": {
+      "threads": 4,
+      "torch_threads": 1,
+      "max_ticks": 2400,
+      "save_every": 1,
+      "target_kl": 0.03,
+      "envs": 8,
+      "ticks_per_step": 6,
+      "rollout": 64,
+      "total_steps": 200000,
+      "lr": 0.0003,
+      "gamma": 0.99,
+      "gae_lambda": 0.95,
+      "clip": 0.2,
+      "epochs": 4,
+      "minibatches": 4,
+      "ent_coef": 0.01,
+      "vf_coef": 0.5,
+      "value_features": "shared",
+      "reference_coef": 0.0,
+      "max_grad_norm": 0.5,
+      "seed": 1,
+      "reward_mode": "economic",
+      "win_reward": 2000.0,
+      "curriculum": [
+        1.0
+      ],
+      "promote_at": 0.6,
+      "promote_outcome_at": 0.25,
+      "promote_window": 100,
+      "map_path": "game/data/maps/pool/gen_01001000.json",
+      "map_pool": [
+        "game/data/maps/pool/gen_01001000.json",
+        "game/data/maps/pool/gen_01004000.json",
+        "game/data/maps/pool/gen_01005000.json",
+        "game/data/maps/pool/gen_01006001.json"
+      ],
+      "roster": "mixed",
+      "tactical_goals": "known-economy",
+      "levels": [
+        4,
+        8
+      ],
+      "defender": true,
+      "defender_macro_period": 4,
+      "defender_prepare_ticks": 900,
+      "stats_path": "game/data/stats_placeholder.json",
+      "device": "cpu"
+    },
+    "contract": {
+      "obs_version": 2,
+      "obs_fingerprint": 13173046946482585016,
+      "actions": 13,
+      "max_agents": 32,
+      "map_sha256": "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+      "stats_sha256": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+      "map_pool_sha256": [
+        "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+        "d11740be256d2666dc66318255efa4a7912744f47917f745ab920c572f56df45",
+        "7c43e2030fde2389cfc0784fd25410f21969e4b3f27911de798857e109f9a18d",
+        "7f32afd88e5dfdaea06cae08a9df2bf53d0169f7d9f3fbf89c909214b6fdd160"
+      ],
+      "simulation_fingerprint": "61abbb70028f3dcd30f41ace3d9ba6af3cc3d50909505f130e7ad9421d53dba5",
+      "native_build_mode": "Release",
+      "learner_version": 6,
+      "learner_sha256": {
+        "ppo.py": "cc225c21337f93ad46ef7778bf74e6ff12ee5df2334bac5bd71db50d0a34dd76",
+        "learning.py": "04c647de5551ba2642fcb61f738b729d4b10c020e85f1908d35f3b7e2fef46a4",
+        "rollout.py": "77b792a2ef89de002807681b5c89fd9f774b1dcfe029968d130c60e107e4398a",
+        "checkpointing.py": "e52000af6ac46c222628c957384cb49e09b5402edf4369c24017c0bc9536fa04"
+      }
+    },
+    "checkpoint_sha256": "f2d558bee3a59a52788dc7525790b899b2a3d9feffed30c4a267f6dc81174df4",
+    "policy": "frozen_argmax",
+    "rows": [
+      {
+        "environment": 0,
+        "observations": 295,
+        "economy_observations": 150,
+        "first_goal_tick": 258,
+        "peak_known_targets": 2,
+        "assigned_squad_observations": 1350,
+        "live_squad_observations": 2631,
+        "end": "EpisodeEnd.KeepDestroyed",
+        "ticks": 1770,
+        "tally": {
+          "dmg_to_units": 568.0,
+          "dmg_to_blds": 5351.0,
+          "units_killed": 2.0,
+          "blds_destroyed": 9.0,
+          "bld_value": 660.0,
+          "scouts_killed": 0.0,
+          "losses": 980.0,
+          "progress": 970.0
+        }
+      },
+      {
+        "environment": 1,
+        "observations": 400,
+        "economy_observations": 307,
+        "first_goal_tick": 204,
+        "peak_known_targets": 3,
+        "assigned_squad_observations": 1131,
+        "live_squad_observations": 1574,
+        "end": "EpisodeEnd.Timeout",
+        "ticks": 2400,
+        "tally": {
+          "dmg_to_units": 0.0,
+          "dmg_to_blds": 7029.0,
+          "units_killed": 0.0,
+          "blds_destroyed": 13.0,
+          "bld_value": 670.0,
+          "scouts_killed": 0.0,
+          "losses": 5444.0,
+          "progress": 836.0
+        }
+      },
+      {
+        "environment": 2,
+        "observations": 290,
+        "economy_observations": 256,
+        "first_goal_tick": 204,
+        "peak_known_targets": 2,
+        "assigned_squad_observations": 1859,
+        "live_squad_observations": 2165,
+        "end": "EpisodeEnd.KeepDestroyed",
+        "ticks": 1740,
+        "tally": {
+          "dmg_to_units": 601.0,
+          "dmg_to_blds": 6145.0,
+          "units_killed": 7.0,
+          "blds_destroyed": 12.0,
+          "bld_value": 690.0,
+          "scouts_killed": 0.0,
+          "losses": 3527.0,
+          "progress": 940.0
+        }
+      },
+      {
+        "environment": 3,
+        "observations": 359,
+        "economy_observations": 86,
+        "first_goal_tick": 666,
+        "peak_known_targets": 3,
+        "assigned_squad_observations": 774,
+        "live_squad_observations": 2464,
+        "end": "EpisodeEnd.KeepDestroyed",
+        "ticks": 2154,
+        "tally": {
+          "dmg_to_units": 0.0,
+          "dmg_to_blds": 5471.0,
+          "units_killed": 0.0,
+          "blds_destroyed": 12.0,
+          "bld_value": 590.0,
+          "scouts_killed": 0.0,
+          "losses": 4607.0,
+          "progress": 973.0
+        }
+      },
+      {
+        "environment": 4,
+        "observations": 400,
+        "economy_observations": 347,
+        "first_goal_tick": 300,
+        "peak_known_targets": 3,
+        "assigned_squad_observations": 2058,
+        "live_squad_observations": 2529,
+        "end": "EpisodeEnd.Timeout",
+        "ticks": 2400,
+        "tally": {
+          "dmg_to_units": 110.0,
+          "dmg_to_blds": 9715.0,
+          "units_killed": 0.0,
+          "blds_destroyed": 17.0,
+          "bld_value": 1110.0,
+          "scouts_killed": 0.0,
+          "losses": 3527.0,
+          "progress": 872.0
+        }
+      },
+      {
+        "environment": 5,
+        "observations": 320,
+        "economy_observations": 189,
+        "first_goal_tick": 306,
+        "peak_known_targets": 2,
+        "assigned_squad_observations": 1701,
+        "live_squad_observations": 2880,
+        "end": "EpisodeEnd.KeepDestroyed",
+        "ticks": 1920,
+        "tally": {
+          "dmg_to_units": 550.0,
+          "dmg_to_blds": 7700.0,
+          "units_killed": 0.0,
+          "blds_destroyed": 13.0,
+          "bld_value": 670.0,
+          "scouts_killed": 0.0,
+          "losses": 746.0,
+          "progress": 975.0
+        }
+      },
+      {
+        "environment": 6,
+        "observations": 400,
+        "economy_observations": 269,
+        "first_goal_tick": 702,
+        "peak_known_targets": 3,
+        "assigned_squad_observations": 1363,
+        "live_squad_observations": 2427,
+        "end": "EpisodeEnd.Timeout",
+        "ticks": 2400,
+        "tally": {
+          "dmg_to_units": 501.0,
+          "dmg_to_blds": 6320.0,
+          "units_killed": 2.0,
+          "blds_destroyed": 12.0,
+          "bld_value": 700.0,
+          "scouts_killed": 0.0,
+          "losses": 4904.0,
+          "progress": 893.0
+        }
+      },
+      {
+        "environment": 7,
+        "observations": 351,
+        "economy_observations": 180,
+        "first_goal_tick": 222,
+        "peak_known_targets": 3,
+        "assigned_squad_observations": 1424,
+        "live_squad_observations": 2475,
+        "end": "EpisodeEnd.KeepDestroyed",
+        "ticks": 2106,
+        "tally": {
+          "dmg_to_units": 850.0,
+          "dmg_to_blds": 6669.0,
+          "units_killed": 8.0,
+          "blds_destroyed": 12.0,
+          "bld_value": 640.0,
+          "scouts_killed": 0.0,
+          "losses": 3527.0,
+          "progress": 917.0
+        }
+      }
+    ],
+    "complete": true,
+    "seconds": 20.437881100006052,
+    "scope": "Development goal coverage, not independent policy improvement evaluation"
+  }
+}

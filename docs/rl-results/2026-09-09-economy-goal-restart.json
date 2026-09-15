@@ -1,0 +1,179 @@
+{
+  "checks": {
+    "model": false,
+    "optimizer": false,
+    "reference_model": true,
+    "rng": true,
+    "config": true,
+    "contract": true,
+    "progress_except_elapsed": false
+  },
+  "checkpoints": [
+    {
+      "path": "runs\\economy-goal-smoke-20260909\\latest.pt",
+      "sha256": "4580d108180404b45db6f95f7d69ca3d3ad51a643836cb747deeba0eef0a7639"
+    },
+    {
+      "path": "runs\\economy-goal-control-20260909\\latest.pt",
+      "sha256": "fefa5c492161c8370490049e6d9820ad36d0e234f902763f4d94b2b10b7a6dad"
+    }
+  ],
+  "config": {
+    "threads": 2,
+    "torch_threads": 1,
+    "max_ticks": 96,
+    "save_every": 1,
+    "target_kl": 0.03,
+    "envs": 2,
+    "ticks_per_step": 6,
+    "rollout": 16,
+    "total_steps": 128,
+    "lr": 0.0003,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "clip": 0.2,
+    "epochs": 1,
+    "minibatches": 1,
+    "ent_coef": 0.01,
+    "vf_coef": 0.5,
+    "value_features": "shared",
+    "reference_coef": 0.1,
+    "max_grad_norm": 0.5,
+    "seed": 1,
+    "reward_mode": "economic",
+    "win_reward": 2000.0,
+    "curriculum": [
+      1.0
+    ],
+    "promote_at": 0.6,
+    "promote_outcome_at": 0.25,
+    "promote_window": 100,
+    "map_path": "game/data/maps/pool/gen_01001000.json",
+    "map_pool": [
+      "game/data/maps/pool/gen_01001000.json",
+      "game/data/maps/pool/gen_01004000.json"
+    ],
+    "roster": "mixed",
+    "tactical_goals": "known-economy",
+    "levels": [
+      1,
+      4
+    ],
+    "defender": true,
+    "defender_macro_period": 4,
+    "defender_prepare_ticks": 0,
+    "stats_path": "game/data/stats_placeholder.json",
+    "device": "cpu"
+  },
+  "contract": {
+    "obs_version": 2,
+    "obs_fingerprint": 13173046946482585016,
+    "actions": 13,
+    "max_agents": 32,
+    "map_sha256": "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+    "stats_sha256": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+    "map_pool_sha256": [
+      "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+      "d11740be256d2666dc66318255efa4a7912744f47917f745ab920c572f56df45"
+    ],
+    "simulation_fingerprint": "76046ce5da580e305b9dbd4064e2da7c29b6f8fab4b0e7fdfac55b6fa945d38a",
+    "native_build_mode": "Release",
+    "learner_version": 6,
+    "learner_sha256": {
+      "ppo.py": "f3fa81f73aa2dc6352782c34f0ade0e1a530b7948ea6cecd69e23311ad769545",
+      "learning.py": "04c647de5551ba2642fcb61f738b729d4b10c020e85f1908d35f3b7e2fef46a4",
+      "rollout.py": "77b792a2ef89de002807681b5c89fd9f774b1dcfe029968d130c60e107e4398a",
+      "checkpointing.py": "e52000af6ac46c222628c957384cb49e09b5402edf4369c24017c0bc9536fa04"
+    }
+  },
+  "progress": {
+    "env_steps": 128,
+    "updates": 4,
+    "stage": 0,
+    "frac": 1.0,
+    "wins": 0,
+    "timeouts": 8,
+    "eliminated": 0,
+    "completed": 8,
+    "completed_steps": 128,
+    "curriculum_resets": 0,
+    "resume_resets": 0,
+    "active_partial_episodes": 0,
+    "next_episode": 12,
+    "stage_episodes": 8,
+    "recent_returns": [
+      23.866000000000007,
+      23.83640000000001,
+      23.866000000000007,
+      24.006800000000005,
+      24.006800000000005,
+      23.83640000000001,
+      23.866000000000007,
+      24.006800000000005
+    ],
+    "stage_hits": {
+      "minimum": 100,
+      "batches": [
+        [
+          2,
+          0
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          2,
+          0
+        ]
+      ]
+    },
+    "stage_wins": {
+      "minimum": 100,
+      "batches": [
+        [
+          2,
+          0
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          2,
+          0
+        ]
+      ]
+    },
+    "stage_outcomes": {
+      "minimum": 100,
+      "batches": [
+        [
+          2,
+          0
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          2,
+          0
+        ]
+      ]
+    }
+  },
+  "scope": "128 environment decisions, restart at completed episode boundary; short 96-tick episodes; no combat performance claim; known economy target activation not measured"
+}

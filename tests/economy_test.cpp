@@ -14,6 +14,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "rts/combat_math.hpp"
+#include "rts/batched_env.hpp"
 #include "rts/command.hpp"
 #include "rts/replay.hpp"
 #include "rts/roster.hpp"
@@ -324,6 +325,7 @@ TEST_CASE("Repair：扣木排工时，工匠在场修满；不够木或满血都
     w.submit(rts::Side::Defender, &repair, 1);
     w.advance(1);
     REQUIRE(wood(w) == 1);
+    CHECK(w.peek_tally(rts::Side::Defender).repair_wood_spent == 0);
     REQUIRE(w.bld_hp(wall) == 10);
 
     // 够了：预付 2 木，排 ceil(20/5) = 4 个工时。
@@ -331,6 +333,7 @@ TEST_CASE("Repair：扣木排工时，工匠在场修满；不够木或满血都
     w.submit(rts::Side::Defender, &repair, 1);
     w.advance(1);
     REQUIRE(wood(w) == 3);
+    CHECK(w.peek_tally(rts::Side::Defender).repair_wood_spent == 2);
 
     // 没工匠不动；工匠到场 4 tick 修满。
     w.advance(6);
@@ -343,6 +346,36 @@ TEST_CASE("Repair：扣木排工时，工匠在场修满；不够木或满血都
     w.submit(rts::Side::Defender, &repair, 1);
     w.advance(1);
     REQUIRE(wood(w) == 3);
+    CHECK(w.peek_tally(rts::Side::Defender).repair_wood_spent == 2);
+}
+
+TEST_CASE("Repair spending reaches attacker tally once and resets", "[econ][audit]") {
+    auto init = arena();
+    init.buildings.push_back({rts::BldType::Wall, {2, 4}, 10, 30});
+    init.units.push_back({rts::UnitType::Ghoul, {7.5f, 5.5f}, 1, 20, 20});
+    rts::BatchedEnvInit batch;
+    batch.worlds = {init};
+    batch.ticks_per_step = 1;
+    batch.opponent_hook = [](rts::World& world, int) {
+        world.set_stock(rts::Resource::Wood, 5);
+        const auto repair = slot_cmd(rts::CommandKind::Repair, {2, 4}, world.width());
+        world.submit(rts::Side::Defender, &repair, 1);
+    };
+    rts::BatchedEnv env(std::move(batch));
+    std::array<rts::UnitAction, rts::BatchedEnv::kMaxUnitsPerEnv> actions{};
+    std::array<std::uint8_t, 1> done{};
+    std::array<float, rts::BatchedEnv::kTallyFields> tally{};
+    env.step(actions, done);
+    env.take_tally(tally);
+    REQUIRE(tally[12] == 2.0f);
+    env.take_tally(tally);
+    CHECK(tally[12] == 0.0f);
+    env.reset_one(0, init);
+    env.take_tally(tally);
+    CHECK(tally[12] == 0.0f);
+    env.step(actions, done);
+    env.take_tally(tally);
+    CHECK(tally[12] == 2.0f);
 }
 
 TEST_CASE("Cancel：撤销未完工建筑全额退款，放弃维修不退；对完好建筑无操作", "[econ]") {

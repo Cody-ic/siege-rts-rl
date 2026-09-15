@@ -1,0 +1,1057 @@
+{
+  "status": "paused_by_user",
+  "complete": false,
+  "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+  "plan_files_verified": true,
+  "planned_cases": 48,
+  "completed_cases": 31,
+  "paired_summary": {
+    "0": {
+      "pairs": 8,
+      "planned_pairs": 8,
+      "baseline_waves": 9,
+      "candidate_waves": 4,
+      "baseline_completed": 0,
+      "candidate_completed": 0
+    },
+    "1": {
+      "pairs": 7,
+      "planned_pairs": 8,
+      "baseline_waves": 21,
+      "candidate_waves": 23,
+      "baseline_completed": 0,
+      "candidate_completed": 0
+    },
+    "2": {
+      "pairs": 0,
+      "planned_pairs": 8,
+      "baseline_waves": 0,
+      "candidate_waves": 0,
+      "baseline_completed": 0,
+      "candidate_completed": 0
+    }
+  },
+  "completed_rows": [
+    {
+      "map": "game/data/maps/pool/gen_01002000.json",
+      "seed": 1801,
+      "tick": 2728,
+      "wave": 1,
+      "waves_survived": 0,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 4,
+        "None": 125,
+        "Train": 6,
+        "Repair": 2
+      },
+      "state_hash": 107904314674849956,
+      "arm": "baseline",
+      "opponent_index": 0,
+      "opponent": {
+        "kind": "script"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "d51f11fd52fe17c20898870eb4711c212f6d344333bed83060b8799697411c86",
+      "complete": true
+    },
+    {
+      "map": "game/data/maps/pool/gen_01002000.json",
+      "seed": 1801,
+      "tick": 3124,
+      "wave": 1,
+      "waves_survived": 0,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 1,
+        "None": 146,
+        "Train": 7,
+        "Upgrade": 1,
+        "Repair": 2
+      },
+      "state_hash": 8688585680002045169,
+      "arm": "candidate",
+      "opponent_index": 0,
+      "opponent": {
+        "kind": "script"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "01e685c1602ee3b275c3b74a383c28f62f8e917ad4da625cdfa020b0255e35de",
+      "complete": true
+    },
+    {
+      "map": "game/data/maps/pool/gen_01002000.json",
+      "seed": 1902,
+      "tick": 3151,
+      "wave": 1,
+      "waves_survived": 0,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 5,
+        "None": 143,
+        "Clear": 2,
+        "Train": 6,
+        "Repair": 1,
+        "Upgrade": 1
+      },
+      "state_hash": 7263491604841626161,
+      "arm": "baseline",
+      "opponent_index": 0,
+      "opponent": {
+        "kind": "script"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "d51f11fd52fe17c20898870eb4711c212f6d344333bed83060b8799697411c86",
+      "complete": true
+    },
+    {
+      "map": "game/data/maps/pool/gen_01002000.json",
+      "seed": 1902,
+      "tick": 2780,
+      "wave": 1,
+      "waves_survived": 0,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 1,
+        "None": 130,
+        "Train": 5,
+        "Upgrade": 1,
+        "Repair": 2
+      },
+      "state_hash": 1181073888202012101,
+      "arm": "candidate",
+      "opponent_index": 0,
+      "opponent": {
+        "kind": "script"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "01e685c1602ee3b275c3b74a383c28f62f8e917ad4da625cdfa020b0255e35de",
+      "complete": true
+    },
+    {
+      "map": "game/data/maps/pool/gen_01003000.json",
+      "seed": 1801,
+      "tick": 2751,
+      "wave": 1,
+      "waves_survived": 0,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 5,
+        "None": 121,
+        "Clear": 5,
+        "Train": 6,
+        "Repair": 1
+      },
+      "state_hash": 8450488864397403811,
+      "arm": "baseline",
+      "opponent_index": 0,
+      "opponent": {
+        "kind": "script"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "d51f11fd52fe17c20898870eb4711c212f6d344333bed83060b8799697411c86",
+      "complete": true
+    },
+    {
+      "map": "game/data/maps/pool/gen_01003000.json",
+      "seed": 1801,
+      "tick": 2562,
+      "wave": 1,
+      "waves_survived": 0,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 2,
+        "None": 119,
+        "Train": 6,
+        "Clear": 1,
+        "Upgrade": 1
+      },
+      "state_hash": 10358205068162132622,
+      "arm": "candidate",
+      "opponent_index": 0,
+      "opponent": {
+        "kind": "script"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "01e685c1602ee3b275c3b74a383c28f62f8e917ad4da625cdfa020b0255e35de",
+      "complete": true
+    },
+    {
+      "map": "game/data/maps/pool/gen_01003000.json",
+      "seed": 1902,
+      "tick": 3013,
+      "wave": 1,
+      "waves_survived": 0,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 3,
+        "Clear": 1,
+        "None": 139,
+        "Train": 6,
+        "Upgrade": 1,
+        "Repair": 1
+      },
+      "state_hash": 13235867683149088143,
+      "arm": "baseline",
+      "opponent_index": 0,
+      "opponent": {
+        "kind": "script"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "d51f11fd52fe17c20898870eb4711c212f6d344333bed83060b8799697411c86",
+      "complete": true
+    },
+    {
+      "map": "game/data/maps/pool/gen_01003000.json",
+      "seed": 1902,
+      "tick": 3013,
+      "wave": 1,
+      "waves_survived": 0,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 3,
+        "Clear": 1,
+        "None": 139,
+        "Train": 6,
+        "Upgrade": 1,
+        "Repair": 1
+      },
+      "state_hash": 13235867683149088143,
+      "arm": "candidate",
+      "opponent_index": 0,
+      "opponent": {
+        "kind": "script"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "01e685c1602ee3b275c3b74a383c28f62f8e917ad4da625cdfa020b0255e35de",
+      "complete": true
+    },
+    {
+      "map": "game/data/maps/pool/gen_01007000.json",
+      "seed": 1801,
+      "tick": 5428,
+      "wave": 2,
+      "waves_survived": 1,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 3,
+        "None": 246,
+        "Train": 7,
+        "Clear": 1,
+        "Repair": 4,
+        "Upgrade": 12
+      },
+      "state_hash": 2886629417699609319,
+      "arm": "baseline",
+      "opponent_index": 0,
+      "opponent": {
+        "kind": "script"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "d51f11fd52fe17c20898870eb4711c212f6d344333bed83060b8799697411c86",
+      "complete": true
+    },
+    {
+      "map": "game/data/maps/pool/gen_01007000.json",
+      "seed": 1801,
+      "tick": 5428,
+      "wave": 2,
+      "waves_survived": 1,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 3,
+        "None": 246,
+        "Train": 7,
+        "Clear": 1,
+        "Repair": 4,
+        "Upgrade": 12
+      },
+      "state_hash": 12705169780730479641,
+      "arm": "candidate",
+      "opponent_index": 0,
+      "opponent": {
+        "kind": "script"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "01e685c1602ee3b275c3b74a383c28f62f8e917ad4da625cdfa020b0255e35de",
+      "complete": true
+    },
+    {
+      "map": "game/data/maps/pool/gen_01007000.json",
+      "seed": 1902,
+      "tick": 2698,
+      "wave": 1,
+      "waves_survived": 0,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 4,
+        "None": 124,
+        "Train": 5,
+        "Upgrade": 1,
+        "Repair": 1
+      },
+      "state_hash": 7891689933003949272,
+      "arm": "baseline",
+      "opponent_index": 0,
+      "opponent": {
+        "kind": "script"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "d51f11fd52fe17c20898870eb4711c212f6d344333bed83060b8799697411c86",
+      "complete": true
+    },
+    {
+      "map": "game/data/maps/pool/gen_01007000.json",
+      "seed": 1902,
+      "tick": 2668,
+      "wave": 1,
+      "waves_survived": 0,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 3,
+        "None": 125,
+        "Train": 3,
+        "Clear": 2,
+        "Repair": 1
+      },
+      "state_hash": 992688649402223035,
+      "arm": "candidate",
+      "opponent_index": 0,
+      "opponent": {
+        "kind": "script"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "01e685c1602ee3b275c3b74a383c28f62f8e917ad4da625cdfa020b0255e35de",
+      "complete": true
+    },
+    {
+      "map": "game/data/maps/pool/gen_01009000.json",
+      "seed": 1801,
+      "tick": 12586,
+      "wave": 5,
+      "waves_survived": 4,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 10,
+        "None": 506,
+        "Clear": 4,
+        "Train": 16,
+        "Upgrade": 72,
+        "Repair": 23
+      },
+      "state_hash": 7785583737454019282,
+      "arm": "baseline",
+      "opponent_index": 0,
+      "opponent": {
+        "kind": "script"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "d51f11fd52fe17c20898870eb4711c212f6d344333bed83060b8799697411c86",
+      "complete": true
+    },
+    {
+      "map": "game/data/maps/pool/gen_01009000.json",
+      "seed": 1801,
+      "tick": 9766,
+      "wave": 4,
+      "waves_survived": 3,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 8,
+        "None": 413,
+        "Clear": 4,
+        "Train": 12,
+        "Repair": 12,
+        "Upgrade": 41
+      },
+      "state_hash": 18151387418368187699,
+      "arm": "candidate",
+      "opponent_index": 0,
+      "opponent": {
+        "kind": "script"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "01e685c1602ee3b275c3b74a383c28f62f8e917ad4da625cdfa020b0255e35de",
+      "complete": true
+    },
+    {
+      "map": "game/data/maps/pool/gen_01009000.json",
+      "seed": 1902,
+      "tick": 12652,
+      "wave": 5,
+      "waves_survived": 4,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 7,
+        "None": 539,
+        "Train": 17,
+        "Repair": 18,
+        "Upgrade": 53
+      },
+      "state_hash": 15933598218597367001,
+      "arm": "baseline",
+      "opponent_index": 0,
+      "opponent": {
+        "kind": "script"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "d51f11fd52fe17c20898870eb4711c212f6d344333bed83060b8799697411c86",
+      "complete": true
+    },
+    {
+      "map": "game/data/maps/pool/gen_01009000.json",
+      "seed": 1902,
+      "tick": 2826,
+      "wave": 1,
+      "waves_survived": 0,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 2,
+        "None": 133,
+        "Train": 6,
+        "Upgrade": 1
+      },
+      "state_hash": 11755973803218817841,
+      "arm": "candidate",
+      "opponent_index": 0,
+      "opponent": {
+        "kind": "script"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "01e685c1602ee3b275c3b74a383c28f62f8e917ad4da625cdfa020b0255e35de",
+      "complete": true
+    },
+    {
+      "map": "game/data/maps/pool/gen_01002000.json",
+      "seed": 1801,
+      "tick": 12445,
+      "wave": 4,
+      "waves_survived": 3,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 8,
+        "None": 514,
+        "Train": 14,
+        "Repair": 37,
+        "Upgrade": 50
+      },
+      "state_hash": 10665073225935869344,
+      "arm": "baseline",
+      "opponent_index": 1,
+      "opponent": {
+        "kind": "frozen-tactical",
+        "sha256": "2e62e27f1b2b7002e9e727a09a58f0357909cc0ee01ee76e1db0477bdf52c7c3",
+        "identity": "9554465781158682901"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "d51f11fd52fe17c20898870eb4711c212f6d344333bed83060b8799697411c86",
+      "complete": true
+    },
+    {
+      "map": "game/data/maps/pool/gen_01002000.json",
+      "seed": 1801,
+      "tick": 14477,
+      "wave": 5,
+      "waves_survived": 4,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 6,
+        "None": 611,
+        "Train": 11,
+        "Upgrade": 68,
+        "Repair": 30
+      },
+      "state_hash": 103998624383481252,
+      "arm": "candidate",
+      "opponent_index": 1,
+      "opponent": {
+        "kind": "frozen-tactical",
+        "sha256": "2e62e27f1b2b7002e9e727a09a58f0357909cc0ee01ee76e1db0477bdf52c7c3",
+        "identity": "9554465781158682901"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "01e685c1602ee3b275c3b74a383c28f62f8e917ad4da625cdfa020b0255e35de",
+      "complete": true
+    },
+    {
+      "map": "game/data/maps/pool/gen_01002000.json",
+      "seed": 1902,
+      "tick": 13831,
+      "wave": 5,
+      "waves_survived": 4,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 6,
+        "None": 582,
+        "Clear": 2,
+        "Train": 16,
+        "Repair": 28,
+        "Upgrade": 59
+      },
+      "state_hash": 5364730271456830431,
+      "arm": "baseline",
+      "opponent_index": 1,
+      "opponent": {
+        "kind": "frozen-tactical",
+        "sha256": "2e62e27f1b2b7002e9e727a09a58f0357909cc0ee01ee76e1db0477bdf52c7c3",
+        "identity": "9554465781158682901"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "d51f11fd52fe17c20898870eb4711c212f6d344333bed83060b8799697411c86",
+      "complete": true
+    },
+    {
+      "map": "game/data/maps/pool/gen_01002000.json",
+      "seed": 1902,
+      "tick": 17569,
+      "wave": 6,
+      "waves_survived": 5,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 3,
+        "None": 731,
+        "Train": 18,
+        "Upgrade": 82,
+        "Repair": 46
+      },
+      "state_hash": 1755747650599730398,
+      "arm": "candidate",
+      "opponent_index": 1,
+      "opponent": {
+        "kind": "frozen-tactical",
+        "sha256": "2e62e27f1b2b7002e9e727a09a58f0357909cc0ee01ee76e1db0477bdf52c7c3",
+        "identity": "9554465781158682901"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "01e685c1602ee3b275c3b74a383c28f62f8e917ad4da625cdfa020b0255e35de",
+      "complete": true
+    },
+    {
+      "map": "game/data/maps/pool/gen_01003000.json",
+      "seed": 1801,
+      "tick": 15019,
+      "wave": 5,
+      "waves_survived": 4,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 8,
+        "None": 611,
+        "Clear": 5,
+        "Train": 22,
+        "Repair": 34,
+        "Upgrade": 71
+      },
+      "state_hash": 5156050060372154089,
+      "arm": "baseline",
+      "opponent_index": 1,
+      "opponent": {
+        "kind": "frozen-tactical",
+        "sha256": "2e62e27f1b2b7002e9e727a09a58f0357909cc0ee01ee76e1db0477bdf52c7c3",
+        "identity": "9554465781158682901"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "d51f11fd52fe17c20898870eb4711c212f6d344333bed83060b8799697411c86",
+      "complete": true
+    },
+    {
+      "map": "game/data/maps/pool/gen_01003000.json",
+      "seed": 1801,
+      "tick": 8869,
+      "wave": 3,
+      "waves_survived": 2,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 7,
+        "None": 404,
+        "Train": 9,
+        "Clear": 1,
+        "Repair": 21,
+        "Upgrade": 2
+      },
+      "state_hash": 13907877053808571373,
+      "arm": "candidate",
+      "opponent_index": 1,
+      "opponent": {
+        "kind": "frozen-tactical",
+        "sha256": "2e62e27f1b2b7002e9e727a09a58f0357909cc0ee01ee76e1db0477bdf52c7c3",
+        "identity": "9554465781158682901"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "01e685c1602ee3b275c3b74a383c28f62f8e917ad4da625cdfa020b0255e35de",
+      "complete": true
+    },
+    {
+      "map": "game/data/maps/pool/gen_01003000.json",
+      "seed": 1902,
+      "tick": 10902,
+      "wave": 4,
+      "waves_survived": 3,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 5,
+        "Clear": 1,
+        "None": 454,
+        "Train": 14,
+        "Upgrade": 52,
+        "Repair": 20
+      },
+      "state_hash": 5803102074672835647,
+      "arm": "baseline",
+      "opponent_index": 1,
+      "opponent": {
+        "kind": "frozen-tactical",
+        "sha256": "2e62e27f1b2b7002e9e727a09a58f0357909cc0ee01ee76e1db0477bdf52c7c3",
+        "identity": "9554465781158682901"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "d51f11fd52fe17c20898870eb4711c212f6d344333bed83060b8799697411c86",
+      "complete": true
+    },
+    {
+      "map": "game/data/maps/pool/gen_01003000.json",
+      "seed": 1902,
+      "tick": 13708,
+      "wave": 5,
+      "waves_survived": 4,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 3,
+        "Clear": 1,
+        "None": 656,
+        "Train": 8,
+        "Upgrade": 2,
+        "Repair": 18
+      },
+      "state_hash": 14844750101114368274,
+      "arm": "candidate",
+      "opponent_index": 1,
+      "opponent": {
+        "kind": "frozen-tactical",
+        "sha256": "2e62e27f1b2b7002e9e727a09a58f0357909cc0ee01ee76e1db0477bdf52c7c3",
+        "identity": "9554465781158682901"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "01e685c1602ee3b275c3b74a383c28f62f8e917ad4da625cdfa020b0255e35de",
+      "complete": true
+    },
+    {
+      "map": "game/data/maps/pool/gen_01007000.json",
+      "seed": 1801,
+      "tick": 8874,
+      "wave": 3,
+      "waves_survived": 2,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 10,
+        "None": 386,
+        "Train": 7,
+        "Clear": 1,
+        "Repair": 24,
+        "Upgrade": 17
+      },
+      "state_hash": 10637625862617466401,
+      "arm": "baseline",
+      "opponent_index": 1,
+      "opponent": {
+        "kind": "frozen-tactical",
+        "sha256": "2e62e27f1b2b7002e9e727a09a58f0357909cc0ee01ee76e1db0477bdf52c7c3",
+        "identity": "9554465781158682901"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "d51f11fd52fe17c20898870eb4711c212f6d344333bed83060b8799697411c86",
+      "complete": true
+    },
+    {
+      "map": "game/data/maps/pool/gen_01007000.json",
+      "seed": 1801,
+      "tick": 11427,
+      "wave": 4,
+      "waves_survived": 3,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 5,
+        "None": 470,
+        "Train": 12,
+        "Repair": 30,
+        "Upgrade": 55
+      },
+      "state_hash": 8612855111315925418,
+      "arm": "candidate",
+      "opponent_index": 1,
+      "opponent": {
+        "kind": "frozen-tactical",
+        "sha256": "2e62e27f1b2b7002e9e727a09a58f0357909cc0ee01ee76e1db0477bdf52c7c3",
+        "identity": "9554465781158682901"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "01e685c1602ee3b275c3b74a383c28f62f8e917ad4da625cdfa020b0255e35de",
+      "complete": true
+    },
+    {
+      "map": "game/data/maps/pool/gen_01007000.json",
+      "seed": 1902,
+      "tick": 11977,
+      "wave": 4,
+      "waves_survived": 3,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 11,
+        "None": 559,
+        "Train": 12,
+        "Upgrade": 1,
+        "Repair": 15,
+        "Clear": 1
+      },
+      "state_hash": 7594452565851399289,
+      "arm": "baseline",
+      "opponent_index": 1,
+      "opponent": {
+        "kind": "frozen-tactical",
+        "sha256": "2e62e27f1b2b7002e9e727a09a58f0357909cc0ee01ee76e1db0477bdf52c7c3",
+        "identity": "9554465781158682901"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "d51f11fd52fe17c20898870eb4711c212f6d344333bed83060b8799697411c86",
+      "complete": true
+    },
+    {
+      "map": "game/data/maps/pool/gen_01007000.json",
+      "seed": 1902,
+      "tick": 5730,
+      "wave": 2,
+      "waves_survived": 1,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 3,
+        "None": 268,
+        "Train": 4,
+        "Clear": 2,
+        "Repair": 9,
+        "Upgrade": 1
+      },
+      "state_hash": 1951040798274296308,
+      "arm": "candidate",
+      "opponent_index": 1,
+      "opponent": {
+        "kind": "frozen-tactical",
+        "sha256": "2e62e27f1b2b7002e9e727a09a58f0357909cc0ee01ee76e1db0477bdf52c7c3",
+        "identity": "9554465781158682901"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "01e685c1602ee3b275c3b74a383c28f62f8e917ad4da625cdfa020b0255e35de",
+      "complete": true
+    },
+    {
+      "map": "game/data/maps/pool/gen_01009000.json",
+      "seed": 1801,
+      "tick": 9004,
+      "wave": 3,
+      "waves_survived": 2,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 7,
+        "None": 381,
+        "Clear": 5,
+        "Train": 9,
+        "Upgrade": 31,
+        "Repair": 18
+      },
+      "state_hash": 8200387226663856666,
+      "arm": "baseline",
+      "opponent_index": 1,
+      "opponent": {
+        "kind": "frozen-tactical",
+        "sha256": "2e62e27f1b2b7002e9e727a09a58f0357909cc0ee01ee76e1db0477bdf52c7c3",
+        "identity": "9554465781158682901"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "d51f11fd52fe17c20898870eb4711c212f6d344333bed83060b8799697411c86",
+      "complete": true
+    },
+    {
+      "map": "game/data/maps/pool/gen_01009000.json",
+      "seed": 1801,
+      "tick": 15112,
+      "wave": 5,
+      "waves_survived": 4,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 9,
+        "None": 642,
+        "Clear": 4,
+        "Train": 12,
+        "Upgrade": 64,
+        "Repair": 25
+      },
+      "state_hash": 10515366151131482104,
+      "arm": "candidate",
+      "opponent_index": 1,
+      "opponent": {
+        "kind": "frozen-tactical",
+        "sha256": "2e62e27f1b2b7002e9e727a09a58f0357909cc0ee01ee76e1db0477bdf52c7c3",
+        "identity": "9554465781158682901"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "01e685c1602ee3b275c3b74a383c28f62f8e917ad4da625cdfa020b0255e35de",
+      "complete": true
+    },
+    {
+      "map": "game/data/maps/pool/gen_01009000.json",
+      "seed": 1902,
+      "tick": 11090,
+      "wave": 4,
+      "waves_survived": 3,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 6,
+        "None": 515,
+        "Train": 14,
+        "Repair": 19,
+        "Upgrade": 2
+      },
+      "state_hash": 8706304301096437005,
+      "arm": "baseline",
+      "opponent_index": 1,
+      "opponent": {
+        "kind": "frozen-tactical",
+        "sha256": "2e62e27f1b2b7002e9e727a09a58f0357909cc0ee01ee76e1db0477bdf52c7c3",
+        "identity": "9554465781158682901"
+      },
+      "plan_sha256": "860618bd1a68cdc7661197bb6f69f850217e03df70901563eba9657f5d65a129",
+      "checkpoint_sha256": "d51f11fd52fe17c20898870eb4711c212f6d344333bed83060b8799697411c86",
+      "complete": true
+    }
+  ],
+  "report_files": {
+    "runs/macro-league-evaluation-20260909/opponent0-gen_01002000-seed1801-baseline.json": "29b7ec0d52c346baf2b817ca60ca4d284ca741cc9ed9b110c6ba7283dd19bb2b",
+    "runs/macro-league-evaluation-20260909/opponent0-gen_01002000-seed1801-candidate.json": "bf7ef5ad86be4a3bf8a7ef4e81669034d4dd2b3b67f4e07ed5504d1f6ed15a96",
+    "runs/macro-league-evaluation-20260909/opponent0-gen_01002000-seed1902-baseline.json": "f9f390f0513a92ae5492fe6436bee83d68af9911ea811cee2f6542ce43c20099",
+    "runs/macro-league-evaluation-20260909/opponent0-gen_01002000-seed1902-candidate.json": "bf3a71945be1ea1f89fb876725eb67498225810c2dd0e685dd9d99d4ba1ec697",
+    "runs/macro-league-evaluation-20260909/opponent0-gen_01003000-seed1801-baseline.json": "6827a6656a32ae319e54d60a02f87181b40cebc18452fae62ec238c892bf24c6",
+    "runs/macro-league-evaluation-20260909/opponent0-gen_01003000-seed1801-candidate.json": "458db8d448f3e46a830d9f572a7cd96f62580b0bdbca5b7b91ec2d672b2db258",
+    "runs/macro-league-evaluation-20260909/opponent0-gen_01003000-seed1902-baseline.json": "7dbc53d2c1f84c163af107a45c092d92a5b30f689d9e13f638d8c8d9afaa351d",
+    "runs/macro-league-evaluation-20260909/opponent0-gen_01003000-seed1902-candidate.json": "4e072e71d4f44041d91f96202cd6a9551cbd20e3a4794c00183f943e0796d9f1",
+    "runs/macro-league-evaluation-20260909/opponent0-gen_01007000-seed1801-baseline.json": "c118df26ae5aa037f8d044f986676c9dfa3344b5a0c8ef1ce583e0f97cdcef50",
+    "runs/macro-league-evaluation-20260909/opponent0-gen_01007000-seed1801-candidate.json": "91319a9e061e2fa7c47de7e5c9656ef9aebad5c2ecad02c1085026f4f442ffe7",
+    "runs/macro-league-evaluation-20260909/opponent0-gen_01007000-seed1902-baseline.json": "0c1f204cd3394a07cb7488c41c46c4578afc2da9913720639024f83e6091a4e7",
+    "runs/macro-league-evaluation-20260909/opponent0-gen_01007000-seed1902-candidate.json": "d00af3e3518365038fc0401ba8732802e87e1e77618865174985cd58f9632cc6",
+    "runs/macro-league-evaluation-20260909/opponent0-gen_01009000-seed1801-baseline.json": "868574c6e00d25e71915196c92145881d3c8c43b8b1c8a12bab725a1afa0ef2e",
+    "runs/macro-league-evaluation-20260909/opponent0-gen_01009000-seed1801-candidate.json": "ca07001a9279b018c20ad247acfc98b6bf597cd533a9ed9eb49a2be40d866bf7",
+    "runs/macro-league-evaluation-20260909/opponent0-gen_01009000-seed1902-baseline.json": "e79a588268cfb975ad293ba3e696be4fa6b0d6aa8c2d4f6baf7005675fab09ed",
+    "runs/macro-league-evaluation-20260909/opponent0-gen_01009000-seed1902-candidate.json": "1e5c9f1accdb6d0432940ffdba299e37010f0b216aa55483de317b278567c1f4",
+    "runs/macro-league-evaluation-20260909/opponent1-gen_01002000-seed1801-baseline.json": "5651a604a02c50391d5807e74707ec34283a1baf31b524cc2673784e2c4ad30c",
+    "runs/macro-league-evaluation-20260909/opponent1-gen_01002000-seed1801-candidate.json": "9643d92880cf6cb7b702fc1b53dfb4422570a7ce2c7094831d9b83cef66b96f8",
+    "runs/macro-league-evaluation-20260909/opponent1-gen_01002000-seed1902-baseline.json": "1b00ff894547f667e2fc08457cfcd9b04cf405221786c9e95a1000669ee1638f",
+    "runs/macro-league-evaluation-20260909/opponent1-gen_01002000-seed1902-candidate.json": "0bb51194917865aa68c7d76bf4347223034c9332ea57030af3c78cf6c0a6fb84",
+    "runs/macro-league-evaluation-20260909/opponent1-gen_01003000-seed1801-baseline.json": "bb512dc4427aefc44134d3ad40d50bb5bec1ecaecadffc995478bdcaf305a9d8",
+    "runs/macro-league-evaluation-20260909/opponent1-gen_01003000-seed1801-candidate.json": "fb4d96d5a2995d3ef83d92280173c8e78cb97f4ad9e33c15d7451e5c66575e0b",
+    "runs/macro-league-evaluation-20260909/opponent1-gen_01003000-seed1902-baseline.json": "1c10e731f709f896d9f9cbb7a46199582b3f459c12e27db8a94c30d07508a0b7",
+    "runs/macro-league-evaluation-20260909/opponent1-gen_01003000-seed1902-candidate.json": "6144f528287d95b076bf53e1d8bb36e1f4fa4f0a9df5e4deb736a910dbef4109",
+    "runs/macro-league-evaluation-20260909/opponent1-gen_01007000-seed1801-baseline.json": "c923029d69f2e79d4468964672702a2683c0d1502b70cc3e27b0d1fa6dc15027",
+    "runs/macro-league-evaluation-20260909/opponent1-gen_01007000-seed1801-candidate.json": "6c671019f3086b0fe707381d1ca6e714b2ffc3538245764d1bf060ed35c0800a",
+    "runs/macro-league-evaluation-20260909/opponent1-gen_01007000-seed1902-baseline.json": "2fbe3bc1c84d6710b571274ea4394ea0fc6d0dee5c295c86e141112bcbab92c7",
+    "runs/macro-league-evaluation-20260909/opponent1-gen_01007000-seed1902-candidate.json": "d7b34340a201c4e30e7f67883df20b5c7b4a50721a88ad351b27727621d423bd",
+    "runs/macro-league-evaluation-20260909/opponent1-gen_01009000-seed1801-baseline.json": "235e2ef5bbcc935a488f18a6ba0a888599d498417de217d7446e8277ad5abed4",
+    "runs/macro-league-evaluation-20260909/opponent1-gen_01009000-seed1801-candidate.json": "8f65e4e7e681b3e1a6f0c80e12b61c40849d9ec38193300c0bfea4263384a054",
+    "runs/macro-league-evaluation-20260909/opponent1-gen_01009000-seed1902-baseline.json": "05d70ea84fcdb79580323da1c5957f8992a961d3cd23f7ccece879c517e18ef3"
+  },
+  "missing": [
+    {
+      "arm": "baseline",
+      "opponent_index": 2,
+      "map": "game/data/maps/pool/gen_01002000.json",
+      "seed": 1801
+    },
+    {
+      "arm": "baseline",
+      "opponent_index": 2,
+      "map": "game/data/maps/pool/gen_01002000.json",
+      "seed": 1902
+    },
+    {
+      "arm": "baseline",
+      "opponent_index": 2,
+      "map": "game/data/maps/pool/gen_01003000.json",
+      "seed": 1801
+    },
+    {
+      "arm": "baseline",
+      "opponent_index": 2,
+      "map": "game/data/maps/pool/gen_01003000.json",
+      "seed": 1902
+    },
+    {
+      "arm": "baseline",
+      "opponent_index": 2,
+      "map": "game/data/maps/pool/gen_01007000.json",
+      "seed": 1801
+    },
+    {
+      "arm": "baseline",
+      "opponent_index": 2,
+      "map": "game/data/maps/pool/gen_01007000.json",
+      "seed": 1902
+    },
+    {
+      "arm": "baseline",
+      "opponent_index": 2,
+      "map": "game/data/maps/pool/gen_01009000.json",
+      "seed": 1801
+    },
+    {
+      "arm": "baseline",
+      "opponent_index": 2,
+      "map": "game/data/maps/pool/gen_01009000.json",
+      "seed": 1902
+    },
+    {
+      "arm": "candidate",
+      "opponent_index": 1,
+      "map": "game/data/maps/pool/gen_01009000.json",
+      "seed": 1902
+    },
+    {
+      "arm": "candidate",
+      "opponent_index": 2,
+      "map": "game/data/maps/pool/gen_01002000.json",
+      "seed": 1801
+    },
+    {
+      "arm": "candidate",
+      "opponent_index": 2,
+      "map": "game/data/maps/pool/gen_01002000.json",
+      "seed": 1902
+    },
+    {
+      "arm": "candidate",
+      "opponent_index": 2,
+      "map": "game/data/maps/pool/gen_01003000.json",
+      "seed": 1801
+    },
+    {
+      "arm": "candidate",
+      "opponent_index": 2,
+      "map": "game/data/maps/pool/gen_01003000.json",
+      "seed": 1902
+    },
+    {
+      "arm": "candidate",
+      "opponent_index": 2,
+      "map": "game/data/maps/pool/gen_01007000.json",
+      "seed": 1801
+    },
+    {
+      "arm": "candidate",
+      "opponent_index": 2,
+      "map": "game/data/maps/pool/gen_01007000.json",
+      "seed": 1902
+    },
+    {
+      "arm": "candidate",
+      "opponent_index": 2,
+      "map": "game/data/maps/pool/gen_01009000.json",
+      "seed": 1801
+    },
+    {
+      "arm": "candidate",
+      "opponent_index": 2,
+      "map": "game/data/maps/pool/gen_01009000.json",
+      "seed": 1902
+    }
+  ],
+  "limitation": "Only matched completed pairs are summarized. Missing cases remain unevaluated; no full evaluation or improvement claim.",
+  "resume": "Wait for explicit user authorization. Preserve verified completed files; rerun only missing cases from their frozen seeds. Current worker asserts output absence and needs verified skipping before reuse."
+}

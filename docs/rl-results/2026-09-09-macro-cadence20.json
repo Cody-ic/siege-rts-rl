@@ -1,0 +1,150 @@
+{
+  "checkpoint_sha256": "aeeaa71b589ed5da49c3babea905d2269db16c65e9e8691f91fcc0cc3da15d61",
+  "simulation": "2ee1542f951e77d9ce80d98db59cc223f18becb83efa2aee1887e43f67fcdfd3",
+  "evaluator_sha256": "e1f6064c04a64f53ea52fdba25876fa32cc547c31b6a25f3f1a160677e0b554a",
+  "stats_sha256": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+  "maps": {
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json": "65f8ed3f8102fba260e8bc2b9a0b386bb3b2d0ae66081e4008f520e10f0463fd",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json": "09a441043b8e1bfdfe9b6405fdd60c0bb1cef5f943049fd4f03ccc8bde680ebf"
+  },
+  "seeds": [
+    101
+  ],
+  "max_wave": 6,
+  "max_ticks": 100000,
+  "mode": "sample",
+  "policy_period": 20,
+  "training_period": 500,
+  "script_internal_period": 20,
+  "training_maps": [
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01001000.json",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01008000.json"
+  ],
+  "complete": true,
+  "cases": [
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+      "seed": 101,
+      "tick": 5360,
+      "wave": 2,
+      "waves_survived": 1,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {},
+      "state_hash": 6749535183174538630,
+      "arm": "script"
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+      "seed": 101,
+      "tick": 1743,
+      "wave": 1,
+      "waves_survived": 0,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Demolish": 23,
+        "Build": 10,
+        "Cancel": 8,
+        "Clear": 21,
+        "None": 16,
+        "Summon": 1,
+        "Train": 7,
+        "Upgrade": 1,
+        "Repair": 1
+      },
+      "state_hash": 6001484688614850692,
+      "arm": "initial"
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+      "seed": 101,
+      "tick": 1716,
+      "wave": 1,
+      "waves_survived": 0,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Demolish": 22,
+        "Build": 12,
+        "Cancel": 12,
+        "Clear": 17,
+        "None": 16,
+        "Summon": 1,
+        "Train": 4,
+        "Upgrade": 1,
+        "Repair": 1
+      },
+      "state_hash": 948680978874951152,
+      "arm": "learned"
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+      "seed": 101,
+      "tick": 16006,
+      "wave": 7,
+      "waves_survived": 6,
+      "defeated": false,
+      "completed": true,
+      "timeout": false,
+      "keep_hp_fraction": 1.0,
+      "commands": {},
+      "state_hash": 10620523852270643852,
+      "arm": "script"
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+      "seed": 101,
+      "tick": 1580,
+      "wave": 1,
+      "waves_survived": 0,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Demolish": 26,
+        "Summon": 1,
+        "None": 10,
+        "Build": 11,
+        "Clear": 12,
+        "Cancel": 11,
+        "Train": 6,
+        "Upgrade": 1,
+        "Repair": 1
+      },
+      "state_hash": 3938287823549852796,
+      "arm": "initial"
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+      "seed": 101,
+      "tick": 1580,
+      "wave": 1,
+      "waves_survived": 0,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Demolish": 26,
+        "Summon": 1,
+        "None": 10,
+        "Build": 11,
+        "Clear": 12,
+        "Cancel": 11,
+        "Train": 6,
+        "Upgrade": 1,
+        "Repair": 1
+      },
+      "state_hash": 3938287823549852796,
+      "arm": "learned"
+    }
+  ]
+}

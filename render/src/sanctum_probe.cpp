@@ -1,3 +1,4 @@
+#include "rts/cli_args.hpp"
 #include "render/battle_atmosphere.hpp"
 #include "render/scene_renderer.hpp"
 #include "game/battle_scene.hpp"
@@ -7,11 +8,12 @@
 #include <cstdio>
 #include <string>
 int main(int argc,char** argv) {
+    const auto args = rts::utf8_args(argc, argv);
     if(argc!=5) return 2;
-    const auto map=game::MapLoader::from_file(argv[1]);
+    const auto map=game::MapLoader::from_file(args[1].c_str());
     rts::WorldInit init;init.width=map.width();init.height=map.height();
     init.terrain.assign(static_cast<std::size_t>(init.width*init.height),rts::Terrain::Plain);
-    init.keep={4,6};init.stats=game::StatsLoader::from_file(argv[2]);
+    init.keep={4,6};init.stats=game::StatsLoader::from_file(args[2].c_str());
     init.buildings={{rts::BldType::Keep,{4,6},10000,10000},
         {rts::BldType::Flak,{5,6},10000,10000},{rts::BldType::Tower,{8,6},10000,10000},
         {rts::BldType::Wall,{8,4},90,90}};
@@ -23,7 +25,7 @@ int main(int argc,char** argv) {
     if(!IsWindowReady()) return 3;
     int result=0;
     {
-        render::SpriteAtlas atlas(argv[3]);game::IsoProjection proj(atlas.px_per_tile());
+        render::SpriteAtlas atlas(args[3].c_str());game::IsoProjection proj(atlas.px_per_tile());
         render::SceneRenderer renderer(atlas,proj);render::BattleAtmosphere atmosphere;
         const auto target=proj.grid_to_screen({7,5});Camera2D camera{{750,650},{target.x,target.y},0,0.52f};
         const auto tiles=game::BattleScene::tiles(map);
@@ -45,7 +47,7 @@ int main(int argc,char** argv) {
                 atmosphere.draw_world(proj,atlas,camera.zoom);EndMode2D();EndTextureMode();
                 auto image=LoadImageFromTexture(texture.texture);ImageFlipVertical(&image);
                 int length=0;auto* bytes=ExportImageToMemory(image,".png",&length);
-                if(!bytes || length<=0 || !rts::write_file_bytes(std::string(argv[4])+"-"+std::to_string(tick)+".png",bytes,static_cast<std::size_t>(length))) result=4;
+                if(!bytes || length<=0 || !rts::write_file_bytes(std::string(args[4].c_str())+"-"+std::to_string(tick)+".png",bytes,static_cast<std::size_t>(length))) result=4;
                 if(bytes) MemFree(bytes);UnloadImage(image);
             }
             if(world.state_hash()!=before) result=5;

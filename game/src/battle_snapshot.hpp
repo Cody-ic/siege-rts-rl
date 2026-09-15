@@ -7,6 +7,7 @@
 #include <type_traits>
 #include <limits>
 #include <source_location>
+#include <set>
 namespace game {
 struct SnapshotCodec {
     using Json=nlohmann::json;
@@ -91,6 +92,11 @@ struct SnapshotCodec {
             f("has_bld_",v.has_bld_);
         }
         else if constexpr(std::is_same_v<U,DemoBattle>) {
+            f("phoenix_roster_",v.phoenix_roster_);
+            f("phoenix_respawn_",v.phoenix_respawn_);
+            f("phoenix_id_of_",v.phoenix_id_of_);
+            f("next_phoenix_id_",v.next_phoenix_id_);
+            f("white_feather_",v.white_feather_);
             f("w_",v.w_);
             f("script_",v.script_);
             f("macro_",v.macro_);
@@ -117,6 +123,13 @@ struct SnapshotCodec {
             f("scout_rolled_",v.scout_rolled_);
             f("defeated_",v.defeated_);
             f("since_decision_",v.since_decision_);
+            if(v.defender_policy_) f("defender_rng_",v.defender_rng_);
+        }
+        else if constexpr(std::is_same_v<U,DemoBattle::PhoenixRecord>) {
+            f("id",v.id);f("waves_alive",v.waves_alive);
+        }
+        else if constexpr(std::is_same_v<U,std::pair<int,int>>) {
+            f("first",v.first);f("second",v.second);
         }
         else if constexpr(std::is_same_v<U,DefenderScript>) {
             f("p_",v.p_);
@@ -145,6 +158,9 @@ struct SnapshotCodec {
             f("target",v.target);
             f("garrison",v.garrison);
             f("generation",v.generation);
+            f("forced",v.forced);
+            f("building",v.building);
+            f("upgrade",v.upgrade);
         }
         else if constexpr(std::is_same_v<U,PatrolGoal>) {
             f("active",v.active);
@@ -191,6 +207,8 @@ struct SnapshotCodec {
             f("phoenix_base",v.phoenix_base);
             f("phoenix_per_waves",v.phoenix_per_waves);
             f("phoenix_cap",v.phoenix_cap);
+            f("phoenix_withdraw_hp_permille",v.phoenix_withdraw_hp_permille);
+            f("phoenix_respawn_waves",v.phoenix_respawn_waves);
             f("main_permille",v.main_permille);
             f("econ_raid_permille",v.econ_raid_permille);
         }
@@ -241,7 +259,20 @@ struct SnapshotCodec {
             check(j.is_array() && j.size()<=2000000);
             if constexpr(requires {v.resize(j.size());}) v.resize(j.size());else check(j.size()==v.size());
             std::size_t i=0;for(auto& e:v) decode(j.at(i++),e);
-        } else {check(j.is_object());fields(v,[&](const char* name,auto& x){decode(j.at(name),x);});}
+        } else {
+            check(j.is_object());
+            fields(v,[&](const char* name,auto& x){
+                // Older snapshots contain only ordinary manual orders.
+                if constexpr(std::is_same_v<T,ManualOrder>) {
+                    if (!j.contains("forced") && (std::string_view(name)=="forced" ||
+                        std::string_view(name)=="building" || std::string_view(name)=="upgrade")) { x={}; return; }
+                }
+                if constexpr(std::is_same_v<T,DemoBattle>) {
+                    if(std::string_view(name)=="white_feather_" && !j.contains(name)) {v.white_feather_=false;return;}
+                }
+                decode(j.at(name),x);
+            });
+        }
     }
     template<class P> static void validate_pool(const P& p) {
         check(p.generation_.size()==p.alive_.size() && p.alive_.size()<65535);
@@ -251,6 +282,21 @@ struct SnapshotCodec {
     }
     static void validate(const DemoBattle& b) {
         const auto& w=b.w_;validate_pool(w.unit_pool_);validate_pool(w.bld_pool_);validate_pool(w.obstacle_pool_);
+        check(b.next_phoenix_id_>=0 && b.curve_.phoenix_respawn_waves>=0);
+        check(b.curve_.phoenix_withdraw_hp_permille>=0 && b.curve_.phoenix_withdraw_hp_permille<=1000);
+        std::set<int> reserved, assigned;
+        for(const auto& r:b.phoenix_roster_) {
+            check(r.id>=0 && r.id<b.next_phoenix_id_ && r.waves_alive>=0);
+            check(reserved.insert(r.id).second);
+        }
+        for(const auto& [id,left]:b.phoenix_respawn_) {
+            check(id>=0 && id<b.next_phoenix_id_ && left>=0 && left<=b.curve_.phoenix_respawn_waves);
+            check(reserved.insert(id).second);
+        }
+        for(const int id:b.phoenix_id_of_) {
+            check(id>=-1 && id<b.next_phoenix_id_);
+            if(id>=0) check(assigned.insert(id).second);
+        }
         const auto n=static_cast<std::size_t>(w.width()*w.height());
         check(!w.developer_ && w.wave_>=1 && w.wave_<=1000000 && w.tick_>=0 && w.tick_<=2000000);
         check(b.since_decision_>=0 && b.since_decision_<=rts::kDecisionPeriodMax);

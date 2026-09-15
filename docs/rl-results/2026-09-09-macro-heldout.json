@@ -1,0 +1,228 @@
+{
+  "checkpoint_sha256": "aeeaa71b589ed5da49c3babea905d2269db16c65e9e8691f91fcc0cc3da15d61",
+  "simulation": "2ee1542f951e77d9ce80d98db59cc223f18becb83efa2aee1887e43f67fcdfd3",
+  "evaluator_sha256": "33c064dc02834e7ba8a5c2cb684255ee5ae5c77989c0b01e9d6f9a59f092da57",
+  "stats_sha256": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+  "maps": {
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json": "65f8ed3f8102fba260e8bc2b9a0b386bb3b2d0ae66081e4008f520e10f0463fd",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json": "09a441043b8e1bfdfe9b6405fdd60c0bb1cef5f943049fd4f03ccc8bde680ebf"
+  },
+  "seeds": [
+    101,
+    102
+  ],
+  "max_wave": 6,
+  "max_ticks": 100000,
+  "mode": "sample",
+  "policy_period": 500,
+  "script_internal_period": 20,
+  "training_maps": [
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01001000.json",
+    "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01008000.json"
+  ],
+  "complete": true,
+  "cases": [
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+      "seed": 101,
+      "tick": 5360,
+      "wave": 2,
+      "waves_survived": 1,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {},
+      "state_hash": 6749535183174538630,
+      "arm": "script"
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+      "seed": 101,
+      "tick": 2370,
+      "wave": 1,
+      "waves_survived": 0,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Demolish": 1,
+        "Build": 3,
+        "Clear": 1
+      },
+      "state_hash": 2844000353457276406,
+      "arm": "initial"
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+      "seed": 101,
+      "tick": 2370,
+      "wave": 1,
+      "waves_survived": 0,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Demolish": 1,
+        "Build": 3,
+        "Clear": 1
+      },
+      "state_hash": 2844000353457276406,
+      "arm": "learned"
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+      "seed": 102,
+      "tick": 5360,
+      "wave": 2,
+      "waves_survived": 1,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {},
+      "state_hash": 4201384286424164074,
+      "arm": "script"
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+      "seed": 102,
+      "tick": 2580,
+      "wave": 1,
+      "waves_survived": 0,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "None": 1,
+        "Build": 3,
+        "Train": 1,
+        "Cancel": 1
+      },
+      "state_hash": 6108388146688995250,
+      "arm": "initial"
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01007000.json",
+      "seed": 102,
+      "tick": 2580,
+      "wave": 1,
+      "waves_survived": 0,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "None": 1,
+        "Build": 3,
+        "Train": 1,
+        "Cancel": 1
+      },
+      "state_hash": 6108388146688995250,
+      "arm": "learned"
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+      "seed": 101,
+      "tick": 16006,
+      "wave": 7,
+      "waves_survived": 6,
+      "defeated": false,
+      "completed": true,
+      "timeout": false,
+      "keep_hp_fraction": 1.0,
+      "commands": {},
+      "state_hash": 10620523852270643852,
+      "arm": "script"
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+      "seed": 101,
+      "tick": 2532,
+      "wave": 1,
+      "waves_survived": 0,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Demolish": 3,
+        "Clear": 2,
+        "Train": 1
+      },
+      "state_hash": 14849164228373713357,
+      "arm": "initial"
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+      "seed": 101,
+      "tick": 2532,
+      "wave": 1,
+      "waves_survived": 0,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Demolish": 3,
+        "Clear": 2,
+        "Train": 1
+      },
+      "state_hash": 14849164228373713357,
+      "arm": "learned"
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+      "seed": 102,
+      "tick": 16006,
+      "wave": 7,
+      "waves_survived": 6,
+      "defeated": false,
+      "completed": true,
+      "timeout": false,
+      "keep_hp_fraction": 1.0,
+      "commands": {},
+      "state_hash": 1412132004113131159,
+      "arm": "script"
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+      "seed": 102,
+      "tick": 2757,
+      "wave": 1,
+      "waves_survived": 0,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "None": 4,
+        "Build": 1,
+        "Demolish": 1
+      },
+      "state_hash": 8642729557558462700,
+      "arm": "initial"
+    },
+    {
+      "map": "C:\\Users\\zhuozhuo233\\Desktop\\cpp-class-design\\game\\data\\maps\\pool\\gen_01009000.json",
+      "seed": 102,
+      "tick": 2757,
+      "wave": 1,
+      "waves_survived": 0,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "None": 4,
+        "Build": 1,
+        "Demolish": 1
+      },
+      "state_hash": 8642729557558462700,
+      "arm": "learned"
+    }
+  ]
+}

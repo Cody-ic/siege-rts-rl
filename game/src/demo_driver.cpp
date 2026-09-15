@@ -1,4 +1,5 @@
 #include "game/demo_driver.hpp"
+#include "game/chronicle.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -311,6 +312,18 @@ void DemoBattle::spawn_wave() {
     const WavePlan plan = macro_.compose(curve_, wave, wave_intel_);
     wave_plan_=plan;baseline_plan_=macro_.compose(curve_,wave,AttackerIntel{});
 
+    // ——不死鸟的跨波结算（2026-09-10，#170）。**必须在展开编成之前**——
+    //
+    // 上一波结束时还挂在 `phoenix_id_of_` 上、却没进花名册的那些 = 被击落的。
+    // 它们进重生队列；花名册里的则原样回来（当波等级、满血，见头文件那段）。
+    settle_phoenix_roster();
+    // 花名册与冷却队列都占名额；冷却期间不能用新身份补满。
+    // 当波计划缩编时，暂存多出的老鸟，场上数量仍受计划约束。
+    const int phoenix_reserved = static_cast<int>(phoenix_roster_.size() + phoenix_respawn_.size());
+    const int phoenix_returning = std::min(plan.phoenixes, static_cast<int>(phoenix_roster_.size()));
+    const int phoenix_new =
+        std::max(0, plan.phoenixes - phoenix_reserved);
+
     // ——展开成编队：一支编队 = 同兵种 `squad_cap_of()` 个（2026-09-05）——
     //
     // `plan` 里的数字是**编队数**（= agent 数，受 `slots_cap` 约束），
@@ -359,7 +372,11 @@ void DemoBattle::spawn_wave() {
     add_squads(rts::UnitType::Shade, plan.shades);
     add_squads(rts::UnitType::Knight, plan.knights);
     add_squads(rts::UnitType::Ram, plan.rams);
-    add_squads(rts::UnitType::Phoenix, plan.phoenixes);
+    // 回来的 + 新生的 <= 曲线给的上限；尚在冷却的名额保持空缺。
+    // 两批都在这里展开，因为「哪一只是老的」由下面的落位循环按顺序认领
+    // ——不死鸟一队一只（`squad_cap_of`），所以第 n 只不死鸟就是第 n 支
+    // 不死鸟编队，顺序是确定的。
+    add_squads(rts::UnitType::Phoenix, phoenix_returning + phoenix_new);
     // 幽影窥使恒 1，第 2 波起。**这一只是整个侦查博弈里攻方那一半**：
     // 在它进编成之前，`Wraith` 在 `game/` 里只出现在中文展示名表里——攻方
     // 从来没有侦查过，于是「双向欺骗」只有守方那一向。
@@ -487,7 +504,50 @@ void DemoBattle::spawn_wave() {
                     econ_squads_.end()
                 ? 1
                 : 0;
+        // 不死鸟认领跨波身份：花名册里的老鸟先来（按 `idx` 顺序，与展开顺序
+        // 一致且确定），用完之后的新鸟发新号。**身份跟着「第几只」走**，
+        // 而它们的等级与血量都是当波的——留存不带任何数值继承，见头文件。
+        if (t == rts::UnitType::Phoenix) {
+            if (ui >= phoenix_id_of_.size()) phoenix_id_of_.resize(ui + 1, -1);
+            phoenix_id_of_[ui] =
+                idx < static_cast<int>(phoenix_roster_.size())
+                    ? phoenix_roster_[static_cast<std::size_t>(idx)].id
+                    : next_phoenix_id_++;
+        }
     }
+}
+
+// 换波时结算不死鸟的去留。**在展开编成之前跑**（`spawn_wave` 开头）。
+//
+// 三件事，顺序要紧：
+//
+//   1. 重生倒计时 −1，数到 0 的从队列里出来（下面第 3 步会把它算进花名册名额）
+//   2. **上一波还挂在 `phoenix_id_of_` 上的 = 被击落的**——撤离成功的那些在
+//      `retire_phoenix` 里已经把这个槽位清成 −1 了，所以剩下的就是没走成的。
+//      它们进重生队列，连续存活波数清零（《一跃》要的是**连续**）
+//   3. `phoenix_id_of_` 整表清空，等这一波的落位循环重新认领
+void DemoBattle::settle_phoenix_roster() {
+    for (auto& [pid, left] : phoenix_respawn_) if (left > 0) --left;
+    std::vector<int> reborn;
+    for (const auto& [pid, left] : phoenix_respawn_)
+        if (left <= 0) reborn.push_back(pid);
+    std::erase_if(phoenix_respawn_,
+                  [](const std::pair<int,int>& e) { return e.second <= 0; });
+
+    for (std::size_t ui = 0; ui < phoenix_id_of_.size(); ++ui) {
+        const int pid = phoenix_id_of_[ui];
+        if (pid < 0) continue;
+        // 没进花名册 ⇒ 上一波被打下来了。等 N 波，满血回来。
+        std::erase_if(phoenix_roster_,
+                      [pid](const PhoenixRecord& r) { return r.id == pid; });
+        if (curve_.phoenix_respawn_waves > 0)
+            phoenix_respawn_.emplace_back(pid, curve_.phoenix_respawn_waves);
+        else reborn.push_back(pid);
+    }
+    std::fill(phoenix_id_of_.begin(), phoenix_id_of_.end(), -1);
+
+    // 重生回来的重新进花名册，连续存活从 0 起算。
+    for (const int pid : reborn) phoenix_roster_.push_back(PhoenixRecord{pid, 0});
 }
 
 // 本波「打完」的判据。
@@ -524,7 +584,107 @@ bool DemoBattle::attacker_can_fight() const {
 void DemoBattle::withdraw_all_attackers() {
     std::vector<rts::UnitId> ids;
     w_.enumerate_units(rts::Side::Attacker, ids);
-    for (const rts::UnitId id : ids) w_.kill_unit(id);
+    // **撤不是死**：超时收场的不死鸟也算撤离成功，进花名册。走这条路正是
+    // 「本波打不动了、残兵撤退」，把它算成击落等于让「超时」白白惩罚攻方
+    // 的空军——而那一侧的惩罚该由被击落来给（`phoenix_respawn_waves`）。
+    for (const rts::UnitId id : ids) {
+        if (w_.unit_type(id) == rts::UnitType::Phoenix) retire_phoenix(id);
+        else w_.kill_unit(id);
+    }
+}
+
+// ——不死鸟的撤离（2026-09-10，#170）——
+
+// 飞回最近的集结点。**`Wraith` 与 `Phoenix` 共用这一个**：两者都是「事情办完
+// 或办不下去就回去」，而「最近的集结点在哪」写两遍必然漂移（本仓库通篇在防
+// 的东西）。`Wraith` 那份原本是内联的，这里提出来。
+rts::UnitAction DemoBattle::retreat_action(rts::UnitId id) const {
+    const auto& spawns = w_.spawns();
+    if (spawns.empty()) return rts::UnitAction::Stop;
+    const rts::Vec2 p = w_.unit_pos(id);
+    rts::Vec2 best = rts::center_of(spawns[0].pos);
+    float best_d2 = -1.0f;
+    for (const auto& s : spawns) {
+        const rts::Vec2 c = rts::center_of(s.pos);
+        const float dx = c.x - p.x;
+        const float dy = c.y - p.y;
+        const float d2 = dx * dx + dy * dy;
+        if (best_d2 < 0.0f || d2 < best_d2) { best_d2 = d2; best = c; }
+    }
+    return greedy_move(id, best);
+}
+
+// 这只不死鸟该撤了吗。两个条件，理由完全不同：
+//
+//   * **血量低于阈值** —— 这是「手术刀」那条设计本身（点一座塔、掉血就走、
+//     下一波再来）。它同时让 `Flak` 第一次有对象：会撤的不死鸟才会被
+//     「视野否定半径 > 伤害半径」赶走
+//   * **本波已无地面战斗单位** —— 防波次循环卡死，与 `Wraith` 那条
+//     `!any_combat` 同源。`CLAUDE.md` 点过名：「加任何『不求战』的单位时都要
+//     回头看这个终止条件」，而一只会撤的不死鸟正好变成了那种单位
+bool DemoBattle::phoenix_should_withdraw(rts::UnitId id,
+                                         bool any_ground_combat) const {
+    if (!any_ground_combat) return true;
+    // 满血从**数值表 + 等级**重算（`hp_at`，与生成时同一条路），不去 `World`
+    // 要一个 `unit_max_hp` 访问器：`rts_core` 不为 `game/` 的记账加接口，
+    // 而这个值本来就是确定性地由 (兵种, 等级) 决定的。
+    const std::int64_t max_hp =
+        hp_at(w_.stats(), rts::UnitType::Phoenix, w_.unit_level(id));
+    if (max_hp <= 0) return false;
+    return w_.unit_hp(id) * 1000 < max_hp * curve_.phoenix_withdraw_hp_permille;
+}
+
+// 撤离完成：记进花名册，移出世界。
+//
+// **刻意「到达即离场」，而不是留一个「活着但不算数」的状态。** 后者要给
+// `attacker_can_fight()` 加一条「撤离完成不算能打」，那正是 `CLAUDE.md` 点名
+// 的那个坑的形状（会撤退的单位不会死 ⇒ 一只就能让游戏停在这一波）。单位不在
+// 世界里，那条判据**结构上不需要改**——坑就不存在，而不是绕过去了。
+// 每拍查一次「有没有正在撤的不死鸟已经到了集结点」。
+//
+// 判据与 `Scout` 那条到达判据同款（切比雪夫 ≤ 1 格）——飞行单位不必踩正中心，
+// 而集结点周围本来就摆着一圈生成偏移。
+void DemoBattle::tick_phoenix_withdrawal() {
+    const auto& spawns = w_.spawns();
+    if (spawns.empty()) return;
+    std::vector<rts::UnitId> ids;
+    w_.enumerate_units(rts::Side::Attacker, ids);
+    // 先数地面战斗单位：撤离判据要它，而这一层不在 `issue_actions` 里。
+    bool any_ground_combat = false;
+    for (const rts::UnitId id : ids) {
+        const rts::UnitType t = w_.unit_type(id);
+        if (rts::is_combat(t) && t != rts::UnitType::Phoenix) {
+            any_ground_combat = true;
+            break;
+        }
+    }
+    for (const rts::UnitId id : ids) {
+        if (w_.unit_type(id) != rts::UnitType::Phoenix) continue;
+        if (!phoenix_should_withdraw(id, any_ground_combat)) continue;
+        const rts::GridPos g = rts::grid_of(w_.unit_pos(id));
+        for (const auto& s : spawns) {
+            const int di = g.i > s.pos.i ? g.i - s.pos.i : s.pos.i - g.i;
+            const int dj = g.j > s.pos.j ? g.j - s.pos.j : s.pos.j - g.j;
+            if (di <= 1 && dj <= 1) { retire_phoenix(id); break; }
+        }
+    }
+}
+
+void DemoBattle::retire_phoenix(rts::UnitId id) {
+    const std::size_t ui = id.index();
+    const int pid = ui < phoenix_id_of_.size() ? phoenix_id_of_[ui] : -1;
+    if (pid >= 0) {
+        int alive = 0;
+        for (const PhoenixRecord& r : phoenix_roster_)
+            if (r.id == pid) alive = r.waves_alive;
+        // 花名册按身份去重：同一只在同一波里只该进一次。
+        std::erase_if(phoenix_roster_,
+                      [pid](const PhoenixRecord& r) { return r.id == pid; });
+        phoenix_roster_.push_back(PhoenixRecord{pid, alive + 1});
+        if(!developer() && game::earns_white_feather(alive+1)) white_feather_=true;
+        phoenix_id_of_[ui] = -1;
+    }
+    w_.kill_unit(id);
 }
 
 // 斥候侦查：**到达集结点 → 掷一次死活 → 活着即侦查成功**。
@@ -709,6 +869,19 @@ rts::UnitAction DemoBattle::flow_step(rts::UnitId id) {
                                       : a;
 }
 
+std::array<std::size_t,3> DemoBattle::tactical_goal_diagnostics() const {
+    std::array<std::size_t,3> result{econ_goals_.size(),0,0};
+    if(!policy_ || w_.phase()!=rts::WavePhase::Assault) return result;
+    std::vector<rts::UnitId> leaders;
+    w_.enumerate_squads(rts::Side::Attacker,leaders);
+    for(auto id:leaders) {
+        if(!policy_->supports(w_.unit_type(id),w_.unit_level(id))) continue;
+        ++result[2];
+        if(policy_->supports_macro_goals() && !econ_goals_.empty() && squad_goal_of(id)==1) ++result[1];
+    }
+    return result;
+}
+
 // 这一队该读哪张 field。**目前是脚本的固定分派**（生波时定，见 `spawn_wave`）；
 // RL 宏观层接管时它变成一个每波一次的离散动作，而下面这一层一行都不用改
 // ——那正是「编队动作 = 选目标集」这个形状的全部好处。
@@ -797,11 +970,15 @@ void DemoBattle::issue_actions() {
     //     不会死，于是它一个人就能让游戏永远停在这一波。所以当它落单时改为前压
     //     ——侦查任务此时已经没有意义（没有部队可以用得上这份情报了）。
     bool any_combat = false;
+    // 三、**地面战斗单位还有没有**。给不死鸟的撤离判据用（见下面那一支）：
+    //     它自己是战斗单位，用 `any_combat` 会把「只剩我一只」判成「还有仗打」
+    //     ——那正是上一条要防的卡死，只是换了个兵种。
+    bool any_ground_combat = false;
     for (const rts::UnitId id : ids_) {
-        if (rts::is_combat(w_.unit_type(id))) {
-            any_combat = true;
-            break;
-        }
+        const rts::UnitType t = w_.unit_type(id);
+        if (!rts::is_combat(t)) continue;
+        any_combat = true;
+        if (t != rts::UnitType::Phoenix) { any_ground_combat = true; break; }
     }
     // ——集结期待命与编队步速线（2026-09-02，《地图生成器大改方案.md》§4）——
     //
@@ -925,7 +1102,16 @@ void DemoBattle::issue_actions() {
             // 优先点杀射程内最脆的单位（AtkWeak，工匠/斥候先遭殃），其次
             // 俯冲最近的非墙建筑（AtkBld，点杀防御塔是设计明写的用途）。
             // 机制层排除不可伤害的堡垒；脚本层在无近身目标时追逐有效目标。
-            if (has(mask, rts::UnitAction::AtkWeak)) {
+            //
+            // ——**撤离优先于一切攻击**（2026-09-10，#170）——
+            //
+            // `CLAUDE.md` 给不死鸟定的是「手术刀，不是胜利条件」+ 跨波留存。
+            // 掉血就走、下一波再来，这才是手术刀的形状；打到死是消耗品的形状，
+            // 而消耗品换不来「AA 的机会成本」那个两难（守方 2 座 `Flak` 对
+            // 74 座 `Tower` 就是实测结果）。
+            if (phoenix_should_withdraw(id, any_ground_combat)) {
+                a = retreat_action(id);
+            } else if (has(mask, rts::UnitAction::AtkWeak)) {
                 a = rts::UnitAction::AtkWeak;
             } else if (has(mask, rts::UnitAction::AtkBld)) {
                 a = rts::UnitAction::AtkBld;
@@ -954,25 +1140,7 @@ void DemoBattle::issue_actions() {
             if (!wave_scouted_ || !any_combat) {
                 a = flow_step(id);
             } else {
-                const auto& spawns = w_.spawns();
-                if (spawns.empty()) {
-                    a = rts::UnitAction::Stop;
-                } else {
-                    const rts::Vec2 p = w_.unit_pos(id);
-                    rts::Vec2 best = rts::center_of(spawns[0].pos);
-                    float best_d2 = -1.0f;
-                    for (const auto& s : spawns) {
-                        const rts::Vec2 c = rts::center_of(s.pos);
-                        const float dx = c.x - p.x;
-                        const float dy = c.y - p.y;
-                        const float d2 = dx * dx + dy * dy;
-                        if (best_d2 < 0.0f || d2 < best_d2) {
-                            best_d2 = d2;
-                            best = c;
-                        }
-                    }
-                    a = greedy_move(id, best);
-                }
+                a = retreat_action(id);
             }
         } else if (has(mask, rts::UnitAction::AtkNear)) {
             a = rts::UnitAction::AtkNear;
@@ -1045,7 +1213,30 @@ void DemoBattle::issue_actions() {
     // 上，所以那条路排除。代价要认下来：画面上不会出现整齐的三人小队，
     // 编队是「共享意图、各自走」。那种视觉编队要换回 waypoint A*。
 
+    learned_squads_ = 0;
+    if (policy_ && w_.phase()==rts::WavePhase::Assault) {
+        std::vector<std::uint8_t> goals;
+        if(policy_->supports_macro_goals()) {
+            goals.reserve(ids_.size());
+            for(auto id:ids_) goals.push_back(static_cast<std::uint8_t>(squad_goal_of(id)));
+        }
+        learned_squads_ = apply_tactical_policy(w_,*policy_,ids_,acts_,goals,econ_goals_);
+    }
     w_.submit_actions(rts::Side::Attacker, acts_.data(), acts_.size());
+}
+
+void DemoBattle::set_tactical_policy(std::shared_ptr<TacticalPolicy> policy) {
+    if (w_.now()!=0) throw std::runtime_error("Set tactical policy before advancing the battle");
+    if (policy && policy->stats_fingerprint()!=w_.stats().fingerprint())
+        throw std::runtime_error("Tactical policy stats do not match this battle");
+    policy_=std::move(policy);
+}
+void DemoBattle::set_defender_policy(std::shared_ptr<MacroPolicy> policy) {
+    if(w_.now()!=0) throw std::runtime_error("Set defender policy before advancing battle");
+    if(policy && policy->stats_fingerprint()!=w_.stats().fingerprint())
+        throw std::runtime_error("Defender policy stats do not match battle");
+    defender_policy_=std::move(policy);
+    defender_rng_=rts::Rng(w_.seed()^0x646566656e646572ull);
 }
 
 void DemoBattle::enable_developer() {
@@ -1064,6 +1255,11 @@ void DemoBattle::developer_wave(int wave) {
 void DemoBattle::update(int ticks) {
     for (int k = 0; k < ticks; ++k) {
         if (defeated_) return;   // 败局定格：世界停在最后一帧
+        if(defender_policy_ && w_.now()%defender_policy_->period()==0) {
+            const auto command=defender_policy_->decide(w_.view(rts::Side::Defender),summon_accepted_now(),&defender_rng_);
+            // Policy actions are regenerated on replay, not duplicated as human events.
+            w_.submit(rts::Side::Defender,&command,1);
+        }
         if (w_.phase() == rts::WavePhase::Build && build_left_ > 0) {
             --build_left_;
         } else if (w_.phase() == rts::WavePhase::Build) {
@@ -1076,6 +1272,9 @@ void DemoBattle::update(int ticks) {
             since_decision_ = 0;
         }
         if (w_.phase() == rts::WavePhase::Assault) ++assault_ticks_;
+        // 撤离到位的不死鸟离场（2026-09-10，#170）。**必须在下面那条终止判据
+        // 之前**：它自己是战斗单位，不先离场就永远等不到「攻方还能打的归零」。
+        if (w_.phase() == rts::WavePhase::Assault) tick_phoenix_withdrawal();
         const bool timed_out = timing_.assault_max_ticks > 0 &&
                                assault_ticks_ >= timing_.assault_max_ticks;
         if (w_.phase() == rts::WavePhase::Assault &&
@@ -1106,7 +1305,7 @@ void DemoBattle::update(int ticks) {
             issue_actions();   // 新生成的单位当拍拿到动作，不呆等一个决策周期
             since_decision_ = 0;
         }
-        if (since_decision_ >= rts::kDecisionPeriodMax) {
+        if (since_decision_ >= (policy_ ? policy_->ticks_per_step() : rts::kDecisionPeriodMax)) {
             issue_actions();
             since_decision_ = 0;
         }

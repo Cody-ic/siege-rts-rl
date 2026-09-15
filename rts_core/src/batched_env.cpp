@@ -40,7 +40,16 @@ struct BatchedEnv::Impl {
     // 对侧驱动钩子（`BatchedEnvInit::opponent_hook`）。**在工作线程里调**，
     // 所以实现只许碰第 i 局自己的状态——那条纪律写在声明处。
     std::function<void(World&, int)> opponent;
-    // 逐局的 flow field 缓存：`(兵种 × 等级档)`，每次 `observe` 重算。
+    std::function<std::unique_ptr<World>(WorldInit, int)> world_factory;
+    std::function<BatchedGoals(const WorldView&, std::span<const UnitId>, int)> goal_hook;
+
+    std::unique_ptr<World> make_world(WorldInit init, int index) {
+        auto result = world_factory ? world_factory(std::move(init), index)
+                                    : std::make_unique<World>(std::move(init));
+        if (!result) throw ContractError("BatchedEnv: world factory returned null");
+        return result;
+    }
+    // 逐局的 flow field 缓存：`(兵种 × 等级档 × 目标组)`，每次 observe 重算。
     //
     // **`observe` 里必须喂方向场，否则策略没有任何东西指向目标。**
     // 此前这里传 `nullptr`（`obs_pack.hpp` 说「训练早期没有宏观目标时是正常
@@ -73,6 +82,19 @@ struct BatchedEnv::Impl {
         const int dx = g.i > k.i ? g.i - k.i : k.i - g.i;
         const int dy = g.j > k.j ? g.j - k.j : k.j - g.j;
         return dx > dy ? dx : dy;
+    }
+
+    BatchedGoals intent_for(std::size_t i) const {
+        const auto& w=*worlds[i];
+        auto intent=goal_hook ? goal_hook(w.view(side),leaders[i],static_cast<int>(i)) : BatchedGoals{};
+        if(!intent.groups.empty() && intent.groups.size()!=leaders[i].size())
+            throw ContractError("BatchedEnv: goal groups must match squad leaders");
+        for(auto group:intent.groups)
+            if(group>1) throw ContractError("BatchedEnv: invalid goal group");
+        for(auto cell:intent.economy)
+            if(cell.i<0 || cell.j<0 || cell.i>=w.width() || cell.j>=w.height())
+                throw ContractError("BatchedEnv: economy goal outside map");
+        return intent;
     }
 
     // 把 `[lo, hi)` 这段环境分给若干线程跑同一个函数体。
@@ -170,8 +192,10 @@ BatchedEnv::BatchedEnv(BatchedEnvInit init) : p_(std::make_unique<Impl>()) {
                       : std::clamp(static_cast<int>(std::thread::hardware_concurrency()),
                                    1, n);
     p_->worlds.reserve(static_cast<std::size_t>(n));
+    p_->world_factory = std::move(init.world_factory);
+    p_->goal_hook = std::move(init.goal_hook);
     for (WorldInit& wi : init.worlds) {
-        p_->worlds.push_back(std::make_unique<World>(std::move(wi)));
+        p_->worlds.push_back(p_->make_world(std::move(wi), static_cast<int>(p_->worlds.size())));
     }
     p_->counts.assign(static_cast<std::size_t>(n), 0);
     p_->ids.resize(static_cast<std::size_t>(n));
@@ -182,7 +206,7 @@ BatchedEnv::BatchedEnv(BatchedEnvInit init) : p_(std::make_unique<Impl>()) {
     p_->flows.resize(static_cast<std::size_t>(n));
     for (auto& f : p_->flows) {
         f.resize(static_cast<std::size_t>(kUnitTypeCount) *
-                 static_cast<std::size_t>(kFlowTierCount));
+                 static_cast<std::size_t>(kFlowTierCount) * 2);
     }
     p_->max_ticks = init.max_ticks_per_episode;
     p_->opponent = std::move(init.opponent_hook);
@@ -245,6 +269,7 @@ void BatchedEnv::observe(std::span<float> cells, std::span<float> self_vec,
         // 「group action 是共享子目标」那条形状要求的（见 `kMaxUnitsPerEnv`）。
         const std::vector<UnitId>& ids = p_->leaders[ui];
         const int m = std::min(static_cast<int>(ids.size()), kMaxUnitsPerEnv);
+        const auto intent = p_->intent_for(ui);
         // 本局的 field 全部作废重算（墙血变了破坏代价就变）。
         for (auto& f : p_->flows[ui]) f.reset();
         const GridPos goal[1] = {w.keep_pos()};
@@ -264,12 +289,16 @@ void BatchedEnv::observe(std::span<float> cells, std::span<float> self_vec,
             const UnitId self = ids[static_cast<std::size_t>(u)];
             const UnitType mover = w.unit_type(self);
             const int tier = flow_tier_of(w.unit_level(self), p_->tiering);
-            const std::size_t fi = static_cast<std::size_t>(mover) *
+            const std::size_t group = intent.groups.empty() || intent.economy.empty()
+                ? std::size_t{0} : static_cast<std::size_t>(intent.groups[static_cast<std::size_t>(u)]);
+            const std::span<const GridPos> targets = group == 1
+                ? std::span<const GridPos>(intent.economy) : std::span<const GridPos>(goal);
+            const std::size_t fi = (static_cast<std::size_t>(mover) *
                                        static_cast<std::size_t>(kFlowTierCount) +
-                                   static_cast<std::size_t>(tier);
+                                   static_cast<std::size_t>(tier)) * 2 + group;
             std::optional<FlowField>& fld = p_->flows[ui][fi];
             if (!fld) {
-                fld.emplace(FlowField::compute(v, mover, tier, goal, p_->tiering));
+                fld.emplace(FlowField::compute(v, mover, tier, targets, p_->tiering));
             }
             pack_unit_obs(v, self, &*fld, p_->norms,
                           cells.subspan(co, static_cast<std::size_t>(kObsCellFloats)),
@@ -457,15 +486,75 @@ void BatchedEnv::take_tally(std::span<float> out) {
         out[o + 6] = static_cast<float>(t.losses);
         // 第 8 列由这一层给（不是 `World::Tally` 的字段），同样读走即清。
         out[o + 7] = static_cast<float>(p_->progress[ui]);
+        out[o + 8] = static_cast<float>(t.scout_units_killed);
+        out[o + 9] = static_cast<float>(t.masons_killed);
+        out[o + 10] = static_cast<float>(t.phoenix_losses);
+        out[o + 11] = static_cast<float>(t.enemy_unit_gold);
+        const auto opponent = p_->side == Side::Attacker ? Side::Defender : Side::Attacker;
+        // Read and clear opponent counters together; otherwise repair spending
+        // would be counted again on each training step.
+        const auto other = p_->worlds[ui]->take_tally(opponent);
+        out[o + 12] = static_cast<float>(other.repair_wood_spent);
+        out[o + 13] = static_cast<float>(t.friendly_unit_damage);
+        out[o + 14] = static_cast<float>(t.friendly_units_killed);
+        for (std::size_t type = 0; type < kUnitTypeCount; ++type) {
+            out[o + 15 + type] = static_cast<float>(t.enemy_unit_levels[type]);
+            out[o + 26 + type] = static_cast<float>(t.own_unit_levels[type]);
+        }
+        out[o + 37] = static_cast<float>(t.destroyed_stone);
+        out[o + 38] = static_cast<float>(t.destroyed_wood);
+        out[o + 39] = static_cast<float>(t.destroyed_income_stone);
+        out[o + 40] = static_cast<float>(t.destroyed_income_wood);
+        out[o + 41] = static_cast<float>(t.destroyed_income_gold);
         p_->progress[ui] = 0.0;
     }
+}
+
+std::vector<std::array<int,2>> BatchedEnv::goal_diagnostics() const {
+    std::vector<std::array<int,2>> out(p_->worlds.size());
+    for(std::size_t i=0;i<out.size();++i) {
+        const auto intent=p_->intent_for(i);
+        out[i][0]=static_cast<int>(intent.economy.size());
+        if(!intent.economy.empty())
+            out[i][1]=static_cast<int>(std::count(intent.groups.begin(),intent.groups.end(),std::uint8_t{1}));
+    }
+    return out;
+}
+
+std::vector<std::vector<std::uint8_t>> BatchedEnv::goal_groups() const {
+    std::vector<std::vector<std::uint8_t>> out(p_->worlds.size());
+    for(std::size_t i=0;i<out.size();++i) {
+        auto intent=p_->intent_for(i);
+        if(intent.groups.empty() || intent.economy.empty()) out[i].assign(p_->leaders[i].size(),0);
+        else out[i]=std::move(intent.groups);
+    }
+    return out;
 }
 
 std::vector<double> BatchedEnv::potentials() const {
     std::vector<double> result(p_->worlds.size(), 0.0);
     for (std::size_t i = 0; i < p_->worlds.size(); ++i) {
+        const auto& w=*p_->worlds[i];
+        const auto intent=p_->intent_for(i);
         for (const UnitId id : p_->ids[i]) {
-            result[i] -= Impl::dist_to_keep(*p_->worlds[i], id);
+            bool economy=false;
+            if(!intent.groups.empty() && !intent.economy.empty()) {
+                const auto squad=w.unit_squad(id);
+                for(std::size_t q=0;q<p_->leaders[i].size();++q) {
+                    const auto leader=p_->leaders[i][q];
+                    if(id==leader || (squad!=kNoSquad && squad==w.unit_squad(leader))) {
+                        economy=intent.groups[q]==1;break;
+                    }
+                }
+            }
+            int distance=Impl::dist_to_keep(w,id);
+            if(economy) {
+                distance=std::max(w.width(),w.height());
+                const auto pos=grid_of(w.unit_pos(id));
+                for(auto goal:intent.economy)
+                    distance=std::min(distance,std::max(std::abs(int(pos.i)-goal.i),std::abs(int(pos.j)-goal.j)));
+            }
+            result[i] -= distance;
         }
     }
     return result;
@@ -474,7 +563,7 @@ std::vector<double> BatchedEnv::potentials() const {
 void BatchedEnv::reset_one(int i, WorldInit init) {
     if (i < 0 || i >= batch_size()) throw ContractError("BatchedEnv: 环境下标越界");
     const std::size_t ui = static_cast<std::size_t>(i);
-    p_->worlds[ui] = std::make_unique<World>(std::move(init));
+    p_->worlds[ui] = p_->make_world(std::move(init), i);
     p_->worlds[ui]->enumerate_units(p_->side, p_->ids[ui]);
     p_->worlds[ui]->enumerate_squads(p_->side, p_->leaders[ui]);
     p_->counts[ui] = static_cast<int>(p_->leaders[ui].size());

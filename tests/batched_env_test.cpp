@@ -108,6 +108,36 @@ rts::BatchedEnvInit make_init(int n, int threads) {
 
 }  // namespace
 
+TEST_CASE("native reset factory preserves an independent episode clock", "[batchenv]") {
+    auto init = make_init(2, 2);
+    init.max_ticks_per_episode = 12;
+    std::vector<int> calls(2,0);
+    init.world_factory = [&calls](rts::WorldInit wi, int i) {
+        ++calls[static_cast<std::size_t>(i)];
+        auto w = std::make_unique<rts::World>(std::move(wi));
+        w->advance(90);
+        return w;
+    };
+    rts::BatchedEnv env(std::move(init));
+    REQUIRE(calls == std::vector<int>{1,1});
+    REQUIRE(env.world_at(0).now() == 90);
+    std::vector<rts::UnitAction> actions(2*rts::BatchedEnv::kMaxUnitsPerEnv);
+    std::vector<std::uint8_t> done(2);
+    env.step(actions,done);
+    REQUIRE(done == std::vector<std::uint8_t>{0,0});
+    env.step(actions,done);
+    REQUIRE(done == std::vector<std::uint8_t>{1,1});
+    env.reset_one(0,one(0,2));
+    REQUIRE(calls == std::vector<int>{2,1});
+    REQUIRE(env.world_at(0).now() == 90);
+    env.step(actions,done);
+    REQUIRE(done[0] == 0);
+
+    auto invalid = make_init(1,1);
+    invalid.world_factory = [](rts::WorldInit, int) { return std::unique_ptr<rts::World>{}; };
+    REQUIRE_THROWS_AS(rts::BatchedEnv(std::move(invalid)),rts::ContractError);
+}
+
 TEST_CASE("terminal cause is latched, timeout cannot turn into victory", "[batchenv]") {
     using End = rts::BatchedEnv::EpisodeEnd;
     for (int threads : {1, 2}) {
@@ -562,6 +592,61 @@ TEST_CASE("episode 时间上界：置 0 = 不设（旧行为）", "[batchenv]") 
     for (int k = 0; k < 60; ++k) {
         e.step(acts, b.done);
         CHECK(b.done[0] == 0u);   // Keep 还在、且不设上界 ⇒ 永不终局
+    }
+}
+
+TEST_CASE("Native macro goals are isolated, deterministic and reset safely", "[batchenv][batchgoals]") {
+    const auto build = [](int threads, int mode) {
+        auto init=make_init(2,threads);
+        if(mode) init.goal_hook=[mode](const rts::WorldView&, std::span<const rts::UnitId> ids, int) {
+            rts::BatchedGoals g;
+            g.groups.resize(ids.size());
+            for(std::size_t i=0;i<ids.size();++i) g.groups[i]=static_cast<std::uint8_t>(i%2);
+            if(mode!=2) g.economy.push_back({22,12});
+            if(mode==3) g.groups.push_back(0);
+            if(mode==4) g.economy[0]={24,12};
+            return g;
+        };
+        return std::make_unique<rts::BatchedEnv>(std::move(init));
+    };
+    auto legacy=build(1,0), serial=build(1,1), parallel=build(2,1), fallback=build(2,2);
+    Bufs a(2),b(2),c(2),d(2);
+    legacy->observe(a.cells,a.self,a.glob);
+    serial->observe(b.cells,b.self,b.glob);
+    parallel->observe(c.cells,c.self,c.glob);
+    fallback->observe(d.cells,d.self,d.glob);
+    REQUIRE(b.cells==c.cells);REQUIRE(b.self==c.self);REQUIRE(b.glob==c.glob);
+    REQUIRE(a.cells==d.cells);REQUIRE(a.self==d.self);REQUIRE(a.glob==d.glob);
+    REQUIRE(a.self==b.self);REQUIRE(a.glob==b.glob);
+    REQUIRE(legacy->potentials()==std::vector<double>{-21,-33});
+    REQUIRE(serial->potentials()==std::vector<double>{-19,-31});
+    REQUIRE(serial->potentials()==parallel->potentials());
+    REQUIRE(fallback->potentials()==legacy->potentials());
+    REQUIRE(serial->goal_diagnostics()==std::vector<std::array<int,2>>{{1,1},{1,1}});
+    REQUIRE(parallel->goal_diagnostics()==serial->goal_diagnostics());
+    REQUIRE(fallback->goal_diagnostics()==std::vector<std::array<int,2>>{{0,0},{0,0}});
+    REQUIRE(serial->goal_groups()==std::vector<std::vector<std::uint8_t>>{{0,1},{0,1,0}});
+    REQUIRE(parallel->goal_groups()==serial->goal_groups());
+    REQUIRE(fallback->goal_groups()==std::vector<std::vector<std::uint8_t>>{{0,0},{0,0,0}});
+    REQUIRE(legacy->goal_groups()==fallback->goal_groups());
+    const auto center=static_cast<std::size_t>((rts::kObsK/2*rts::kObsK+rts::kObsK/2)*rts::kObsChannelCount);
+    const auto di=static_cast<std::size_t>(rts::ObsChannel::FlowDi);
+    REQUIRE(a.cells[center+di]==b.cells[center+di]);
+    REQUIRE(a.cells[rts::kObsCellFloats+center+di]<0);
+    REQUIRE(b.cells[rts::kObsCellFloats+center+di]>0);
+    // Goal conditioning may change only the two registered flow channels.
+    bool unchanged=true;
+    for(std::size_t i=0;i<a.cells.size();++i)
+        if(i%rts::kObsChannelCount<di && a.cells[i]!=b.cells[i]) unchanged=false;
+    REQUIRE(unchanged);
+    serial->reset_one(0,one(0,2));
+    serial->observe(d.cells,d.self,d.glob);
+    REQUIRE(d.cells==b.cells);
+    REQUIRE(serial->potentials()==std::vector<double>{-19,-31});
+    for(int mode:{3,4}) {
+        auto invalid=build(2,mode);
+        REQUIRE_THROWS_AS(invalid->observe(d.cells,d.self,d.glob),rts::ContractError);
+        REQUIRE_THROWS_AS(invalid->potentials(),rts::ContractError);
     }
 }
 

@@ -1,0 +1,38 @@
+{
+  "executable": "build-onnx/tests/Release/macro_game_evaluate.exe",
+  "models": {
+    "baseline": "runs/prepared-final-20260909/export/attacker.onnx",
+    "candidate": "runs/critic-isolation-shared-20260909/export-v2/attacker.onnx"
+  },
+  "maps": [
+    "game/data/maps/pool/gen_01002000.json",
+    "game/data/maps/pool/gen_01003000.json",
+    "game/data/maps/pool/gen_01007000.json",
+    "game/data/maps/pool/gen_01009000.json"
+  ],
+  "defender": "runs/macro-joint-20260909/export-native-v2",
+  "stats": "game/data/stats_placeholder.json",
+  "seeds": [
+    1601,
+    1702
+  ],
+  "max_wave": 6,
+  "max_ticks": 30000,
+  "files": {
+    "build-onnx/tests/Release/macro_game_evaluate.exe": "c84df10c956ecdd7b1c38dc1c3831f5d8d009dc3332858e307b63ddf9056190a",
+    "game/data/stats_placeholder.json": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+    "game/data/maps/pool/gen_01002000.json": "258426af6ee45cece5789f02ced8dff215b2db1e130471c766a9eb9c2c6628bf",
+    "game/data/maps/pool/gen_01003000.json": "1eca9b886a26f424b8039fb4665a8d4ca056b145672d54e9a060a03d453c737d",
+    "game/data/maps/pool/gen_01007000.json": "65f8ed3f8102fba260e8bc2b9a0b386bb3b2d0ae66081e4008f520e10f0463fd",
+    "game/data/maps/pool/gen_01009000.json": "09a441043b8e1bfdfe9b6405fdd60c0bb1cef5f943049fd4f03ccc8bde680ebf",
+    "runs/prepared-final-20260909/export/attacker.onnx": "2e62e27f1b2b7002e9e727a09a58f0357909cc0ee01ee76e1db0477bdf52c7c3",
+    "runs/critic-isolation-shared-20260909/export-v2/attacker.onnx": "71d26a694e9dfabe61a1e4ae73f14b51529ef3d1e1d284dc957b36e88c3ce4a1",
+    "runs\\macro-joint-20260909\\export-native-v2\\decoder.onnx": "a8f6c463f89f10ff02bf776447460822500e6cdbc3cf329aef7affb2653d81e4",
+    "runs\\macro-joint-20260909\\export-native-v2\\encoder.onnx": "ffa89fe3ed4f8ceed6c8b7a1ac645868c5fd9331de7f3be0308ef87a28d46da2",
+    "runs\\macro-joint-20260909\\export-native-v2\\manifest.json": "45a2f1065134c7098e221dba69f4cd45ee82b84521e0a4eb7c2d580bb7d7da9f",
+    "build-onnx\\tests\\Release\\onnxruntime.dll": "69d8e6d3879a3b4001cdc74c8ed9ccc7e7f799a5b847059738323404519ec471"
+  },
+  "scope": "Actual DemoBattle deployment comparison, same frozen learned defender. Baseline v1 keep-only versus candidate v2 macro goals; measures combined deployment change, not isolated weight effect.",
+  "criteria": "Report all paired attacker city defeats, defender waves survived, completion and timeout. More attacker defeats and no greater aggregate defender survival are required to advance; this is not a full 70-wave acceptance test.",
+  "candidate_selection": "Previously frozen shared update64; no checkpoint reselection on these game results."
+}

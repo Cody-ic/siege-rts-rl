@@ -1,6 +1,8 @@
 #include "game/player_input.hpp"
 
 #include <cassert>
+#include <algorithm>
+#include <cstdlib>
 #include <cstddef>
 
 #include "rts/action.hpp"
@@ -130,6 +132,35 @@ bool can_afford_build(const rts::WorldView& view, rts::BldType bt) {
     const auto stock = view.stock();
     return stock[static_cast<std::size_t>(rts::Resource::Stone)] >= s.cost_stone &&
           stock[static_cast<std::size_t>(rts::Resource::Wood)] >= s.cost_wood;
+}
+
+std::vector<rts::GridPos> build_line(rts::GridPos start, rts::GridPos end, bool other_axis) {
+    const int di = int(end.i) - int(start.i), dj = int(end.j) - int(start.j);
+    const bool along_i = (std::abs(di) >= std::abs(dj)) != other_axis;
+    const int delta = along_i ? di : dj;
+    std::vector<rts::GridPos> cells;
+    for (int step = 0; step <= std::abs(delta); ++step) {
+        const int offset = delta < 0 ? -step : step;
+        cells.push_back({static_cast<std::int16_t>(start.i + (along_i ? offset : 0)),
+                         static_cast<std::int16_t>(start.j + (along_i ? 0 : offset))});
+    }
+    return cells;
+}
+
+std::vector<BuildPreview> preview_build(const rts::WorldView& view, rts::BldType type,
+                                      std::span<const rts::GridPos> cells) {
+    auto stone = view.stock()[static_cast<std::size_t>(rts::Resource::Stone)];
+    auto wood = view.stock()[static_cast<std::size_t>(rts::Resource::Wood)];
+    const auto& cost = view.stats().of(type);
+    std::vector<BuildPreview> result;
+    for (const auto cell : cells) {
+        const bool duplicate = std::any_of(result.begin(), result.end(), [&](const auto& item) { return item.cell == cell; });
+        const bool legal = !duplicate && can_place_hint(view, type, cell);
+        const bool affordable = stone >= cost.cost_stone && wood >= cost.cost_wood;
+        result.push_back({cell, legal, affordable});
+        if (legal && affordable) { stone -= cost.cost_stone; wood -= cost.cost_wood; }
+    }
+    return result;
 }
 
 const std::vector<rts::UnitType>& trainable_types() {

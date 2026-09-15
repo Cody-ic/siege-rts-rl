@@ -1,0 +1,59 @@
+{
+  "purpose": "Correct student-visited navigation and attack mistakes with offline observation-only teacher labels",
+  "collection": {
+    "behavior_checkpoint": "runs/split-economy-training-20260909/frozen-update128.pt",
+    "teacher": "flow_breach",
+    "maps": [
+      "game/data/maps/pool/gen_01001000.json",
+      "game/data/maps/pool/gen_01004000.json",
+      "game/data/maps/pool/gen_01005000.json",
+      "game/data/maps/pool/gen_01006001.json"
+    ],
+    "levels": [
+      1,
+      4,
+      8,
+      16
+    ],
+    "seed": 1,
+    "envs": 8,
+    "threads": 4,
+    "steps": 3200,
+    "stride": 4,
+    "fractions": [
+      1.0
+    ],
+    "defender_prepare_ticks": 900,
+    "tactical_goals": "split-economy",
+    "out_dir": "runs/student-correction-data-20260909"
+  },
+  "fit": {
+    "init_weights": "runs/split-economy-training-20260909/frozen-update128.pt",
+    "epochs": 8,
+    "batch_size": 256,
+    "lr": 0.0001,
+    "seed": 1,
+    "torch_threads": 1,
+    "run_dir": "runs/student-correction-fit-20260909"
+  },
+  "files": {
+    "train/demonstrations.py": "78cf419b3b6289210cbead6381e5292234523572596a4f3909c4e5b6bfc0a5ab",
+    "train/evaluate.py": "27d9621bde8d049fe818e239beaaa34943537092a1fea451aca016101311dd2c",
+    "train/diagnostics.py": "f9e1d045f5aa8f5e68f4b1aabd6656e58540c5270dbb3fc125b822adeb56ea9a",
+    "train/ppo.py": "d3dc15438ebd94037df1b1dcd7c01df004df9b1b1e8a2f1d761ccee9a5ebda50",
+    "train/learning.py": "04c647de5551ba2642fcb61f738b729d4b10c020e85f1908d35f3b7e2fef46a4",
+    "train/rollout.py": "77b792a2ef89de002807681b5c89fd9f774b1dcfe029968d130c60e107e4398a",
+    "train/checkpointing.py": "a6f1fa75d77ad8d85899d781dd991905d3e4464dd8c5d5add35c1774095cf9bc",
+    "train/stable_kl.py": "ca7cd18ffb5a9c199278ea42d735168a79b9b375c65d91ecf7ee3d9ed3b44b8c",
+    "runs/split-economy-training-20260909/frozen-update128.pt": "710c2843873ef86ea293017405ae876a57522b83476a9687081ea753420869b8",
+    "build-split-training/bindings/Release/rts_native.cp313-win_amd64.pyd": "fa1655c3122710a35788efc12d77ca050b2552f4a0c5cdb27b49c554d003146d",
+    "game/data/stats_placeholder.json": "c276b68c94a9f5e97de4812435b7263a23c49219bac8e3da94aca25c44b17db7",
+    "game/data/maps/pool/gen_01001000.json": "60fe9df8ffe966fc9d1ecdbe6406d6afd1194ee1d85b4502d25f996c69487bff",
+    "game/data/maps/pool/gen_01004000.json": "d11740be256d2666dc66318255efa4a7912744f47917f745ab920c572f56df45",
+    "game/data/maps/pool/gen_01005000.json": "7c43e2030fde2389cfc0784fd25410f21969e4b3f27911de798857e109f9a18d",
+    "game/data/maps/pool/gen_01006001.json": "7f32afd88e5dfdaea06cae08a9df2bf53d0169f7d9f3fbf89c909214b6fdd160"
+  },
+  "scope": "Imitation repair candidate, not a claim of PPO improvement; teacher is not invoked in game or PPO",
+  "evaluation": "Freeze final epoch8, compare original baseline, failed PPO and repaired candidate on same split-economy development cases before new independent validation",
+  "exclusions": "No diagnosis maps 01010001/01011000/01012000/01008000 in collection; no default model replacement"
+}

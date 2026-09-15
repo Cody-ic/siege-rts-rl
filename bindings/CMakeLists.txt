@@ -57,6 +57,9 @@ target_compile_definitions(rts_native PRIVATE
 # ——绑定层因此不必暴露 `WorldInit` 的几十个字段（见 module.cpp 文件头）。
 # `game` 在默认构建里，所以这条依赖不把任何新东西拖进 GCC 编译面。
 target_link_libraries(rts_native PRIVATE rts_core game)
+if(RTS_WITH_ONNX)
+    rts_copy_onnx_runtime(rts_native)
+endif()
 
 # **这里原以为警告设置会由 `rts_core` 的 INTERFACE 传下来，是错的**：
 # `rts_set_warnings()` 用 `target_compile_options(... PRIVATE ...)`（见
@@ -85,7 +88,7 @@ if(RTS_TEST_TRAINING)
     if(NOT _training_python_ok EQUAL 0)
         message(FATAL_ERROR "RTS_TRAIN_PYTHON must provide torch and numpy")
     endif()
-    foreach(_training_test ppo_smoke rl_runtime rl_suite)
+    foreach(_training_test ppo_smoke rl_runtime rl_suite stable_kl defender_profiles campaign_binding macro_policy macro_train macro_league macro_evaluate macro_imitation macro_compare attacker_campaign_evaluate team_credit)
         add_test(NAME "${_training_test}"
                  COMMAND "${RTS_TRAIN_PYTHON}" "${CMAKE_SOURCE_DIR}/tests/${_training_test}_test.py")
         set_tests_properties("${_training_test}" PROPERTIES
