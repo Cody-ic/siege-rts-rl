@@ -45,6 +45,7 @@
 #include "raylib.h"
 
 #include "game/asset_paths.hpp"
+#include "game/selection_cycle.hpp"
 #include "game/battle_scene.hpp"
 #include "game/demo_driver.hpp"
 #include "game/display_names.hpp"
@@ -443,9 +444,10 @@ int run_verify(const Options& opt) {
     return rc;
 }
 
-std::optional<rts::GridPos> pick_building_sprite(
+std::vector<rts::GridPos> building_sprite_hits(
     const game::MapData& map, const rts::WorldView& view, rts::Tick tick,
     const game::IsoProjection& proj, render::SpriteAtlas& atlas, Vector2 mouse,bool presentation) {
+    std::vector<rts::GridPos> hits;
     const auto items = game::BattleScene::sorted(map, view, tick);
     for (auto it = items.rbegin(); it != items.rend(); ++it) {
         if (it->continuous || atlas.is_projectile(it->sprite)) continue;
@@ -457,11 +459,20 @@ std::optional<rts::GridPos> pick_building_sprite(
         if (!atlas.opaque_at(sprite, x, y)) continue;
         for (std::size_t k = 0; k < view.bld_pos().size(); ++k) {
             if (view.bld_alive()[k] && view.bld_pos()[k] == it->pos &&
-                rts::ident_of(view.bld_type()[k]) == it->sprite) return it->pos;
+                rts::ident_of(view.bld_type()[k]) == it->sprite) {
+                if(std::find(hits.begin(),hits.end(),it->pos)==hits.end()) hits.push_back(it->pos);
+                break;
+            }
         }
-        return std::nullopt; // an opaque foreground prop occludes the building
     }
-    return std::nullopt;
+    return hits;
+}
+
+std::optional<rts::GridPos> pick_building_sprite(
+    const game::MapData& map, const rts::WorldView& view, rts::Tick tick,
+    const game::IsoProjection& proj, render::SpriteAtlas& atlas, Vector2 mouse,bool presentation) {
+    const auto hits=building_sprite_hits(map,view,tick,proj,atlas,mouse,presentation);
+    return hits.empty()?std::nullopt:std::optional<rts::GridPos>{hits.front()};
 }
 
 // 字体要覆盖的全部串。
@@ -997,16 +1008,14 @@ int run_game(const Options& opt) {
     std::filesystem::path save_dir;
     std::optional<game::BattleArchive> archive;
     std::string storage_status;
-    int stored_wave=1;
     bool storage_ready=false;
     if(persistent) {
         try {
             save_dir=opt.save_dir.empty()?game::default_save_directory():rts::path_from_utf8(opt.save_dir);
             std::filesystem::create_directories(save_dir);
             storage_ready=true;
-            stored_wave=game::read_journal_progress(save_dir/"journal.json");
         } catch(const std::exception& e) {
-            storage_status="日记记录读取失败，原文件已保留";std::fprintf(stderr,"journal: %s\n",e.what());
+            storage_status="存档目录读取失败，原文件已保留";std::fprintf(stderr,"save: %s\n",e.what());
         }
         if(storage_ready && !opt.battle && opt.screen.empty()) {
             for(const auto* name:{"campaign.json","campaign.json.bak"}) {
@@ -1021,7 +1030,7 @@ int run_game(const Options& opt) {
                     if(std::string(e.what()).find("不兼容")!=std::string::npos) {
                         try {
                             game::preserve_incompatible_archive(save_dir/name);
-                            storage_status="旧版对局已备份，请用旧版继续；日记不受影响";
+                            storage_status="旧版对局已备份，请用旧版继续";
                         } catch(const std::exception& copy_error) {
                             std::fprintf(stderr,"legacy backup: %s\n",copy_error.what());
                         }
@@ -1089,7 +1098,6 @@ int run_game(const Options& opt) {
         map=game::MapLoader::from_string(map_json);
         shell=game::GameShell(map,game::StatsLoader::from_string(stats_json),kBattleSeed);
         shell.adopt_saved_battle(std::move(*restored),candidate.attempt,candidate.choice);
-        stored_wave=std::max(stored_wave,candidate.wave);
         storage_status=shell.battle()->defeated() || shell.chronicle().completed()
             ? "对局已结束，日记已保留" : "对局已恢复，选择继续对局";
     };
@@ -1159,6 +1167,7 @@ int run_game(const Options& opt) {
     };
     Popup popup;
     std::optional<rts::GridPos> inspected;
+    game::SelectionCycle building_cycle;
     if(opt.inspect_x>=0) {
         if(!map.in_bounds(opt.inspect_x,opt.inspect_y)) throw std::runtime_error("inspect cell out of bounds");
         inspected=rts::GridPos{static_cast<std::int16_t>(opt.inspect_x),static_cast<std::int16_t>(opt.inspect_y)};
@@ -1168,6 +1177,13 @@ int run_game(const Options& opt) {
     std::string notice;
     double notice_until = 0.0;
     bool inspected_busy = false;
+    std::optional<Vector2> inspected_click;
+    const auto inspector_box = [&](Vector2 viewport) {
+        Rectangle box{14, viewport.y-210, std::min(700.0f,viewport.x-28), 120};
+        // A newly opened inspector must not cover the point used to cycle buildings.
+        if (inspected_click && CheckCollisionPointRec(*inspected_click,box)) box.y=174;
+        return box;
+    };
     // 侦查警报的跨帧状态（`draw_alert_banner`）：斥候回报/阵亡两条闪抓的是
     // **二元判定的边沿**（#139：`DemoBattle::scout_outcome()` 三态，逐波重置
     // 为 `None`——重新武装由此是现成的，不需要再记「上一帧看见没有」）。
@@ -1234,7 +1250,7 @@ int run_game(const Options& opt) {
     render::BattleAudio audio(opt.screenshot.empty());
     if(opt.mute) audio.toggle();
     render::ChronicleView journal;
-    int reached_wave = stored_wave;
+    int reached_wave = shell.battle()?shell.battle()->world().wave():1;
     if(opt.journal_page>=0) { journal.preview(opt.journal_page,opt.journal_ending,opt.journal_bottom); reached_wave=70; }
     int enemy_report_wave=0;
     bool enemy_reported=false;
@@ -1258,8 +1274,7 @@ int run_game(const Options& opt) {
         try {
             if(!storage_ready) throw std::runtime_error("存档目录不可用");
             game::write_archive(save_dir/"campaign.json",game::capture_battle(shell,map_json,stats_json));
-            reached_wave=std::max(reached_wave,shell.battle()->world().wave());
-            game::write_journal_progress(save_dir/"journal.json",reached_wave);
+            reached_wave=shell.battle()->world().wave();
             last_save_tick=shell.battle()->world().now();last_save_wave=shell.battle()->world().wave();
             saved_terminal=shell.battle()->defeated() || shell.chronicle().completed();
             storage_status="对局已保存";saved=true;
@@ -1505,14 +1520,15 @@ int run_game(const Options& opt) {
             for (const auto& item : placement_preview) {
                 const Color tint=!item.legal ? Color{240,85,85,135} : item.affordable ? Color{110,235,160,150} : Color{145,145,145,115};
                 auto facing=game::Facing::SE;
-                if(type==rts::BldType::Wall || type==rts::BldType::Gate) {
-                    facing=game::SceneModel::run_direction(view,item.cell,planned);
+                if(type==rts::BldType::Wall || type==rts::BldType::Gate || type==rts::BldType::Fence) {
+                    facing=game::SceneModel::run_direction(view,item.cell,planned,type);
                 }
                 const auto& sprite=atlas.get(rts::ident_of(type),"idle",game::to_string(facing));
                 const auto anchor=proj.grid_to_screen(item.cell);
                 DrawTextureV(sprite.texture,{anchor.x-sprite.ground_anchor.x,anchor.y-sprite.ground_anchor.y},tint);
-                if(type==rts::BldType::Wall && game::SceneModel::is_wall_corner(view,item.cell,planned)) {
-                    const auto& corner=atlas.get("Wall","idle","SE");
+                if((type==rts::BldType::Wall || type==rts::BldType::Fence) &&
+                    game::SceneModel::is_wall_corner(view,item.cell,planned,type)) {
+                    const auto& corner=atlas.get(rts::ident_of(type),"idle","SE");
                     DrawTextureV(corner.texture,{anchor.x-corner.ground_anchor.x,anchor.y-corner.ground_anchor.y},tint);
                 }
                 overlay.draw_cell_outline(item.cell,tint,2.0f/cam.camera().zoom);
@@ -1591,7 +1607,7 @@ int run_game(const Options& opt) {
         if(b && atmosphere_on) atmosphere.draw_world(proj,atlas,cam.camera().zoom);
         EndMode2D();
         if(atmosphere_on) atmosphere.draw_screen(vp,*font);
-        if(journal.open) { journal.draw(*font,vp,reached_wave); return; }
+        if(journal.open) { journal.draw(*font,vp,shell.battle() && shell.battle()->developer()?70:reached_wave); return; }
         if(GetTime()<storage_notice_until && !storage_status.empty() && shell.screen()==game::Screen::Battle)
             font->draw(storage_status,{24,vp.y-104},20,Color{239,217,165,255});
 
@@ -1634,9 +1650,9 @@ int run_game(const Options& opt) {
             if(inspected) {
                 for(std::size_t k=0;k<info.bld_pos().size();++k) {
                     if(!info.bld_alive()[k] || info.bld_pos()[k]!=*inspected) continue;
-                    const float y=screen_h-210;
-                    const float width=std::min(700.0f,screen_w-28);
-                    DrawRectangleRec(Rectangle{14,y,width,120},Color{23,28,30,238});
+                    const auto box=inspector_box({screen_w,screen_h});
+                    const float y=box.y;
+                    DrawRectangleRec(box,Color{23,28,30,238});
                     std::snprintf(hint,sizeof(hint),"%s   Lv%d   %lld / %lld",
                         std::string(game::display_name(info.bld_type()[k])).c_str(),info.bld_level()[k],
                         static_cast<long long>(info.bld_hp()[k]),static_cast<long long>(info.bld_max_hp()[k]));
@@ -1817,12 +1833,17 @@ int run_game(const Options& opt) {
             atmosphere.reset();
             audio.active(false);
             choice_presented = false;
+            journal=render::ChronicleView{};
+            reached_wave=shell.battle()->world().wave();
+            known_chapters=game::chronicle_unlocked(reached_wave);
             enemy_report_wave=0;enemy_reported=false;
             popup = Popup{};
             selected.clear();
             dragging = false;
             dragged_garrison.reset();
             inspected.reset();
+            inspected_click.reset();
+            building_cycle.reset();
             order_target.reset();
             notice.clear();
             inspected_busy=false;
@@ -1866,14 +1887,18 @@ int run_game(const Options& opt) {
         }
         if(shell.battle() && !shell.battle()->developer()) {
             const int wave=shell.battle()->world().wave();
-            if(story_attempt!=shell.attempt()) {story_attempt=shell.attempt();story_wave_seen=0;}
+            if(story_attempt!=shell.attempt()) {
+                story_attempt=shell.attempt();story_wave_seen=0;
+                journal=render::ChronicleView{};
+                known_chapters=game::chronicle_unlocked(wave);
+            }
             const int chapter=game::chronicle_to_present(story_wave_seen,wave,false);
             if(shell.screen()==game::Screen::Battle && chapter>=0) {
                 journal.preview(chapter);
                 popup=Popup{};dragging=false;dragged_garrison.reset();
             }
             story_wave_seen=wave;
-            reached_wave=std::max(reached_wave,wave);
+            reached_wave=wave;
             const auto count=game::chronicle_unlocked(reached_wave);
             if(count>known_chapters) {notice="日记已更新 · 按 J 阅读";notice_until=GetTime()+6;known_chapters=count;}
         }
@@ -1883,10 +1908,6 @@ int run_game(const Options& opt) {
             if(shell.battle()->wave_scouted() && !enemy_reported) {
                 notice="窥使侦查成功：敌军下一波将参考当前城防";notice_until=GetTime()+10;enemy_reported=true;
             }
-        }
-        if(persistent && reached_wave>stored_wave && storage_ready) {
-            try {game::write_journal_progress(save_dir/"journal.json",reached_wave);stored_wave=reached_wave;}
-            catch(const std::exception& e) {std::fprintf(stderr,"journal: %s\n",e.what());storage_ready=false;storage_status="日记保存失败，请检查存档目录";storage_notice_until=GetTime()+12;}
         }
         if(IsKeyPressed(KEY_F5)) {
             if(shell.battle() && shell.battle()->developer()) {notice="开发者对局不保存";notice_until=GetTime()+6;}
@@ -1902,7 +1923,7 @@ int run_game(const Options& opt) {
         if(shell.screen()==game::Screen::Guide) {
             if(guide.input(vp)) shell.apply(game::MenuAction::Back);
         } else if(journal.open) {
-            journal.update(vp,reached_wave);
+            journal.update(vp,shell.battle() && shell.battle()->developer()?70:reached_wave);
             const auto choice=journal.take_choice();
             if(choice!=game::ChronicleChoice::None) {
                 shell.choose_chronicle(choice);
@@ -1949,8 +1970,7 @@ int run_game(const Options& opt) {
             for (std::size_t k=0; inspected && k<input_view.bld_pos().size(); ++k)
                 if (input_view.bld_alive()[k] && input_view.bld_pos()[k]==*inspected)
                     has_inspector = true;
-            const bool on_inspector=has_inspector && mouse.x>=14 && mouse.x<=714 &&
-                                     mouse.y>=vp.y-210 && mouse.y<vp.y-90;
+            const bool on_inspector=has_inspector && CheckCollisionPointRec(mouse,inspector_box(vp));
             const auto show_full_map = [&] {
                 cam.fit(proj, map.width(), map.height(), Vector2{vp.x, std::max(1.0f,vp.y-152.0f)});
                 cam.set_viewport(vp);
@@ -2001,6 +2021,17 @@ int run_game(const Options& opt) {
             cell = proj.screen_to_grid(rts::Vec2{wpos.x, wpos.y});
             const bool in_map = map.in_bounds(cell.i, cell.j) && !on_toolbar && !on_hud && !on_inspector;
             const rts::WorldView view = b->world().view(rts::Side::Defender);
+
+            building_cycle.observe({mouse.x,mouse.y},{wpos.x,wpos.y});
+            if(!in_map || placing) building_cycle.reset();
+            // Clicking outside the popup is also a new map click, not a swallowed dismissal.
+            if(popup.kind!=PopupKind::None && in_map && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                const auto options=popup_options(popup,view);
+                const bool on_option=std::any_of(options.begin(),options.end(),[&](const PopupOption& o) {
+                    return CheckCollisionPointRec(mouse,o.box);
+                });
+                if(!on_option) popup=Popup{};
+            }
 
             placement_preview.clear();
             if (placing) {
@@ -2130,9 +2161,14 @@ int run_game(const Options& opt) {
                             view, ids, proj, game::Rect{x0, y0, x1 - x0, y1 - y0});
                     }
                 } else if (in_map && !dragged) {
-                    if (const auto hit = pick_building_sprite(map, view, b->world().now(),
-                                                              proj, atlas, wpos,atmosphere_on)) cell = *hit;
+                    const auto hits=building_sprite_hits(map,view,b->world().now(),proj,atlas,wpos,atmosphere_on);
+                    if(const auto hit=building_cycle.select(hits,{mouse.x,mouse.y},{wpos.x,wpos.y})) cell=*hit;
+                    // Keep the original click location free for overlap cycling.
+                    const Vector2 menu_anchor{
+                        mouse.x+260.0f<vp.x?mouse.x+20.0f:std::max(0.0f,mouse.x-260.0f),
+                        std::clamp(mouse.y,154.0f,std::max(154.0f,vp.y-430.0f))};
                     inspected = cell;
+                    inspected_click = mouse;
                     inspected_busy=false;
                     // 点（没拖开）：这一格能不能弹出菜单。**练兵优先于维修**——
                     // 能练兵的格子（完工的兵营/堡垒、没在练）一律走 Train 弹窗，
@@ -2156,9 +2192,9 @@ int run_game(const Options& opt) {
                             return true;
                         };
                     if (game::can_train_hint(view, cell)) {
-                        popup = Popup{PopupKind::Train, cell, mouse};
+                        popup = Popup{PopupKind::Train, cell, menu_anchor};
                     } else if (game::can_repair_hint(view, cell)) {
-                        popup = Popup{PopupKind::Repair, cell, mouse};
+                        popup = Popup{PopupKind::Repair, cell, menu_anchor};
                     } else if (const game::UpgradeBlock why =
                                    game::upgrade_block(view, cell);
                                why != game::UpgradeBlock::NoBuilding &&
@@ -2171,11 +2207,11 @@ int run_game(const Options& opt) {
                         // 着上限，用它做拾取判据等于让菜单在最需要解释的时候
                         // 恰好不出现。这里只问「这一格有没有一座己方完工建筑」，
                         // 能不能升由那一行自己灰着说明（见 `push_upgrade`）。
-                        popup = Popup{PopupKind::Upgrade, cell, mouse};
+                        popup = Popup{PopupKind::Upgrade, cell, menu_anchor};
                     } else if (game::can_cancel_build_hint(view, cell)) {
-                        popup = Popup{PopupKind::Cancel, cell, mouse};
+                        popup = Popup{PopupKind::Cancel, cell, menu_anchor};
                     } else if (tile_is_open_for_building(view, cell)) {
-                        popup = Popup{PopupKind::Build, cell, mouse};
+                        popup = Popup{PopupKind::Build, cell, menu_anchor};
                     } else {
                         selected.clear();   // 点在别处：取消选中（标准 RTS 习惯）
                     }

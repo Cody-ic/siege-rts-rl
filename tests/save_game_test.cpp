@@ -51,6 +51,31 @@ TEST_CASE("Forced work survives snapshots and operation-log recovery", "[save]")
     }
 }
 
+TEST_CASE("Changed worker rules reject and preserve v3 and Phoenix v4 saves", "[save]") {
+    Temp temp; auto active=shell(); active.apply(game::MenuAction::StartNew);
+    const auto archive=game::capture_battle(active,map_text(),stats_text());
+    const auto file=temp.path/"campaign.json";
+    for(const int version : {3,4}) {
+        game::write_archive(file,archive);
+        auto text=game::read_save_text(file);
+        const auto key=text.find("\"version\"");
+        REQUIRE(key!=std::string::npos);
+        const auto begin=text.find_first_of("0123456789",key+9);
+        REQUIRE(begin!=std::string::npos);
+        const auto end=text.find_first_not_of("0123456789",begin);
+        text.replace(begin,end-begin,std::to_string(version));
+        { std::ofstream out(file); out << text; }
+        const auto original=game::read_save_text(file);
+        REQUIRE_THROWS(game::read_archive(file));
+        game::preserve_incompatible_archive(file);
+        const auto backup=temp.path/("campaign.json.legacy-v"+std::to_string(version)+"-"+std::to_string(archive.hash)+".json");
+        REQUIRE(game::read_save_text(backup)==original);
+        game::write_archive(file,archive);
+        REQUIRE(game::read_archive(file).hash==archive.hash);
+        REQUIRE(game::read_save_text(backup)==original);
+    }
+}
+
 TEST_CASE("存档还原临时指令、待执行命令、战斗及后续确定性", "[save]") {
     Temp temp;auto original=shell();original.apply(game::MenuAction::StartNew);
     auto& battle=*original.battle();battle.update(2);

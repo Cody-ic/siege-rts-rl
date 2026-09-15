@@ -174,9 +174,11 @@ public:
     static Facing run_direction(const MapData& map, rts::GridPos p,
                                 RunKind kind) noexcept;
 
-    // 对局墙与门读取活建筑（含工地）；静态地图查看器仍用上面的重载。
+    // 对局墙与门读取活建筑（含工地）；木栅还连接相邻木栅，可接到墙/门。
+    // planned 属于 connecting_type；静态地图查看器仍用上面的重载。
     static Facing run_direction(const rts::WorldView& view, rts::GridPos p,
-                                std::span<const rts::GridPos> planned = {}) noexcept;
+                                std::span<const rts::GridPos> planned = {},
+                                rts::BldType connecting_type = rts::BldType::Wall) noexcept;
 
     // 墙格是否在**拐角**：gi 方向（左右）与 gj 方向（上下）都连着墙/门。
     //
@@ -186,7 +188,8 @@ public:
     // `rts_core` 的穿角禁令）。调用方据这个函数给拐角格**补画**第二块板。
     static bool is_wall_corner(const MapData& map, rts::GridPos p) noexcept;
     static bool is_wall_corner(const rts::WorldView& view, rts::GridPos p,
-                               std::span<const rts::GridPos> planned = {}) noexcept;
+                               std::span<const rts::GridPos> planned = {},
+                                rts::BldType connecting_type = rts::BldType::Wall) noexcept;
 
     // 资源点 → 地表标记的精灵标识符（`StonePt`/`WoodPt`/`GoldPt`）。
     //
