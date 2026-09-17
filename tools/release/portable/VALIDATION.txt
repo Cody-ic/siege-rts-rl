@@ -1,0 +1,21 @@
+Local checks (2026-09-16)
+Official v1.0.1 ZIP SHA256: PASS
+ZIP CRC for all entries: PASS
+Manifest SHA256 for all 523 listed files: PASS
+
+Windows checks (2026-09-17)
+C# Framework compiler, x64 winexe, warnings-as-errors: PASS
+PowerShell build and extended verify scripts: PASS
+Standalone EXE in Unicode/space path, isolated LOCALAPPDATA: PASS
+Assets (487 sprites), menu, script/RL roundtrip, battle at tick 1800: PASS
+Extraction cleaned after each exit; user-data sentinels unchanged: PASS
+Payload unchanged from official v1.0.1; manifest requires asInvoker.
+OS build: 26200.9457; .NET Framework: 4.8.09221 (Release 533509)
+EXE bytes: 36736512
+EXE SHA256: b36b1d09b9361900553ed07afe0ad9711e8f37ef75456fd732a99e3417d399db
+
+The first ad-hoc smoke invocation incorrectly concatenated three test commands.
+The game rejected those incompatible arguments; corrected separate invocations
+and the checked-in verify script both passed. This was a test harness error.
+Not performed: full interactive gameplay, interactive F5/save/resume, clean VM,
+audio listening or digital signing. Sentinel retention is not a gameplay save test.
