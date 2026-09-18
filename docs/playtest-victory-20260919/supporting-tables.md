@@ -1,6 +1,6 @@
 # 通关复盘补充核对表
 
-[通关复盘](README.md) · [逐波分析](waves.md) · [突破代价](breakthrough.md) · [逐条事件](events.md) · [核对表](supporting-tables.md) · [证据与复现](evidence.md)
+[通关复盘](README.md) · [逐波分析](waves.md) · [突破代价](breakthrough.md) · [策略对照](counterfactuals.md) · [实验核对表](counterfactual-tables.md) · [逐条事件](events.md) · [核对表](supporting-tables.md) · [证据与复现](evidence.md)
 
 以下为整理后的审核表，来自同一份已校验的冻结路线。原始存档和逐tick日志不在本PR中。实体ID仅在这条路线内有效；工地、实际击毁、主动拆除与采样值按各表口径区分。
 

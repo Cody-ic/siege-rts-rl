@@ -1,6 +1,6 @@
 # 第41—69波逐波复盘
 
-[通关复盘](README.md) · [逐波分析](waves.md) · [突破代价](breakthrough.md) · [逐条事件](events.md) · [核对表](supporting-tables.md) · [证据与复现](evidence.md)
+[通关复盘](README.md) · [逐波分析](waves.md) · [突破代价](breakthrough.md) · [策略对照](counterfactuals.md) · [实验核对表](counterfactual-tables.md) · [逐条事件](events.md) · [核对表](supporting-tables.md) · [证据与复现](evidence.md)
 
 起点为第41波准备期；终点为第70波选择解放。全部29波堡垒无承伤、均非超时结束。建筑数量含工地，敌毁包含工地；主动取消和拆除另计。
 
