@@ -1,6 +1,6 @@
 # 突破策略实验核对表
 
-[通关复盘](README.md) · [逐波分析](waves.md) · [突破代价](breakthrough.md) · [策略对照](counterfactuals.md) · [实验核对表](counterfactual-tables.md) · [逐条事件](events.md) · [核对表](supporting-tables.md) · [证据与复现](evidence.md)
+[通关复盘](README.md) · [90波续局](guard-route.md) · [逐波分析](waves.md) · [突破代价](breakthrough.md) · [策略对照](counterfactuals.md) · [实验核对表](counterfactual-tables.md) · [逐条事件](events.md) · [核对表](supporting-tables.md) · [证据与复现](evidence.md)
 
 规则版本、取样偏差和结论见[策略对照报告](counterfactuals.md)。下表均从同一份冻结输入的局部实验整理，不是玩家实际打出的其他分支。
 

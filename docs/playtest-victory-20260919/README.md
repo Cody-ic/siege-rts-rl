@@ -1,8 +1,10 @@
 # 《圣城守望》通关对局深度复盘
 
-[通关复盘](README.md) · [逐波分析](waves.md) · [突破代价](breakthrough.md) · [策略对照](counterfactuals.md) · [实验核对表](counterfactual-tables.md) · [逐条事件](events.md) · [核对表](supporting-tables.md) · [证据与复现](evidence.md)
+[通关复盘](README.md) · [90波续局](guard-route.md) · [逐波分析](waves.md) · [突破代价](breakthrough.md) · [策略对照](counterfactuals.md) · [实验核对表](counterfactual-tables.md) · [逐条事件](events.md) · [核对表](supporting-tables.md) · [证据与复现](evidence.md)
 
 分析日期：2026-09-19。游戏规则基线：v1.0.1；地图 `gen_01009000`；脚本攻方。
+
+后续已新增[第70—91波守城续局复盘](guard-route.md)，核验90波彩蛋、资源用途与集结区扩张边界。下文保留原第1—69波解放结局分析，两份冻结输入分别说明。
 
 ## 1. 核心判断
 

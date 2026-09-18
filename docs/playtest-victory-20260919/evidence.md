@@ -1,12 +1,12 @@
 # 证据与复现说明
 
-[通关复盘](README.md) · [逐波分析](waves.md) · [突破代价](breakthrough.md) · [策略对照](counterfactuals.md) · [实验核对表](counterfactual-tables.md) · [逐条事件](events.md) · [核对表](supporting-tables.md) · [证据与复现](evidence.md)
+[通关复盘](README.md) · [90波续局](guard-route.md) · [逐波分析](waves.md) · [突破代价](breakthrough.md) · [策略对照](counterfactuals.md) · [实验核对表](counterfactual-tables.md) · [逐条事件](events.md) · [核对表](supporting-tables.md) · [证据与复现](evidence.md)
 
 ## 本PR的材料范围
 
-提交主报告、29波逐波分析、1795条事件、突破代价专题、35组局部对照及整理后的核对表，共五张图。原始存档、逐tick日志、实验输出和临时观测程序按仓库约定保留在本地证据ZIP，未随PR上传。
+原结局部分提交主报告、29波逐波分析、1795条事件、突破代价专题、35组局部对照及整理后的核对表，共五张图。另新增守城续局22波、1577条事件与四张图，独立说明见[续局证据](guard-evidence.md)。原始存档、逐tick日志、实验输出和临时观测程序按仓库约定保留在本地证据ZIP，未随PR上传。
 
-仅凭本PR可以检查整理结果和固定版本源码，不能完整重跑对局。原局复现需要取得第一份证据包，局部对照需要另取第二份突破实验证据包；下文分别说明。raw/、runtime/、analysis/均指对应ZIP内目录，指纹不代表材料已公开。
+仅凭本PR可以检查整理结果和固定版本源码，不能完整重跑对局。原结局复现需要第一份证据包，局部对照需要第二份，守城续局需要第三份；下文说明前两份，第三份见续局证据页。raw/、runtime/、analysis/均指对应ZIP内目录，指纹不代表材料已公开。
 
 ## 输入与分析范围
 

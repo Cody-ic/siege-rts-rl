@@ -1,6 +1,6 @@
 # 第41—69波逐条事件附录
 
-[通关复盘](README.md) · [逐波分析](waves.md) · [突破代价](breakthrough.md) · [策略对照](counterfactuals.md) · [实验核对表](counterfactual-tables.md) · [逐条事件](events.md) · [核对表](supporting-tables.md) · [证据与复现](evidence.md)
+[通关复盘](README.md) · [90波续局](guard-route.md) · [逐波分析](waves.md) · [突破代价](breakthrough.md) · [策略对照](counterfactuals.md) · [实验核对表](counterfactual-tables.md) · [逐条事件](events.md) · [核对表](supporting-tables.md) · [证据与复现](evidence.md)
 
 1325条玩家输入、76次征兵完成、394次守军或建筑实际损失，合计1795条。时间是模拟时间；波内计时从准备期开始。输入不等于成功，同tick显示顺序不代表内部处理顺序。
 

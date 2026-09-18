@@ -1,6 +1,6 @@
 # 突破策略局部对照：从问题定位到效果验证
 
-[通关复盘](README.md) · [逐波分析](waves.md) · [突破代价](breakthrough.md) · [策略对照](counterfactuals.md) · [实验核对表](counterfactual-tables.md) · [逐条事件](events.md) · [核对表](supporting-tables.md) · [证据与复现](evidence.md)
+[通关复盘](README.md) · [90波续局](guard-route.md) · [逐波分析](waves.md) · [突破代价](breakthrough.md) · [策略对照](counterfactuals.md) · [实验核对表](counterfactual-tables.md) · [逐条事件](events.md) · [核对表](supporting-tables.md) · [证据与复现](evidence.md)
 
 分析日期：2026-09-19。接续通关复盘，规则基线仍为v1.0.1，地图gen_01009000、种子8709371129856055178。实验使用回档前冻结副本，未改正在玩的游戏、存档或正式仓库代码。
 
