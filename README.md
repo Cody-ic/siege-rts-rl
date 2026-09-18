@@ -47,6 +47,8 @@ C++ 程序设计课程设计。**不对称波次生存 RTS**：玩家守城（�
 
 Shift 强制抢修、活墙朝向与 B/Tab 放置模式、拖线建墙见 [建造交互说明](docs/construction-interactions.md)。
 
+完整通关路线、第41—69波复盘及防空/破墙代价核验见 [通关试玩分析](docs/playtest-victory-20260919/README.md)。
+
 | | 状态 |
 |---|---|
 | 设计契约（`CLAUDE.md`） | ✅ 已定稿多轮，是四人对齐的依据 |
