@@ -43,6 +43,8 @@ C++ 程序设计课程设计。**不对称波次生存 RTS**：玩家守城（�
 
 城墙拼接、塔楼攻击动画/出口、射程显示和破城推进修复见 [城防修复说明](docs/battle-fixes.md)。
 
+守方持久驻防、城外争夺、斥候、建筑升级与剧情问题见 [守方体验改进提案](docs/defender-gameplay-proposal-20260919/README.md)（待实施，含试玩证据与验收要求）。
+
 工匠避险、守方兵种调整、快照恢复、Alt+F12 开发者模式和剧情自动展示见 [试玩调整说明](docs/defense-and-campaign.md)。
 
 Shift 强制抢修、活墙朝向与 B/Tab 放置模式、拖线建墙见 [建造交互说明](docs/construction-interactions.md)。
