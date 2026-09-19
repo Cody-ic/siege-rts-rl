@@ -1,6 +1,14 @@
 // flow field 寻路（机制第六批，1c 收尾）：从目标格集合反向多源 Dijkstra，
 // 给每格一个「朝目标去的下一步」与代价（tick）。
 //
+// 2026-09-19: compute_known is the gameplay attacker entry point. It uses
+// supplied building memory, actual levels, overlapping windup/cooldown and
+// estimated tower exposure. The legacy compute API and the tier/price contract
+// described below remain for existing defender and learned-policy consumers.
+// compute_known cost is travel + breach + risk_ticks * damage / full unit HP;
+// travel_ticks_at / expected_damage_at expose its separate estimates. The
+// default risk price (200 ticks per full HP) is a candidate, not a balance fit.
+//
 // ## 它是派生数据，不是世界状态——这一条决定了它的一切形状
 //
 // field 是 `WorldView` 之上的**纯函数**：不进 `World`、不进 `state_hash`、
@@ -74,6 +82,23 @@
 namespace rts {
 
 class WorldView;
+struct StatsTable;
+
+// A last-observed building, independent of live entity slots. Destroying or
+// reusing an unseen slot must not update this record.
+struct FlowBuilding {
+    GridPos pos{};
+    BldType type = BldType::Keep;
+    std::int64_t hp = 0;
+    std::int32_t level = 1;
+    bool built = false;
+    Tick observed_at = 0;
+    friend bool operator==(const FlowBuilding&, const FlowBuilding&) = default;
+};
+
+// From a ready first attack to the killing hit; excludes approach and repair.
+float estimate_breach_ticks(const StatsTable& stats, UnitType mover,
+                            std::int32_t level, std::int64_t hp);
 
 // 等级档数。**形状，改它 = 改契约**（field 份数、下游缓存下标、train/ 侧的
 // 沟通词汇都烤着它）；档界是数值，在下面的 FlowTiering 里，两者不是一个层。
@@ -109,6 +134,21 @@ public:
                              std::span<const GridPos> goals,
                              const FlowTiering& tiering = {});
 
+    // Gameplay attacker routing: only supplied building memory is consulted.
+    // Actual level and overlapping windup/cooldown; risk_ticks prices one full
+    // unit HP of estimated incoming damage. Zero isolates travel/breach time.
+    static FlowField compute_known(const WorldView& view, UnitType mover,
+                                   std::int32_t level, std::span<const GridPos> goals,
+                                   std::span<const FlowBuilding> buildings,
+                                   float risk_ticks = 200.0f);
+
+    float travel_ticks_at(GridPos p) const noexcept {
+        return in_bounds(p) ? travel_[idx(p)] : std::numeric_limits<float>::infinity();
+    }
+    float expected_damage_at(GridPos p) const noexcept {
+        return in_bounds(p) ? damage_[idx(p)] : std::numeric_limits<float>::infinity();
+    }
+
     int width() const noexcept { return w_; }
     int height() const noexcept { return h_; }
     int tier() const noexcept { return tier_; }
@@ -132,6 +172,10 @@ public:
     }
 
 private:
+    static FlowField compute_impl(const WorldView& view, UnitType mover, int tier,
+                                  std::span<const GridPos> goals, std::int32_t level,
+                                  const std::span<const FlowBuilding>* buildings,
+                                  float risk_ticks);
     std::size_t idx(GridPos p) const noexcept {
         return static_cast<std::size_t>(p.j) * static_cast<std::size_t>(w_) +
                static_cast<std::size_t>(p.i);
@@ -141,6 +185,8 @@ private:
     int h_ = 0;
     int tier_ = 0;
     std::vector<float> cost_;
+    std::vector<float> travel_;
+    std::vector<float> damage_;
     std::vector<std::uint8_t> dir_;   // 0..7（move_of 的下标），kFlowNoDir = 无
 };
 

@@ -107,6 +107,7 @@ struct SnapshotCodec {
             f("assault_ticks_",v.assault_ticks_);
             f("build_start_",v.build_start_);
             f("wave_scouted_",v.wave_scouted_);
+            f("attacker_knowledge_",v.attacker_knowledge_);
             f("recon_observer_",v.recon_observer_);
             f("recon_started_",v.recon_started_);
             f("formation_wait_since_",v.formation_wait_since_);
@@ -134,6 +135,13 @@ struct SnapshotCodec {
         }
         else if constexpr(std::is_same_v<U,DemoBattle::PhoenixRecord>) {
             f("id",v.id);f("waves_alive",v.waves_alive);
+        }
+        else if constexpr(std::is_same_v<U,AttackerKnowledge>) {
+            f("buildings",v.buildings_);
+        }
+        else if constexpr(std::is_same_v<U,rts::FlowBuilding>) {
+            f("pos",v.pos);f("type",v.type);f("hp",v.hp);f("level",v.level);
+            f("built",v.built);f("observed_at",v.observed_at);
         }
         else if constexpr(std::is_same_v<U,std::pair<int,int>>) {
             f("first",v.first);f("second",v.second);
@@ -314,6 +322,16 @@ struct SnapshotCodec {
             if(id>=0) check(assigned.insert(id).second);
         }
         const auto n=static_cast<std::size_t>(w.width()*w.height());
+        check(b.attacker_knowledge_.buildings_.size()<=n);
+        int previous_cell=-1;
+        for(const auto& memory:b.attacker_knowledge_.buildings_) {
+            check(w.terrain_.in_bounds(memory.pos.i,memory.pos.j));
+            const int cell=memory.pos.j*w.width()+memory.pos.i;
+            check(cell>previous_cell);previous_cell=cell;
+            check(static_cast<unsigned>(memory.type)<rts::kBldTypeCount);
+            check(memory.hp>=0 && memory.level>=1 && memory.level<=1000000);
+            check(memory.observed_at>=0 && memory.observed_at<=w.now());
+        }
         check(!w.developer_ && w.wave_>=1 && w.wave_<=1000000 && w.tick_>=0 && w.tick_<=2000000);
         check(b.since_decision_>=0 && b.since_decision_<=rts::kDecisionPeriodMax);
         check(w.u_type_.size()==w.unit_pool_.slot_count());

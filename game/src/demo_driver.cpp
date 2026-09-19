@@ -848,28 +848,24 @@ rts::UnitAction DemoBattle::greedy_move(rts::UnitId id, rts::Vec2 target) const 
     return best;
 }
 
-rts::UnitAction DemoBattle::flow_step(rts::UnitId id) {
-    const rts::UnitType t = w_.unit_type(id);
-    const int tier = rts::flow_tier_of(w_.unit_level(id), tiering_);
-    // **目标集是编队的意图**（2026-09-05）：同一队读同一张 field，而每个成员在
-    // **自己那一格**采样方向。这正是 flow field 该有的用法（SupCom2 那篇：
-    // 「每个 agent 永远在自己那一格采样」），也是 TStarBot2 / ROMA 那条
-    // 「group action 是共享子目标、不是共享输出」的落点。
-    const std::size_t goals = static_cast<std::size_t>(squad_goal_of(id));
-    auto& slot = flow_[(static_cast<std::size_t>(t) *
-                            static_cast<std::size_t>(rts::kFlowTierCount) +
-                        static_cast<std::size_t>(tier)) *
-                           kGoalSetCount +
-                       goals];
-    const rts::GridPos fallback = goal_anchor(static_cast<int>(goals));
-    if (!slot) {
-        const std::vector<rts::GridPos>& gs = goal_cells(static_cast<int>(goals));
-        slot.emplace(rts::FlowField::compute(w_.view(rts::Side::Attacker), t, tier,
-                                             gs, tiering_));
+const rts::FlowField& DemoBattle::attack_field(rts::UnitId id, std::span<const rts::GridPos> goals) {
+    const auto type = w_.unit_type(id);
+    const auto level = w_.unit_level(id);
+    for (const auto& cached : flow_) {
+        if (cached.type == type && cached.level == level &&
+            std::equal(cached.goals.begin(), cached.goals.end(), goals.begin(), goals.end())) return cached.field;
     }
-    const rts::UnitAction a = slot->step_of(rts::grid_of(w_.unit_pos(id)));
-    return a == rts::UnitAction::Stop ? greedy_move(id, rts::center_of(fallback))
-                                      : a;
+    flow_.push_back({type, level, {goals.begin(), goals.end()},
+        rts::FlowField::compute_known(w_.view(rts::Side::Attacker), type, level,
+                                     goals, attacker_knowledge_.buildings())});
+    return flow_.back().field;
+}
+
+rts::UnitAction DemoBattle::flow_step(rts::UnitId id) {
+    const int set = squad_goal_of(id);
+    const auto& field = attack_field(id, goal_cells(set));
+    const auto a = field.step_of(rts::grid_of(w_.unit_pos(id)));
+    return a == rts::UnitAction::Stop ? greedy_move(id, rts::center_of(goal_anchor(set))) : a;
 }
 
 std::array<std::size_t,3> DemoBattle::tactical_goal_diagnostics() const {
@@ -909,8 +905,8 @@ rts::GridPos DemoBattle::goal_anchor(int set) const {
 }
 
 void DemoBattle::issue_actions() {
-    // field 每个决策拍作废重算：破坏代价读的是当前墙血，决策拍之间它在变。
-    for (auto& f : flow_) f.reset();
+    // Rebuild from the refreshed shared observations; hidden changes stay stale.
+    flow_.clear();
 
     // 守方：执行层脚本（拉扯 / 堵口不追 / 避骑士摸攻城锤 / 自动驻墙找活）。
     // 动作与登墙意愿是同一拍的两份输出，分别进两条输入通道。
@@ -928,7 +924,9 @@ void DemoBattle::issue_actions() {
     const rts::WorldView av = w_.view(rts::Side::Attacker);
 
     // Seeing a defense starts a three-second transmission. Losing the observer or
-    // contact cancels it; only a completed transmission updates next-wave intel.
+    // contact cancels it; completion delivers one routing snapshot immediately
+    // and preserves the existing next-wave composition report.
+    bool delivered_snapshot = false;
     if (!wave_scouted_) {
         rts::UnitId witness{};
         for (const auto id : ids_) {
@@ -951,10 +949,12 @@ void DemoBattle::issue_actions() {
         else if (witness != recon_observer_) { recon_observer_=witness; recon_started_=w_.now(); }
         else if (w_.now()-recon_started_ >= kReconTransmitTicks) {
             wave_scouted_=true;
+            delivered_snapshot = true;
             recon_intel_=macro_.read_intel(av,true);
             recon_observer_={};
         }
     }
+    attacker_knowledge_.observe(av, delivered_snapshot);
     // 二、**本波还有没有战斗单位活着**。这一条不是为了行为好看，是为了**波次循环
     //     不会卡死**：下一波挂在「攻方存活数归零」上，而 `Wraith` 撤回集结点之后
     //     不会死，于是它一个人就能让游戏永远停在这一波。所以当它落单时改为前压
@@ -1033,7 +1033,7 @@ void DemoBattle::issue_actions() {
     // 「没有任何单位超出步速线」这条不变量在编队制下由构造成立。
     std::vector<std::uint8_t> squad_ahead;
     const auto visible=[&](rts::GridPos p) {
-        return av.fog().in_bounds(p.i,p.j) && av.fog().at(p.i,p.j)==rts::Vis::Visible;
+        return attacker_knowledge_.visible(p);
     };
     const auto exposed = [&](rts::UnitId id) {
         if(id.index()<formation_last_hp_.size() && formation_last_hp_[id.index()]>w_.unit_hp(id)) return true;
@@ -1080,8 +1080,6 @@ void DemoBattle::issue_actions() {
 
     // Opportunistic raids use only currently visible outer collection buildings.
     // Scouts keep scouting and rams already breaching a wall keep their assignment.
-    struct RaidRoute {rts::UnitType type;int tier;rts::GridPos goal;rts::FlowField field;};
-    std::vector<RaidRoute> raid_routes;
     const auto raid_view=w_.view(rts::Side::Attacker);
     std::vector<rts::GridPos> raid_sites;
     for(std::size_t k=0;k<raid_view.bld_type().size();++k) {
@@ -1106,13 +1104,8 @@ void DemoBattle::issue_actions() {
             const float range=w_.stats().of(type).range;
             if(raid_distance<=range*range && has(mask,rts::UnitAction::AtkBld)) a=rts::UnitAction::AtkBld;
             else if(!muster) {
-                const int tier=rts::flow_tier_of(w_.unit_level(id),tiering_);
-                auto route=std::find_if(raid_routes.begin(),raid_routes.end(),[&](const auto& r){return r.type==type && r.tier==tier && r.goal==*raid;});
-                if(route==raid_routes.end()) {
-                    raid_routes.push_back({type,tier,*raid,rts::FlowField::compute(raid_view,type,tier,std::vector<rts::GridPos>{*raid},tiering_)});
-                    route=raid_routes.end()-1;
-                }
-                a=route->field.step_of(rts::grid_of(pos));
+                const rts::GridPos goal[] = {*raid};
+                a = attack_field(id, goal).step_of(rts::grid_of(pos));
                 if(a==rts::UnitAction::Stop) a=has(mask,rts::UnitAction::AtkNear)?rts::UnitAction::AtkNear:flow_step(id);
             }
         } else if (w_.unit_type(id) == rts::UnitType::Phoenix) {
@@ -1120,7 +1113,7 @@ void DemoBattle::issue_actions() {
             // 「AtkNear 否则奔堡垒」，于是径直飞进墙上弓手的火网、到了堡垒
             // 又因为射程内没有单位而干悬着——「手术刀」全程没切过一刀）：
             // 优先点杀射程内最脆的单位（AtkWeak，工匠/斥候先遭殃），其次
-            // 俯冲最近的非墙建筑（AtkBld，点杀防御塔是设计明写的用途）。
+            // 俯冲射程内的非墙建筑，木栅栏降为无其他目标时的就地兜底。
             // 机制层排除不可伤害的堡垒；脚本层在无近身目标时追逐有效目标。
             //
             // ——**撤离优先于一切攻击**（2026-09-10，#170）——
@@ -1133,24 +1126,45 @@ void DemoBattle::issue_actions() {
                 a = retreat_action(id);
             } else if (has(mask, rts::UnitAction::AtkWeak)) {
                 a = rts::UnitAction::AtkWeak;
-            } else if (has(mask, rts::UnitAction::AtkBld)) {
-                a = rts::UnitAction::AtkBld;
             } else {
-                // 无法伤害堡垒；追逐可攻击的单位或非核心建筑，不能以堡垒为落点。
-                const auto p=w_.unit_pos(id);rts::Vec2 goal=p;float nearest=-1.0f;
-                const auto consider=[&](rts::Vec2 q) {const float dx=q.x-p.x,dy=q.y-p.y,d=dx*dx+dy*dy;if(nearest<0 || d<nearest){nearest=d;goal=q;}};
-                for(std::size_t k=0;k<av.unit_alive().size();++k)
-                    if(av.unit_alive()[k] && rts::side_of(av.unit_type()[k])==rts::Side::Defender && visible(rts::grid_of(av.unit_pos()[k]))) consider(av.unit_pos()[k]);
-                for(std::size_t k=0;k<av.bld_alive().size();++k)
-                    if(av.bld_alive()[k] && visible(av.bld_pos()[k]) && av.bld_type()[k]!=rts::BldType::Keep && av.bld_type()[k]!=rts::BldType::Wall && av.bld_type()[k]!=rts::BldType::Gate) consider(rts::center_of(av.bld_pos()[k]));
-                if(nearest<0) {
+                // Pursue visible units and useful buildings before spending an
+                // attack on a fence. Never use a fence as a movement destination.
+                const auto p = w_.unit_pos(id);
+                const float range = w_.stats().of(type).range;
+                rts::Vec2 goal = p;
+                float nearest = -1.0f;
+                bool building_in_range = false;
+                const auto consider = [&](rts::Vec2 q) {
+                    const float dx = q.x-p.x, dy = q.y-p.y, d = dx*dx+dy*dy;
+                    if (nearest < 0 || d < nearest) { nearest = d; goal = q; }
+                    return d;
+                };
+                for (std::size_t k = 0; k < av.unit_alive().size(); ++k) {
+                    if (av.unit_alive()[k] && rts::side_of(av.unit_type()[k]) == rts::Side::Defender &&
+                        visible(rts::grid_of(av.unit_pos()[k]))) consider(av.unit_pos()[k]);
+                }
+                for (std::size_t k = 0; k < av.bld_alive().size(); ++k) {
+                    if (!av.bld_alive()[k] || !visible(av.bld_pos()[k])) continue;
+                    const auto bt = av.bld_type()[k];
+                    if (bt == rts::BldType::Keep || bt == rts::BldType::Wall ||
+                        bt == rts::BldType::Gate || bt == rts::BldType::Fence) continue;
+                    if (consider(rts::center_of(av.bld_pos()[k])) <= range*range)
+                        building_in_range = true;
+                }
+                if (building_in_range && has(mask, rts::UnitAction::AtkBld)) {
+                    a = rts::UnitAction::AtkBld;
+                } else if (nearest >= 0) {
+                    a = greedy_move(id, goal);
+                } else if (has(mask, rts::UnitAction::AtkBld)) {
+                    a = rts::UnitAction::AtkBld;  // Only an in-range fence remains.
+                } else {
                     const auto center=rts::center_of(w_.keep_pos());
                     const float dx=p.x-center.x,dy=p.y-center.y,r=w_.stats().of(type).vision;
                     if(dx*dx+dy*dy<=r*r) {
                         phoenix_empty_return_.push_back(id.raw());
                         a=retreat_action(id);
                     } else a=greedy_move(id,center);
-                } else a=greedy_move(id,goal);
+                }
             }
         } else if (w_.unit_type(id) == rts::UnitType::Wraith) {
             // 幽影窥使：**无战力**（`is_combat()` 为假 ⇒ 攻击掩码永远不亮），
@@ -1170,7 +1184,9 @@ void DemoBattle::issue_actions() {
             a = rts::UnitAction::AtkNear;
         } else if (w_.unit_type(id) == rts::UnitType::Ram &&
                    has(mask, rts::UnitAction::AtkWall)) {
-            a = rts::UnitAction::AtkWall;
+            // Follow the chosen breach/bypass direction. Movement into a wall
+            // attacks that wall, instead of blindly selecting the nearest one.
+            a = flow_step(id);
         } else if (has(mask,rts::UnitAction::AtkBld)) {
             a = rts::UnitAction::AtkBld;
         } else if (muster) {

@@ -1,6 +1,8 @@
 #include "rts/flow.hpp"
 
 #include <cstddef>
+#include <algorithm>
+#include <cmath>
 #include <functional>
 #include <queue>
 #include <utility>
@@ -21,11 +23,40 @@ constexpr float kSqrt2 = 1.41421356f;
 
 }  // namespace
 
+float estimate_breach_ticks(const StatsTable& stats, UnitType mover,
+                            std::int32_t level, std::int64_t hp) {
+    const auto& s = stats.of(mover);
+    if (s.damage <= 0) return kInf;
+    const auto damage = apply_permille(s.damage, {
+        level_permille(level, stats.global.dmg_permille_per_level), s.vs_structure_permille});
+    const auto hits = std::max<std::int64_t>(1, hp / damage + (hp % damage != 0));
+    const auto period = std::max(s.cooldown_ticks, s.windup_ticks + 1);
+    const float flight = behavior_of(mover).launches_projectile() && s.proj_speed > 0
+        ? std::ceil(1.0f / s.proj_speed) : 0.0f;
+    return 1.0f + static_cast<float>(s.windup_ticks) + flight +
+        static_cast<float>(hits - 1) * static_cast<float>(period);
+}
+
 FlowField FlowField::compute(const WorldView& view, UnitType mover, int tier,
                              std::span<const GridPos> goals,
                              const FlowTiering& tiering) {
     assert(tier >= 0 && tier < kFlowTierCount);
     assert(tiering.mid_from >= 2 && tiering.high_from > tiering.mid_from);
+
+    return compute_impl(view, mover, tier, goals, flow_rep_level(tier, tiering), nullptr, 0);
+}
+
+FlowField FlowField::compute_known(const WorldView& view, UnitType mover,
+                                   std::int32_t level, std::span<const GridPos> goals,
+                                   std::span<const FlowBuilding> buildings, float risk_ticks) {
+    assert(level >= 1 && std::isfinite(risk_ticks) && risk_ticks >= 0);
+    return compute_impl(view, mover, flow_tier_of(level, {}), goals, level, &buildings, risk_ticks);
+}
+
+FlowField FlowField::compute_impl(const WorldView& view, UnitType mover, int tier,
+                                  std::span<const GridPos> goals, std::int32_t level,
+                                  const std::span<const FlowBuilding>* buildings,
+                                  float risk_ticks) {
 
     FlowField f;
     f.w_ = view.width();
@@ -34,6 +65,8 @@ FlowField FlowField::compute(const WorldView& view, UnitType mover, int tier,
     const std::size_t n =
         static_cast<std::size_t>(f.w_) * static_cast<std::size_t>(f.h_);
     f.cost_.assign(n, kInf);
+    f.travel_.assign(n, kInf);
+    f.damage_.assign(n, kInf);
     f.dir_.assign(n, kFlowNoDir);
 
     const StatsTable& stats = view.stats();
@@ -60,8 +93,7 @@ FlowField FlowField::compute(const WorldView& view, UnitType mover, int tier,
 
         // 单发结构伤害：与机制同一对函数（combat_math），代表等级 = 档下界。
         // 刻意不带冲锋倍率——动量是瞬态，field 是稳态估计（文件头）。
-        const std::int64_t lvl_pm = level_permille(
-            flow_rep_level(tier, tiering), stats.global.dmg_permille_per_level);
+        const std::int64_t lvl_pm = level_permille(level, stats.global.dmg_permille_per_level);
         const std::int64_t dmg =
             s.damage > 0
                 ? apply_permille(s.damage, {lvl_pm, s.vs_structure_permille})
@@ -70,32 +102,36 @@ FlowField FlowField::compute(const WorldView& view, UnitType mover, int tier,
             s.windup_ticks + s.cooldown_ticks > 0 ? s.windup_ticks + s.cooldown_ticks
                                                   : 1);
         const auto break_ticks = [&](std::int64_t hp) {
+            if (buildings) return estimate_breach_ticks(stats, mover, level, hp);
             return static_cast<float>((hp + dmg - 1) / dmg) * period;
         };
 
-        const auto b_type = view.bld_type();
-        const auto b_pos = view.bld_pos();
-        const auto b_hp = view.bld_hp();
-        const auto b_built = view.bld_built();
-        const auto b_alive = view.bld_alive();
-        for (std::size_t k = 0; k < b_pos.size(); ++k) {
-            if (!b_alive[k]) continue;
-            const std::size_t c = cell(b_pos[k].i, b_pos[k].j);
-            if (extra[c] == kInf) continue;
+        const auto add_building = [&](BldType type, GridPos pos, std::int64_t hp, bool built) {
+            if (!f.in_bounds(pos)) return;
+            const std::size_t c = cell(pos.i, pos.j);
+            if (extra[c] == kInf) return;
             if (my_side == Side::Defender) {
                 // 建筑全属守方：己方建筑不可入，唯一例外是**完工的城门**
                 // （与移动机制同一条例外，tests/flow_test.cpp 锁两处同真值）。
-                if (!(b_type[k] == BldType::Gate && b_built[k] != 0)) {
+                if (!(type == BldType::Gate && built)) {
                     extra[c] = kInf;
                 }
             } else {
                 // 与 try_bump_attack 同一对谓词：墙 / 门要 can_break_structure，
                 // 其余建筑要 combat()。
                 const bool is_wall =
-                    b_type[k] == BldType::Wall || b_type[k] == BldType::Gate;
+                    type == BldType::Wall || type == BldType::Gate;
                 const bool can =
                     is_wall ? beh.can_break_structure() : beh.combat();
-                extra[c] = (can && dmg > 0) ? break_ticks(b_hp[k]) : kInf;
+                extra[c] = (can && dmg > 0) ? break_ticks(hp) : kInf;
+            }
+        };
+        if (buildings) {
+            for (const auto& b : *buildings) add_building(b.type, b.pos, b.hp, b.built);
+        } else {
+            for (std::size_t k = 0; k < view.bld_pos().size(); ++k) {
+                if (view.bld_alive()[k]) add_building(view.bld_type()[k], view.bld_pos()[k],
+                                                    view.bld_hp()[k], view.bld_built()[k] != 0);
             }
         }
 
@@ -112,6 +148,30 @@ FlowField FlowField::compute(const WorldView& view, UnitType mover, int tier,
         }
     }
 
+    // Stationary building fire is estimated from last-observed type/level and
+    // completion. Repair does not silence a completed tower. Fire goes through
+    // terrain in the simulation, so LOS filters discovery, not this coverage.
+    std::vector<float> fire(n, 0.0f);
+    if (buildings && risk_ticks > 0) {
+        for (const auto& b : *buildings) {
+            const auto& bs = stats.of(b.type);
+            if (!b.built || bs.damage <= 0 || (b.type == BldType::Flak) != is_aerial(mover)) continue;
+            const auto hit = apply_permille(bs.damage, {
+                level_permille(b.level, stats.global.dmg_permille_per_level)});
+            const float rate = static_cast<float>(hit) /
+                static_cast<float>(std::max(bs.cooldown_ticks, bs.windup_ticks + 1));
+            const int radius = static_cast<int>(std::ceil(bs.range));
+            for (int y = std::max(0, b.pos.j-radius); y <= std::min(f.h_-1, b.pos.j+radius); ++y) {
+                for (int x = std::max(0, b.pos.i-radius); x <= std::min(f.w_-1, b.pos.i+radius); ++x) {
+                    const float dx = static_cast<float>(x-b.pos.i), dy = static_cast<float>(y-b.pos.j);
+                    if (dx*dx+dy*dy <= bs.range*bs.range) fire[cell(x,y)] += rate;
+                }
+            }
+        }
+    }
+    const auto max_hp = apply_permille(s.max_hp, {level_permille(level, stats.global.hp_permille_per_level)});
+    const float damage_price = risk_ticks / static_cast<float>(max_hp);
+
     // （代价, 格下标）全序弹出：代价相等时小下标先出，平局的归属因此规范。
     using QItem = std::pair<float, std::int32_t>;
     std::priority_queue<QItem, std::vector<QItem>, std::greater<QItem>> q;
@@ -123,6 +183,8 @@ FlowField FlowField::compute(const WorldView& view, UnitType mover, int tier,
         extra[c] = 0.0f;
         if (f.cost_[c] > 0.0f) {
             f.cost_[c] = 0.0f;
+            f.travel_[c] = 0.0f;
+            f.damage_[c] = 0.0f;
             q.push({0.0f, static_cast<std::int32_t>(c)});
         }
     }
@@ -156,10 +218,15 @@ FlowField FlowField::compute(const WorldView& view, UnitType mover, int tier,
                     continue;
                 }
             }
-            const float cand = enter + (diag_step ? diag : orth);
             const std::size_t a = cell(ax, ay);
+            const float move_ticks = diag_step ? diag : orth;
+            // Breaching happens while still in A, not inside the occupied B.
+            const float edge_damage = move_ticks * (fire[a]+fire[c]) * 0.5f + extra[c]*fire[a];
+            const float cand = enter + move_ticks + edge_damage*damage_price;
             if (cand < f.cost_[a]) {   // 只有严格更优才改写：平局归先到者（规范序）
                 f.cost_[a] = cand;
+                f.travel_[a] = f.travel_[c] + extra[c] + move_ticks;
+                f.damage_[a] = f.damage_[c] + edge_damage;
                 f.dir_[a] = static_cast<std::uint8_t>(k);
                 q.push({cand, static_cast<std::int32_t>(a)});
             }

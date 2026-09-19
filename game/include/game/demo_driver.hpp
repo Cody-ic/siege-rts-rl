@@ -13,6 +13,8 @@
 #ifndef GAME_DEMO_DRIVER_HPP
 #define GAME_DEMO_DRIVER_HPP
 
+#include "game/attacker_knowledge.hpp"
+
 #include <array>
 #include <cstdint>
 #include <optional>
@@ -96,10 +98,10 @@ struct WaveTiming {
     // 谁也杀不掉谁。（`attacker_can_fight()` 那次修的是**不求战**的单位，
     // 这里是**求战但打不动**的僵局，两回事。）
     //
-    // 取 2400 不是拍的：CLAUDE.md「一波 = 一个 RL episode」，而地图校验器第 5 条
-    // 按 episode ∈ [1200, 2400] tick 算 `Ram` 的行军占比——那个上界已经是全仓
-    // 对「一波多长」的既有承诺，这里只是让 demo 真的守住它。
-    int assault_max_ticks = 2400;
+    // 150 秒 @ 20 Hz：从 120 秒增加 30 秒，给避开火力的绕路与破墙留出余量。
+    // 这是待实战校准的默认值；建造期不计入，提前清波仍立即结束。
+    // RL episode 的截断与分析工具的总运行窗口由各自配置独立控制。
+    int assault_max_ticks = 3000;
 };
 
 // 守方的建局参数。**只有人口上限这一对**，因为它是 `WorldInit` 的字段而不是
@@ -187,6 +189,7 @@ public:
     // 两者此前一个访问器都没有——于是「杀掉窥使让 AI 带错情报」这条设计
     // 在测试里断言不了、在报告里也量不出来。
     bool wave_scouted() const noexcept { return wave_scouted_; }
+    const AttackerKnowledge& attacker_knowledge() const noexcept { return attacker_knowledge_; }
     static constexpr rts::Tick kReconTransmitTicks = 60; // Three seconds of uninterrupted observation.
     bool recon_transmitting() const noexcept { return !wave_scouted_ && recon_observer_.valid(); }
     rts::Tick scout_report_tick() const noexcept { return scout_report_tick_; }
@@ -313,6 +316,7 @@ private:
     // 被墙占着的格是正常输出——移动机制把那一步变成自动破坏，「绕远走缺口
     // vs 就近砸墙」由代价模型自己比较。不可达退回贪心（演示不卡死）。
     rts::UnitAction flow_step(rts::UnitId id);
+    const rts::FlowField& attack_field(rts::UnitId id, std::span<const rts::GridPos> goals);
     // 这一队读哪张 field（0 = 打堡垒，1 = 打经济）。见 .cpp。
     int squad_goal_of(rts::UnitId id) const;
     const std::vector<rts::GridPos>& goal_cells(int set) const;
@@ -341,6 +345,7 @@ private:
     void tick_scout_recon();
 
     bool wave_scouted_ = false;
+    AttackerKnowledge attacker_knowledge_;
     rts::UnitId recon_observer_{};
     rts::Tick recon_started_ = 0;
     // -1: not waiting, -2: released for this wave; otherwise first waiting tick.
@@ -431,19 +436,16 @@ private:
     std::vector<rts::UnitId> ids_;
     std::vector<rts::UnitAction> acts_;
     std::vector<std::uint16_t> wishes_;   // 守方登墙意愿，与 acts_ 同拍同序
-    // field 缓存：兵种 × 等级档，每个决策拍作废重算（墙血变了破坏代价就变）。
-    // demo 的攻方全是 1 级（低档），但按契约的形状存——这就是「档数烤进
-    // 下游缓存下标」的那个下游。档界用占位默认值（rts/flow.hpp）。
-    // 目标集数（形状）。0 = 打堡垒，1 = 打经济。
-    // 加这一维**按比例增加每决策拍的 field 重算量**（`flow_` 每拍全废，因为
-    // 破坏代价读实时墙血），而那直接是 RL 训练吞吐。所以刻意只有两档，
-    // 且经济那一档只分给少数编队。
+    // Two strategic goal sets; route fields are shared by actual type/level and
+    // goals. Clear every decision after refreshing shared building knowledge.
     static constexpr std::size_t kGoalSetCount = 2;
-    rts::FlowTiering tiering_{};
-    std::array<std::optional<rts::FlowField>,
-               static_cast<std::size_t>(rts::kUnitTypeCount) * rts::kFlowTierCount *
-                   kGoalSetCount>
-        flow_{};
+    struct AttackField {
+        rts::UnitType type;
+        std::int32_t level;
+        std::vector<rts::GridPos> goals;
+        rts::FlowField field;
+    };
+    std::vector<AttackField> flow_; // Shared knowledge, actual level, goal set; derived.
 };
 
 }  // namespace game
