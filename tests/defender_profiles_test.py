@@ -60,11 +60,15 @@ class ProfileTests(unittest.TestCase):
         for profile in ((),('balanced',),('fortified',),('mobile',)):
             cfg.defender_profiles=profile
             env=ppo.make_env(cfg,1,1.)
-            # Initial construction priorities consume the same resources. Allow
-            # the real economy and combat to reach discretionary recruitment.
+            # Initial construction priorities consume the same resources. The
+            # current rules can delay discretionary recruitment beyond 200
+            # decisions; compare a complete, bounded episode for each style.
             actions=np.zeros((1,ppo.R.obs.MAX_UNITS_PER_ENV),np.uint8)
             done=np.zeros(1,np.uint8)
-            for _ in range(200):env.step(actions,done)
+            for _ in range((cfg.max_ticks+cfg.ticks_per_step-1)//cfg.ticks_per_step):
+                env.step(actions,done)
+                if done[0]:break
+            self.assertTrue(done[0])
             states[profile]=env.state_hash(0)
         self.assertEqual(states[()],states[('balanced',)])
         self.assertEqual(len(set(states.values())),3)
