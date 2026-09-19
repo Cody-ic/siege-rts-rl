@@ -163,6 +163,9 @@ World::TargetPick World::pick_target(std::size_t k, UnitAction a) const {
             // 它对墙恒 0 不是数值）。`AtkBld` 打其余建筑 ⇒ 有战力即可
             // （`Phoenix` 点杀防御塔是设计明写的用途）。
             if (wants_wall ? !beh.can_break_structure() : !beh.combat()) break;
+            const bool phoenix_building = my_type == UnitType::Phoenix && !wants_wall;
+            const float range = effective_range(k);
+            bool best_is_fence = false;
             for (std::size_t s = 0; s < bld_pool_.slot_count(); ++s) {
                 if (!bld_pool_.alive_at(static_cast<std::uint16_t>(s))) continue;
                 const BldType bt = b_type_[s];
@@ -171,12 +174,18 @@ World::TargetPick World::pick_target(std::size_t k, UnitAction a) const {
                 if (bt == BldType::Keep && !beh.can_break_structure()) continue;
                 const Vec2 c = center_of(b_pos_[s]);
                 const float d2 = dist2(my_pos, c);
-                if (!best.found || d2 < best.dist2) {
+                // Phoenix can fly over fences. Prefer other buildings within
+                // range; a distant building must not suppress a legal fallback.
+                if (phoenix_building && d2 > range * range) continue;
+                const bool is_fence = phoenix_building && bt == BldType::Fence;
+                if (!best.found || (best_is_fence && !is_fence) ||
+                    (is_fence == best_is_fence && d2 < best.dist2)) {
                     best.found = true;
                     best.kind = TgtKind::Bld;
                     best.raw = bld_pool_.id_at(static_cast<std::uint16_t>(s)).raw();
                     best.pos = c;
                     best.dist2 = d2;
+                    best_is_fence = is_fence;
                 }
             }
             break;

@@ -1120,7 +1120,7 @@ void DemoBattle::issue_actions() {
             // 「AtkNear 否则奔堡垒」，于是径直飞进墙上弓手的火网、到了堡垒
             // 又因为射程内没有单位而干悬着——「手术刀」全程没切过一刀）：
             // 优先点杀射程内最脆的单位（AtkWeak，工匠/斥候先遭殃），其次
-            // 俯冲最近的非墙建筑（AtkBld，点杀防御塔是设计明写的用途）。
+            // 俯冲射程内的非墙建筑，木栅栏降为无其他目标时的就地兜底。
             // 机制层排除不可伤害的堡垒；脚本层在无近身目标时追逐有效目标。
             //
             // ——**撤离优先于一切攻击**（2026-09-10，#170）——
@@ -1133,24 +1133,45 @@ void DemoBattle::issue_actions() {
                 a = retreat_action(id);
             } else if (has(mask, rts::UnitAction::AtkWeak)) {
                 a = rts::UnitAction::AtkWeak;
-            } else if (has(mask, rts::UnitAction::AtkBld)) {
-                a = rts::UnitAction::AtkBld;
             } else {
-                // 无法伤害堡垒；追逐可攻击的单位或非核心建筑，不能以堡垒为落点。
-                const auto p=w_.unit_pos(id);rts::Vec2 goal=p;float nearest=-1.0f;
-                const auto consider=[&](rts::Vec2 q) {const float dx=q.x-p.x,dy=q.y-p.y,d=dx*dx+dy*dy;if(nearest<0 || d<nearest){nearest=d;goal=q;}};
-                for(std::size_t k=0;k<av.unit_alive().size();++k)
-                    if(av.unit_alive()[k] && rts::side_of(av.unit_type()[k])==rts::Side::Defender && visible(rts::grid_of(av.unit_pos()[k]))) consider(av.unit_pos()[k]);
-                for(std::size_t k=0;k<av.bld_alive().size();++k)
-                    if(av.bld_alive()[k] && visible(av.bld_pos()[k]) && av.bld_type()[k]!=rts::BldType::Keep && av.bld_type()[k]!=rts::BldType::Wall && av.bld_type()[k]!=rts::BldType::Gate) consider(rts::center_of(av.bld_pos()[k]));
-                if(nearest<0) {
+                // Pursue visible units and useful buildings before spending an
+                // attack on a fence. Never use a fence as a movement destination.
+                const auto p = w_.unit_pos(id);
+                const float range = w_.stats().of(type).range;
+                rts::Vec2 goal = p;
+                float nearest = -1.0f;
+                bool building_in_range = false;
+                const auto consider = [&](rts::Vec2 q) {
+                    const float dx = q.x-p.x, dy = q.y-p.y, d = dx*dx+dy*dy;
+                    if (nearest < 0 || d < nearest) { nearest = d; goal = q; }
+                    return d;
+                };
+                for (std::size_t k = 0; k < av.unit_alive().size(); ++k) {
+                    if (av.unit_alive()[k] && rts::side_of(av.unit_type()[k]) == rts::Side::Defender &&
+                        visible(rts::grid_of(av.unit_pos()[k]))) consider(av.unit_pos()[k]);
+                }
+                for (std::size_t k = 0; k < av.bld_alive().size(); ++k) {
+                    if (!av.bld_alive()[k] || !visible(av.bld_pos()[k])) continue;
+                    const auto bt = av.bld_type()[k];
+                    if (bt == rts::BldType::Keep || bt == rts::BldType::Wall ||
+                        bt == rts::BldType::Gate || bt == rts::BldType::Fence) continue;
+                    if (consider(rts::center_of(av.bld_pos()[k])) <= range*range)
+                        building_in_range = true;
+                }
+                if (building_in_range && has(mask, rts::UnitAction::AtkBld)) {
+                    a = rts::UnitAction::AtkBld;
+                } else if (nearest >= 0) {
+                    a = greedy_move(id, goal);
+                } else if (has(mask, rts::UnitAction::AtkBld)) {
+                    a = rts::UnitAction::AtkBld;  // Only an in-range fence remains.
+                } else {
                     const auto center=rts::center_of(w_.keep_pos());
                     const float dx=p.x-center.x,dy=p.y-center.y,r=w_.stats().of(type).vision;
                     if(dx*dx+dy*dy<=r*r) {
                         phoenix_empty_return_.push_back(id.raw());
                         a=retreat_action(id);
                     } else a=greedy_move(id,center);
-                } else a=greedy_move(id,goal);
+                }
             }
         } else if (w_.unit_type(id) == rts::UnitType::Wraith) {
             // 幽影窥使：**无战力**（`is_combat()` 为假 ⇒ 攻击掩码永远不亮），
