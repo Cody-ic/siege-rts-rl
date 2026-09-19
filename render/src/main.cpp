@@ -178,6 +178,7 @@ struct Options {
     std::string screen;          // 开局前先切到哪一屏（main / help / paused），截图用
     int ticks = 0;               // 截图模式下先推进这么多 tick 再拍
     int inspect_x=-1,inspect_y=-1;
+    bool inspect_menu=false;     // Screenshot-only view of the actual building menu.
     int guide_entry = 0,guide_level=1;
     bool guide_bottom=false;
     int developer_wave = 0;
@@ -222,6 +223,7 @@ void print_usage(const char* argv0) {
         "                        render/text.hpp）。不给则依次试 simhei.ttf、Deng.ttf\n"
         "  --size <宽> <高>      画面尺寸，默认 1600x900\n"
         "  --inspect <X,Y>      截图时选中该格建筑，需 --battle --screenshot\n"
+        "  --inspect-menu       与 --inspect 连用，截图预览建筑菜单及整面升级范围\n"
         "  --ticks <N>           与 --screenshot 连用：先推进 N 个 tick 再拍（20 tick = 1 秒）\n"
         "\n"
         "上面三条路径不给时，会从「工作目录」与「exe 所在目录」逐级向上找仓库根，\n"
@@ -322,6 +324,8 @@ bool parse(const std::vector<std::string>& args, Options& out) {
                 std::fprintf(stderr, "--size 必须为正\n");
                 return false;
             }
+        } else if(a=="--inspect-menu") {
+            out.inspect_menu=true;
         } else if(a=="--inspect") {
             const std::string* v=next("--inspect");
             if(!v) return false;
@@ -395,6 +399,7 @@ bool parse(const std::vector<std::string>& args, Options& out) {
     if(out.placement_shot && out.screenshot.empty()) return false;
     if(out.strategy_smoke && (out.screenshot.empty() || out.battle || !out.screen.empty())) return false;
     if(out.inspect_x>=0 && (out.screenshot.empty() || !out.battle)) {std::fprintf(stderr,"--inspect requires --battle --screenshot\n");return false;}
+    if(out.inspect_menu && out.inspect_x<0) return false;
     if(out.developer_wave>0 && out.screenshot.empty()) return false;
     if((out.screen=="developer" || out.guide_entry!=0 || out.guide_level!=1 || out.guide_bottom) && out.screenshot.empty()) return false;
     if(out.journal_stage && (out.journal_page!=7 || !out.journal_ending || out.screenshot.empty())) return false;
@@ -1246,7 +1251,7 @@ int run_game(Options& opt) {
     // 掉的模式。`Upgrade` 作为独占弹窗只服务「点一座满血的墙/塔」——那种
     // 格子在加它之前左键点下去什么都不弹。
     enum class PopupKind : int {
-        None = 0, Build, Train, Repair, Upgrade, Cancel, Demolish
+        None = 0, Build, Train, Repair, Upgrade, UpgradeWall, Cancel, Demolish
     };
     struct Popup {
         PopupKind kind = PopupKind::None;
@@ -1552,6 +1557,25 @@ int run_game(Options& opt) {
                 push("拆除 (返还80%)", true, PopupKind::Demolish, 0);
             }
         };
+        const auto push_wall_upgrades = [&]() {
+            for (const auto axis : {game::WallAxis::I, game::WallAxis::J}) {
+                const auto cells = game::wall_run(v, p.cell, axis);
+                if (cells.size() < 2) continue;
+                const auto batch = game::plan_upgrades(v, cells);
+                std::string label = axis == game::WallAxis::I
+                    ? "整面升级（左上至右下）" : "整面升级（右上至左下）";
+                label += " " + std::to_string(batch.commands.size()) + "/" +
+                    std::to_string(cells.size()) + "段（石" + std::to_string(batch.stone) +
+                    " 木" + std::to_string(batch.wood) + "）";
+                if (batch.commands.empty()) {
+                    const bool eligible = std::any_of(cells.begin(), cells.end(),
+                        [&](auto c) { return game::can_upgrade_hint(v, c); });
+                    label += eligible ? " 资源不足" : " 无可升级墙段";
+                }
+                push(std::move(label), !batch.commands.empty(), PopupKind::UpgradeWall,
+                    static_cast<int>(axis));
+            }
+        };
         switch (p.kind) {
             case PopupKind::Build:
                 for (std::size_t i = 0; i < buildable.size(); ++i) {
@@ -1595,9 +1619,11 @@ int run_game(Options& opt) {
             case PopupKind::Repair:
                 push_repair();
                 push_upgrade();
+                push_wall_upgrades();
                 push_remove();
                 break;
             case PopupKind::Upgrade:
+            case PopupKind::UpgradeWall:
                 // 点一座满血的墙/塔落到这里。维修行照 `can_repair_hint` 判，
                 // 通常不出现（满血），但写上它是为了一件事：这三种弹窗里
                 // 「一座建筑能做哪些事」的清单只由 `can_*_hint` 决定，不由
@@ -1608,10 +1634,12 @@ int run_game(Options& opt) {
                     push_repair();
                 }
                 push_upgrade();
+                push_wall_upgrades();
                 push_remove();
                 break;
             case PopupKind::Cancel:
             case PopupKind::Demolish:
+                push_wall_upgrades();
                 push_remove();
                 break;
             case PopupKind::None:
@@ -1627,10 +1655,19 @@ int run_game(Options& opt) {
             const float available = std::max(1.0f, GetScreenHeight()-2*margin-76.0f);
             const float stride = std::min(kH+kGap, available/static_cast<float>(out.size()));
             const float height = stride*static_cast<float>(out.size());
-            const float x = std::clamp(p.anchor.x, margin,
+            float x = std::clamp(p.anchor.x, margin,
                                       std::max(margin, GetScreenWidth()-margin-width));
-            const float y = std::clamp(p.anchor.y, margin,
+            float y = std::clamp(p.anchor.y, margin,
                                       std::max(margin, GetScreenHeight()-margin-height-76.0f));
+            // Wider batch labels must not swallow the next click used to cycle
+            // overlapping buildings. Prefer a side, then space above/below.
+            if (inspected_click && CheckCollisionPointRec(*inspected_click,{x,y,width,height})) {
+                const auto click = *inspected_click;
+                if (click.x + 20 + width <= GetScreenWidth() - margin) x = click.x + 20;
+                else if (click.x - 20 - width >= margin) x = click.x - 20 - width;
+                else if (click.y + 20 + height <= GetScreenHeight() - margin - 76) y = click.y + 20;
+                else if (click.y - 20 - height >= margin) y = click.y - 20 - height;
+            }
             for (std::size_t i = 0; i < out.size(); ++i)
                 out[i].box = Rectangle{x, y+stride*static_cast<float>(i), width,
                                        std::max(1.0f, stride-kGap)};
@@ -1700,6 +1737,23 @@ int run_game(Options& opt) {
                 DrawLineEx({anchor.x, anchor.y - 32 * scale}, {anchor.x, anchor.y - 27 * scale}, 2 * scale, BLACK);
             }
             for(const auto selected_cell:selected_buildings) if(b->world().alive(b->world().bld_at(selected_cell))) overlay.draw_cell_outline(selected_cell,Color{116,215,222,255},3.0f/cam.camera().zoom);
+            if (popup.kind != PopupKind::None) {
+                for (const auto& option : popup_options(popup, v)) {
+                    if (option.action != PopupKind::UpgradeWall ||
+                        !((opt.inspect_menu && !has_cursor) || CheckCollisionPointRec(GetMousePosition(), option.box))) continue;
+                    const auto cells = game::wall_run(v, popup.cell,
+                        static_cast<game::WallAxis>(option.index));
+                    const auto batch = game::plan_upgrades(v, cells);
+                    for (const auto p : cells) {
+                        const auto slot = rts::slot_of(p, v.width());
+                        const bool scheduled = std::any_of(batch.commands.begin(), batch.commands.end(),
+                            [&](const auto& command) { return command.slot == slot; });
+                        overlay.draw_cell_outline(p, scheduled ? Color{116,215,222,255} : Color{180,160,130,255},
+                                                  3.0f/cam.camera().zoom);
+                    }
+                    break;
+                }
+            }
             for (const rts::UnitId id : selected) {
                 const std::size_t s = id.index();
                 if (s >= ualive.size() || !ualive[s]) continue;
@@ -1868,8 +1922,8 @@ int run_game(Options& opt) {
                     popup_options(popup, b->world().view(rts::Side::Defender));
                 for (const PopupOption& o : opts) {
                     const bool ok = o.legal;
-                    DrawRectangleRec(o.box, ok ? Color{40, 70, 40, 235}
-                                              : Color{70, 40, 40, 200});
+                    DrawRectangleRec(o.box, ok ? Color{40, 70, 40, 255}
+                                              : Color{70, 40, 40, 255});
                     DrawRectangleLinesEx(o.box, 1.5f,
                                         ok ? Color{120, 220, 120, 255}
                                           : Color{160, 90, 90, 255});
@@ -1942,6 +1996,14 @@ int run_game(Options& opt) {
         shell.poll();
         if (shell.attempt() != preloaded_attempt) preload_for_battle();
         const Vector2 vp{static_cast<float>(opt.width), static_cast<float>(opt.height)};
+        if (opt.inspect_menu && inspected && shell.battle()) {
+            if (!shell.battle()->world().bld_at(*inspected).valid())
+                throw std::runtime_error("inspect-menu requires a live building");
+            cam.focus_keep(proj,*inspected,vp,0.65f);
+            const auto world_point = proj.grid_to_screen(*inspected);
+            inspected_click = GetWorldToScreen2D({world_point.x,world_point.y},cam.camera());
+            popup = Popup{PopupKind::Upgrade,*inspected,{inspected_click->x + 20,inspected_click->y}};
+        }
         if (opt.placement_shot && shell.battle()) {
             if (!map.in_bounds(19,6)) return 2;
             placing=std::size_t{0}; placement_start=rts::GridPos{8,6};
@@ -2284,6 +2346,18 @@ int run_game(Options& opt) {
                             case PopupKind::Upgrade:
                                 c = game::upgrade_command(popup.cell, map.width());
                                 break;
+                            case PopupKind::UpgradeWall: {
+                                selected_buildings = game::wall_run(view, popup.cell,
+                                    static_cast<game::WallAxis>(opts[i].index));
+                                selected.clear();
+                                const auto batch = game::plan_upgrades(view, selected_buildings);
+                                if (!batch.commands.empty()) b->submit_defender(batch.commands.data(), batch.commands.size());
+                                notice = "已安排整面升级 " + std::to_string(batch.commands.size()) + "/" +
+                                    std::to_string(selected_buildings.size()) + " 段；仍需工匠施工";
+                                notice_until = GetTime() + 5;
+                                have = false;
+                                break;
+                            }
                             case PopupKind::Cancel:
                                 c = game::cancel_build_command(popup.cell, map.width());
                                 break;

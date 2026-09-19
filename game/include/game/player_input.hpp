@@ -218,6 +218,12 @@ rts::Command upgrade_command(rts::GridPos cell, int map_width);
 // Separate building selection from troop selection; walls are an explicit mode.
 std::vector<rts::GridPos> buildings_in_rect(const rts::WorldView& view,
     const IsoProjection& proj, Rect rect, bool walls_only);
+enum class WallAxis { I, J };
+// Contiguous straight run through cell, including its corner endpoints but never
+// turning onto a branch. Wall/Gate connect together; Fence runs stay separate.
+// Live construction sites connect the run; plan_upgrades skips ineligible work.
+std::vector<rts::GridPos> wall_run(const rts::WorldView& view,
+    rts::GridPos cell, WallAxis axis);
 struct UpgradeBatch {
     std::vector<rts::Command> commands;
     std::int64_t stone=0, wood=0;

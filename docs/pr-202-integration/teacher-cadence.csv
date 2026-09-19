@@ -1,0 +1,13 @@
+map,seed,arm,period,tick,waves_survived,completed,defeated,timeout,keep_hp_fraction,state_hash
+game/data/maps/pool/gen_01009000.json,101,script,20,3323,1,True,False,False,0.5924528241157532,7312393935285159510
+game/data/maps/pool/gen_01009000.json,101,teacher,20,3242,1,True,False,False,0.4566037654876709,15619972482817446596
+game/data/maps/pool/gen_01009000.json,101,teacher,100,3225,1,True,False,False,0.5566037893295288,17460952415174337480
+game/data/maps/pool/gen_01009000.json,101,teacher,500,3400,0,False,True,False,0.0,267787485425155972
+game/data/maps/pool/gen_01001000.json,101,script,20,2983,1,True,False,False,0.6962264180183411,9541645133070890201
+game/data/maps/pool/gen_01001000.json,101,teacher,20,3107,1,True,False,False,0.24339622259140015,13157607224805990346
+game/data/maps/pool/gen_01001000.json,101,teacher,100,3132,1,True,False,False,0.175471693277359,5511103089893792552
+game/data/maps/pool/gen_01001000.json,101,teacher,500,3080,0,False,True,False,0.0,3204904763768914206
+game/data/maps/pool/gen_01004000.json,101,script,20,3158,1,True,False,False,0.4000000059604645,14481366053747102549
+game/data/maps/pool/gen_01004000.json,101,teacher,20,3084,0,False,True,False,0.0,2198968427539066912
+game/data/maps/pool/gen_01004000.json,101,teacher,100,3052,0,False,True,False,0.0,16507421300186440195
+game/data/maps/pool/gen_01004000.json,101,teacher,500,2960,0,False,True,False,0.0,10968220221762738258

@@ -27,6 +27,30 @@ std::vector<rts::GridPos> buildings_in_rect(const rts::WorldView& view,
     return cells;
 }
 
+std::vector<rts::GridPos> wall_run(const rts::WorldView& view,
+    rts::GridPos cell, WallAxis axis) {
+    const auto family_at = [&](int x, int y) {
+        if (x < 0 || y < 0 || x >= view.width() || y >= view.height()) return 0;
+        const auto id = view.bld_at({static_cast<std::int16_t>(x), static_cast<std::int16_t>(y)});
+        if (!id.valid()) return 0;
+        const auto type = view.bld_type()[id.index()];
+        if (type == rts::BldType::Wall || type == rts::BldType::Gate) return 1;
+        return type == rts::BldType::Fence ? 2 : 0;
+    };
+    const int family = family_at(cell.i, cell.j);
+    if (!family) return {};
+    const int dx = axis == WallAxis::I ? 1 : 0;
+    const int dy = 1 - dx;
+    int x = cell.i, y = cell.j;
+    while (family_at(x - dx, y - dy) == family) { x -= dx; y -= dy; }
+    std::vector<rts::GridPos> cells;
+    while (family_at(x, y) == family) {
+        cells.push_back({static_cast<std::int16_t>(x), static_cast<std::int16_t>(y)});
+        x += dx; y += dy;
+    }
+    return cells;
+}
+
 UpgradeBatch plan_upgrades(const rts::WorldView& view,std::span<const rts::GridPos> input) {
     std::vector<rts::GridPos> cells(input.begin(),input.end());
     const auto slot=[&](rts::GridPos p){return int(p.j)*view.width()+int(p.i);};
