@@ -152,3 +152,9 @@ py tools/balance/cost_output_matrix.py --scenarios  # 另加多场景对照
 工具的模型验证不了**——风筝（靠射程+速度差）、免费仇恨窗口（靠射程差）、
 位置性克制（Flak vs Phoenix）都需要移动/站位建模，不是纯 DPS 对拼能测的。
 详见《数值设计与成本产出矩阵.md》第 8 节。
+
+## 墙类升级候选（2026-09-19）
+
+`python tools/balance/fortification_curve.py --max-level 100` 输出旧/新血量、每级增量、单次及累计费用；`--building Gate` / `Fence` 可切换建筑。默认读取当前数值表，整数开方与取整跟随 C++ `StatsTable`。这是公式核算，不是战斗模拟。分段定义与真机回归结果见 `docs/fortification-upgrades/README.md`。
+
+`siege_race.bhp` 已接入同一墙类曲线；其余聚合战斗假设（包括历史攻击周期近似）仍有局限，不能据此声称新版长局配平已验证。

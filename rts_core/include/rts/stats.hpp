@@ -78,7 +78,12 @@ namespace rts {
 // 不同的结果**——那是本仓库通篇最防的一类失效（「布局改了」与「跑歪了」不可
 // 区分）。**下一个只改语义不改字段的人照此办理。**
 // Stats/13: non-Keep upgrades have a rising materials floor (40% + 10% per prior level).
-inline constexpr std::string_view kStatsShapeTag = "Stats/13";
+// Stats/14: fortifications have independent, staged durability and capped upgrade prices.
+inline constexpr std::string_view kStatsShapeTag = "Stats/14";
+
+constexpr bool is_fortification(BldType type) noexcept {
+    return type == BldType::Wall || type == BldType::Gate || type == BldType::Fence;
+}
 
 // 每兵种一行。**结构性属性不在这里**（能否对空、能否破坏结构、三轴定位归
 // `rts/unit_behavior.hpp` 与 `rts/roster.hpp`）；这里只有会随标定变的数。
@@ -153,6 +158,8 @@ struct BldStats {
     float proj_speed = 0.0f;
     // ——建筑等级上限（守方升级轴的第一个输出）——
     //
+    // Wall/Gate/Fence use fortification_upgrade_cost() (staged, then capped).
+    // The historical pricing explanation below applies to the other buildings.
     // 升级的**石/木定价参数**，以及每一级的工时（`upgrade_ticks <= 0` 当场
     // 完工，同 `build_ticks` 的先例）。等级本身存在 `World::b_level_`（不在
     // 这里，那是会变的状态，不是标定值）；上限由 `World::building_level_cap()`
@@ -196,10 +203,8 @@ struct GlobalStats {
     // 等级缩放系数。**语义是「开方前」的线性系数**（`√(1 + k(L−1))`，见
     // `combat_math.hpp` 的 `level_permille`），不是「每级 +x‰」。
     //
-    // **两者必须相等**——那是 `p − q = 0` 这条结构约束的落地形式（TTK 与破墙
-    // 时间两条不变量都只看 p−q）。`StatsLoader` 载入时拒绝不相等的表，所以它
-    // 是结构而不是「靠人记得填一样的数」。留成两个字段而不合并成一个，是为了
-    // 不动形状之外再动一次形状；**若哪天真要 p ≠ q，先去改那两条不变量的论证**。
+    // These remain equal for combat units and ordinary buildings. Fortifications
+    // use the separate linear/restarted-square-root HP parameters below.
     std::int32_t hp_permille_per_level = 0;
     std::int32_t dmg_permille_per_level = 0;
     // ——机制第二批：经济节律与维修——
@@ -244,6 +249,13 @@ struct GlobalStats {
     // 不参与 TTK / 破坏速率那组要求 p−q=0 的不变量，没有理由跟着开方。
     // 默认 0 = 恒等（训练耗时不随等级变），一眼看出没标定。
     std::int32_t train_ticks_permille_per_level = 0;
+    // Fortifications: linear base-HP increments, followed by a restarted square
+    // root whose first increment equals one linear step. Prices grow more slowly
+    // after the same breakpoint, then freeze at the price of reaching the cap.
+    std::int32_t fortification_hp_permille_per_level = 0;
+    std::int32_t fortification_linear_until_level = 20;
+    std::int32_t fortification_price_step_permille = 50;
+    std::int32_t fortification_price_cap_level = 30;
     // （这里曾有 `unit_upgrade_radius`——已有部队批量升级的「在场」判定半径。
     // 就地升级随编队系统移除一并删除（用户定版：升级只体现在招募时带级），
     // 字段失去唯一消费者，留着只会是「标定了却没生效」的陷阱——删字段并进格，
@@ -271,6 +283,10 @@ struct StatsTable {
     // 混合宽度的结构有填充字节，`has_unique_object_representations` 会把它拦下，
     // 而绕开那条断言的所有已知方法都是错的（`rts/hash.hpp`）。
     std::uint64_t fingerprint() const noexcept;
+
+    std::int64_t building_max_hp(BldType type, std::int32_t level) const noexcept;
+    std::int64_t fortification_upgrade_cost(std::int64_t scale,
+                                           std::int32_t from_level) const noexcept;
 };
 
 }  // namespace rts

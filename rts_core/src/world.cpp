@@ -1070,18 +1070,14 @@ std::int64_t level_scaled_cost(std::int64_t base, std::int32_t level,
 
 }   // namespace
 
-// 建筑升级定价。理由、两条分支的出处与那笔溢价为什么只收一次，全在
-// `world.hpp` 的声明处——这里只写实现。
-//
-// **两级累计值之差，而不是「增量公式」**：定价是累计曲线
-// `cost + up × (√B(L) − 1)` 的差分，所以逐级加起来必然精确等于累计值。
-// 直接写增量再取整会让「逐级升到 L」与「累计定价」在舍入上分叉，
-// 于是那条「每石买到的火力与等级无关」的性质在某些等级上悄悄不成立。
-// Stats/13 adds a rising materials floor to the historical growth difference.
+// Upgrade quotes and debits use the same source. Fortification prices slow
+// at the durability breakpoint and stop rising after the configured price cap.
+// Other buildings retain the Stats/13 materials floor.
 std::int64_t World::bld_upgrade_cost_stone(BldType bt,
                                           std::int32_t from_level) const noexcept {
     const BldStats& s = stats_.of(bt);
     if (bt == BldType::Keep) return s.upgrade_cost_stone;
+    if (is_fortification(bt)) return stats_.fortification_upgrade_cost(s.upgrade_cost_stone, from_level);
     const std::int32_t k = stats_.global.hp_permille_per_level;
     const auto marginal = level_scaled_cost(s.upgrade_cost_stone, from_level + 1, k) -
                           level_scaled_cost(s.upgrade_cost_stone, from_level, k);
@@ -1092,6 +1088,7 @@ std::int64_t World::bld_upgrade_cost_wood(BldType bt,
                                          std::int32_t from_level) const noexcept {
     const BldStats& s = stats_.of(bt);
     if (bt == BldType::Keep) return s.upgrade_cost_wood;
+    if (is_fortification(bt)) return stats_.fortification_upgrade_cost(s.upgrade_cost_wood, from_level);
     const std::int32_t k = stats_.global.hp_permille_per_level;
     const auto marginal = level_scaled_cost(s.upgrade_cost_wood, from_level + 1, k) -
                           level_scaled_cost(s.upgrade_cost_wood, from_level, k);

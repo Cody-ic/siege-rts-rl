@@ -1,5 +1,7 @@
 #include "rts/stats.hpp"
 
+#include <algorithm>
+#include "rts/combat_math.hpp"
 #include "rts/hash.hpp"
 
 namespace rts {
@@ -62,8 +64,45 @@ std::uint64_t StatsTable::fingerprint() const noexcept {
     h.feed_pod(global.anti_charge_permille);
     h.feed_pod(global.building_level_cap_divisor);
     h.feed_pod(global.train_ticks_permille_per_level);
+    h.feed_pod(global.fortification_hp_permille_per_level);
+    h.feed_pod(global.fortification_linear_until_level);
+    h.feed_pod(global.fortification_price_step_permille);
+    h.feed_pod(global.fortification_price_cap_level);
 
     return h.value();
+}
+
+std::int64_t StatsTable::building_max_hp(BldType type, std::int32_t level) const noexcept {
+    assert(level >= 1);
+    if (!is_fortification(type)) {
+        return apply_permille(of(type).max_hp,
+            {level_permille(level, global.hp_permille_per_level)});
+    }
+    const std::int64_t growth = global.fortification_hp_permille_per_level;
+    const auto until = global.fortification_linear_until_level;
+    assert(growth >= 0 && growth <= 1000 && until >= 2);
+    std::int64_t multiplier = 1000 + growth * (std::min(level, until) - 1LL);
+    if (level > until) {
+        // At n=1 the radicand is (1000+growth)^2, making the first
+        // square-root increment exactly one linear increment (no 125-HP bump).
+        const std::int64_t n = static_cast<std::int64_t>(level) - until;
+        multiplier += isqrt_permille(1000000 + growth * (2000 + growth) * n) - 1000;
+    }
+    return apply_permille(of(type).max_hp, {multiplier});
+}
+
+std::int64_t StatsTable::fortification_upgrade_cost(std::int64_t scale,
+                                                  std::int32_t from_level) const noexcept {
+    assert(from_level >= 1);
+    if (scale <= 0) return 0; // Wooden fences never acquire a stone charge.
+    const auto until = global.fortification_linear_until_level;
+    assert(until >= 2 && global.fortification_price_cap_level >= until);
+    const auto priced_level = std::min(from_level, global.fortification_price_cap_level - 1);
+    const std::int64_t early = std::min(priced_level - 1, until - 2);
+    const std::int64_t late = std::max(0, priced_level - (until - 1));
+    const std::int64_t multiplier = 400 + 100 * early +
+        static_cast<std::int64_t>(global.fortification_price_step_permille) * late;
+    return scale * multiplier / 1000;
 }
 
 }  // namespace rts

@@ -53,11 +53,11 @@ TEST_CASE("Forced work survives snapshots and operation-log recovery", "[save]")
     }
 }
 
-TEST_CASE("Release rejects and preserves v3 v4 and v5 branch saves", "[save]") {
+TEST_CASE("Release rejects and preserves earlier branch saves", "[save]") {
     Temp temp; auto active=shell(); active.apply(game::MenuAction::StartNew);
     const auto archive=game::capture_battle(active,map_text(),stats_text());
     const auto file=temp.path/"campaign.json";
-    for(const int version : {3,4,5,6,7,8}) {
+    for(const int version : {3,4,5,6,7,8,9,10,11}) {
         game::write_archive(file,archive);
         auto text=game::read_save_text(file);
         const auto key=text.find("\"version\"");

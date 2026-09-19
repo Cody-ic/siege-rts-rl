@@ -263,8 +263,8 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
     // **stats/11 → stats/12 是同一类的第二例**，而它比第一例更难自查：一张
     // stats/11 的表在新公式下不但每个数合法，连 `Keep` 那一行都还完全正确
     // （它走的仍是线性分支），只有另外十座的价钱悄悄变了。
-    if (schema != "stats/13") {
-        fail(origin, "`schema` = \"" + schema + "\"，本程序只认 \"stats/13\"");
+    if (schema != "stats/14") {
+        fail(origin, "`schema` = \"" + schema + "\"，本程序只认 \"stats/14\"");
     }
 
     rts::StatsTable t;
@@ -319,7 +319,9 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
             "high_ground_miss_permille", "high_ground_dmg_permille",
             "high_ground_range_bonus", "charge_bonus_permille_per_cell",
             "charge_max_cells", "anti_charge_permille",
-            "building_level_cap_divisor", "train_ticks_permille_per_level"});
+            "building_level_cap_divisor", "train_ticks_permille_per_level",
+            "fortification_hp_permille_per_level", "fortification_linear_until_level",
+            "fortification_price_step_permille", "fortification_price_cap_level"});
     t.global.hp_permille_per_level =
         need_i32(need(global, "hp_permille_per_level", origin, "`global`"), origin,
                  "`global.hp_permille_per_level`");
@@ -368,15 +370,35 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
     t.global.train_ticks_permille_per_level = need_i32(
         need(global, "train_ticks_permille_per_level", origin, "`global`"), origin,
         "`global.train_ticks_permille_per_level`");
+    t.global.fortification_hp_permille_per_level = need_i32(
+        need(global, "fortification_hp_permille_per_level", origin, "`global`"), origin,
+        "`global.fortification_hp_permille_per_level`");
+    t.global.fortification_linear_until_level = need_i32(
+        need(global, "fortification_linear_until_level", origin, "`global`"), origin,
+        "`global.fortification_linear_until_level`");
+    t.global.fortification_price_step_permille = need_i32(
+        need(global, "fortification_price_step_permille", origin, "`global`"), origin,
+        "`global.fortification_price_step_permille`");
+    t.global.fortification_price_cap_level = need_i32(
+        need(global, "fortification_price_cap_level", origin, "`global`"), origin,
+        "`global.fortification_price_cap_level`");
+    if (t.global.fortification_hp_permille_per_level < 0 ||
+        t.global.fortification_hp_permille_per_level > 1000) {
+        fail(origin, "`global.fortification_hp_permille_per_level` must be in [0, 1000]");
+    }
+    if (t.global.fortification_linear_until_level < 2 ||
+        t.global.fortification_price_cap_level < t.global.fortification_linear_until_level) {
+        fail(origin, "fortification levels require 2 <= linear_until <= price_cap");
+    }
+    if (t.global.fortification_price_step_permille < 0 ||
+        t.global.fortification_price_step_permille > 100) {
+        fail(origin, "`global.fortification_price_step_permille` must be in [0, 100]");
+    }
     if (t.global.hp_permille_per_level < 0 || t.global.dmg_permille_per_level < 0) {
         fail(origin, "`global` 的等级缩放系数不得为负");
     }
-    // **`p − q = 0` 是结构约束，所以在这里拒绝、不靠人记得填一样的数。**
-    // 两个系数是 `√(1 + k(L−1))` 里那个 k（`combat_math.hpp` 的
-    // `level_permille`）：相等 ⇒ 血量与伤害各开一份平方根 ⇒ TTK 与破墙时间
-    // 都不随等级漂移，那正是 §1.4 定死的那一半。填成不相等不会让任何仿真
-    // 报错，只会让 TTK 悄悄发散、破墙时间趋于 0 或 ∞——同
-    // `splash_dmg_permille` 那条先例（开了 AOE 却把折扣留在 1000 直接拒绝）。
+    // Combat units and firing buildings retain matched square-root HP/damage
+    // growth. Fortification durability is now calibrated independently.
     if (t.global.hp_permille_per_level != t.global.dmg_permille_per_level) {
         fail(origin,
              "`global.hp_permille_per_level` 与 `dmg_permille_per_level` 必须相等"

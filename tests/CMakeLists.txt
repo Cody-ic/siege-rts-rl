@@ -94,6 +94,7 @@ add_executable(rts_tests
     stats_test.cpp
     mechanics_test.cpp
     economy_test.cpp
+    fortification_test.cpp
     garrison_test.cpp
     charge_test.cpp
     projectile_test.cpp

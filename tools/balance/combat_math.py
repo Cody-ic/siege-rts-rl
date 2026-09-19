@@ -36,6 +36,29 @@ def level_permille(level: int, per_level: int) -> int:
     return math.isqrt(PERMILLE_ONE * linear)
 
 
+def fortification_hp_permille(level: int, per_level: int, linear_until: int) -> int:
+    """StatsTable::building_max_hp: continuous linear/restarted-square-root multiplier."""
+    if level < 1 or not 0 <= per_level <= 1000 or linear_until < 2:
+        raise ValueError("invalid fortification growth parameters")
+    result = 1000 + per_level * (min(level, linear_until) - 1)
+    if level > linear_until:
+        result += math.isqrt(1000000 + per_level * (2000 + per_level) *
+                            (level - linear_until)) - 1000
+    return result
+
+
+def fortification_upgrade_cost(scale: int, from_level: int, linear_until: int,
+                               tail_step: int, price_cap: int) -> int:
+    """StatsTable::fortification_upgrade_cost; from_level is before the purchase."""
+    if from_level < 1 or linear_until < 2 or price_cap < linear_until or not 0 <= tail_step <= 100:
+        raise ValueError("invalid fortification price parameters")
+    if scale <= 0:
+        return 0
+    priced = min(from_level, price_cap - 1)
+    pm = 400 + 100 * min(priced - 1, linear_until - 2) + tail_step * max(0, priced - linear_until + 1)
+    return scale * pm // 1000
+
+
 def charge_permille(run_cells: float, max_cells: float, per_cell_permille: int) -> int:
     """combat_math.hpp:71-79 —— 倍率=1000+per_cell*min(动量,封顶)。"""
     if max_cells <= 0 or per_cell_permille <= 0 or run_cells <= 0:
