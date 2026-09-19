@@ -331,10 +331,7 @@ bool can_upgrade_hint(const rts::WorldView& view, rts::GridPos cell) {
 std::int64_t upgrade_cost_stone(const rts::WorldView& view, rts::GridPos cell) {
     const int k = bld_slot_at(view, cell);
     if (k < 0) return 0;
-    // **不读表里那个常数**：非 `Keep` 的定价按 `√B(L)` 缩放，公式的唯一实现
-    // 在 `World::bld_upgrade_cost_stone()`。这里读常数曾经是对的（那时它就是
-    // 单价），改成缩放之后照旧读表就会让弹窗报一个**与实际扣款不同的价钱**
-    // ——而那种分歧不会让任何测试变红，只会让玩家点了升级发现钱不对。
+    // Use the authoritative staged price, including the fortification cap.
     const std::size_t sk = static_cast<std::size_t>(k);
     return view.bld_upgrade_cost_stone(view.bld_type()[sk], view.bld_level()[sk]);
 }

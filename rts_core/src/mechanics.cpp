@@ -1206,15 +1206,13 @@ void World::tick_economy() {
 
 // 建筑升级到账：等级 +1、按新等级从**表里的基础值**重算 `max_hp`
 // （不是从当前 `b_max_hp_` 累乘——那会把上一级的缩放误差复利，累乘出来的数
-// 与「直接从 1 级基础值算 N 级」不再是同一个数），完工即满血。
+// 与「直接从 1 级基础值算 N 级」不再是同一个数），保持当前血量比例。
 // `apply_one`（工期 <= 0，当场完工）与 `tick_economy`（倒计时归零）
 // 共用这一个实现，理由同 `repair_wood_cost` 那条「两处算法分叉是绿框骗人
 // 的来源」的纪律——升级公式也只该有一处。
 void World::finish_upgrade(std::size_t k) {
     const std::int32_t new_level = b_level_[k] + 1;
-    const std::int64_t new_max = apply_permille(
-        stats_.of(b_type_[k]).max_hp,
-        {level_permille(new_level, stats_.global.hp_permille_per_level)});
+    const std::int64_t new_max = stats_.building_max_hp(b_type_[k], new_level);
     b_hp_[k] = std::max<std::int64_t>(1, b_hp_[k] * new_max / b_max_hp_[k]);
     b_level_[k] = new_level;
     b_max_hp_[k] = new_max; // Upgrading preserves the damage fraction; repairs remain necessary.

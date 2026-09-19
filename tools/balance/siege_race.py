@@ -37,7 +37,7 @@ import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
-from combat_math import level_permille  # noqa: E402
+from combat_math import level_permille, fortification_hp_permille, apply_permille  # noqa: E402
 
 REPO_ROOT = os.path.abspath(os.path.join(_HERE, "..", ".."))
 STATS_PATH = os.path.join(REPO_ROOT, "game", "data", "stats_placeholder.json")
@@ -75,6 +75,9 @@ def bdps(n, L=1):
 
 
 def bhp(n, L=1):
+    if n in ('Wall', 'Gate', 'Fence'):
+        return apply_permille(Bd[n]['max_hp'], [fortification_hp_permille(
+            int(L), G['fortification_hp_permille_per_level'], G['fortification_linear_until_level'])])
     return Bd[n]['max_hp'] * sq(L)
 
 
