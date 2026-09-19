@@ -73,6 +73,7 @@ add_executable(rts_tests
     training_campaign_test.cpp
     macro_observation_test.cpp
     battle_fixes_test.cpp
+    attacker_routing_test.cpp
     hash_test.cpp
     types_test.cpp
     map_loader_test.cpp

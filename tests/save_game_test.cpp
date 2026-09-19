@@ -57,7 +57,7 @@ TEST_CASE("Release rejects and preserves earlier branch saves", "[save]") {
     Temp temp; auto active=shell(); active.apply(game::MenuAction::StartNew);
     const auto archive=game::capture_battle(active,map_text(),stats_text());
     const auto file=temp.path/"campaign.json";
-    for(const int version : {3,4,5,6,7,8,9,10,11}) {
+    for(const int version : {3,4,5,6,7,8,9,10,11,12,13,14}) {
         game::write_archive(file,archive);
         auto text=game::read_save_text(file);
         const auto key=text.find("\"version\"");
@@ -406,8 +406,35 @@ TEST_CASE("In-progress reconnaissance survives snapshot and transmits at the sam
         b.update(1);restored->update(1);
         REQUIRE(b.world().state_hash()==restored->world().state_hash());
         REQUIRE(b.wave_scouted()==restored->wave_scouted());
+        REQUIRE(b.attacker_knowledge().buildings()==restored->attacker_knowledge().buildings());
     }
     REQUIRE(b.wave_scouted());
+}
+
+TEST_CASE("Snapshots preserve stale building knowledge instead of refreshing hidden state", "[save][routing]") {
+    auto original=shell();original.apply(game::MenuAction::StartNew);
+    auto& battle=*original.battle();auto& w=const_cast<rts::World&>(battle.world());
+    std::vector<rts::UnitId> ids;w.enumerate_units(rts::Side::Attacker,ids);
+    for(auto id:ids) w.kill_unit(id);
+    const rts::GridPos pos{10,2};
+    const auto previous=w.bld_at(pos);if(w.alive(previous)) w.destroy_bld(previous);
+    const auto target=w.place_bld(rts::BldType::Barrack,pos,900,1000);REQUIRE(target.valid());
+    const auto observer=w.spawn_unit(rts::UnitType::Phoenix,rts::center_of(pos),1,10000,10000);
+    battle.update(9);
+    const auto memory=battle.attacker_knowledge().buildings();
+    REQUIRE(std::any_of(memory.begin(),memory.end(),[&](const auto& b){return b.pos==pos;}));
+    w.kill_unit(observer);w.destroy_bld(target);
+    w.place_bld(rts::BldType::Tower,pos,1000,1000);
+    auto archive=game::capture_battle(original,map_text(),stats_text());
+    int callbacks=0;
+    auto restored=game::restore_battle(archive,[&](auto,auto){++callbacks;return true;});
+    REQUIRE(callbacks==1);
+    REQUIRE(restored->attacker_knowledge().buildings()==memory);
+    for(int tick=0;tick<24;++tick) {
+        battle.update(1);restored->update(1);
+        REQUIRE(battle.world().state_hash()==restored->world().state_hash());
+        REQUIRE(battle.attacker_knowledge().buildings()==restored->attacker_knowledge().buildings());
+    }
 }
 
 TEST_CASE("Scout gate navigation survives snapshots and operation-log recovery", "[save][scoutnav]") {
@@ -439,5 +466,7 @@ TEST_CASE("Scout gate navigation survives snapshots and operation-log recovery",
         REQUIRE(battle.world().state_hash() == snapshot->world().state_hash());
         REQUIRE(battle.world().state_hash() == replay->world().state_hash());
         REQUIRE(battle.scout_outcome() == snapshot->scout_outcome());
+        REQUIRE(battle.attacker_knowledge().buildings() == snapshot->attacker_knowledge().buildings());
+        REQUIRE(battle.attacker_knowledge().buildings() == replay->attacker_knowledge().buildings());
     }
 }
