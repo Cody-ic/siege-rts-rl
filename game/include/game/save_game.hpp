@@ -11,7 +11,8 @@ namespace game {
 // 修改 DemoBattle 的规则/默认参数时须提升兼容版本；旧档保留并明确报错。
 // v12 introduces staged fortification growth/prices; older saves stay isolated.
 // v15 adds shared attacker building memory and changes gameplay path decisions.
-inline constexpr int kSaveVersion=15;
+// v18 extends the default assault cap to 150 seconds; v15-v17 used 120 seconds.
+inline constexpr int kSaveVersion=18;
 struct BattleArchive {
     std::string map_json,stats_json,snapshot;
     std::string tactical_policy_identity;
