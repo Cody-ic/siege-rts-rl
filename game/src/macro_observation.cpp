@@ -66,10 +66,10 @@ std::vector<rts::Command> macro_candidates(const rts::WorldView& v,bool summon_a
                              rts::CommandKind::Cancel,rts::CommandKind::Demolish}) {
             c.kind=kind;append(c);
         }
-        if(!can_train_hint(v,pos) || train_pop_full(v)) continue;
+        if(!can_train_hint(v,pos)) continue;
         for(const auto type:trainable_types())
             for(int level=1;level<=std::min(255,v.unit_level_cap());++level)
-                if(can_afford_train(v,type,level)) out.push_back(train_command(type,level,pos,v.width()));
+                if(!train_pop_full(v,type) && can_afford_train(v,type,level)) out.push_back(train_command(type,level,pos,v.width()));
     }
     for(std::size_t i=0;i<v.obstacle_alive().size();++i)
         if(v.obstacle_alive()[i]) append(clear_command(v.obstacle_pos()[i],v.width()));
@@ -94,7 +94,7 @@ bool macro_command_legal(const rts::WorldView& v,const rts::Command& c,bool summ
         }
         case rts::CommandKind::Train:
             return c.what<rts::kUnitTypeCount && rts::side_of(static_cast<rts::UnitType>(c.what))==rts::Side::Defender &&
-                   can_train_hint(v,cell) && !train_pop_full(v) &&
+                   can_train_hint(v,cell) && !train_pop_full(v,static_cast<rts::UnitType>(c.what)) &&
                    can_afford_train(v,static_cast<rts::UnitType>(c.what),c.level);
         case rts::CommandKind::Repair:
             for(std::size_t i=0;i<v.bld_alive().size();++i)

@@ -387,3 +387,16 @@ TEST_CASE("Phoenix 俯冲直击（结构）：表里配了弹丸速度也不放�
     REQUIRE(w.unit_hp(sp) == 24 - 8);
     REQUIRE(w.live_proj_count() == 0);
 }
+
+TEST_CASE("Tower destroyed in flight cannot turn its volley into friendly fire", "[proj]") {
+    auto init=arena();
+    bs(init.stats,rts::BldType::Tower)={50,14,7.0f,5.0f,0,90};
+    bs(init.stats,rts::BldType::Tower).aoe_radius=1.5f;
+    bs(init.stats,rts::BldType::Tower).proj_speed=0.25f;
+    rts::World w(init);
+    const auto tower=w.place_bld(rts::BldType::Tower,{4,4},50,50);
+    const auto foe=w.spawn_unit(rts::UnitType::Ghoul,{7.5f,4.5f},1,30,30);
+    const auto ally=w.spawn_unit(rts::UnitType::Spear,{7.5f,5.5f},1,30,30);
+    w.advance(1);REQUIRE(w.live_proj_count()==1);w.destroy_bld(tower);w.advance(12);
+    REQUIRE(w.unit_hp(foe)==16);REQUIRE(w.unit_hp(ally)==30);
+}

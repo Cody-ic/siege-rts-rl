@@ -934,13 +934,15 @@ void World::impact_projectile(const ProjSpec& p) {
             }
             return;
         case TgtKind::None: {
-            // 齐射：AOE 砸锁定落点，圈内不分敌我、空中不挨砸（箭雨对地）。
+            // 建筑箭雨不伤己方；单位溅射仍保留原有规则。来源随弹丸保存，
+            // 发射建筑在命中前被拆除也不影响阵营判定。
             const float r2 = p.aoe * p.aoe;
             // 校准诊断（2026-09-02）：记这发的实际命中数——`volley_hits_`
             // 的消费者是 §7 runner（见 `World::volley_hits()` 那段注释）。
             std::int32_t hits = 0;
             for (std::size_t t = 0; t < unit_pool_.slot_count(); ++t) {
                 if (!unit_pool_.alive_at(static_cast<std::uint16_t>(t))) continue;
+                if (p.src_bld && side_of(u_type_[t]) == p.side) continue;
                 if (is_aerial(u_type_[t])) continue;
                 if (dist2(u_pos_[t], p.aim) > r2) continue;
                 if (misses_high(t)) continue;

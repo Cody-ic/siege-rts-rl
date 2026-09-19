@@ -507,8 +507,8 @@ void World::apply_one(const Command& c) {
             // 无操作」同款语义。人口是派生量（现算，含在训占位），不是
             // 新状态——见 `defender_pop()`。攻方不经 `Train` 出兵
             // （Composition/波次生成走 `spawn_unit`），不受此限。
-            if (defender_pop() >= defender_pop_cap()) break;
             const UnitType ut = static_cast<UnitType>(c.what);
+            if (ut != UnitType::Scout && defender_pop() >= defender_pop_cap()) break;
             const std::int64_t cost = train_cost_gold(ut, c.level);
             if (stock_[static_cast<std::size_t>(Resource::Gold)] < cost) break;
             stock_[static_cast<std::size_t>(Resource::Gold)] -= cost;
@@ -1003,18 +1003,19 @@ std::int32_t World::unit_level_cap() const noexcept {
 }
 
 int World::defender_pop() const noexcept {
-    // 存活守方单位 + 在训占位，各占 1 格。现算，不存——人口是纯派生量
+    // 除斥候以外的存活守方单位 + 在训占位，各占 1 格。人口是纯派生量
     // （`world.hpp` 的声明注释写了这条与「不进哈希」的理由）。
     int n = 0;
     for (std::size_t k = 0; k < unit_pool_.slot_count(); ++k) {
         if (unit_pool_.alive_at(static_cast<std::uint16_t>(k)) &&
-            side_of(u_type_[k]) == Side::Defender) {
+            side_of(u_type_[k]) == Side::Defender && u_type_[k] != UnitType::Scout) {
             ++n;
         }
     }
     for (std::size_t k = 0; k < bld_pool_.slot_count(); ++k) {
         if (bld_pool_.alive_at(static_cast<std::uint16_t>(k)) &&
-            b_train_type_[k] != kNoTrain) {
+            b_train_type_[k] != kNoTrain &&
+            b_train_type_[k] != static_cast<std::uint8_t>(UnitType::Scout)) {
             ++n;
         }
     }

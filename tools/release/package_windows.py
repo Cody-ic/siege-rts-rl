@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
 import zipfile
 
 
@@ -25,7 +26,20 @@ def main():
     parser.add_argument('--attacker-model', type=Path, required=True)
     parser.add_argument('--version', default='1.0.1')
     args=parser.parse_args()
+    cache=(args.build/'CMakeCache.txt').read_text(encoding='utf-8')
+    if 'RTS_INTERNAL_TOOLS:BOOL=OFF' not in cache.splitlines():
+        parser.error('Player packages require an explicit RTS_INTERNAL_TOOLS=OFF build.')
     repo=Path(__file__).resolve().parents[2]
+    probe=args.build/'tools/policy_probe/Release/policy_probe.exe'
+    if not probe.is_file(): probe=args.build/'tools/policy_probe/policy_probe.exe'
+    if not probe.is_file(): parser.error('Build policy_probe with RTS_WITH_ONNX=ON before packaging.')
+    with tempfile.TemporaryDirectory(prefix='sanctum-package-probe-') as temporary:
+        sample=Path(temporary)/'empty.json'
+        sample.write_text(json.dumps({'cells':[],'own':[],'global':[],'masks':[]}),encoding='utf-8')
+        checked=subprocess.run([str(probe.resolve()),str(repo/'game/data/stats_placeholder.json'),
+            str(args.attacker_model.resolve()),str(sample)],capture_output=True,text=True,encoding='utf-8')
+        if checked.returncode:
+            parser.error('Attacker model is incompatible with these rules: '+checked.stderr.strip())
     root=args.output/f'Sanctum-{args.version}-Windows-x64'
     root.mkdir(parents=True,exist_ok=False)
     data=root/'游戏数据'
@@ -34,6 +48,8 @@ def main():
         dst.parent.mkdir(parents=True,exist_ok=True)
         shutil.copy2(src,dst)
     binary=args.build/'render/Release/rts_render.exe'
+    if not binary.is_file():
+        binary=args.build/'render/rts_render.exe'
     copy(args.launcher,root/'圣城.exe')
     copy(binary,data/'rts_render.exe')
     copy(args.attacker_model,data/'models/attacker.onnx')

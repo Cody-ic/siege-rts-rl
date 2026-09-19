@@ -96,6 +96,15 @@ struct PatrolGoal {
     std::uint16_t generation = 0;
 };
 
+// A committed movement goal sampled at the last visited cell. Scouts resample
+// after crossing a cell so a held action cannot skip a narrow gate's turn.
+struct ScoutNavigation {
+    bool active = false;
+    rts::GridPos cell{};
+    rts::GridPos target{};
+    std::uint16_t generation = 0;
+};
+
 // 微操参数。**数值全部占位**（CLAUDE.md「关于数值」）；「一族」脚本 =
 // 把它们在一个范围内随机化后各造一个实例（domain randomization，
 // `守方AI与协同演化.md` 2.5 那张表的「可调 / 可控」列）。
@@ -129,6 +138,12 @@ public:
     void decide(const rts::WorldView& view, std::span<const rts::UnitId> ids,
                 std::vector<rts::UnitAction>& out,
                 std::vector<std::uint16_t>& garrison_out);
+
+    // Per-tick navigation only: preserve tactical decisions and garrison wishes.
+    // Returns current actions in canonical order, with scout turns refreshed.
+    bool refresh_scout_navigation(const rts::WorldView& view,
+                                  std::span<const rts::UnitId> ids,
+                                  std::vector<rts::UnitAction>& out);
 
     // 给这批单位（必须是活着的守方单位）下一道临时开拔指令（框选 + 右键
     // 点空地的落点）。**只影响它们、不进 `World`**——这是它与旧 `MoveForce`
@@ -174,6 +189,7 @@ private:
     std::vector<std::int32_t> threat_streak_;   // 按槽位：威胁已持续的决策拍数
     std::vector<ManualOrder> manual_order_;      // 按槽位：框选下达的临时指令
     std::vector<PatrolGoal> patrol_goal_;        // 按槽位：斥候巡逻承诺目标
+    std::vector<ScoutNavigation> scout_navigation_;
     std::vector<std::uint16_t> wall_claimed_;   // 本拍已占 / 已指派的墙格
     // 本拍已被认领的工匠任务（建筑槽位）：工匠优先各管一个，任务不够分时
     // 才多人同任务（同任务的加速在机制层，`World::mason_count`）。

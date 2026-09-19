@@ -211,7 +211,7 @@ TEST_CASE("枪阵克骑由轴推导：只对有动量的冲锋成立，且随动
 
 // ——Tower 齐射——
 
-TEST_CASE("Tower 齐射：AOE 砸锁定落点，圈内不分敌我，空中不挨砸", "[charge]") {
+TEST_CASE("Tower 齐射：AOE 砸锁定落点，友军与空中不挨砸", "[charge]") {
     rts::WorldInit init = arena();
     bs(init.stats, rts::BldType::Tower) = {50, 7, 5.0f, 5.0f, 1, 5};
     bs(init.stats, rts::BldType::Tower).aoe_radius = 1.5f;
@@ -233,7 +233,7 @@ TEST_CASE("Tower 齐射：AOE 砸锁定落点，圈内不分敌我，空中不�
     w.advance(2);   // 承诺（锁定最近者 ga 的位置）+ 落地
     REQUIRE(w.unit_hp(ga) == 30 - 7);   // 目标本人
     REQUIRE(w.unit_hp(gb) == 30 - 7);   // 挤在圈里的同伙——齐射克密集
-    REQUIRE(w.unit_hp(sp) == 24 - 7);   // 站在自家箭雨里的枪卫——误伤是机制
+    REQUIRE(w.unit_hp(sp) == 24);       // 己方枪卫可在箭塔掩护下作战
     REQUIRE(w.unit_hp(ph) == 24);       // 空中不挨砸（箭雨对地）
 }
 

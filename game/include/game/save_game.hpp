@@ -10,7 +10,7 @@ namespace game {
 // 优先恢复完整快照（含脚本/RNG/波次机）；损坏时回退操作日志，末态哈希必须一致。
 // 修改 DemoBattle 的规则/默认参数时须提升兼容版本；旧档保留并明确报错。
 // v6 unifies Phoenix, worker and policy state; earlier branch saves stay isolated.
-inline constexpr int kSaveVersion=6;
+inline constexpr int kSaveVersion=9;
 struct BattleArchive {
     std::string map_json,stats_json,snapshot;
     std::string tactical_policy_identity;

@@ -97,3 +97,29 @@ TEST_CASE("Macro command mask rejects unaffordable, occupied and wrong-side choi
     REQUIRE(game::macro_command_legal(view,summon,true));
     w.begin_assault();REQUIRE_FALSE(game::macro_command_legal(view,summon,true));
 }
+
+TEST_CASE("Population-full recruitment still offers scouts but not workers or combat troops", "[macroobs]") {
+    auto init=arena();init.pop_cap_base=1;init.pop_cap_per_keep_level=0;
+    rts::World w(init);w.set_stock(rts::Resource::Gold,1000);
+    const auto view=w.view(rts::Side::Defender);
+    REQUIRE(view.defender_pop()==view.defender_pop_cap());
+    REQUIRE_FALSE(game::train_pop_full(view,rts::UnitType::Scout));
+    REQUIRE(game::train_pop_full(view,rts::UnitType::Mason));
+    const auto scout=game::train_command(rts::UnitType::Scout,1,w.keep_pos(),w.width());
+    const auto mason=game::train_command(rts::UnitType::Mason,1,w.keep_pos(),w.width());
+    REQUIRE(game::macro_command_legal(view,scout,false));
+    REQUIRE_FALSE(game::macro_command_legal(view,mason,false));
+    bool offered=false;
+    for(const auto& c:game::macro_candidates(view,false)) if(c.kind==rts::CommandKind::Train) {
+        REQUIRE(c.what==static_cast<std::uint8_t>(rts::UnitType::Scout));offered=true;
+    }
+    REQUIRE(offered);
+    w.submit(rts::Side::Defender,&scout,1);w.advance(1);
+    REQUIRE(w.defender_pop()==1);
+    REQUIRE(w.stock(rts::Resource::Gold)==975);
+    REQUIRE(view.bld_train_left()[0]>0);
+    w.advance(80);
+    REQUIRE(w.defender_pop()==1);
+    std::vector<rts::UnitId> ids;w.enumerate_units(rts::Side::Defender,ids);
+    REQUIRE(ids.size()==2);
+}

@@ -1,6 +1,7 @@
 # Windows player release
 
-Build MSVC Release with `RTS_BUILD_RENDER=ON`; `sanctum_launcher` is a small GUI
+Build MSVC Release with `RTS_BUILD_RENDER=ON`, `RTS_INTERNAL_TOOLS=OFF`, and
+`RTS_WITH_ONNX=ON`; `sanctum_launcher` is a small GUI
 launcher with a static CRT. The game remains usable by command-line tests. The
 portable archive has only `圣城.exe`, `游戏数据/`, and `开始游玩.txt` at its top level.
 
@@ -41,6 +42,22 @@ separated by model identity, including when using `--save-dir`. Each launch
 initially selects script; selecting RL restores its own campaign. Unsupported
 unit types and levels retain scripted control. No further training is required
 to play. Check the bundled model provenance in the release notes.
-Release saves use v6, combining
+The published v1.0.1 saves use v6, combining
 worker orders, Phoenix lifecycle and optional policy state. Earlier v3/v4/v5
 saves are rejected with legacy backup; no migration is claimed.
+
+## Release experience changes (2026-09-19)
+
+Internal screenshots of locked story pages require a separate build with
+`RTS_INTERNAL_TOOLS=ON`. Never distribute that binary: the packager checks the
+CMake cache and rejects it. Normal game/help/guide screenshots remain available
+in the player build. The packager also runs `policy_probe` to verify the supplied
+attacker model matches the current stats before creating an output directory.
+
+Current rules use World/17 and save v9 (v10 tactical policy, v11 defender policy).
+The v1.0.1 saves and trained model belong to the previous rules; keep the old
+installation for those campaigns. Changing Scout speed changes the stats
+fingerprint. Regenerated synthetic test fixtures validate inference plumbing,
+not the performance or compatibility of previously trained weights. A model
+trained/exported and evaluated against the new rules is required before the next
+player release; do not change an old model's metadata to bypass this check.

@@ -347,7 +347,7 @@ if(RTS_BUILD_TESTS)
     endif()
 endif()
 
-if(RTS_BUILD_TESTS)
+if(RTS_BUILD_TESTS AND RTS_INTERNAL_TOOLS)
     foreach(_chapter RANGE 0 7)
         add_test(NAME render_journal_${_chapter}
             COMMAND rts_render --menu --journal-page ${_chapter}
@@ -394,7 +394,7 @@ if(RTS_BUILD_TESTS)
     set_tests_properties(render_journal_rejects_ninth PROPERTIES WILL_FAIL TRUE)
 endif()
 
-if(RTS_BUILD_TESTS)
+if(RTS_BUILD_TESTS AND RTS_INTERNAL_TOOLS)
     add_test(NAME render_developer_wave COMMAND rts_render --developer-wave 70
         --map "${CMAKE_SOURCE_DIR}/game/data/maps/pool/gen_01001000.json"
         --sprites "${CMAKE_SOURCE_DIR}/tools/sprite_gen/out_3d"
@@ -405,7 +405,9 @@ if(RTS_BUILD_TESTS)
 endif()
 
 if(RTS_BUILD_TESTS)
-    add_test(NAME render_developer_panel COMMAND rts_render --screen developer --screenshot "${CMAKE_CURRENT_BINARY_DIR}/developer-panel.png" --size 960 540)
+    if(RTS_INTERNAL_TOOLS)
+        add_test(NAME render_developer_panel COMMAND rts_render --screen developer --screenshot "${CMAKE_CURRENT_BINARY_DIR}/developer-panel.png" --size 960 540)
+    endif()
     foreach(entry RANGE 0 24)
         add_test(NAME render_guide_${entry} COMMAND rts_render --guide-entry ${entry} --screenshot "${CMAKE_CURRENT_BINARY_DIR}/guide-${entry}.png" --size 960 540)
     endforeach()
@@ -430,4 +432,24 @@ if(RTS_BUILD_TESTS)
         --screenshot "${CMAKE_CURRENT_BINARY_DIR}/guide-level-costs.png" --size 2559 1368)
     add_test(NAME render_guide_level_boundary COMMAND rts_render --guide-entry 0 --guide-level 9999 --guide-bottom
         --screenshot "${CMAKE_CURRENT_BINARY_DIR}/guide-level-boundary.png" --size 960 540)
+endif()
+
+if(RTS_BUILD_TESTS AND NOT RTS_INTERNAL_TOOLS)
+    add_test(NAME render_release_rejects_developer COMMAND rts_render --developer-wave 70 --screenshot forbidden.png)
+    add_test(NAME render_release_rejects_story_preview COMMAND rts_render --journal-page 7 --journal-ending 2 --screenshot forbidden.png)
+    add_test(NAME render_release_rejects_appendix_preview COMMAND rts_render --journal-appendix 2 --screenshot forbidden.png)
+    set_tests_properties(render_release_rejects_developer render_release_rejects_story_preview
+        render_release_rejects_appendix_preview PROPERTIES WILL_FAIL TRUE)
+endif()
+
+if(RTS_BUILD_TESTS AND RTS_INTERNAL_TOOLS)
+    foreach(stage RANGE 1 2)
+        foreach(ending RANGE 1 2)
+            foreach(width IN ITEMS 640 1280 1920)
+                add_test(NAME render_ending_stage_${stage}_${ending}_${width}
+                    COMMAND rts_render --journal-page 7 --journal-ending ${ending} --journal-stage ${stage}
+                        --size ${width} 720 --screenshot "${CMAKE_CURRENT_BINARY_DIR}/ending-${stage}-${ending}-${width}.png")
+            endforeach()
+        endforeach()
+    endforeach()
 endif()

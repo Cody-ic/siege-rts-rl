@@ -15,6 +15,12 @@ public:
     void preview_appendix(int appendix,bool bottom=false,bool emphasis=false) noexcept;
     game::ChronicleAppendix appendices;
     bool decision_enabled = false;
+    game::ChronicleChoice choice = game::ChronicleChoice::None;
+    void present_choice(game::ChronicleChoice value) noexcept;
+    void preview_choice(game::ChronicleChoice value, bool confirmed) noexcept {
+        if(confirmed) {present_choice(value);transition_=2.8f;}
+        else {pending_=value;decision_enabled=true;choice=game::ChronicleChoice::None;}
+    }
     game::ChronicleChoice take_choice() noexcept {
         const auto result=requested_; requested_=game::ChronicleChoice::None; return result;
     }
@@ -24,6 +30,8 @@ private:
     int ending_ = 0;
     int appendix_ = 0;
     bool preview_emphasis_ = false;
+    game::ChronicleChoice pending_ = game::ChronicleChoice::None;
+    float transition_ = -1.0f;
     float scroll_ = 0, max_scroll_ = 0;
     game::ChronicleChoice requested_=game::ChronicleChoice::None;
 };
