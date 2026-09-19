@@ -150,6 +150,14 @@ ONNX Runtime DLL 和许可证复制到绑定旁。默认不指定模型时仍为
 `macro_evaluate.py` 默认使用检查点记录的对手并核对身份，也可显式
 `--attacker-model path/to/other.onnx` 做交叉评估。报告记录实际对手，
 `macro_compare.py` 拒绝把不同对手的结果当作同条件提升。
+
+可显式加 `--arms script teacher learned` 诊断单命令教师。`teacher` 与模型使用相同的
+检查点决策周期（可用 `--period` 显式覆盖），每拍至多一条命令、不含脚本专用调兵；
+完整 `script` 仍按内部 20 tick 周期执行。报告记录教师周期及命令限制，不能把二者
+当作同一个控制器。模仿采集 CLI 默认 `period=20`（1 秒）；测试里的 `period=500`
+是 25 秒一次的低频场景，并非实际模仿采集默认值。频率诊断结果见
+[整合与教师检查](../docs/pr-202-integration.md)。
+
 旧宏观权重的原生指纹与新绑定不同时，默认仍拒绝加载。新训练可显式指定
 `--init-checkpoint old/latest.pt --init-from-simulation <旧检查点原生SHA256>`：
 仅导入模型权重，优化器、随机状态和对局重新初始化，并在新检查点记录来源、目标指纹。

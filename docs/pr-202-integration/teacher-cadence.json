@@ -1,0 +1,241 @@
+{
+  "simulation": "d3c52fe2505fdba7523cfb66bfa425bc64d7617d5d7fb4ffe4203733e17d1f77",
+  "cases": [
+    {
+      "map": "game/data/maps/pool/gen_01009000.json",
+      "seed": 101,
+      "tick": 3323,
+      "wave": 2,
+      "waves_survived": 1,
+      "defeated": false,
+      "completed": true,
+      "timeout": false,
+      "keep_hp_fraction": 0.5924528241157532,
+      "commands": {},
+      "state_hash": 7312393935285159510,
+      "arm": "script",
+      "period": 20
+    },
+    {
+      "map": "game/data/maps/pool/gen_01009000.json",
+      "seed": 101,
+      "tick": 3242,
+      "wave": 2,
+      "waves_survived": 1,
+      "defeated": false,
+      "completed": true,
+      "timeout": false,
+      "keep_hp_fraction": 0.4566037654876709,
+      "commands": {
+        "Build": 4,
+        "None": 149,
+        "Train": 7,
+        "Upgrade": 1,
+        "Repair": 2
+      },
+      "state_hash": 15619972482817446596,
+      "arm": "teacher",
+      "period": 20
+    },
+    {
+      "map": "game/data/maps/pool/gen_01009000.json",
+      "seed": 101,
+      "tick": 3225,
+      "wave": 2,
+      "waves_survived": 1,
+      "defeated": false,
+      "completed": true,
+      "timeout": false,
+      "keep_hp_fraction": 0.5566037893295288,
+      "commands": {
+        "Build": 4,
+        "None": 19,
+        "Train": 7,
+        "Upgrade": 1,
+        "Repair": 2
+      },
+      "state_hash": 17460952415174337480,
+      "arm": "teacher",
+      "period": 100
+    },
+    {
+      "map": "game/data/maps/pool/gen_01009000.json",
+      "seed": 101,
+      "tick": 3400,
+      "wave": 1,
+      "waves_survived": 0,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 1,
+        "Train": 3,
+        "Upgrade": 1,
+        "Repair": 2
+      },
+      "state_hash": 267787485425155972,
+      "arm": "teacher",
+      "period": 500
+    },
+    {
+      "map": "game/data/maps/pool/gen_01001000.json",
+      "seed": 101,
+      "tick": 2983,
+      "wave": 2,
+      "waves_survived": 1,
+      "defeated": false,
+      "completed": true,
+      "timeout": false,
+      "keep_hp_fraction": 0.6962264180183411,
+      "commands": {},
+      "state_hash": 9541645133070890201,
+      "arm": "script",
+      "period": 20
+    },
+    {
+      "map": "game/data/maps/pool/gen_01001000.json",
+      "seed": 101,
+      "tick": 3107,
+      "wave": 2,
+      "waves_survived": 1,
+      "defeated": false,
+      "completed": true,
+      "timeout": false,
+      "keep_hp_fraction": 0.24339622259140015,
+      "commands": {
+        "Build": 4,
+        "Clear": 3,
+        "None": 139,
+        "Train": 7,
+        "Upgrade": 1,
+        "Repair": 2
+      },
+      "state_hash": 13157607224805990346,
+      "arm": "teacher",
+      "period": 20
+    },
+    {
+      "map": "game/data/maps/pool/gen_01001000.json",
+      "seed": 101,
+      "tick": 3132,
+      "wave": 2,
+      "waves_survived": 1,
+      "defeated": false,
+      "completed": true,
+      "timeout": false,
+      "keep_hp_fraction": 0.175471693277359,
+      "commands": {
+        "Build": 4,
+        "Train": 7,
+        "Clear": 3,
+        "None": 15,
+        "Upgrade": 1,
+        "Repair": 2
+      },
+      "state_hash": 5511103089893792552,
+      "arm": "teacher",
+      "period": 100
+    },
+    {
+      "map": "game/data/maps/pool/gen_01001000.json",
+      "seed": 101,
+      "tick": 3080,
+      "wave": 1,
+      "waves_survived": 0,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 2,
+        "Train": 3,
+        "Upgrade": 1,
+        "Repair": 1
+      },
+      "state_hash": 3204904763768914206,
+      "arm": "teacher",
+      "period": 500
+    },
+    {
+      "map": "game/data/maps/pool/gen_01004000.json",
+      "seed": 101,
+      "tick": 3158,
+      "wave": 2,
+      "waves_survived": 1,
+      "defeated": false,
+      "completed": true,
+      "timeout": false,
+      "keep_hp_fraction": 0.4000000059604645,
+      "commands": {},
+      "state_hash": 14481366053747102549,
+      "arm": "script",
+      "period": 20
+    },
+    {
+      "map": "game/data/maps/pool/gen_01004000.json",
+      "seed": 101,
+      "tick": 3084,
+      "wave": 1,
+      "waves_survived": 0,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 7,
+        "None": 138,
+        "Train": 7,
+        "Upgrade": 1,
+        "Repair": 2
+      },
+      "state_hash": 2198968427539066912,
+      "arm": "teacher",
+      "period": 20
+    },
+    {
+      "map": "game/data/maps/pool/gen_01004000.json",
+      "seed": 101,
+      "tick": 3052,
+      "wave": 1,
+      "waves_survived": 0,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 5,
+        "Train": 7,
+        "None": 16,
+        "Upgrade": 1,
+        "Repair": 2
+      },
+      "state_hash": 16507421300186440195,
+      "arm": "teacher",
+      "period": 100
+    },
+    {
+      "map": "game/data/maps/pool/gen_01004000.json",
+      "seed": 101,
+      "tick": 2960,
+      "wave": 1,
+      "waves_survived": 0,
+      "defeated": true,
+      "completed": false,
+      "timeout": false,
+      "keep_hp_fraction": 0.0,
+      "commands": {
+        "Build": 2,
+        "Train": 2,
+        "Repair": 2
+      },
+      "state_hash": 10968220221762738258,
+      "arm": "teacher",
+      "period": 500
+    }
+  ],
+  "max_wave": 1,
+  "max_ticks": 10000,
+  "stats_sha256": "a567147f1ec7443bae95c351ab31205f1a72fbfa896b1a6768a1053e6f43efc7",
+  "note": "One seed, three maps, first-wave diagnostic; not a win-rate or late-game balance estimate."
+}

@@ -31,6 +31,19 @@ class MacroEvaluateTests(unittest.TestCase):
             selected=evaluate(model,[map_path],stats,[103],Path(folder)/'learned-only.json',
                               max_wave=1,max_ticks=1,arms=['learned'])
             self.assertEqual([row['arm'] for row in selected['cases']],['learned'])
+            # Teacher cadence follows the checkpoint unless explicitly overridden.
+            # The deployed script still has its independent internal cadence.
+            for period in (None,20):
+                teacher=evaluate(model,[map_path],stats,[103],Path(folder)/f'teacher-{period}.json',
+                                 max_wave=1,max_ticks=40,period=period,arms=['teacher'])
+                cadence=cfg.period if period is None else period
+                self.assertEqual(teacher['teacher'],dict(period=cadence,commands_per_decision=1,unit_orders=False))
+                self.assertEqual(teacher['script_internal_period'],20)
+                expected=evaluate_case(map_path,stats,103,'teacher',cadence,1,40)
+                expected['arm']='teacher'
+                self.assertEqual(teacher['cases'],[expected])
+                self.assertTrue(teacher['cases'][0]['timeout'])
+            self.assertEqual(before,sha256(model))
             with self.assertRaisesRegex(ValueError,'arms'):
                 evaluate(model,[map_path],stats,[103],Path(folder)/'invalid.json',arms=[])
             with self.assertRaisesRegex(ValueError,'already exists'):

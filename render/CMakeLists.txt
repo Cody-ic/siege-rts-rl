@@ -442,6 +442,10 @@ if(RTS_BUILD_TESTS)
         --screenshot "${CMAKE_CURRENT_BINARY_DIR}/guide-level-costs.png" --size 2559 1368)
     add_test(NAME render_guide_level_boundary COMMAND rts_render --guide-entry 0 --guide-level 9999 --guide-bottom
         --screenshot "${CMAKE_CURRENT_BINARY_DIR}/guide-level-boundary.png" --size 960 540)
+    foreach(level IN ITEMS 20 30)
+        add_test(NAME render_guide_wall_${level} COMMAND rts_render --guide-entry 6 --guide-level ${level}
+            --screenshot "${CMAKE_CURRENT_BINARY_DIR}/guide-wall-${level}.png" --size 1500 1000)
+    endforeach()
 endif()
 
 if(RTS_BUILD_TESTS AND NOT RTS_INTERNAL_TOOLS)

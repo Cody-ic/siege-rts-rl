@@ -74,7 +74,7 @@ def evaluate(checkpoint,maps,stats,seeds,output,max_wave=6,max_ticks=100000,gree
     output=Path(output)
     if output.exists():
         raise ValueError('Evaluation output already exists; use a new file')
-    if not arms or len(set(arms))!=len(arms) or not set(arms)<= {'script','initial','learned'}:
+    if not arms or len(set(arms))!=len(arms) or not set(arms)<= {'script','teacher','initial','learned'}:
         raise ValueError('Evaluation arms must be nonempty, unique and known')
     torch.set_num_threads(1)
     learned,initial,cfg=load_policy(checkpoint,stats)
@@ -93,11 +93,13 @@ def evaluate(checkpoint,maps,stats,seeds,output,max_wave=6,max_ticks=100000,gree
         mode='conditional-greedy' if greedy else 'sample',policy_period=selected_period,
         training_period=cfg['period'],opponent=opponent_identity,
         script_internal_period=20,training_maps=cfg['maps'],arms=list(arms),complete=False,cases=[])
+    if 'teacher' in arms:
+        report['teacher']=dict(period=selected_period,commands_per_decision=1,unit_orders=False)
     # Script is the deployed macro baseline with its normal 20-tick cadence.
     # Initial and learned networks use identical architecture and decision cadence.
     for path in maps:
         for seed in seeds:
-            for name,policy in (('script',None),('initial',initial),('learned',learned)):
+            for name,policy in (('script',None),('teacher','teacher'),('initial',initial),('learned',learned)):
                 if name not in arms:
                     continue
                 row=evaluate_case(path,stats,seed,policy,selected_period,max_wave,max_ticks,greedy,opponent)
@@ -124,7 +126,8 @@ if __name__=='__main__':
     parser.add_argument('--max-ticks',type=int,default=100000)
     parser.add_argument('--greedy',action='store_true')
     parser.add_argument('--period',type=int,help='Explicit cadence diagnostic; defaults to checkpoint training period')
-    parser.add_argument('--arms',nargs='+',choices=['script','initial','learned'],default=['script','initial','learned'])
+    parser.add_argument('--arms',nargs='+',choices=['script','teacher','initial','learned'],default=['script','initial','learned'],
+                        help='teacher uses the policy cadence and emits one command per decision without unit orders')
     parser.add_argument('--attacker-model',help='Override opponent; empty string selects script')
     args=parser.parse_args()
     evaluate(args.checkpoint,[str(Path(p).resolve()) for p in args.maps],args.stats,args.seeds,

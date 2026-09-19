@@ -36,4 +36,4 @@ ctest --test-dir build-verified -C Release -R '^(rts_tests_(input|menu)|render_w
 
 ![小窗口下拐角的两个方向](wall-run-upgrades/corner-menu.png)
 
-沿用现有逐段 Upgrade 命令及操作日志，不新增仿真规则或存档字段。基于 #201，尚未更新已安装正式版。
+沿用现有逐段 Upgrade 命令及操作日志，不新增仿真规则或存档字段。已整合 #203 的图鉴和训练测试修复，详见 [整合与教师检查](pr-202-integration.md)；合并顺序为 #199 → #200 → #201 → #203 → #202。尚未更新已安装正式版。
