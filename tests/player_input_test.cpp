@@ -730,3 +730,32 @@ TEST_CASE("交战判定：攻击四位任一亮起即算接战，够不着时不
     near.advance(1);
     REQUIRE(game::combat_engaged(near));
 }
+
+TEST_CASE("Building box modes separate walls and budgeted upgrades retain construction", "[input]") {
+    auto init=iarena();
+    auto& ts=init.stats.bld[static_cast<std::size_t>(rts::BldType::Tower)];
+    ts.upgrade_cost_stone=30;ts.upgrade_cost_wood=10;ts.upgrade_ticks=20;
+    init.stats.bld[static_cast<std::size_t>(rts::BldType::Barrack)]=ts;
+    rts::World w(init);
+    const auto keep_up=game::upgrade_command(w.keep_pos(),w.width());
+    w.submit(rts::Side::Defender,&keep_up,1);w.advance(1);
+    const auto tower=w.place_bld(rts::BldType::Tower,{2,1},1000,1000);
+    const auto wall=w.place_bld(rts::BldType::Wall,{3,1},1000,1000);
+    const auto barrack=w.place_bld(rts::BldType::Barrack,{4,1},1000,1000);
+    REQUIRE(tower.valid());REQUIRE(wall.valid());REQUIRE(barrack.valid());
+    const auto view=w.view(rts::Side::Defender);game::IsoProjection proj(64);
+    const auto walls=game::buildings_in_rect(view,proj,{-1000,-1000,2000,2000},true);
+    const auto buildings=game::buildings_in_rect(view,proj,{-1000,-1000,2000,2000},false);
+    REQUIRE(walls.size()==1);REQUIRE(walls[0]==rts::GridPos{3,1});REQUIRE(buildings.size()==3);
+    const auto stone=game::upgrade_cost_stone(view,{2,1}),wood=game::upgrade_cost_wood(view,{2,1});
+    w.set_stock(rts::Resource::Stone,stone);w.set_stock(rts::Resource::Wood,wood);
+    const std::vector<rts::GridPos> targets{{4,1},{2,1},{2,1}};
+    const auto batch=game::plan_upgrades(view,targets);
+    REQUIRE(batch.commands.size()==1);REQUIRE(batch.commands[0].slot==rts::slot_of({2,1},w.width()));
+    REQUIRE(batch.stone==stone);REQUIRE(batch.wood==wood);
+    w.submit(rts::Side::Defender,batch.commands.data(),batch.commands.size());w.advance(1);
+    REQUIRE(view.bld_level()[tower.index()]==1); // Scheduling never grants an instant level.
+    REQUIRE(view.bld_upgrade_left()[tower.index()]>0);
+    REQUIRE(view.bld_upgrade_left()[barrack.index()]==0);
+    REQUIRE(game::plan_upgrades(view,targets).commands.empty());
+}

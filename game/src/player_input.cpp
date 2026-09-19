@@ -11,6 +11,39 @@
 
 namespace game {
 
+std::vector<rts::GridPos> buildings_in_rect(const rts::WorldView& view,
+    const IsoProjection& proj, Rect rect, bool walls_only) {
+    const float x0=std::min(rect.x,rect.x+rect.width),x1=std::max(rect.x,rect.x+rect.width);
+    const float y0=std::min(rect.y,rect.y+rect.height),y1=std::max(rect.y,rect.y+rect.height);
+    std::vector<rts::GridPos> cells;
+    for(std::size_t i=0;i<view.bld_alive().size();++i) {
+        if(!view.bld_alive()[i]) continue;
+        const auto type=view.bld_type()[i];
+        const bool wall=type==rts::BldType::Wall || type==rts::BldType::Gate || type==rts::BldType::Fence;
+        if(wall!=walls_only) continue;
+        const auto p=proj.grid_to_screen(view.bld_pos()[i]);
+        if(p.x>=x0 && p.x<=x1 && p.y>=y0 && p.y<=y1) cells.push_back(view.bld_pos()[i]);
+    }
+    return cells;
+}
+
+UpgradeBatch plan_upgrades(const rts::WorldView& view,std::span<const rts::GridPos> input) {
+    std::vector<rts::GridPos> cells(input.begin(),input.end());
+    const auto slot=[&](rts::GridPos p){return int(p.j)*view.width()+int(p.i);};
+    std::sort(cells.begin(),cells.end(),[&](auto a,auto b){return slot(a)<slot(b);});
+    cells.erase(std::unique(cells.begin(),cells.end()),cells.end());
+    UpgradeBatch result;
+    for(const auto cell:cells) {
+        if(cell.i<0 || cell.j<0 || cell.i>=view.width() || cell.j>=view.height()) continue;
+        if(!can_upgrade_hint(view,cell)) continue;
+        const auto stone=upgrade_cost_stone(view,cell),wood=upgrade_cost_wood(view,cell);
+        if(result.stone+stone>view.stock()[static_cast<std::size_t>(rts::Resource::Stone)] || result.wood+wood>view.stock()[static_cast<std::size_t>(rts::Resource::Wood)]) continue;
+        result.stone+=stone;result.wood+=wood;
+        result.commands.push_back(upgrade_command(cell,view.width()));
+    }
+    return result;
+}
+
 ClickTarget classify_click(const rts::WorldView& view, rts::GridPos cell) {
     assert(cell.i >= 0 && cell.j >= 0 && cell.i < view.width() &&
            cell.j < view.height());
@@ -191,8 +224,8 @@ bool can_afford_train(const rts::WorldView& view, rts::UnitType ut, std::int32_t
            view.train_cost_gold(ut, level);
 }
 
-bool train_pop_full(const rts::WorldView& view) {
-    return view.defender_pop() >= view.defender_pop_cap();
+bool train_pop_full(const rts::WorldView& view, rts::UnitType type) {
+    return type != rts::UnitType::Scout && view.defender_pop() >= view.defender_pop_cap();
 }
 
 rts::Command train_command(rts::UnitType u, std::int32_t level,

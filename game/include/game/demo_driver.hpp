@@ -116,22 +116,9 @@ struct DefenderSetup {
 
     // ——斥候侦查：到达集结点即判定一次死活（2026-09-04）——
     //
-    // **形状与攻方的 `Wraith` 对称**，这是组内定的：窥使推进到看得见防御布局
-    // 就「情报到手」并掉头；斥候推进到集结点，**掷一次死活**——死了本轮侦查
-    // 失败、一个字都不给玩家，活下来就视为侦查成功、当场拿到本波编成。
-    //
-    // 它替掉的是一版**错的**设计（同日早些时候我写的 `IntelLog`）：那一版
-    // 按帧累积「看见过什么」，于是斥候刚出城门瞟一眼就已经在漏情报，
-    // **侦查从来不会失败**，只会「看到多少算多少」。那把 `Scout` / `Wraith`
-    // 的整个博弈消掉了——猎杀斥候没有意义，因为它死之前已经漏了一路。
-    // 侦查必须是**二元事件**：成功或失败，中间没有渐进渗漏。
-    //
-    // **概率不随敌方数量缩放，而是靠「派几只」表达冗余**：每只斥候各掷一次
-    // 独立的点，派两只的成功率是 `1 − p²`。这与提案里攻方那一侧逐字同构
-    // （`波次分段与侦查时序.md` §4.1：「派两只 = 拿编成位买冗余」），
-    // 而且它让 `CLAUDE.md`「斥候必须便宜到可以消耗，情报交易才诚实」这条
-    // 在玩家侧真的可操作。若改成随敌方数量缩放，后期侦查会趋近必然失败——
-    // 那等于在最需要情报的时候把这条机制关掉。
+    // 守方斥候抵达集结点后每只每波独立掷一次：失败不交付情报，
+    // 成功合并本波实际见过的敌人。空集结点不消耗这次机会。
+    // 攻方窥使另走连续观察/传输机制，不使用此死亡概率。
     std::int32_t scout_death_permille = 400;   // 占位：单只成功率 60%
     // 「到达」的判据：离集结点这么近就算到了（格，切比雪夫）。
     // **0 = 用斥候自己的视野半径**（默认，且它是自维护的：改数值表里的
@@ -195,11 +182,14 @@ public:
 
     // ——攻方侧的侦查与情报（只读，给测试、HUD 与 runner）——
     //
-    // `wave_scouted()` 是**本波**攻方窥使有没有看到防御布局；`wave_intel()`
+    // `wave_scouted()` 是**本波**攻方窥使有没有完成情报传输；`wave_intel()`
     // 是**生波那一刻**攻方以为守方长什么样（读的是它自己的迷雾记忆）。
     // 两者此前一个访问器都没有——于是「杀掉窥使让 AI 带错情报」这条设计
     // 在测试里断言不了、在报告里也量不出来。
     bool wave_scouted() const noexcept { return wave_scouted_; }
+    static constexpr rts::Tick kReconTransmitTicks = 60; // Three seconds of uninterrupted observation.
+    bool recon_transmitting() const noexcept { return !wave_scouted_ && recon_observer_.valid(); }
+    rts::Tick scout_report_tick() const noexcept { return scout_report_tick_; }
     const WavePlan& wave_plan() const noexcept {return wave_plan_;}
     const WavePlan& baseline_plan() const noexcept {return baseline_plan_;}
     const AttackerIntel& wave_intel() const noexcept { return wave_intel_; }
@@ -351,6 +341,12 @@ private:
     void tick_scout_recon();
 
     bool wave_scouted_ = false;
+    rts::UnitId recon_observer_{};
+    rts::Tick recon_started_ = 0;
+    // -1: not waiting, -2: released for this wave; otherwise first waiting tick.
+    std::vector<rts::Tick> formation_wait_since_;
+    std::vector<std::int64_t> formation_last_hp_;
+    std::vector<std::uint32_t> phoenix_empty_return_;
     // **上一波**的侦查结果，逐波从 `wave_scouted_` 结转。
     //
     // `spawn_wave()` 需要的是它而不是 `wave_scouted_`：编成在波次开始时定死
@@ -428,6 +424,8 @@ private:
     // 本波已经掷过点的斥候（原始句柄值）。**按只记账**：每只各掷一次独立的
     // 点，派两只就是两次机会——「派几只」是玩家的冗余决策。
     std::vector<std::uint32_t> scout_rolled_;
+    std::vector<std::uint32_t> scout_seen_;
+    rts::Tick scout_report_tick_ = 0;
     bool defeated_ = false;   // Keep 被拆即败（丢失即败是设计，不是演示便宜）
     int since_decision_ = 0;
     std::vector<rts::UnitId> ids_;

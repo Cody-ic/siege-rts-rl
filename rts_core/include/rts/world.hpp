@@ -533,7 +533,7 @@ inline GridPos pos_of_slot(std::uint16_t slot, int width) noexcept {
 // 随之移除（`u_upgrade_left_` 删，升级只经 `Train` 选级）。布局与行为双重变更。
 // `World/12` → `World/13`：新增 `CommandKind::Demolish`，`deferred_` 的长度随
 // `kCommandKindCount` 增加一格并进入哈希；与上面 `World/1 → World/2` 同类。
-inline constexpr std::string_view kWorldHashTag = "World/16";
+inline constexpr std::string_view kWorldHashTag = "World/17";
 
 class WorldView;
 
@@ -895,7 +895,7 @@ public:
     std::int32_t unit_level_cap() const noexcept;
 
     // 人口（守方，2026-09-02 落地，与造价 `c ∝ √B(L)` 同属「三件一起落地」）。
-    // `defender_pop()` = 存活守方单位数 + 在训占位（每座在训建筑占 1 格——
+    // `defender_pop()` = 非斥候的存活守方单位数 + 非斥候的在训占位（各占 1 格——
     // 那名兵的钱已经付了，「顶满后先训上、等出了再补」不该是一条免费通道）。
     // `defender_pop_cap()` = `pop_cap_base + pop_cap_per_keep_level × 堡垒等级`
     // （`WorldInit`）。Keep 的定位与 `unit_level_cap()` 同一条不变量

@@ -169,6 +169,7 @@ void DefenderScript::decide(const rts::WorldView& view,
                             std::vector<std::uint16_t>& garrison_out) {
     // 一拍内的缓存重建：field 的破坏代价读当前血量，拍间会变。
     fields_.clear();
+    for (auto& navigation : scout_navigation_) navigation.active = false;
     wall_claimed_.clear();
     bld_claimed_.clear();
     if (threat_streak_.size() < view.unit_type().size()) {
@@ -198,6 +199,8 @@ void DefenderScript::decide(const rts::WorldView& view,
     for (const rts::UnitId id : ids) {
         std::uint16_t wish = rts::kNoSlot;
         out.push_back(decide_unit(view, id, wish));
+        if (id.index() < scout_navigation_.size())
+            scout_navigation_[id.index()].generation = id.generation();
         garrison_out.push_back(wish);
         if (wish != rts::kNoSlot) {
             // 本拍指派出去的墙格随即对后面的单位关上（见 find_wall_post）。
@@ -211,6 +214,32 @@ void DefenderScript::decide(const rts::WorldView& view,
             if (!seen) wall_claimed_.push_back(wish);
         }
     }
+}
+
+bool DefenderScript::refresh_scout_navigation(const rts::WorldView& view,
+                                              std::span<const rts::UnitId> ids,
+                                              std::vector<rts::UnitAction>& out) {
+    // Derived fields must use this tick's world, including after snapshot restore.
+    fields_.clear();
+    out.clear();
+    out.reserve(ids.size());
+    bool changed = false;
+    for (const auto id : ids) {
+        const auto slot = id.index();
+        auto action = view.unit_action()[slot];
+        if (view.unit_type()[slot] == rts::UnitType::Scout &&
+            slot < scout_navigation_.size() && rts::is_move(action) &&
+            view.unit_garrison()[slot] == rts::kNoSlot) {
+            const auto navigation = scout_navigation_[slot];
+            if (navigation.active && navigation.generation == id.generation() &&
+                navigation.cell != rts::grid_of(view.unit_pos()[slot])) {
+                action = move_towards(view, slot, navigation.target, view.action_mask(id));
+                changed = true;
+            }
+        }
+        out.push_back(action);
+    }
+    return changed;
 }
 
 void DefenderScript::issue_move_order(std::span<const rts::UnitId> ids,
@@ -594,6 +623,11 @@ rts::UnitAction DefenderScript::move_towards(const rts::WorldView& view,
                                              std::uint16_t mask) {
     const rts::UnitType t = view.unit_type()[slot];
     const rts::FlowTiering tiering{};
+    if (t == rts::UnitType::Scout) {
+        if (scout_navigation_.size() <= slot) scout_navigation_.resize(slot + 1);
+        scout_navigation_[slot] = {true, rts::grid_of(view.unit_pos()[slot]), goal,
+                                   scout_navigation_[slot].generation};
+    }
     const int tier = rts::flow_tier_of(view.unit_level()[slot], tiering);
     const std::uint16_t g = rts::slot_of(goal, view.width());
 

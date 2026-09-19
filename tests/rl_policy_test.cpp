@@ -8,6 +8,7 @@
 #include "game/stats_loader.hpp"
 #include "game/world_builder.hpp"
 #include "rts/batched_env.hpp"
+#include "rts/utf8_path.hpp"
 
 TEST_CASE("Policy argmax obeys legal masks and rejects nonfinite outputs", "[rlpolicy]") {
     std::array<float,rts::kUnitActionCount*2> logits{};
@@ -130,8 +131,8 @@ TEST_CASE("Game policy batches all squads beyond the training row limit", "[rlpo
 
 TEST_CASE("RL battle saves retain the same model for snapshot and replay recovery", "[rlpolicy]") {
     if(!game::TacticalPolicy::runtime_available()) return;
-    const auto map_text=game::read_save_text(std::filesystem::path(GAME_DATA_DIR)/"demo_skirmish.json");
-    const auto stats_text=game::read_save_text(std::filesystem::path(GAME_DATA_DIR)/"stats_placeholder.json");
+    const auto map_text=game::read_save_text(rts::path_from_utf8(GAME_DATA_DIR)/"demo_skirmish.json");
+    const auto stats_text=game::read_save_text(rts::path_from_utf8(GAME_DATA_DIR)/"stats_placeholder.json");
     const auto stats=game::StatsLoader::from_string(stats_text);
     auto policy=std::make_shared<game::TacticalPolicy>(std::string(GAME_TESTDATA_DIR)+"/rl_constant.onnx",stats.fingerprint());
     game::GameShell shell(game::MapLoader::from_string(map_text),stats,77,policy);

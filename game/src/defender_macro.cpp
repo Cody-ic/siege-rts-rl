@@ -486,27 +486,17 @@ void DefenderMacro::decide(const rts::World& w, std::vector<rts::Command>& cmds,
         const int cap = v.defender_pop_cap();
         for (std::size_t k = 0; k < bpos.size(); ++k) {
             if (!room()) break;
-            if (pop >= cap) break;
             if (!balive[k] || !bbuilt[k]) continue;
             if (bt[k] != rts::BldType::Barrack && bt[k] != rts::BldType::Keep) continue;
             if (btrain[k] > 0) continue;   // 这一座正在练兵，排不进第二个
             if (!can_train_hint(v, bpos[k])) continue;
 
-            // 挑兵种：产能与情报的绝对缺口优先，**但受非战斗人口上界约束**。
-            // 没有那条上界时，开局 3 个空位会被 2 工匠 + 1 斥候吃光，
-            // 一个战斗兵都招不上（头文件 `noncombat_max_permille`）。
+            // 自动守方脚本的招募偏好，不是玩家工匠的比例限制。
+            // 斥候不占人口，也不受此偏好约束。
             const int noncombat_cap = cap * p_.noncombat_max_permille / 1000;
-            const int noncombat_now = have_mason + have_scout;
+            const int noncombat_now = have_mason;
             rts::UnitType ut;
-            // **斥候排在工匠之前**，这一条是被测试逼出来的：工匠的目标是 3、
-            // 而非战斗预算在人口上限 10 时也是 3 ⇒ 工匠把预算吃光、
-            // **斥候永远招不出来**（实测 6000 拍后场上斥候 0 名，于是侦查
-            // 那条机制整个不发生）。
-            //
-            // 谁该让位是清楚的：斥候的目标是 **1**、只要 25 金，而且它是
-            // **唯一的情报来源**——少一名工匠只是建得慢一点（产能是连续的），
-            // 少了斥候是整条决策轴消失（情报是离散的）。
-            if (have_scout < p_.scout_target && noncombat_now < noncombat_cap) {
+            if (have_scout < p_.scout_target) {
                 ut = rts::UnitType::Scout;
             } else if (have_mason < p_.mason_target &&
                        noncombat_now < noncombat_cap) {
@@ -515,10 +505,11 @@ void DefenderMacro::decide(const rts::World& w, std::vector<rts::Command>& cmds,
                 ut = pick_combat(have_archer, have_spear, have_ranger);
             }
 
+            if (ut != rts::UnitType::Scout && pop >= cap) break;
             const std::int64_t cost = v.train_cost_gold(ut, lv);
             if (cost <= 0 || gold < cost) break;
             gold -= cost;
-            ++pop;
+            if (ut != rts::UnitType::Scout) ++pop;
             cmds.push_back(train_command(ut, lv, bpos[k], mw));
             ++stats_.units_trained;
             switch (ut) {

@@ -624,7 +624,7 @@ rts::UnitAction DemoBattle::retreat_action(rts::UnitId id) const {
 //     回头看这个终止条件」，而一只会撤的不死鸟正好变成了那种单位
 bool DemoBattle::phoenix_should_withdraw(rts::UnitId id,
                                          bool any_ground_combat) const {
-    if (!any_ground_combat) return true;
+    if (!any_ground_combat || std::find(phoenix_empty_return_.begin(),phoenix_empty_return_.end(),id.raw())!=phoenix_empty_return_.end()) return true;
     // 满血从**数值表 + 等级**重算（`hp_at`，与生成时同一条路），不去 `World`
     // 要一个 `unit_max_hp` 访问器：`rts_core` 不为 `game/` 的记账加接口，
     // 而这个值本来就是确定性地由 (兵种, 等级) 决定的。
@@ -760,7 +760,7 @@ void DemoBattle::tick_scout_recon() {
         // 加完之后语义干净：**抵达哪个集结点，就看见驻守在那里的部队**。
         const int vision =
             static_cast<int>(w_.stats().of(rts::UnitType::Scout).vision);
-        int tally[rts::kUnitTypeCount] = {};
+        std::vector<rts::UnitId> sighted;
         int seen_n = 0;
         std::vector<rts::UnitId> foes;
         w_.enumerate_units(rts::Side::Attacker, foes);
@@ -770,7 +770,7 @@ void DemoBattle::tick_scout_recon() {
             const int dy = static_cast<int>(g.j) - static_cast<int>(fg.j);
             const int d = std::max(dx < 0 ? -dx : dx, dy < 0 ? -dy : dy);
             if (d <= vision + 3) {
-                ++tally[static_cast<std::size_t>(w_.unit_type(f))];
+                sighted.push_back(f);
                 ++seen_n;
             }
         }
@@ -797,13 +797,16 @@ void DemoBattle::tick_scout_recon() {
         // 活下来 ⇒ 侦查成功。报告就是它看见的那部分——佯攻分兵因此有了
         // 独立的情报价值（看清一路，另一路仍是迷雾）。
         scout_outcome_ = ScoutOutcome::Success;
-        scout_report_.clear();
-        // 按花名册顺序（`unit_at`），顺序必须稳定——面板每帧重排读不了。
-        for (int k = 0; k < rts::kUnitTypeCount; ++k) {
-            const rts::UnitType t = rts::unit_at(k);
-            const int n = tally[static_cast<std::size_t>(t)];
-            if (n > 0) scout_report_.push_back(SightedType{t, n});
+        scout_report_tick_=w_.now();
+        for (const auto seen : sighted) {
+            if (std::find(scout_seen_.begin(),scout_seen_.end(),seen.raw()) != scout_seen_.end()) continue;
+            scout_seen_.push_back(seen.raw());
+            const auto type=w_.unit_type(seen);
+            auto item=std::find_if(scout_report_.begin(),scout_report_.end(),[&](const auto& row){return row.type==type;});
+            if (item==scout_report_.end()) scout_report_.push_back({type,1});
+            else ++item->count;
         }
+        std::sort(scout_report_.begin(),scout_report_.end(),[](const auto& a,const auto& b){return a.type<b.type;});
     }
 }
 
@@ -924,45 +927,32 @@ void DemoBattle::issue_actions() {
     acts_.reserve(ids_.size());
     const rts::WorldView av = w_.view(rts::Side::Attacker);
 
-    // ——`Wraith` 的两个判据，逐拍算一次，不逐单位重算——
-    //
-    // 一、**本波侦查到手了没有**：攻方迷雾里已经看见过任意一座**防御布局建筑**
-    //     （塔 / 防空 / 堡垒）。2026-09-02 起**墙与门不算**（《地图生成器大改方案.md》
-    //     §4：城墙在哪是免费信息——地形不过迷雾，墙环开局就看得见，「看见任意
-    //     建筑就撤」等于在城外瞟一眼就回家，从来没侦查过）；资源建筑也不算
-    //     （那是经济情报，不是布局）。要看见塔/防空/堡垒就得压到城圈附近——
-    //     2026-09-03 起它会飞（数值表 `_note_2026_09_03`，速度回调 0.20）：
-    //     地面单位结构上够不着它，但压到城圈意味着进入 `Flak` 与墙上
-    //     `Archer` 的射程，「能被追上」由「会挨打」接任。
-    //     用建筑数组而不是逐格扫 170×170 的迷雾图；条件在一波之内基本是单调的
-    //     （格子一旦看过就不回到 `Unseen`），所以不会在边界上来回抖。
+    // Seeing a defense starts a three-second transmission. Losing the observer or
+    // contact cancels it; only a completed transmission updates next-wave intel.
     if (!wave_scouted_) {
-        const auto b_alive = av.bld_alive();
-        const auto b_pos = av.bld_pos();
-        const auto b_type = av.bld_type();
-        const rts::FogLayer& af = av.fog();
-        for (std::size_t b = 0; b < b_alive.size(); ++b) {
-            if (b_alive[b] == 0) continue;
-            const rts::BldType t = b_type[b];
-            if (t != rts::BldType::Tower && t != rts::BldType::Flak &&
-                t != rts::BldType::Keep) {
-                continue;
+        rts::UnitId witness{};
+        for (const auto id : ids_) {
+            if (w_.unit_type(id) != rts::UnitType::Wraith) continue;
+            const auto p = w_.unit_pos(id);
+            const float radius = w_.stats().of(rts::UnitType::Wraith).vision;
+            for (std::size_t b = 0; b < av.bld_alive().size(); ++b) {
+                if (!av.bld_alive()[b]) continue;
+                const auto type = av.bld_type()[b];
+                if (type != rts::BldType::Tower && type != rts::BldType::Flak && type != rts::BldType::Keep) continue;
+                const auto bp = av.bld_pos()[b];
+                if (av.fog().at(bp.i,bp.j) != rts::Vis::Visible) continue;
+                const auto center = rts::center_of(bp);
+                const float dx = p.x-center.x, dy = p.y-center.y;
+                if (dx*dx+dy*dy <= radius*radius) { witness=id; break; }
             }
-            const rts::GridPos p = b_pos[b];
-            if (af.in_bounds(p.i, p.j) && af.at(p.i, p.j) == rts::Vis::Visible) {
-                bool witnessed=false;
-                for(std::size_t u=0;u<av.unit_type().size();++u) {
-                    if(!av.unit_alive()[u] || av.unit_type()[u]!=rts::UnitType::Wraith) continue;
-                    const auto up=av.unit_pos()[u];const auto center=rts::center_of(p);
-                    const float r=w_.stats().of(rts::UnitType::Wraith).vision;
-                    const float dx=up.x-center.x,dy=up.y-center.y;
-                    if(dx*dx+dy*dy<=r*r) {witnessed=true;break;}
-                }
-                if(!witnessed) continue;
-                wave_scouted_ = true;
-                recon_intel_=macro_.read_intel(av,true);
-                break;
-            }
+            if (witness.valid()) break;
+        }
+        if (!witness.valid()) { recon_observer_={}; recon_started_=0; }
+        else if (witness != recon_observer_) { recon_observer_=witness; recon_started_=w_.now(); }
+        else if (w_.now()-recon_started_ >= kReconTransmitTicks) {
+            wave_scouted_=true;
+            recon_intel_=macro_.read_intel(av,true);
+            recon_observer_={};
         }
     }
     // 二、**本波还有没有战斗单位活着**。这一条不是为了行为好看，是为了**波次循环
@@ -1042,6 +1032,32 @@ void DemoBattle::issue_actions() {
     // 判据取**队里最前的那个**（最保守）：任一队员越线，整队止步。于是
     // 「没有任何单位超出步速线」这条不变量在编队制下由构造成立。
     std::vector<std::uint8_t> squad_ahead;
+    const auto visible=[&](rts::GridPos p) {
+        return av.fog().in_bounds(p.i,p.j) && av.fog().at(p.i,p.j)==rts::Vis::Visible;
+    };
+    const auto exposed = [&](rts::UnitId id) {
+        if(id.index()<formation_last_hp_.size() && formation_last_hp_[id.index()]>w_.unit_hp(id)) return true;
+        const auto p=w_.unit_pos(id);
+        for (std::size_t b=0;b<av.bld_alive().size();++b) {
+            if (!av.bld_alive()[b] || !av.bld_built()[b] || !visible(av.bld_pos()[b])) continue;
+            const auto& stat=w_.stats().of(av.bld_type()[b]);
+            if (stat.damage<=0 || av.bld_type()[b]==rts::BldType::Flak) continue;
+            const auto q=rts::center_of(av.bld_pos()[b]);
+            const float dx=p.x-q.x,dy=p.y-q.y,r=stat.range+0.5f;
+            if (dx*dx+dy*dy<=r*r) return true;
+        }
+        for (std::size_t u=0;u<av.unit_alive().size();++u) {
+            if(!av.unit_alive()[u] || rts::side_of(av.unit_type()[u])!=rts::Side::Defender || !visible(rts::grid_of(av.unit_pos()[u]))) continue;
+            const auto& stat=w_.stats().of(av.unit_type()[u]);
+            if(stat.damage<=0) continue;
+            const auto q=av.unit_pos()[u];const float dx=p.x-q.x,dy=p.y-q.y;
+            const float bonus=av.unit_garrison()[u]!=rts::kNoSlot?w_.stats().global.high_ground_range_bonus:0.0f;
+            const float r=stat.range+bonus+0.5f;
+            if(dx*dx+dy*dy<=r*r) return true;
+        }
+        return false;
+    };
+    std::vector<std::uint8_t> squad_exposed;
     if (pace_dist > 0.0f) {
         const rts::Vec2 kc2 = rts::center_of(w_.keep_pos());
         for (const rts::UnitId id : ids_) {
@@ -1051,7 +1067,8 @@ void DemoBattle::issue_actions() {
             if (sid < 0) continue;
             if (!rts::is_combat(w_.unit_type(id))) continue;
             const auto sq = static_cast<std::size_t>(sid);
-            if (sq >= squad_ahead.size()) squad_ahead.resize(sq + 1, 0);
+            if (sq >= squad_ahead.size()) { squad_ahead.resize(sq + 1, 0); squad_exposed.resize(sq + 1, 0); }
+            if (exposed(id)) squad_exposed[sq]=1;
             const rts::Vec2 p2 = w_.unit_pos(id);
             const float ddx = p2.x - kc2.x;
             const float ddy = p2.y - kc2.y;
@@ -1070,6 +1087,7 @@ void DemoBattle::issue_actions() {
     for(std::size_t k=0;k<raid_view.bld_type().size();++k) {
         if(!raid_view.bld_alive()[k] || !rts::is_gatherer(raid_view.bld_type()[k])) continue;
         const auto pos=raid_view.bld_pos()[k];
+        if(!visible(pos)) continue;
         for(const auto& site:w_.resources()) if(site.pos==pos && site.tier==rts::ResourceTier::Outer) {raid_sites.push_back(pos);break;}
     }
     for (const rts::UnitId id : ids_) {
@@ -1082,7 +1100,9 @@ void DemoBattle::issue_actions() {
         if(rts::is_combat(type) && !(type==rts::UnitType::Ram && has(mask,rts::UnitAction::AtkWall))) {
             for(auto target:raid_sites) {const auto c=rts::center_of(target);const float dx=c.x-pos.x,dy=c.y-pos.y;const float d=dx*dx+dy*dy;if(d<=raid_distance) {raid_distance=d;raid=target;}}
         }
-        if(raid) {
+        if(type==rts::UnitType::Phoenix && phoenix_should_withdraw(id,any_ground_combat)) {
+            a=retreat_action(id);
+        } else if(raid) {
             const float range=w_.stats().of(type).range;
             if(raid_distance<=range*range && has(mask,rts::UnitAction::AtkBld)) a=rts::UnitAction::AtkBld;
             else if(!muster) {
@@ -1100,7 +1120,7 @@ void DemoBattle::issue_actions() {
             // 「AtkNear 否则奔堡垒」，于是径直飞进墙上弓手的火网、到了堡垒
             // 又因为射程内没有单位而干悬着——「手术刀」全程没切过一刀）：
             // 优先点杀射程内最脆的单位（AtkWeak，工匠/斥候先遭殃），其次
-            // 俯冲最近的非墙建筑（AtkBld，点杀防御塔是设计明写的用途）。
+            // 俯冲射程内的非墙建筑，木栅栏降为无其他目标时的就地兜底。
             // 机制层排除不可伤害的堡垒；脚本层在无近身目标时追逐有效目标。
             //
             // ——**撤离优先于一切攻击**（2026-09-10，#170）——
@@ -1113,31 +1133,56 @@ void DemoBattle::issue_actions() {
                 a = retreat_action(id);
             } else if (has(mask, rts::UnitAction::AtkWeak)) {
                 a = rts::UnitAction::AtkWeak;
-            } else if (has(mask, rts::UnitAction::AtkBld)) {
-                a = rts::UnitAction::AtkBld;
             } else {
-                // 无法伤害堡垒；追逐可攻击的单位或非核心建筑，不能以堡垒为落点。
-                const auto p=w_.unit_pos(id);rts::Vec2 goal=p;float nearest=-1.0f;
-                const auto consider=[&](rts::Vec2 q) {const float dx=q.x-p.x,dy=q.y-p.y,d=dx*dx+dy*dy;if(nearest<0 || d<nearest){nearest=d;goal=q;}};
-                for(std::size_t k=0;k<av.unit_alive().size();++k)
-                    if(av.unit_alive()[k] && rts::side_of(av.unit_type()[k])==rts::Side::Defender) consider(av.unit_pos()[k]);
-                for(std::size_t k=0;k<av.bld_alive().size();++k)
-                    if(av.bld_alive()[k] && av.bld_type()[k]!=rts::BldType::Keep && av.bld_type()[k]!=rts::BldType::Wall && av.bld_type()[k]!=rts::BldType::Gate) consider(rts::center_of(av.bld_pos()[k]));
-                if(nearest<0) for(const auto& spawn:w_.spawns()) consider(rts::center_of(spawn.pos));
-                a=nearest>=0?greedy_move(id,goal):rts::UnitAction::Stop;
+                // Pursue visible units and useful buildings before spending an
+                // attack on a fence. Never use a fence as a movement destination.
+                const auto p = w_.unit_pos(id);
+                const float range = w_.stats().of(type).range;
+                rts::Vec2 goal = p;
+                float nearest = -1.0f;
+                bool building_in_range = false;
+                const auto consider = [&](rts::Vec2 q) {
+                    const float dx = q.x-p.x, dy = q.y-p.y, d = dx*dx+dy*dy;
+                    if (nearest < 0 || d < nearest) { nearest = d; goal = q; }
+                    return d;
+                };
+                for (std::size_t k = 0; k < av.unit_alive().size(); ++k) {
+                    if (av.unit_alive()[k] && rts::side_of(av.unit_type()[k]) == rts::Side::Defender &&
+                        visible(rts::grid_of(av.unit_pos()[k]))) consider(av.unit_pos()[k]);
+                }
+                for (std::size_t k = 0; k < av.bld_alive().size(); ++k) {
+                    if (!av.bld_alive()[k] || !visible(av.bld_pos()[k])) continue;
+                    const auto bt = av.bld_type()[k];
+                    if (bt == rts::BldType::Keep || bt == rts::BldType::Wall ||
+                        bt == rts::BldType::Gate || bt == rts::BldType::Fence) continue;
+                    if (consider(rts::center_of(av.bld_pos()[k])) <= range*range)
+                        building_in_range = true;
+                }
+                if (building_in_range && has(mask, rts::UnitAction::AtkBld)) {
+                    a = rts::UnitAction::AtkBld;
+                } else if (nearest >= 0) {
+                    a = greedy_move(id, goal);
+                } else if (has(mask, rts::UnitAction::AtkBld)) {
+                    a = rts::UnitAction::AtkBld;  // Only an in-range fence remains.
+                } else {
+                    const auto center=rts::center_of(w_.keep_pos());
+                    const float dx=p.x-center.x,dy=p.y-center.y,r=w_.stats().of(type).vision;
+                    if(dx*dx+dy*dy<=r*r) {
+                        phoenix_empty_return_.push_back(id.raw());
+                        a=retreat_action(id);
+                    } else a=greedy_move(id,center);
+                }
             }
         } else if (w_.unit_type(id) == rts::UnitType::Wraith) {
             // 幽影窥使：**无战力**（`is_combat()` 为假 ⇒ 攻击掩码永远不亮），
             // 所以不能照步兵那套「打得着就打、否则奔堡垒」走——那会让它一路
             // 走到墙下被射死，侦查一次都没成功过。
             //
-            // 行为是「看到了就撤」：还没侦查到手就按 flow 前压，到手之后掉头
-            // 回最近的集结点。撤回去正是设计要的形状——玩家由此有机会猎杀它
-            // （`CLAUDE.md`「双向欺骗」：杀掉 `Wraith` 让 AI 带着错误情报开打），
-            // 而它活着走掉则意味着 AI 这一波真的看清了防御布局。
-            //
-            // `!any_combat` 那一支见上面，是防波次循环卡死的，不是行为设计。
-            if (!wave_scouted_ || !any_combat) {
+            // 观察期间停留传输，完成后撤离。传输完成前被击落不更新
+            // 下一波情报；完成后再击落不会撤销已经送出的情报。
+            if (recon_transmitting() && id==recon_observer_) {
+                a = rts::UnitAction::Stop;
+            } else if (!wave_scouted_ || !any_combat) {
                 a = flow_step(id);
             } else {
                 a = retreat_action(id);
@@ -1147,6 +1192,8 @@ void DemoBattle::issue_actions() {
         } else if (w_.unit_type(id) == rts::UnitType::Ram &&
                    has(mask, rts::UnitAction::AtkWall)) {
             a = rts::UnitAction::AtkWall;
+        } else if (has(mask,rts::UnitAction::AtkBld)) {
+            a = rts::UnitAction::AtkBld;
         } else if (muster) {
             // 集结期：待命。能走到这里说明没有任何攻击目标在脸上（上面几支
             // 先判过了），所以 Stop 是「列队等开打」，不是「挨打不还手」。
@@ -1168,11 +1215,22 @@ void DemoBattle::issue_actions() {
                 const float dy = p.y - kc.y;
                 ahead = std::sqrt(dx * dx + dy * dy) < pace_dist - kFormationSlack;
             }
-            a = ahead ? rts::UnitAction::Stop : flow_step(id);
+            const bool threatened=exposed(id) || (sid>=0 && static_cast<std::size_t>(sid)<squad_exposed.size() && squad_exposed[static_cast<std::size_t>(sid)]);
+            if (ui>=formation_wait_since_.size()) formation_wait_since_.resize(ui+1,-1);
+            auto& waiting=formation_wait_since_[ui];
+            if (waiting!=-2) {
+                if (threatened) waiting=-2;
+                else if (!ahead) waiting=-1;
+                else if (waiting==-1) waiting=w_.now();
+                else if (w_.now()-waiting>=100) waiting=-2;
+            }
+            a = ahead && waiting!=-2 ? rts::UnitAction::Stop : flow_step(id);
         } else {
             a = flow_step(id);
         }
         acts_.push_back(a);
+        if(id.index()>=formation_last_hp_.size()) formation_last_hp_.resize(static_cast<std::size_t>(id.index())+1,0);
+        formation_last_hp_[id.index()]=w_.unit_hp(id);
     }
 
     // ——**编队怎么落到单位上：共享意图，不共享方向**（2026-09-05）——
@@ -1249,7 +1307,7 @@ void DemoBattle::developer_wave(int wave) {
     w_.developer_wave(wave,wave_level(wave,macro_.units_at(curve_,wave),w_.stats(),curve_));
     build_left_=timing_.build_ticks;build_start_=w_.now();assault_ticks_=0;
     wave_scouted_=false;prev_wave_scouted_=false;scout_outcome_=ScoutOutcome::None;
-    scout_report_.clear();scout_rolled_.clear();spawn_wave();issue_actions();since_decision_=0;
+    scout_report_.clear();scout_rolled_.clear();scout_seen_.clear();scout_report_tick_=0;recon_observer_={};recon_started_=0;formation_wait_since_.clear();formation_last_hp_.clear();phoenix_empty_return_.clear();spawn_wave();issue_actions();since_decision_=0;
 }
 
 void DemoBattle::update(int ticks) {
@@ -1301,6 +1359,7 @@ void DemoBattle::update(int ticks) {
             scout_outcome_ = ScoutOutcome::None;
             scout_report_.clear();
             scout_rolled_.clear();
+            scout_seen_.clear();scout_report_tick_=0;recon_observer_={};recon_started_=0;formation_wait_since_.clear();formation_last_hp_.clear();phoenix_empty_return_.clear();
             spawn_wave();
             issue_actions();   // 新生成的单位当拍拿到动作，不呆等一个决策周期
             since_decision_ = 0;
@@ -1310,6 +1369,9 @@ void DemoBattle::update(int ticks) {
             since_decision_ = 0;
         }
         if(developer()) enable_developer();
+        w_.enumerate_units(rts::Side::Defender, ids_);
+        if (script_.refresh_scout_navigation(w_.view(rts::Side::Defender), ids_, acts_))
+            w_.submit_actions(rts::Side::Defender, acts_.data(), acts_.size());
         w_.advance(1);
         // 斥候的到达判定：**每拍查一次**。它必须在 `advance` 之后——单位是
         // 在那里面移动的，判前查等于永远慢一拍。

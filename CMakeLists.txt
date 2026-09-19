@@ -43,6 +43,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(RTS_BUILD_TESTS  "构建测试（Catch2 经 FetchContent 拉取）" ON)
 option(RTS_BUILD_RENDER "构建前端 render/" OFF)
+option(RTS_INTERNAL_TOOLS "Enable developer cheats and story screenshot previews (never ship)" OFF)
 # **默认 OFF，与 RTS_BUILD_RENDER 是同一条理由的镜像**：那一条是「训练构建不该
 # 配置前端」，这一条是「玩游戏与跑 ctest 的人不该被要求装 Python 开发头」。
 # 全组在 Windows 上开发，多数机器里没有 `Python.h`。

@@ -1,6 +1,7 @@
 #include "rts/utf8_path.hpp"
 #include <catch2/catch_test_macros.hpp>
 #include "game/save_game.hpp"
+#include "game/chronicle_reading.hpp"
 #include "game/map_loader.hpp"
 #include "game/stats_loader.hpp"
 #include "game/player_input.hpp"
@@ -56,7 +57,7 @@ TEST_CASE("Release rejects and preserves v3 v4 and v5 branch saves", "[save]") {
     Temp temp; auto active=shell(); active.apply(game::MenuAction::StartNew);
     const auto archive=game::capture_battle(active,map_text(),stats_text());
     const auto file=temp.path/"campaign.json";
-    for(const int version : {3,4,5}) {
+    for(const int version : {3,4,5,6,7,8}) {
         game::write_archive(file,archive);
         auto text=game::read_save_text(file);
         const auto key=text.find("\"version\"");
@@ -367,5 +368,76 @@ TEST_CASE("白羽判据按同一身份计数，击落重置且获得后存档保
         battle.update(1);restored->update(1);
         REQUIRE(restored->world().state_hash()==battle.world().state_hash());
         REQUIRE(restored->earned_white_feather());
+    }
+}
+
+TEST_CASE("Chronicle access hides unchosen endings and biography branches", "[save]") {
+    using C=game::ChronicleChoice;
+    REQUIRE_FALSE(game::can_read_ending(C::None,1));
+    REQUIRE_FALSE(game::can_read_ending(C::None,2));
+    REQUIRE(game::can_read_ending(C::Guard,1));
+    REQUIRE_FALSE(game::can_read_ending(C::Guard,2));
+    REQUIRE(game::can_read_ending(C::Release,2));
+    REQUIRE_FALSE(game::can_read_ending(C::Release,1));
+    const auto guard=game::smiler_for_choice(C::Guard);
+    const auto release=game::smiler_for_choice(C::Release);
+    const auto none=game::smiler_for_choice(C::None);
+    REQUIRE(guard.find("他最幸福的时刻的表情，成了他永远的面具。")!=std::string::npos);
+    REQUIRE(guard.find("他还得相信")!=std::string::npos);
+    REQUIRE(guard.find("他哭了。") == std::string::npos);
+    REQUIRE(release.find("他哭了。")!=std::string::npos);
+    REQUIRE(release.find("他还得相信") == std::string::npos);
+    REQUIRE(none.find("## 八") == std::string::npos);
+    REQUIRE(guard.find("### 如果") == std::string::npos);
+}
+
+TEST_CASE("In-progress reconnaissance survives snapshot and transmits at the same tick", "[save]") {
+    auto original=shell();original.apply(game::MenuAction::StartNew);
+    auto& b=*original.battle();auto& w=const_cast<rts::World&>(b.world());
+    std::vector<rts::UnitId> ids;w.enumerate_units(rts::Side::Attacker,ids);
+    for(auto id:ids) w.kill_unit(id);
+    const auto point=rts::center_of(w.keep_pos());
+    w.spawn_unit(rts::UnitType::Ghoul,point,1,100000,100000);
+    w.spawn_unit(rts::UnitType::Wraith,point,1,100000,100000);
+    b.update(12);REQUIRE(b.recon_transmitting());REQUIRE_FALSE(b.wave_scouted());
+    auto restored=game::restore_battle(game::capture_battle(original,map_text(),stats_text()));
+    REQUIRE(restored->recon_transmitting());
+    for(int i=0;i<80;++i) {
+        b.update(1);restored->update(1);
+        REQUIRE(b.world().state_hash()==restored->world().state_hash());
+        REQUIRE(b.wave_scouted()==restored->wave_scouted());
+    }
+    REQUIRE(b.wave_scouted());
+}
+
+TEST_CASE("Scout gate navigation survives snapshots and operation-log recovery", "[save][scoutnav]") {
+    const auto map_json = game::read_save_text(rts::path_from_utf8(GAME_DATA_DIR)/"maps/pool/gen_01012000.json");
+    game::GameShell original(game::MapLoader::from_string(map_json), game::StatsLoader::from_string(stats_text()), 1);
+    original.apply(game::MenuAction::StartNew);
+    auto& battle = *original.battle();
+    game::DefenderMacro macro(original.map());
+    for (int tick = 0; tick < 307; ++tick) {
+        if (tick % 20 == 0) {
+            std::vector<rts::Command> commands;
+            std::vector<game::UnitOrder> orders;
+            macro.decide(battle.world(), commands, orders);
+            battle.submit_defender(commands.data(), commands.size());
+        }
+        battle.update(1);
+    } // Mid-decision, while the scout is en route.
+    std::vector<rts::UnitId> ids;
+    battle.world().enumerate_units(rts::Side::Defender, ids);
+    REQUIRE(std::any_of(ids.begin(), ids.end(), [&](auto id) {return battle.world().unit_type(id)==rts::UnitType::Scout;}));
+    auto archive = game::capture_battle(original, map_json, stats_text());
+    int callbacks = 0;
+    auto snapshot = game::restore_battle(archive, [&](auto,auto) {++callbacks;return true;});
+    REQUIRE(callbacks == 1); // Must restore the snapshot, not silently replay it.
+    archive.snapshot.clear();
+    auto replay = game::restore_battle(archive);
+    for (int tick = 0; tick < 250; ++tick) {
+        battle.update(1); snapshot->update(1); replay->update(1);
+        REQUIRE(battle.world().state_hash() == snapshot->world().state_hash());
+        REQUIRE(battle.world().state_hash() == replay->world().state_hash());
+        REQUIRE(battle.scout_outcome() == snapshot->scout_outcome());
     }
 }

@@ -91,7 +91,7 @@ function(read_appendix filename variable)
     endif()
     string(STRIP "${body}" body)
     string(REPLACE "\n---\n" "\n" body "${body}")
-    string(REGEX REPLACE "(^|\n)#+ " "\\1" body "${body}")
+    # Retain section headings for the reader and branch filtering.
     # Keep each literal below MSVC's size limit without changing the joined text.
     string(REPLACE "\n\n" "\n\n)APPENDIX\"\nR\"APPENDIX(" body "${body}")
     set(${variable} "${body}" PARENT_SCOPE)
@@ -102,6 +102,7 @@ configure_file("${CMAKE_SOURCE_DIR}/cmake/chronicle_appendices.hpp.in"
     "${CMAKE_CURRENT_BINARY_DIR}/generated/game/chronicle_appendix_text.hpp" @ONLY)
 target_include_directories(game PUBLIC "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
+target_compile_definitions(game PUBLIC RTS_INTERNAL_TOOLS=$<BOOL:${RTS_INTERNAL_TOOLS}>)
 rts_set_warnings(game)
 
 # 测试要读夹具地图，把路径作为编译期常量给它，避免依赖 ctest 的工作目录。

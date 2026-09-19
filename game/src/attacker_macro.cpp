@@ -106,9 +106,14 @@ AttackerIntel AttackerMacro::read_intel(const rts::WorldView& av, bool fresh) co
             } else if (!has) {
                 ++out.gaps;
             }
-            continue;
         }
-        if (!has) continue;
+    }
+    // Defenses can expand beyond that ring. Read all explored fog memory;
+    // unseen construction must never leak into attack composition.
+    for (int y=0;y<av.height();++y) for (int x=0;x<av.width();++x) {
+        if (fog.at(x,y)==rts::Vis::Unseen) continue;
+        rts::RememberedBld b;
+        if (!fog.remembered_bld(x,y,&b)) continue;
         if (b.type == rts::BldType::Tower) ++out.towers;
         if (b.type == rts::BldType::Flak) ++out.flaks;
     }

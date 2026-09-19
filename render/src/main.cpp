@@ -183,6 +183,7 @@ struct Options {
     int developer_wave = 0;
     int journal_page = -1;
     int journal_ending = 0;
+    int journal_stage = 0;
     int journal_appendix = 0;
     bool journal_feather_locked = false;
     bool journal_emphasis = false;
@@ -282,6 +283,10 @@ bool parse(const std::vector<std::string>& args, Options& out) {
             out.appendix_notice=(*v)[0]-'0';
         } else if (a == "--journal-bottom") {
             out.journal_bottom=true;
+        } else if (a == "--journal-stage") {
+            const auto* v=next("--journal-stage");
+            if(!v || (*v!="1" && *v!="2")) return false;
+            out.journal_stage=(*v)[0]-'0';
         } else if (a == "--journal-ending") {
             const std::string* v=next("--journal-ending");
             if(!v || (*v!="1" && *v!="2")) return false;
@@ -380,11 +385,19 @@ bool parse(const std::vector<std::string>& args, Options& out) {
             return false;
         }
     }
+#if !RTS_INTERNAL_TOOLS
+    if(out.developer_wave || out.screen=="developer" || out.journal_page>=0 || out.journal_appendix ||
+       out.journal_ending || out.journal_bottom || out.journal_emphasis || out.journal_feather_locked || out.appendix_notice) {
+        std::fprintf(stderr,"Internal developer/story preview tools are disabled in this build.\n");
+        return false;
+    }
+#endif
     if(out.placement_shot && out.screenshot.empty()) return false;
     if(out.strategy_smoke && (out.screenshot.empty() || out.battle || !out.screen.empty())) return false;
     if(out.inspect_x>=0 && (out.screenshot.empty() || !out.battle)) {std::fprintf(stderr,"--inspect requires --battle --screenshot\n");return false;}
     if(out.developer_wave>0 && out.screenshot.empty()) return false;
     if((out.screen=="developer" || out.guide_entry!=0 || out.guide_level!=1 || out.guide_bottom) && out.screenshot.empty()) return false;
+    if(out.journal_stage && (out.journal_page!=7 || !out.journal_ending || out.screenshot.empty())) return false;
     if(out.journal_page>=0 && out.screenshot.empty()) { std::fprintf(stderr,"--journal-page 仅用于截图预览\n"); return false; }
     if(out.journal_appendix && (out.screenshot.empty() || out.journal_page>=0 || out.journal_ending)) return false;
     if(out.journal_feather_locked && out.journal_appendix!=1) return false;
@@ -543,6 +556,7 @@ std::vector<std::string_view> font_coverage(const game::MapData& map) {
     cover.push_back("开发者对局不保存 开发者模式 资源无限 人口无限 下一波 输入波数 回车应用 关闭面板 本局不保存不解锁剧情 窥使侦查成功 情报影响下一波 窥使尚未得手 沿用旧情报 攻城锤 不死鸟 编队调整 本波编队 无调整 敌军将参考当前城防 石木金人口∞");
     for(auto text:render::guide_strings()) cover.push_back(text);
     for(auto text:render::developer_strings) cover.push_back(text);
+    cover.push_back("已选建筑升级座已安排仍需工匠施工不占人口本波累计发现非剩余兵力最近回报秒前窥使须持续观察完成前击落可阻断情报");
     cover.push_back(map.name());
     cover.push_back(map.map_id());
     return cover;
@@ -638,7 +652,8 @@ void draw_intel_panel(const render::FontSet& font, const game::DemoBattle& battl
     if (seen.empty()) return;
 
     std::vector<std::string> lines;
-    lines.push_back("已侦查");
+    lines.push_back("本波累计发现（非剩余兵力）");
+    lines.push_back("最近回报 " + std::to_string((battle.world().now()-battle.scout_report_tick())/20) + " 秒前");
     for (const game::SightedType& s : seen) {
         std::string line(game::display_name(s.type));
         line += " ×" + std::to_string(s.count);
@@ -698,7 +713,7 @@ void draw_alert_banner(const render::FontSet& font, int screen_w, rts::Tick now,
     switch (style) {
         case AlertStyle::Threat:
             line1 = "幽影窥使入境";
-            line2 = "击落它，别让它看清你的布防";
+            line2 = "窥使须持续观察 3 秒；完成前击落可阻断情报";
             backing = Color{46, 20, 54, 225};
             ink1 = Color{240, 205, 255, 255};
             ink2 = Color{215, 180, 230, 255};
@@ -1292,11 +1307,12 @@ int run_game(Options& opt) {
     // 的回报闪」画出来（实测：首版在 tick 3200/4000 的截图里仍挂着横幅——
     // 那不是 bug 现场，是状态从没被推进过）。窗口模式在补 tick 的循环里调，
     // 截图模式在逐 tick 推进时同步调，两条路径看到同一个警报状态。
+    rts::Tick scout_report_seen=0;
     const auto advance_recon_alert = [&]() {
         game::DemoBattle* b = shell.battle();
         if (b == nullptr) return;
         const game::DemoBattle::ScoutOutcome oc = b->scout_outcome();
-        if (oc != scout_prev) {
+        if (oc != scout_prev || (oc==game::DemoBattle::ScoutOutcome::Success && b->scout_report_tick()!=scout_report_seen)) {
             // 只闪「有结论」的两个边沿；→`None` 是换波重置，不报。
             // `Killed → Success`（再派一只成功了）会再闪一次回报——
             // 那是新情报，该闪。
@@ -1307,13 +1323,9 @@ int run_game(Options& opt) {
                 recon_flash_until = b->world().now() + kReconFlashTicks;
                 recon_flash_style = AlertStyle::Failed;
             }
-            scout_prev = oc;
+            scout_prev = oc;scout_report_seen=b->scout_report_tick();
         }
-        if (game::enemy_wraith_sighted(b->world().view(rts::Side::Defender))) {
-            // 窥使警报优先，并吃掉回报/阵亡闪：别在它灭掉之后又补弹一条
-            // ——玩家刚才盯着看的就是它，那是噪音不是情报。
-            recon_flash_until = 0;
-        }
+
     };
     const std::vector<rts::BldType>& buildable = game::buildable_types();
     const std::vector<rts::UnitType>& trainable = game::trainable_types();
@@ -1323,6 +1335,8 @@ int run_game(Options& opt) {
     // 见 `game/defender_script.hpp`。）
     int train_level_sel = 1;
     std::vector<rts::UnitId> selected;   // 框选 / 点选出的己方单位
+    std::vector<rts::GridPos> selected_buildings;
+    int building_drag=0; // 1: ordinary buildings; 2: wall/gate/fence.
     bool dragging = false;
     std::optional<std::size_t> placing;
     std::optional<rts::GridPos> placement_start;
@@ -1344,8 +1358,11 @@ int run_game(Options& opt) {
     auto announced_appendices=progress.appendices;
     int& reached_wave=progress.highest_wave;
     journal.appendices=progress.appendices;
-    if(opt.journal_page>=0) { journal.preview(opt.journal_page,opt.journal_ending,opt.journal_bottom); reached_wave=70; }
+    journal.choice=shell.chronicle().choice();
+    if(opt.journal_page>=0) { journal.choice=static_cast<game::ChronicleChoice>(opt.journal_ending);journal.decision_enabled=opt.journal_page==7 && opt.journal_ending==0; journal.preview(opt.journal_page,opt.journal_ending,opt.journal_bottom); reached_wave=70; }
+    if(opt.journal_stage) journal.preview_choice(static_cast<game::ChronicleChoice>(opt.journal_ending),opt.journal_stage==2);
     if(opt.journal_appendix) {
+        journal.choice=game::ChronicleChoice::Guard;
         journal.preview_appendix(opt.journal_appendix,opt.journal_bottom,opt.journal_emphasis);
         journal.appendices={opt.journal_appendix==1,opt.journal_appendix==2};
         reached_wave=opt.journal_feather_locked?59:90;
@@ -1472,7 +1489,7 @@ int run_game(Options& opt) {
         // 人口满（全局状态，与弹窗种类无关，所以在 switch 外算一次——case 里
         // 声明变量会被 C2360 拦）。只被 `Train` 弹窗用：选项照常列出但全部
         // 灰掉，并把原因印在标签里（同升级行印「先升堡垒」那条先例）。
-        const bool pop_full = game::train_pop_full(v);
+
         const auto push = [&](std::string label, bool legal, PopupKind action, int index) {
             const float y = p.anchor.y + static_cast<float>(out.size()) * (kH + kGap);
             out.push_back(PopupOption{Rectangle{p.anchor.x, y, kW, kH}, std::move(label),
@@ -1561,13 +1578,14 @@ int run_game(Options& opt) {
                 push_upgrade();
                 for (std::size_t i = 0; i < trainable.size(); ++i) {
                     const rts::UnitType ut = trainable[i];
+                    const bool pop_full = game::train_pop_full(v,ut);
                     // 造价随 `train_level_sel` 变——`[`/`]` 调的是这一格
                     // 弹窗里全部兵种共用的同一个等级，不是逐兵种各自的。
                     std::snprintf(buf, sizeof(buf), "%s Lv%d (金%d)%s",
                                  std::string(game::display_name(ut)).c_str(),
                                  train_level_sel,
                                  static_cast<int>(v.train_cost_gold(ut, train_level_sel)),
-                                 pop_full ? " (人口满)" : "");
+                                 pop_full ? " (人口满)" : ut==rts::UnitType::Scout ? " (不占人口)" : "");
                     push(buf, !pop_full && game::can_train_hint(v, p.cell) &&
                                  game::can_afford_train(v, ut, train_level_sel),
                         PopupKind::Train, static_cast<int>(i));
@@ -1681,6 +1699,7 @@ int run_game(Options& opt) {
                 DrawCircleV({anchor.x, anchor.y - 28 * scale}, 6 * scale, Color{255, 160, 55, 245});
                 DrawLineEx({anchor.x, anchor.y - 32 * scale}, {anchor.x, anchor.y - 27 * scale}, 2 * scale, BLACK);
             }
+            for(const auto selected_cell:selected_buildings) if(b->world().alive(b->world().bld_at(selected_cell))) overlay.draw_cell_outline(selected_cell,Color{116,215,222,255},3.0f/cam.camera().zoom);
             for (const rts::UnitId id : selected) {
                 const std::size_t s = id.index();
                 if (s >= ualive.size() || !ualive[s]) continue;
@@ -1820,6 +1839,11 @@ int run_game(Options& opt) {
             }
             // 侦查面板（右上角）：**本波**侦查到的来袭编成 + 克制提示。
             draw_intel_panel(*font, *b, GetScreenWidth());
+            if(!selected_buildings.empty()) {
+                const auto batch=game::plan_upgrades(b->world().view(rts::Side::Defender),selected_buildings);
+                const std::string label="已选建筑 "+std::to_string(selected_buildings.size())+" · U 升级 "+std::to_string(batch.commands.size())+" 座（石 "+std::to_string(batch.stone)+" / 木 "+std::to_string(batch.wood)+"）";
+                font->draw(label,{22,132},18,Color{156,226,225,255});
+            }
 
             const rts::WorldView dv = b->world().view(rts::Side::Defender);
             // 警报横幅（顶中）：提前召唤确认闪 > 窥使入境常驻 > 斥候回报闪。
@@ -1831,12 +1855,10 @@ int run_game(Options& opt) {
             if (alert_now < summon_flash_until) {
                 draw_alert_banner(*font, GetScreenWidth(), alert_now,
                                   AlertStyle::Summon);
-            } else if (game::enemy_wraith_sighted(dv)) {
-                draw_alert_banner(*font, GetScreenWidth(), alert_now,
-                                  AlertStyle::Threat);
             } else if (alert_now < recon_flash_until) {
-                draw_alert_banner(*font, GetScreenWidth(), alert_now,
-                                  recon_flash_style);
+                draw_alert_banner(*font, GetScreenWidth(), alert_now, recon_flash_style);
+            } else if (game::enemy_wraith_sighted(dv) && !b->wave_scouted()) {
+                draw_alert_banner(*font, GetScreenWidth(), alert_now, AlertStyle::Threat);
             }
 
             // 弹出菜单：屏幕坐标，画在点开那一刻的位置。**造价写在选项里**——
@@ -1984,7 +2006,7 @@ int run_game(Options& opt) {
             known_chapters=game::chronicle_unlocked(reached_wave);
             enemy_report_wave=0;enemy_reported=false;
             popup = Popup{};
-            selected.clear();
+            selected.clear();selected_buildings.clear();
             dragging = false;
             dragged_garrison.reset();
             inspected.reset();
@@ -2012,6 +2034,7 @@ int run_game(Options& opt) {
             notice_until=GetTime()+3;
         }
 
+#if RTS_INTERNAL_TOOLS
         if(IsKeyPressed(KEY_F12) && (IsKeyDown(KEY_LEFT_ALT)||IsKeyDown(KEY_RIGHT_ALT))) {
             if(!shell.battle() || shell.battle()->defeated() || shell.chronicle().completed()) shell.apply(game::MenuAction::StartNew);
             if(shell.screen()!=game::Screen::Battle) shell.apply(game::MenuAction::Resume);
@@ -2031,6 +2054,7 @@ int run_game(Options& opt) {
             render::draw_developer(*font,developer_wave_text);
             EndDrawing();acc=0;continue;
         }
+#endif
         if(shell.battle() && !shell.battle()->developer()) {
             const int wave=shell.battle()->world().wave();
             if(story_attempt!=shell.attempt()) {
@@ -2065,6 +2089,7 @@ int run_game(Options& opt) {
             if(shell.battle() && shell.battle()->developer()) {notice="开发者对局不保存";notice_until=GetTime()+6;}
             else save_now();
         }
+        journal.choice=shell.chronicle().choice();
         journal.decision_enabled=shell.battle() && !shell.battle()->developer() && !shell.battle()->defeated() &&
             shell.chronicle().pending(shell.battle()->world().wave());
         if(journal.decision_enabled && !choice_presented) {
@@ -2078,9 +2103,10 @@ int run_game(Options& opt) {
             journal.update(vp,shell.battle() && shell.battle()->developer()?70:reached_wave);
             const auto choice=journal.take_choice();
             if(choice!=game::ChronicleChoice::None) {
-                shell.choose_chronicle(choice);
-                save_now();
-                journal.decision_enabled=false;
+                if(shell.choose_chronicle(choice)) {
+                    save_now();
+                    journal.present_choice(choice);
+                }
             }
         } else if(IsKeyPressed(KEY_J) || (in_menu && shell.screen()!=game::Screen::Help && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
                    CheckCollisionPointRec(mouse,{vp.x-190,20,170,42}))) {
@@ -2141,6 +2167,12 @@ int run_game(Options& opt) {
             const bool cancel_placement = placing && (IsKeyPressed(KEY_ESCAPE) || IsMouseButtonPressed(MOUSE_BUTTON_RIGHT));
             if (cancel_placement) { placing.reset(); placement_start.reset(); placement_preview.clear(); }
             else if (IsKeyPressed(KEY_ESCAPE)) shell.on_escape();
+            if(IsKeyPressed(KEY_U) && !selected_buildings.empty() && !placing) {
+                const auto batch=game::plan_upgrades(b->world().view(rts::Side::Defender),selected_buildings);
+                if(!batch.commands.empty()) b->submit_defender(batch.commands.data(),batch.commands.size());
+                notice="已安排升级 "+std::to_string(batch.commands.size())+" 座；仍需工匠施工";notice_until=GetTime()+5;
+                popup=Popup{};
+            }
             if (IsKeyPressed(KEY_B)) { placing=std::size_t{0}; placement_start.reset(); popup=Popup{}; dragging=false; dragged_garrison.reset(); }
             if (placing && IsKeyPressed(KEY_TAB)) { *placing=(*placing+1)%buildable.size(); placement_start.reset(); }
             if (IsKeyPressed(KEY_F)) show_full_map();
@@ -2281,6 +2313,9 @@ int run_game(Options& opt) {
                 dragged_garrison = in_map ? pick_garrisoned_unit(
                     view, defenders, proj, atlas, wpos) : std::nullopt;
                 if (dragged_garrison || in_map) {
+                    building_drag=(IsKeyDown(KEY_LEFT_CONTROL)||IsKeyDown(KEY_RIGHT_CONTROL))?1:
+                        (IsKeyDown(KEY_LEFT_ALT)||IsKeyDown(KEY_RIGHT_ALT))?2:0;
+                    if(building_drag) dragged_garrison.reset();
                     dragging = true;
                     drag_screen_start = mouse;
                     drag_world_start = wpos;
@@ -2309,10 +2344,16 @@ int run_game(Options& opt) {
                                                                      : wpos.y;
                         std::vector<rts::UnitId> ids;
                         b->world().enumerate_units(rts::Side::Defender, ids);
-                        selected = game::units_in_rect(
-                            view, ids, proj, game::Rect{x0, y0, x1 - x0, y1 - y0});
+                        if(building_drag) {
+                            selected_buildings=game::buildings_in_rect(view,proj,game::Rect{x0,y0,x1-x0,y1-y0},building_drag==2);
+                            selected.clear();popup=Popup{};inspected.reset();
+                        } else {
+                            selected_buildings.clear();
+                            selected = game::units_in_rect(view,ids,proj,game::Rect{x0,y0,x1-x0,y1-y0});
+                        }
                     }
                 } else if (in_map && !dragged) {
+                    selected_buildings.clear();
                     const auto hits=building_sprite_hits(map,view,b->world().now(),proj,atlas,wpos,atmosphere_on);
                     if(const auto hit=building_cycle.select(hits,{mouse.x,mouse.y},{wpos.x,wpos.y})) cell=*hit;
                     // Keep the original click location free for overlap cycling.

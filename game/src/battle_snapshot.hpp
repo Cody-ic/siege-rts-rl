@@ -107,6 +107,11 @@ struct SnapshotCodec {
             f("assault_ticks_",v.assault_ticks_);
             f("build_start_",v.build_start_);
             f("wave_scouted_",v.wave_scouted_);
+            f("recon_observer_",v.recon_observer_);
+            f("recon_started_",v.recon_started_);
+            f("formation_wait_since_",v.formation_wait_since_);
+            f("formation_last_hp_",v.formation_last_hp_);
+            f("phoenix_empty_return_",v.phoenix_empty_return_);
             f("prev_wave_scouted_",v.prev_wave_scouted_);
             f("squad_of_",v.squad_of_);
             f("squad_goal_",v.squad_goal_);
@@ -121,6 +126,8 @@ struct SnapshotCodec {
             f("scout_outcome_",v.scout_outcome_);
             f("scout_report_",v.scout_report_);
             f("scout_rolled_",v.scout_rolled_);
+            f("scout_seen_",v.scout_seen_);
+            f("scout_report_tick_",v.scout_report_tick_);
             f("defeated_",v.defeated_);
             f("since_decision_",v.since_decision_);
             if(v.defender_policy_) f("defender_rng_",v.defender_rng_);
@@ -137,6 +144,7 @@ struct SnapshotCodec {
             f("threat_streak_",v.threat_streak_);
             f("manual_order_",v.manual_order_);
             f("patrol_goal_",v.patrol_goal_);
+            f("scout_navigation_",v.scout_navigation_);
         }
         else if constexpr(std::is_same_v<U,rts::Vec2>) {
             f("x",v.x);
@@ -164,6 +172,12 @@ struct SnapshotCodec {
         }
         else if constexpr(std::is_same_v<U,PatrolGoal>) {
             f("active",v.active);
+            f("target",v.target);
+            f("generation",v.generation);
+        }
+        else if constexpr(std::is_same_v<U,ScoutNavigation>) {
+            f("active",v.active);
+            f("cell",v.cell);
             f("target",v.target);
             f("generation",v.generation);
         }
@@ -243,6 +257,7 @@ struct SnapshotCodec {
     template<class T> static Json encode(const T& v) {
         if constexpr(std::is_enum_v<T>) return static_cast<std::underlying_type_t<T>>(v);
         else if constexpr(std::is_arithmetic_v<T>) return v;
+        else if constexpr(std::is_same_v<T,rts::UnitId>) return v.raw();
         else if constexpr(std::is_same_v<T,rts::Rng>) return encode(v.state());
         else if constexpr(requires {v.begin();v.end();}) {Json j=Json::array();for(const auto& e:v) j.push_back(encode(e));return j;}
         else {Json j=Json::object();fields(v,[&](const char* name,const auto& x){j[name]=encode(x);});return j;}
@@ -254,6 +269,7 @@ struct SnapshotCodec {
             check(j.is_number());const auto n=j.get<double>();
             check(n>=static_cast<double>(std::numeric_limits<T>::lowest()) && n<=static_cast<double>(std::numeric_limits<T>::max()));v=j.get<T>();
         }
+        else if constexpr(std::is_same_v<T,rts::UnitId>) {std::uint32_t raw{};decode(j,raw);if(raw==rts::UnitId::kInvalidRaw) v={};else {check((raw>>16)<=rts::UnitId::kMaxIndex);v=rts::UnitId::make(static_cast<std::uint16_t>(raw>>16),static_cast<std::uint16_t>(raw&0xffffu));}}
         else if constexpr(std::is_same_v<T,rts::Rng>) {rts::Rng::State st{};decode(j,st);check(st[0]||st[1]||st[2]||st[3]);v.set_state(st);}
         else if constexpr(requires {v.begin();v.end();}) {
             check(j.is_array() && j.size()<=2000000);

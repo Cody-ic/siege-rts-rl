@@ -124,13 +124,13 @@ TEST_CASE("Defender volley cannot claim its own mason as an enemy kill", "[mech]
     const auto buddy = w.spawn_unit(rts::UnitType::Mason, {5.5f, 5.0f}, 1, 1, 40);
     w.advance(8);
     REQUIRE_FALSE(w.alive(enemy));
-    REQUIRE_FALSE(w.alive(buddy));
+    REQUIRE(w.alive(buddy));
     const auto defense = w.take_tally(rts::Side::Defender);
     CHECK(defense.dmg_to_units == 1);
     CHECK(defense.units_killed == 1);
-    CHECK(defense.friendly_unit_damage == 1);
-    CHECK(defense.friendly_units_killed == 1);
-    CHECK(defense.losses == 40);
+    CHECK(defense.friendly_unit_damage == 0);
+    CHECK(defense.friendly_units_killed == 0);
+    CHECK(defense.losses == 0);
     CHECK(defense.enemy_unit_gold == 0);
     CHECK(defense.masons_killed == 0);
     CHECK(defense.scouts_killed == 0);
