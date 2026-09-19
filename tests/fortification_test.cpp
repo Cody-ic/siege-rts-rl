@@ -104,6 +104,47 @@ TEST_CASE("Fortification prices slow after 20 and freeze at the cost of reaching
     REQUIRE(w.bld_upgrade_cost_stone(rts::BldType::Keep, 100) == 200);
 }
 
+TEST_CASE("Whole wall upgrades skip capped and busy segments without severing the face", "[input][wallrun]") {
+    rts::World w(fortification_arena(false));
+    unlock(w, 2);
+    const auto first = w.place_bld(rts::BldType::Wall,{5,5},600,1200);
+    const auto gate = w.place_bld(rts::BldType::Gate,{6,5},900,900);
+    const auto busy = w.place_bld(rts::BldType::Wall,{7,5},1200,1200);
+    const auto capped = w.place_bld(rts::BldType::Wall,{9,5},1200,1200);
+    const auto last = w.place_bld(rts::BldType::Wall,{10,5},1200,1200);
+    upgrade(w,{9,5});
+    const auto worker = w.spawn_unit(rts::UnitType::Mason,{9.5f,6.5f},1,120,120);
+    w.advance(100);
+    REQUIRE(w.bld_level(capped) == 2);
+    w.kill_unit(worker);
+    const auto site = w.place_bld(rts::BldType::Wall,{8,5},10,1200,50);
+    upgrade(w,{7,5});
+    const auto view = w.view(rts::Side::Defender);
+    const auto cells = game::wall_run(view,{7,5},game::WallAxis::I);
+    REQUIRE(cells.size() == 6);
+    REQUIRE(view.bld_built()[site.index()] == 0);
+    REQUIRE(view.bld_upgrade_left()[busy.index()] > 0);
+    // Enough for one wall and the gate, but not the final wall.
+    w.set_stock(rts::Resource::Stone,20);
+    w.set_stock(rts::Resource::Wood,16);
+    const auto batch = game::plan_upgrades(view,cells);
+    REQUIRE(batch.commands.size() == 2);
+    REQUIRE(batch.commands[0].slot == rts::slot_of({5,5},w.width()));
+    REQUIRE(batch.commands[1].slot == rts::slot_of({6,5},w.width()));
+    REQUIRE(batch.stone == 20);
+    REQUIRE(batch.wood == 16);
+    w.submit(rts::Side::Defender,batch.commands.data(),batch.commands.size());
+    w.advance(100);
+    CHECK(w.stock(rts::Resource::Stone) == 0);
+    CHECK(w.stock(rts::Resource::Wood) == 0);
+    CHECK(w.bld_level(first) == 1);
+    CHECK(w.bld_hp(first) == 600);
+    CHECK(view.bld_upgrade_left()[first.index()] > 0);
+    CHECK(view.bld_upgrade_left()[gate.index()] > 0);
+    CHECK(view.bld_upgrade_left()[last.index()] == 0);
+    CHECK(game::plan_upgrades(view,cells).commands.empty());
+}
+
 TEST_CASE("Budgeted wall upgrades require workers and preserve damage before paid repair", "[input][fortification]") {
     rts::World w(fortification_arena(false));
     unlock(w, 2);

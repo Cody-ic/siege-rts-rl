@@ -724,6 +724,56 @@ TEST_CASE("交战判定：攻击四位任一亮起即算接战，够不着时不
     REQUIRE(game::combat_engaged(near));
 }
 
+TEST_CASE("Wall runs cross gates but never turn around corners or along branches", "[input][wallrun]") {
+    rts::World w(iarena());
+    for (int x = 1; x <= 6; ++x)
+        w.place_bld(x == 3 ? rts::BldType::Gate : rts::BldType::Wall,
+                    {static_cast<std::int16_t>(x),1},100,100);
+    for (int y = 2; y <= 4; ++y) {
+        w.place_bld(rts::BldType::Wall,{1,static_cast<std::int16_t>(y)},100,100);
+        w.place_bld(rts::BldType::Wall,{4,static_cast<std::int16_t>(y)},100,100);
+    }
+    const auto view = w.view(rts::Side::Defender);
+    const auto before = w.state_hash();
+    const std::vector<rts::GridPos> horizontal{{1,1},{2,1},{3,1},{4,1},{5,1},{6,1}};
+    CHECK(game::wall_run(view,{3,1},game::WallAxis::I) == horizontal); // Gate can select a face.
+    CHECK(game::wall_run(view,{1,1},game::WallAxis::I) == horizontal);
+    CHECK(game::wall_run(view,{1,1},game::WallAxis::J) ==
+          std::vector<rts::GridPos>{{1,1},{1,2},{1,3},{1,4}});
+    CHECK(game::wall_run(view,{4,1},game::WallAxis::I) == horizontal); // T junction.
+    CHECK(game::wall_run(view,{4,1},game::WallAxis::J) ==
+          std::vector<rts::GridPos>{{4,1},{4,2},{4,3},{4,4}});
+    CHECK(w.state_hash() == before);
+    w.destroy_bld(view.bld_at({3,1}));
+    CHECK(game::wall_run(view,{1,1},game::WallAxis::I) ==
+          std::vector<rts::GridPos>{{1,1},{2,1}});
+    CHECK(game::wall_run(view,{4,1},game::WallAxis::I) ==
+          std::vector<rts::GridPos>{{4,1},{5,1},{6,1}});
+    CHECK(game::wall_run(view,{3,1},game::WallAxis::I).empty());
+}
+
+TEST_CASE("Wall runs use live sites, stop at map edges and keep fence upgrades separate", "[input][wallrun]") {
+    rts::World w(iarena());
+    w.place_bld(rts::BldType::Wall,{0,1},100,100);
+    w.place_bld(rts::BldType::Wall,{1,1},10,100,20);
+    w.place_bld(rts::BldType::Wall,{2,1},100,100);
+    w.place_bld(rts::BldType::Fence,{3,1},100,100);
+    w.place_bld(rts::BldType::Fence,{4,1},100,100);
+    w.place_bld(rts::BldType::Tower,{5,1},100,100);
+    w.place_bld(rts::BldType::Wall,{6,1},100,100);
+    w.place_bld(rts::BldType::Wall,{9,4},100,100);
+    w.place_bld(rts::BldType::Wall,{9,5},100,100);
+    const auto view = w.view(rts::Side::Defender);
+    CHECK(game::wall_run(view,{0,1},game::WallAxis::I) ==
+          std::vector<rts::GridPos>{{0,1},{1,1},{2,1}});
+    CHECK(game::wall_run(view,{4,1},game::WallAxis::I) ==
+          std::vector<rts::GridPos>{{3,1},{4,1}});
+    CHECK(game::wall_run(view,{6,1},game::WallAxis::I) == std::vector<rts::GridPos>{{6,1}});
+    CHECK(game::wall_run(view,{9,5},game::WallAxis::J) == std::vector<rts::GridPos>{{9,4},{9,5}});
+    for (const auto cell : {rts::GridPos{-1,1},{10,1},{0,6},{0,0},{5,1},{7,1}})
+        CHECK(game::wall_run(view,cell,game::WallAxis::I).empty());
+}
+
 TEST_CASE("Building box modes separate walls and budgeted upgrades retain construction", "[input]") {
     auto init=iarena();
     auto& ts=init.stats.bld[static_cast<std::size_t>(rts::BldType::Tower)];
