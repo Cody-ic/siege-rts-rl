@@ -36,7 +36,7 @@ class MacroEvaluateTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'already exists'):
                 evaluate(model,[map_path],stats,[103],output,max_wave=1,max_ticks=1)
 
-    def test_script_completes_wave_with_reproducible_hash(self):
+    def test_script_and_teacher_report_reproducible_terminal_results(self):
         args=(str(ROOT/'game/data/maps/pool/gen_01009000.json'),
               str(ROOT/'game/data/stats_placeholder.json'),101,None,500,1,10000)
         a=evaluate_case(*args);b=evaluate_case(*args)
@@ -45,7 +45,12 @@ class MacroEvaluateTests(unittest.TestCase):
         self.assertEqual(a,b)
         teacher_args=(*args[:3],'teacher',*args[4:])
         teacher=evaluate_case(*teacher_args)
-        self.assertTrue(teacher['completed'])
+        # The teacher emits only one command per 500 ticks. Stronger attackers
+        # can defeat it; evaluation correctness must not require a teacher win.
+        self.assertFalse(teacher['timeout'])
+        self.assertNotEqual(teacher['completed'],teacher['defeated'])
+        self.assertEqual(teacher['completed'],teacher['waves_survived']>=1)
+        if teacher['defeated']:self.assertEqual(teacher['keep_hp_fraction'],0.)
         self.assertGreater(teacher['commands'].get('Build',0),0)
         self.assertEqual(teacher,evaluate_case(*teacher_args))
 
