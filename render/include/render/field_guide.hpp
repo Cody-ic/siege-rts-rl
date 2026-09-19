@@ -208,7 +208,9 @@ public:
             if(tab_==0) {values<<"\n招募 "<<rules_->train_cost_gold(type,level_)<<" 金币\n训练 "<<static_cast<float>(rules_->train_ticks_at(type,level_))/20<<" 秒\n";requirement(level_);}
         } else if(tab_==1) {
             auto type=static_cast<rts::BldType>(selected_);const auto& st=stats.of(type);ident=rts::ident_of(type);notes=building_notes[static_cast<std::size_t>(selected_)];
-            values<<"血量 "<<with_delta(st.max_hp,true)<<"\n伤害 "<<with_delta(st.damage,false)<<"\n射程 "<<st.range<<" 格   视野 "<<st.vision<<" 格\n建造 "<<st.cost_stone<<" 石 / "<<st.cost_wood<<" 木\n基础周期产出 "<<st.income_amount<<"\n下一次升级 "<<level_<<" 到 "<<level_+1<<"\n"<<rules_->bld_upgrade_cost_stone(type,level_)<<" 石 / "<<rules_->bld_upgrade_cost_wood(type,level_)<<" 木\n工时 "<<st.upgrade_ticks<<"\n";
+            const auto hp=stats.building_max_hp(type,level_);
+            const auto hp_text=std::to_string(hp)+(level_>1?" (+"+std::to_string(hp-st.max_hp)+")":"");
+            values<<"血量 "<<hp_text<<"\n伤害 "<<with_delta(st.damage,false)<<"\n射程 "<<st.range<<" 格   视野 "<<st.vision<<" 格\n建造 "<<st.cost_stone<<" 石 / "<<st.cost_wood<<" 木\n基础周期产出 "<<st.income_amount<<"\n下一次升级 "<<level_<<" 到 "<<level_+1<<"\n"<<rules_->bld_upgrade_cost_stone(type,level_)<<" 石 / "<<rules_->bld_upgrade_cost_wood(type,level_)<<" 木\n工时 "<<st.upgrade_ticks<<"\n";
             if(type!=rts::BldType::Keep) {values<<"本级";requirement((level_-1)*stats.global.building_level_cap_divisor+1);values<<"下一级";requirement(level_*stats.global.building_level_cap_divisor+1);}
             else values<<"无堡垒等级限制\n";
         } else {
