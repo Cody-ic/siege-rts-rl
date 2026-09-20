@@ -1,5 +1,7 @@
 # siege-rts-rl
 
+开发分支新增[人口扩容、猎骑冲锋与建筑驻守](docs/defender-population-ranger.md)：工匠与战斗守军共用人口上限 `8+3K`，猎骑助跑首击，战斗守军右键建筑驻守、战后回岗。尚未发布，旧存档与真实RL模型需要对应版本。
+
 ## 下载游玩
 
 前往 [GitHub Releases](https://github.com/Cody-ic/siege-rts-rl/releases/latest)，下载

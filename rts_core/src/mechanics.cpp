@@ -178,7 +178,7 @@ World::TargetPick World::pick_target(std::size_t k, UnitAction a) const {
 
 // ——承诺与落地——
 
-void World::commit_attack(std::size_t k, const TargetPick& t) {
+void World::commit_attack(std::size_t k, const TargetPick& t, std::span<const float> target_charge) {
     u_tgt_kind_[k] = t.kind;
     u_tgt_raw_[k] = t.raw;
     // **锁定就发生在这一行。** 之后目标怎么走都与落点无关。
@@ -186,10 +186,10 @@ void World::commit_attack(std::size_t k, const TargetPick& t) {
     u_cd_[k] = stats_.of(u_type_[k]).cooldown_ticks;
     const std::int32_t w = stats_.of(u_type_[k]).windup_ticks;
     u_windup_[k] = w;
-    if (w == 0) land_attack(k);
+    if (w == 0) land_attack(k, target_charge);
 }
 
-void World::land_attack(std::size_t k) {
+void World::land_attack(std::size_t k, std::span<const float> target_charge) {
     const UnitType my_type = u_type_[k];
     const UnitStats& s = stats_.of(my_type);
     const UnitBehavior& beh = behavior_of(my_type);
@@ -302,9 +302,9 @@ void World::land_attack(std::size_t k) {
         std::int64_t mods[5] = {lvl, charge_pm, 0, 0, 0};
         std::size_t n = 2;
         if (!atk_high && on_high_wall(t)) mods[n++] = hg_dmg;
-        if (beh.counters_charge() && behavior_of(u_type_[t]).charges() &&
-            u_charge_[t] > 0.0f) {
-            mods[n++] = anti_charge_permille(u_charge_[t],
+        const float momentum = target_charge.empty() ? u_charge_[t] : target_charge[t];
+        if (beh.counters_charge() && behavior_of(u_type_[t]).charges() && momentum > 0.0f) {
+            mods[n++] = anti_charge_permille(momentum,
                                              stats_.global.charge_max_cells,
                                              stats_.global.anti_charge_permille);
         }
@@ -486,13 +486,16 @@ void World::deal_damage(TgtKind kind, std::uint32_t raw, std::int64_t amount,
 // ——阶段 2：单位战斗——
 
 void World::tick_unit_combat() {
+    // Counter-charge reads momentum before any attack in this phase consumes it.
+    // Scratch data only: no new persistent unit state or save fields.
+    const auto target_charge = u_charge_;
     for (std::size_t k = 0; k < unit_pool_.slot_count(); ++k) {
         if (!unit_pool_.alive_at(static_cast<std::uint16_t>(k))) continue;
         if (u_cd_[k] > 0) --u_cd_[k];
         if (u_windup_[k] > 0) {
             --u_windup_[k];
             if (u_windup_[k] == 0 && u_tgt_kind_[k] != TgtKind::None) {
-                land_attack(k);
+                land_attack(k, target_charge);
             }
             continue;   // 前摇中：不承诺新的出手
         }
@@ -509,7 +512,7 @@ void World::tick_unit_combat() {
         // 有效射程 = 基础值 + 远程驻守的高度加成（掩码用同一个函数）。
         const float range = effective_range(k);
         if (t.dist2 > range * range) continue;   // 打不到就空转（乙）
-        commit_attack(k, t);
+        commit_attack(k, t, target_charge);
     }
 }
 

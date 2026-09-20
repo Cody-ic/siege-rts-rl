@@ -106,7 +106,7 @@ rts::WorldInit demo_init(const MapData& map, const rts::StatsTable& stats,
                          std::uint64_t seed, const DefenderSetup& setup) {
     rts::WorldInit init = make_world_init(map, stats, seed, /*nominal_level=*/1);
     // 人口上限是**建局输入**（`rts/world.hpp`），不在数值表里 ⇒ 唯一的入口
-    // 就是这里。`make_world_init` 用的是 `WorldInit` 的默认 8+2K，这一行把
+    // 就是这里。`make_world_init` 用的是 `WorldInit` 的默认 8+3K，这一行把
     // 调用方给的值盖上去。
     init.pop_cap_base = setup.pop_cap_base;
     init.pop_cap_per_keep_level = setup.pop_cap_per_keep_level;

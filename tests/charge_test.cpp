@@ -186,7 +186,7 @@ TEST_CASE("枪阵克骑由轴推导：只对有动量的冲锋成立，且随动
         REQUIRE(hit == 8);
         REQUIRE(w.unit_hp(kn) == 40 - hit);
     }
-    SECTION("Ranger（LightFast）不是枪阵：同样的局面只打基础值") {
+    SECTION("Ranger（Charge）不是枪阵：同样的局面只打基础值") {
         rts::World w(build(rts::UnitType::Ranger));
         const rts::UnitId kn =
             w.spawn_unit(rts::UnitType::Knight, rts::Vec2{8.5f, 4.5f}, 1, 40, 40);
@@ -210,6 +210,57 @@ TEST_CASE("枪阵克骑由轴推导：只对有动量的冲锋成立，且随动
 }
 
 // ——Tower 齐射——
+
+TEST_CASE("Ranger charge boosts only the opening hit and stops clear momentum", "[charge][ranger]") {
+    auto init=arena();
+    us(init.stats,rts::UnitType::Ranger).speed=0.25f;
+    us(init.stats,rts::UnitType::Ranger).cooldown_ticks=4;
+    rts::World w(init);
+    const auto rider=w.spawn_unit(rts::UnitType::Ranger,{3.5f,4.5f},1,100,100);
+    const auto target=w.spawn_unit(rts::UnitType::Shade,{6.5f,4.5f},1,100,100);
+    act(w,rts::Side::Defender,{rts::UnitAction::MoveSE});w.advance(8);
+    REQUIRE(w.unit_charge(rider)==2.0f);
+    bool stopped=false;
+    SECTION("Continuous approach") {}
+    SECTION("Stopping forfeits the opening bonus") {
+        stopped=true;act(w,rts::Side::Defender,{rts::UnitAction::Stop});w.advance(1);
+        REQUIRE(w.unit_charge(rider)==0.0f);
+    }
+    act(w,rts::Side::Defender,{rts::UnitAction::AtkNear});w.advance(2);
+    const auto first=stopped?6:9;
+    REQUIRE(w.unit_hp(target)==100-first);
+    REQUIRE(w.unit_charge(rider)==0.0f);
+    w.advance(4);
+    REQUIRE(w.unit_hp(target)==100-first-6);
+}
+
+TEST_CASE("Counter-charge in the same tick does not depend on unit slot order", "[charge][ranger]") {
+    bool defender_first=true, ranger=false;
+    SECTION("Spear before knight") {}
+    SECTION("Knight before spear") {defender_first=false;}
+    SECTION("Ranger before ghoul") {ranger=true;}
+    SECTION("Ghoul before ranger") {ranger=true;defender_first=false;}
+    auto init=arena();
+    const auto dt=ranger?rts::UnitType::Ranger:rts::UnitType::Spear;
+    const auto at=ranger?rts::UnitType::Ghoul:rts::UnitType::Knight;
+    us(init.stats,dt).speed=0.25f;us(init.stats,at).speed=0.25f;
+    us(init.stats,dt).windup_ticks=1;us(init.stats,at).windup_ticks=1;
+    rts::World w(init);rts::UnitId d,a;
+    const auto sd=[&] {d=w.spawn_unit(dt,{5.5f,4.5f},1,100,100);};
+    const auto sa=[&] {a=w.spawn_unit(at,{8.5f,4.5f},1,100,100);};
+    if(defender_first) {sd();sa();} else {sa();sd();}
+    act(w,ranger?rts::Side::Defender:rts::Side::Attacker,
+        {ranger?rts::UnitAction::MoveSE:rts::UnitAction::MoveNW});w.advance(8);
+    act(w,rts::Side::Defender,{rts::UnitAction::AtkNear});
+    act(w,rts::Side::Attacker,{rts::UnitAction::AtkNear});w.advance(2);
+    const auto charger=ranger?d:a;
+    const auto brace=ranger?a:d;
+    const auto charged_damage=ranger?9:12;
+    const auto counter_damage=ranger?6:8; // Ghoul 4 or Spear 6, at 1400 permille.
+    REQUIRE(w.unit_hp(brace)==100-charged_damage);
+    REQUIRE(w.unit_hp(charger)==100-counter_damage);
+    REQUIRE(w.unit_charge(charger)==0.0f);
+}
 
 TEST_CASE("Tower 齐射：AOE 砸锁定落点，友军与空中不挨砸", "[charge]") {
     rts::WorldInit init = arena();

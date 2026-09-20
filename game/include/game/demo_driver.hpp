@@ -108,13 +108,10 @@ struct WaveTiming {
 // 数值表的字段（`rts/world.hpp`：「人口上限是建局输入」），于是它此前根本没有
 // 运行期入口——配平要 A/B 它就得重编。
 //
-// 默认 8+2K 是 2026-09-02 的定版（`波次预算曲线与堡垒等级曲线.md` §2.1），
-// 而 §2.2 查出**那个 `2K` 从未兑现**：`K` 实战中恒等于 2，玩家拿到的永远是
-// `base + 2×2`。所以调这一对时要分清——改 `base` 当场生效，改 `per` 要先让
-// `K` 动起来才看得到。
+// 2026-09-20 默认改为8+3K：给后期守军和工匠更宽松的共享人口，斥候另行豁免。
 struct DefenderSetup {
     std::int32_t pop_cap_base = 8;
-    std::int32_t pop_cap_per_keep_level = 2;
+    std::int32_t pop_cap_per_keep_level = 3;
 
     // ——斥候侦查：到达集结点即判定一次死活（2026-09-04）——
     //
@@ -218,7 +215,7 @@ public:
     }
     struct PlayerEvent {
         rts::Tick tick=0;
-        int kind=0; // 0 command, 1 move, 2 garrison, 3 forced work
+        int kind=0; // 0 command, 1 move, 2 garrison, 3 forced work, 4 building guard
         rts::Command command{};
         std::vector<rts::UnitId> ids;
         rts::GridPos target{};
@@ -264,10 +261,7 @@ public:
         }
     }
 
-    // 框选 + 右键的辅助性单兵指令：转给执行层脚本，**不进 `World`**——
-    // 它是临时覆盖（到达即失效），不是持久状态，理由见
-    // `game/defender_script.hpp` 文件头。对已上墙的单位，开拔指令同时
-    // 是「下来」（脚本清空它的登墙意愿，世界放人）。
+    // Player orders live in the script and are recorded for snapshot/log restoration.
     void issue_move_order(std::span<const rts::UnitId> ids, rts::GridPos target) {
         script_.issue_move_order(ids, target);
         player_events_.push_back({w_.now(),1,{},std::vector<rts::UnitId>(ids.begin(),ids.end()),target});
@@ -280,6 +274,12 @@ public:
     bool forced_work_active(rts::UnitId id) const {
         return script_.forced_work_active(w_.view(rts::Side::Defender), id);
     }
+    bool issue_guard_order(std::span<const rts::UnitId> ids, rts::GridPos target) {
+        if (!script_.issue_guard_order(w_.view(rts::Side::Defender), ids, target)) return false;
+        player_events_.push_back({w_.now(),4,{},std::vector<rts::UnitId>(ids.begin(),ids.end()),target});
+        return true;
+    }
+    const DefenderPost* defender_post(rts::UnitId id) const noexcept {return script_.defender_post(id);}
     void issue_garrison_order(std::span<const rts::UnitId> ids,
                               rts::GridPos wall_cell) {
         script_.issue_garrison_order(ids, wall_cell);

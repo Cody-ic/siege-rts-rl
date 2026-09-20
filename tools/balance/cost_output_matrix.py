@@ -65,8 +65,8 @@ STATS_PATH = os.path.join(REPO_ROOT, "game", "data", "stats_placeholder.json")
 
 # 花名册里哪些单位会用到冲锋/反冲锋结构（rts_core/src/unit_behavior.cpp 的结构判定，
 # 数值表里没有，这里手动登记，改花名册时要同步改这里）
-CHARGERS = {"Knight"}
-ANTI_CHARGERS = {"Spear"}
+CHARGERS = {"Knight", "Ranger"}
+ANTI_CHARGERS = {"Spear", "Ghoul"}
 
 # 交换比达到多少才算「显著」。**这是占位值，不是标定过的判据。**
 #
@@ -130,6 +130,7 @@ COUNTER_GRAPH = [
 
 def report(units, g):
     print("=== 成本产出矩阵（闭式1v1近似，非批量仿真） ===\n")
+    print("注意：固定动量只用于闭式对照；实战冲锋首击后耗尽，不能把本表当作实战克制验收。\n")
     thin, bad = [], []
     for atk_name, def_name, note, checkable in COUNTER_GRAPH:
         if not checkable:

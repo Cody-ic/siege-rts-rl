@@ -57,7 +57,7 @@ TEST_CASE("Release rejects and preserves earlier branch saves", "[save]") {
     Temp temp; auto active=shell(); active.apply(game::MenuAction::StartNew);
     const auto archive=game::capture_battle(active,map_text(),stats_text());
     const auto file=temp.path/"campaign.json";
-    for(const int version : {3,4,5,6,7,8,9,10,11,12,13,14,15,16,17}) {
+    for(const int version : {3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23}) {
         game::write_archive(file,archive);
         auto text=game::read_save_text(file);
         const auto key=text.find("\"version\"");
@@ -75,6 +75,38 @@ TEST_CASE("Release rejects and preserves earlier branch saves", "[save]") {
         game::write_archive(file,archive);
         REQUIRE(game::read_archive(file).hash==archive.hash);
         REQUIRE(game::read_save_text(backup)==original);
+    }
+}
+
+TEST_CASE("Ranger deployment survives a snapshot and operation-log replay", "[save][ranger]") {
+    auto original=shell();original.apply(game::MenuAction::StartNew);
+    auto& battle=*original.battle();
+    // Recruit through the normal command path, so replay must reproduce the rider too.
+    const auto command=game::train_command(rts::UnitType::Ranger,1,battle.world().keep_pos(),battle.world().width());
+    battle.submit_defender(&command,1);battle.update(160);
+    std::vector<rts::UnitId> ids;battle.world().enumerate_units(rts::Side::Defender,ids);
+    const auto it=std::find_if(ids.begin(),ids.end(),[&](auto id){return battle.world().unit_type(id)==rts::UnitType::Ranger;});
+    REQUIRE(it!=ids.end());const auto rider=*it;
+    const auto target=battle.world().keep_pos();
+    bool building_guard=false;
+    SECTION("Coordinate post") {battle.issue_move_order({&rider,1},target);}
+    SECTION("Building guard") {building_guard=true;REQUIRE(battle.issue_guard_order({&rider,1},target));}
+    battle.update(9);
+    auto archive=game::capture_battle(original,map_text(),stats_text());
+    int callbacks=0;
+    auto snapshot=game::restore_battle(archive,[&](auto,auto){++callbacks;return true;});
+    REQUIRE(callbacks==1);
+    archive.snapshot.clear();auto replay=game::restore_battle(archive);
+    for (int i=0;i<100;++i) {
+        battle.update(1);snapshot->update(1);replay->update(1);
+        REQUIRE(snapshot->defender_post(rider));REQUIRE(replay->defender_post(rider));
+        REQUIRE(snapshot->defender_post(rider)->anchor==target);
+        REQUIRE(replay->defender_post(rider)->anchor==target);
+        REQUIRE(snapshot->defender_post(rider)->building==battle.defender_post(rider)->building);
+        REQUIRE(replay->defender_post(rider)->building==battle.defender_post(rider)->building);
+        REQUIRE((battle.defender_post(rider)->building!=rts::BldId::kInvalidRaw)==building_guard);
+        REQUIRE(battle.world().state_hash()==snapshot->world().state_hash());
+        REQUIRE(battle.world().state_hash()==replay->world().state_hash());
     }
 }
 

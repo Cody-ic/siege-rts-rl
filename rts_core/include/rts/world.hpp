@@ -428,13 +428,13 @@ struct WorldInit {
     TierIncomePermille tier_income_permille{};
 
     // 人口上限（守方，2026-09-02）：`cap = pop_cap_base +
-    // pop_cap_per_keep_level × 堡垒等级`，默认 8+2K（`波次预算曲线与
+    // pop_cap_per_keep_level × 堡垒等级`，默认 8+3K（`波次预算曲线与
     // 堡垒等级曲线.md` §2.1 的推导；与造价 `c ∝ √B(L)`、兵种等级上限
     // 是「必须一起落地」的三件，见 `数值设计与成本产出矩阵.md` §12.5）。
     // **与数值表并列的外生输入**（同 `tier_income_permille` 先例）：
     // 默认值是占位语义下的推导结果，由外部给或改默认都行，机制不含任何数。
     std::int32_t pop_cap_base = 8;
-    std::int32_t pop_cap_per_keep_level = 2;
+    std::int32_t pop_cap_per_keep_level = 3;
 
     // 数值表（`rts/stats.hpp`）。**这是外生数值进入仿真的唯一路径**：
     // 射程、伤害、速度、视野、破坏倍率全从这里读，机制不得在别处藏一个数。
@@ -533,7 +533,7 @@ inline GridPos pos_of_slot(std::uint16_t slot, int width) noexcept {
 // 随之移除（`u_upgrade_left_` 删，升级只经 `Train` 选级）。布局与行为双重变更。
 // `World/12` → `World/13`：新增 `CommandKind::Demolish`，`deferred_` 的长度随
 // `kCommandKindCount` 增加一格并进入哈希；与上面 `World/1 → World/2` 同类。
-inline constexpr std::string_view kWorldHashTag = "World/17";
+inline constexpr std::string_view kWorldHashTag = "World/19";
 
 class WorldView;
 
@@ -1058,9 +1058,9 @@ private:
     ProjSpec proj_at(std::size_t i) const;
 
     // 承诺一次攻击：锁定落点、起前摇、进冷却。`windup_ticks == 0` 时当场落地。
-    void commit_attack(std::size_t k, const TargetPick& t);
+    void commit_attack(std::size_t k, const TargetPick& t, std::span<const float> target_charge = {});
     // 前摇走完，按锁定的落点 / 目标结算伤害（含 AOE 与死亡处理）。
-    void land_attack(std::size_t k);
+    void land_attack(std::size_t k, std::span<const float> target_charge = {});
     // 对一个实体结算 `amount` 点伤害，归零即销毁；
     // 障碍被守方打掉时产出资源（`dealer_side` 用于产出归属）。
     void deal_damage(TgtKind kind, std::uint32_t raw, std::int64_t amount,
@@ -1084,7 +1084,7 @@ private:
     // **不进 `state_hash`**——与 `tier_income_permille_` 同例：建局参数经
     // `map_content_hash` 覆盖，逐项再喂一遍是第二个真相来源。
     std::int32_t pop_cap_base_ = 8;
-    std::int32_t pop_cap_per_keep_level_ = 2;
+    std::int32_t pop_cap_per_keep_level_ = 3;
 
     // ——时间与波次——
     bool developer_ = false;

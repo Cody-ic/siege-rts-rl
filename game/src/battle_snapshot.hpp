@@ -153,6 +153,7 @@ struct SnapshotCodec {
             f("manual_order_",v.manual_order_);
             f("patrol_goal_",v.patrol_goal_);
             f("scout_navigation_",v.scout_navigation_);
+            f("defender_posts_",v.defender_posts_);
         }
         else if constexpr(std::is_same_v<U,rts::Vec2>) {
             f("x",v.x);
@@ -178,6 +179,10 @@ struct SnapshotCodec {
             f("building",v.building);
             f("upgrade",v.upgrade);
         }
+        else if constexpr(std::is_same_v<U,DefenderPost>) {
+            f("active",v.active);f("generation",v.generation);f("anchor",v.anchor);f("player_set",v.player_set);
+            f("building",v.building);f("mode",v.mode);
+        }
         else if constexpr(std::is_same_v<U,PatrolGoal>) {
             f("active",v.active);
             f("target",v.target);
@@ -201,9 +206,10 @@ struct SnapshotCodec {
             f("kite_trigger_cells",v.kite_trigger_cells);
             f("kite_permille",v.kite_permille);
             f("reaction_decisions",v.reaction_decisions);
-            f("avoid_knight_cells",v.avoid_knight_cells);
             f("arrive_cells",v.arrive_cells);
             f("spear_engage_cells",v.spear_engage_cells);
+            f("ranger_engage_cells",v.ranger_engage_cells);
+            f("ranger_chase_cells",v.ranger_chase_cells);
         }
         else if constexpr(std::is_same_v<U,WaveTiming>) {
             f("build_ticks",v.build_ticks);
@@ -397,6 +403,10 @@ struct SnapshotCodec {
         for(const auto k:w.u_garrison_) check(k==rts::kNoSlot || k<n);
         for(const auto k:w.u_garrison_target_) check(k==rts::kNoSlot || k<n);
         for(const auto lv:w.u_level_) check(lv>=1);
+        for (const auto& post:b.script_.defender_posts_) if (post.active) {
+            check(w.terrain_.in_bounds(post.anchor.i,post.anchor.j));
+            check(static_cast<unsigned>(post.mode)<=static_cast<unsigned>(PostMode::Blocked));
+        }
         for(std::size_t k=0;k<w.b_max_hp_.size();++k) check(w.bld_pool_.alive_[k]?w.b_max_hp_[k]>0:w.b_max_hp_[k]==0);
     }
     static std::string capture(const DemoBattle& b) {return encode(b).dump();}

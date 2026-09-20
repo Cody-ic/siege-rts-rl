@@ -51,18 +51,13 @@ public:
     MobilityKind mobility() const noexcept override { return MobilityKind::HeavySlow; }
 };
 
-// 逐风猎骑：快速近战，**出城的执行手段**（摸攻城锤、争夺墙外矿场）。
-//
-// 机动性取 `LightFast` 而**不是** `Charge`：CLAUDE.md 把冲锋助跑写给攻方的
-// `Knight`，而这一侧的定位是「快速切入」。两者的差别在克制表里是对称的——
-// 「`Ram` ──► `Ranger` 快速切入」vs「`Ranger` ──► `Knight`（骑兵对冲）」，
-// 前者靠速度、后者被冲锋克。若这里也给 `Charge`，那条对冲就没有强弱可分了。
+// 逐风猎骑：快速切入；与骑士共享助跑首击和反冲锋关系。
 class RangerBehavior final : public UnitBehavior {
 public:
     UnitType type() const noexcept override { return UnitType::Ranger; }
     EngageRange engage_range() const noexcept override { return EngageRange::Melee; }
     StrikeForm strike_form() const noexcept override { return StrikeForm::Single; }
-    MobilityKind mobility() const noexcept override { return MobilityKind::LightFast; }
+    MobilityKind mobility() const noexcept override { return MobilityKind::Charge; }
 };
 
 // 游猎斥候：极快、大视野、**无战力**。
@@ -110,7 +105,7 @@ public:
 };
 
 // 鬼域骑士团：**冲锋伤害 ∝ 助跑距离**，克远程与攻城锤，遏制守方出城。
-// 唯一取 `Charge` 的兵种，`charges()` 因此只对它为真。
+// 与守方猎骑共享 `Charge`；持续贴身攻击不会重复得到助跑加成。
 class KnightBehavior final : public UnitBehavior {
 public:
     UnitType type() const noexcept override { return UnitType::Knight; }

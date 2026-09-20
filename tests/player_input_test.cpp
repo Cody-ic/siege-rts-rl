@@ -212,18 +212,18 @@ TEST_CASE("征兵提示：只有完工且没在练的兵营或堡垒可以点", 
 
 TEST_CASE("征兵提示：人口满时 train_pop_full 报满，与逐格提示正交", "[input]") {
     rts::World w(iarena());
-    // iarena 的 Keep 1 级 ⇒ cap = 8 + 2×1 = 10（`WorldInit` 默认值）。
-    REQUIRE(w.view(rts::Side::Defender).defender_pop_cap() == 10);
+    // iarena 的 Keep 1 级 ⇒ cap = 8 + 3×1 = 11（`WorldInit` 默认值）。
+    REQUIRE(w.view(rts::Side::Defender).defender_pop_cap() == 11);
     REQUIRE_FALSE(game::train_pop_full(w.view(rts::Side::Defender)));
 
-    // 塞满 10 个守方单位（`spawn_unit` 是调试通道，不过人口检查——
+    // 塞满 11 个守方单位（`spawn_unit` 是调试通道，不过人口检查——
     // 检查只在 `Train` 解算里）。
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 11; ++i) {
         w.spawn_unit(rts::UnitType::Archer,
                      rts::Vec2{2.5f + static_cast<float>(i) * 0.5f, 2.5f}, 1, 20, 20);
     }
     const rts::WorldView v = w.view(rts::Side::Defender);
-    REQUIRE(v.defender_pop() == 10);
+    REQUIRE(v.defender_pop() == 11);
     REQUIRE(game::train_pop_full(v));
     // 「人口满」是全局状态，与「这格能不能弹菜单」正交：兵营照样点得开
     // （菜单里选项灰掉、标签写明「人口满」，见 render 的 Train 弹窗——同
