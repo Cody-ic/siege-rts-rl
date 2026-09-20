@@ -29,6 +29,8 @@ struct SnapshotCodec {
             f("u_type_",v.u_type_);
             f("u_level_",v.u_level_);
             f("u_hp_",v.u_hp_);
+            f("u_last_combat_",v.u_last_combat_);
+            f("u_recovery_credit_",v.u_recovery_credit_);
             f("u_max_hp_",v.u_max_hp_);
             f("u_pos_",v.u_pos_);
             f("u_squad_",v.u_squad_);
@@ -153,6 +155,7 @@ struct SnapshotCodec {
             f("manual_order_",v.manual_order_);
             f("patrol_goal_",v.patrol_goal_);
             f("scout_navigation_",v.scout_navigation_);
+            f("ranger_posts_",v.ranger_posts_);
         }
         else if constexpr(std::is_same_v<U,rts::Vec2>) {
             f("x",v.x);
@@ -177,6 +180,10 @@ struct SnapshotCodec {
             f("forced",v.forced);
             f("building",v.building);
             f("upgrade",v.upgrade);
+        }
+        else if constexpr(std::is_same_v<U,RangerPost>) {
+            f("active",v.active);f("generation",v.generation);f("anchor",v.anchor);f("player_set",v.player_set);
+            f("recovering",v.recovering);f("retreat_until",v.retreat_until);f("mode",v.mode);
         }
         else if constexpr(std::is_same_v<U,PatrolGoal>) {
             f("active",v.active);
@@ -204,6 +211,8 @@ struct SnapshotCodec {
             f("avoid_knight_cells",v.avoid_knight_cells);
             f("arrive_cells",v.arrive_cells);
             f("spear_engage_cells",v.spear_engage_cells);
+            f("ranger_engage_cells",v.ranger_engage_cells);
+            f("ranger_chase_cells",v.ranger_chase_cells);
         }
         else if constexpr(std::is_same_v<U,WaveTiming>) {
             f("build_ticks",v.build_ticks);
@@ -337,6 +346,8 @@ struct SnapshotCodec {
         check(w.u_type_.size()==w.unit_pool_.slot_count());
         check(w.u_level_.size()==w.unit_pool_.slot_count());
         check(w.u_hp_.size()==w.unit_pool_.slot_count());
+        check(w.u_last_combat_.size()==w.unit_pool_.slot_count());
+        check(w.u_recovery_credit_.size()==w.unit_pool_.slot_count());
         check(w.u_max_hp_.size()==w.unit_pool_.slot_count());
         check(w.u_pos_.size()==w.unit_pool_.slot_count());
         check(w.u_squad_.size()==w.unit_pool_.slot_count());
@@ -397,6 +408,16 @@ struct SnapshotCodec {
         for(const auto k:w.u_garrison_) check(k==rts::kNoSlot || k<n);
         for(const auto k:w.u_garrison_target_) check(k==rts::kNoSlot || k<n);
         for(const auto lv:w.u_level_) check(lv>=1);
+        for (std::size_t k=0;k<w.u_hp_.size();++k) {
+            check(w.u_last_combat_[k]>=0 && w.u_last_combat_[k]<=w.now());
+            check(w.u_recovery_credit_[k]>=0);
+            if (w.unit_pool_.alive_[k]) check(w.u_recovery_credit_[k]<w.u_max_hp_[k]);
+        }
+        for (const auto& post:b.script_.ranger_posts_) if (post.active) {
+            check(w.terrain_.in_bounds(post.anchor.i,post.anchor.j));
+            check(static_cast<unsigned>(post.mode)<=static_cast<unsigned>(RangerMode::Blocked));
+            check(post.retreat_until>=0 && post.retreat_until<=w.now()+40);
+        }
         for(std::size_t k=0;k<w.b_max_hp_.size();++k) check(w.bld_pool_.alive_[k]?w.b_max_hp_[k]>0:w.b_max_hp_[k]==0);
     }
     static std::string capture(const DemoBattle& b) {return encode(b).dump();}

@@ -108,13 +108,10 @@ struct WaveTiming {
 // 数值表的字段（`rts/world.hpp`：「人口上限是建局输入」），于是它此前根本没有
 // 运行期入口——配平要 A/B 它就得重编。
 //
-// 默认 8+2K 是 2026-09-02 的定版（`波次预算曲线与堡垒等级曲线.md` §2.1），
-// 而 §2.2 查出**那个 `2K` 从未兑现**：`K` 实战中恒等于 2，玩家拿到的永远是
-// `base + 2×2`。所以调这一对时要分清——改 `base` 当场生效，改 `per` 要先让
-// `K` 动起来才看得到。
+// 2026-09-20 默认改为8+3K：给后期守军和工匠更宽松的共享人口，斥候另行豁免。
 struct DefenderSetup {
     std::int32_t pop_cap_base = 8;
-    std::int32_t pop_cap_per_keep_level = 2;
+    std::int32_t pop_cap_per_keep_level = 3;
 
     // ——斥候侦查：到达集结点即判定一次死活（2026-09-04）——
     //
@@ -280,6 +277,7 @@ public:
     bool forced_work_active(rts::UnitId id) const {
         return script_.forced_work_active(w_.view(rts::Side::Defender), id);
     }
+    const RangerPost* ranger_post(rts::UnitId id) const noexcept {return script_.ranger_post(id);}
     void issue_garrison_order(std::span<const rts::UnitId> ids,
                               rts::GridPos wall_cell) {
         script_.issue_garrison_order(ids, wall_cell);

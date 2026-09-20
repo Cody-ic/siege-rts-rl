@@ -227,13 +227,14 @@ bool DefenderScript::refresh_scout_navigation(const rts::WorldView& view,
     for (const auto id : ids) {
         const auto slot = id.index();
         auto action = view.unit_action()[slot];
-        if (view.unit_type()[slot] == rts::UnitType::Scout &&
+        if ((view.unit_type()[slot] == rts::UnitType::Scout || view.unit_type()[slot] == rts::UnitType::Ranger) &&
             slot < scout_navigation_.size() && rts::is_move(action) &&
             view.unit_garrison()[slot] == rts::kNoSlot) {
             const auto navigation = scout_navigation_[slot];
             if (navigation.active && navigation.generation == id.generation() &&
                 navigation.cell != rts::grid_of(view.unit_pos()[slot])) {
-                action = move_towards(view, slot, navigation.target, view.action_mask(id));
+                action = view.unit_type()[slot] == rts::UnitType::Ranger ? decide_ranger(view, id) :
+                    move_towards(view, slot, navigation.target, view.action_mask(id));
                 changed = true;
             }
         }
@@ -314,6 +315,9 @@ rts::UnitAction DefenderScript::decide_unit(const rts::WorldView& view,
         }
         return safe_worker(view,slot,mask,bld_claimed_,target);
     }
+
+    // Ranger movement remains subject to its safety policy, including manual orders.
+    if (t == rts::UnitType::Ranger) return decide_ranger(view, id);
 
     // ——手动临时指令（辅助性覆盖）：优先于一切自主默认——
     //
@@ -451,27 +455,7 @@ rts::UnitAction DefenderScript::decide_unit(const rts::WorldView& view,
             }
             return hold_position(view, slot, mask);
         }
-        case rts::UnitType::Ranger: {
-            float knight_d2=0;
-            const int knight=nearest_enemy(view,me,[](rts::UnitType u){return u==rts::UnitType::Knight;},&knight_d2);
-            if(knight>=0 && knight_d2<p_.avoid_knight_cells*p_.avoid_knight_cells)
-                return move_towards(view,slot,hold_point_for(slot,view.keep_pos()),mask);
-            const auto bounds=city_bounds(view);
-            int enemies=0,friends=0,target=-1;float best=1000000;
-            for(std::size_t u=0;u<view.unit_pos().size();++u) {
-                if(!view.unit_alive()[u] || !rts::is_combat(view.unit_type()[u])) continue;
-                const auto p=view.unit_pos()[u];
-                if(dist2(me,p)<16) {if(rts::side_of(view.unit_type()[u])==rts::Side::Attacker) ++enemies;else ++friends;}
-                if(rts::side_of(view.unit_type()[u])!=rts::Side::Attacker || rts::is_aerial(view.unit_type()[u]) || !bounds.contains(rts::grid_of(p)) || dist2(p,rts::center_of(view.keep_pos()))>p_.spear_engage_cells*p_.spear_engage_cells) continue;
-                const float score=dist2(me,p)+(view.unit_type()[u]==rts::UnitType::Shade?0.0f:20.0f);
-                if(score<best) {best=score;target=static_cast<int>(u);}
-            }
-            if(!bounds.contains(rts::grid_of(me)) || enemies>friends+1 || view.unit_hp()[slot]*100<view.unit_max_hp()[slot]*40)
-                return move_towards(view,slot,hold_point_for(slot,view.keep_pos()),mask);
-            if(has(mask,rts::UnitAction::AtkNear)) return rts::UnitAction::AtkNear;
-            if(target>=0) return move_towards(view,slot,rts::grid_of(view.unit_pos()[static_cast<std::size_t>(target)]),mask);
-            return hold_position(view,slot,mask);
-        }
+        case rts::UnitType::Ranger: return decide_ranger(view, id);
         case rts::UnitType::Mason: return rts::UnitAction::Stop; // handled before manual orders
         default: {
             // Scout 与任何后加的兵种：打得着就打（Scout 无战力，掩码永远

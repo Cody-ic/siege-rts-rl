@@ -301,18 +301,20 @@ TEST_CASE("游骑：骑士靠近就脱离，没命令时拦截城内攻城锤", 
         const float dy = w.unit_pos(r).y - w.unit_pos(k).y;
         REQUIRE(dx * dx + dy * dy > 3.0f * 3.0f);   // 已脱离保持距离圈
     }
-    SECTION("拦截攻城锤：城内目标主动迎击") {
+    SECTION("拦截受损攻城锤：可承受的目标主动迎击") {
         rts::WorldInit init = sarena();
+        // This fixture must describe a survivable approach, not require a suicide charge.
+        us(init.stats, rts::UnitType::Ram).damage = 2;
         init.units.push_back(
             rts::UnitInit{rts::UnitType::Ranger, rts::Vec2{4.5f, 2.5f}, 1, 18, 18});
         rts::World w(std::move(init));
         const rts::UnitId ram =
-            w.spawn_unit(rts::UnitType::Ram, rts::Vec2{7.5f, 2.5f}, 1, 60, 60);
+            w.spawn_unit(rts::UnitType::Ram, rts::Vec2{7.5f, 2.5f}, 1, 10, 60);
 
         game::DefenderScript s(game::ScriptParams{}, 3);
         run(w, s, 200, rts::UnitAction::Stop);
 
-        REQUIRE((!w.alive(ram) || w.unit_hp(ram) < 60));   // 真的打上了
+        REQUIRE((!w.alive(ram) || w.unit_hp(ram) < 10));   // 真的打上了
     }
 }
 

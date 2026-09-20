@@ -428,13 +428,13 @@ struct WorldInit {
     TierIncomePermille tier_income_permille{};
 
     // 人口上限（守方，2026-09-02）：`cap = pop_cap_base +
-    // pop_cap_per_keep_level × 堡垒等级`，默认 8+2K（`波次预算曲线与
+    // pop_cap_per_keep_level × 堡垒等级`，默认 8+3K（`波次预算曲线与
     // 堡垒等级曲线.md` §2.1 的推导；与造价 `c ∝ √B(L)`、兵种等级上限
     // 是「必须一起落地」的三件，见 `数值设计与成本产出矩阵.md` §12.5）。
     // **与数值表并列的外生输入**（同 `tier_income_permille` 先例）：
     // 默认值是占位语义下的推导结果，由外部给或改默认都行，机制不含任何数。
     std::int32_t pop_cap_base = 8;
-    std::int32_t pop_cap_per_keep_level = 2;
+    std::int32_t pop_cap_per_keep_level = 3;
 
     // 数值表（`rts/stats.hpp`）。**这是外生数值进入仿真的唯一路径**：
     // 射程、伤害、速度、视野、破坏倍率全从这里读，机制不得在别处藏一个数。
@@ -533,7 +533,7 @@ inline GridPos pos_of_slot(std::uint16_t slot, int width) noexcept {
 // 随之移除（`u_upgrade_left_` 删，升级只经 `Train` 选级）。布局与行为双重变更。
 // `World/12` → `World/13`：新增 `CommandKind::Demolish`，`deferred_` 的长度随
 // `kCommandKindCount` 增加一格并进入哈希；与上面 `World/1 → World/2` 同类。
-inline constexpr std::string_view kWorldHashTag = "World/17";
+inline constexpr std::string_view kWorldHashTag = "World/18";
 
 class WorldView;
 
@@ -804,6 +804,7 @@ public:
     // `bld_slot_at`、`defender_macro.cpp` 抄的那一份）——它们可以改走这里，
     // 但那是另一件事，本函数先补上缺口。
     BldId bld_at(GridPos cell) const noexcept;
+    BldId recovery_barrack(Vec2 pos) const noexcept;
 
     BldType bld_type(BldId id) const;
     GridPos bld_pos(BldId id) const;
@@ -987,6 +988,7 @@ private:
 
     // 施工 / 维修推进、征兵倒计时与出兵、按周期入账。顺序在 advance() 注释里。
     void tick_economy();
+    void tick_recovery();
     // 守方 `Mason` 在 `pos` 施工半径内的人数（半径查表 `mason_work_radius`）。
     // 施工/维修/升级按人数线性加速（2026-09-01 起，此前是「在场与否」二值
     // 占位——试玩拍板：任务不够分时多人同任务必须真的更快）。
@@ -1084,7 +1086,7 @@ private:
     // **不进 `state_hash`**——与 `tier_income_permille_` 同例：建局参数经
     // `map_content_hash` 覆盖，逐项再喂一遍是第二个真相来源。
     std::int32_t pop_cap_base_ = 8;
-    std::int32_t pop_cap_per_keep_level_ = 2;
+    std::int32_t pop_cap_per_keep_level_ = 3;
 
     // ——时间与波次——
     bool developer_ = false;
@@ -1105,6 +1107,8 @@ private:
     std::vector<UnitType> u_type_;
     std::vector<std::int32_t> u_level_;
     std::vector<std::int64_t> u_hp_;
+    std::vector<Tick> u_last_combat_;
+    std::vector<std::int64_t> u_recovery_credit_; // Prepaid fractional recovery, denominator is max HP.
     std::vector<std::int64_t> u_max_hp_;
     std::vector<Vec2> u_pos_;
     std::vector<std::uint16_t> u_squad_;      // 编队号，kNoSquad = 不属于任何

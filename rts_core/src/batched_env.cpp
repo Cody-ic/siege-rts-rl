@@ -340,7 +340,7 @@ void BatchedEnv::step(std::span<const UnitAction> actions,
         // 默认 `Stop`：**它永远合法**（`action.hpp`），所以「编队数超出张量、
         // 尾部编队没有动作可给」不会造出非法输入。攻方编队硬顶 27 <
         // `kMaxUnitsPerEnv` 32，所以那条分支在攻方一侧不该发生；守方是散兵、
-        // 上限随堡垒等级涨（`8+2K`），将来会走到。
+        // 上限随堡垒等级涨（`8+3K`），将来会走到。
         // **推进之前**记下每个活单位到堡垒的距离（`progress` 那一列）。
         std::vector<std::pair<UnitId, int>>& before = p_->dist_before[ui];
         before.clear();

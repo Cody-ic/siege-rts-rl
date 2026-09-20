@@ -1,5 +1,7 @@
 # siege-rts-rl
 
+开发分支新增[人口扩容与猎骑驻点、避险和恢复](docs/defender-population-ranger.md)：普通人口 `8+3K`，猎骑右键保留驻点，按可见威胁接敌/撤回，安全兵营付费恢复。尚未发布，旧存档和真实RL模型需要对应版本。
+
 ## 下载游玩
 
 前往 [GitHub Releases](https://github.com/Cody-ic/siege-rts-rl/releases/latest)，下载

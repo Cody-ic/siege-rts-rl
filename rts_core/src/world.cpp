@@ -552,6 +552,7 @@ void World::advance(int ticks) {
         tick_bld_combat();
         tick_projectiles();
         tick_economy();
+        tick_recovery();
         tick_vision();
 
         ++tick_;
@@ -578,6 +579,8 @@ UnitId World::spawn_unit(UnitType type, Vec2 pos, std::int32_t level, std::int64
         u_type_.resize(n);
         u_level_.resize(n);
         u_hp_.resize(n);
+        u_last_combat_.resize(n);
+        u_recovery_credit_.resize(n);
         u_max_hp_.resize(n);
         u_pos_.resize(n);
         u_squad_.resize(n);
@@ -595,6 +598,8 @@ UnitId World::spawn_unit(UnitType type, Vec2 pos, std::int32_t level, std::int64
     u_type_[k] = type;
     u_level_[k] = level;
     u_hp_[k] = hp;
+    u_last_combat_[k] = tick_;
+    u_recovery_credit_[k] = 0;
     u_max_hp_[k] = max_hp;
     u_pos_[k] = pos;
     u_squad_[k] = squad;
@@ -698,6 +703,8 @@ void World::kill_unit(UnitId id) {
     u_type_[k] = UnitType::Archer;
     u_level_[k] = kMinUnitLevel;
     u_hp_[k] = 0;
+    u_last_combat_[k] = 0;
+    u_recovery_credit_[k] = 0;
     u_max_hp_[k] = 0;
     u_pos_[k] = Vec2{};
     u_squad_[k] = kNoSquad;
@@ -1144,6 +1151,8 @@ std::uint64_t World::state_hash() const noexcept {
     h.feed(u_type_.data(), u_type_.size() * sizeof(UnitType));
     h.feed(u_level_.data(), u_level_.size() * sizeof(std::int32_t));
     h.feed(u_hp_.data(), u_hp_.size() * sizeof(std::int64_t));
+    h.feed(u_last_combat_.data(), u_last_combat_.size() * sizeof(Tick));
+    h.feed(u_recovery_credit_.data(), u_recovery_credit_.size() * sizeof(std::int64_t));
     h.feed(u_max_hp_.data(), u_max_hp_.size() * sizeof(std::int64_t));
     // 位置是浮点，**必须按位喂**（`rts/hash.hpp` 的 feed_f32）：
     // `feed_pod(Vec2)` 会被那条 has_unique_object_representations 断言挡下，

@@ -763,9 +763,9 @@ TEST_CASE("征兵选级：造价按等级涨、顶不过 unit_level_cap() 拒绝
     REQUIRE(w.unit_hp(trained) == expect_hp);
 }
 
-// ——人口上限（守方升级轴第一个输出，8+2K，2026-09-02 落地）——
+// ——人口上限（守方升级轴第一个输出，8+3K，2026-09-02 落地）——
 
-TEST_CASE("人口上限 8+2K：顶满拒训、在训占格、堡垒升级 +2 可再训", "[econ]") {
+TEST_CASE("人口上限 8+3K：顶满拒训、在训占格、堡垒升级 +3 可再训", "[econ]") {
     rts::WorldInit init = arena();
     // 造价压到 1，免得金币先于人口成为约束——这条测的是人口，不是钱。
     init.stats.unit[static_cast<std::size_t>(rts::UnitType::Archer)].cost_gold = 1;
@@ -778,20 +778,20 @@ TEST_CASE("人口上限 8+2K：顶满拒训、在训占格、堡垒升级 +2 可
     w.set_stock(rts::Resource::Gold, 10000);
     w.spawn_unit(rts::UnitType::Mason, rts::center_of(w.keep_pos()), 1, 10, 10);
 
-    // cap = 8 + 2×1 = 10；已有 1（Mason）。攻方单位不占守方人口。
-    REQUIRE(w.defender_pop_cap() == 10);
+    // cap = 8 + 3×1 = 11；已有 1（Mason）。攻方单位不占守方人口。
+    REQUIRE(w.defender_pop_cap() == 11);
     REQUIRE(w.defender_pop() == 1);
     w.spawn_unit(rts::UnitType::Ghoul, rts::Vec2{7.5f, 5.5f}, 1, 10, 10);
     w.spawn_unit(rts::UnitType::Ghoul, rts::Vec2{7.0f, 5.5f}, 1, 10, 10);
     REQUIRE(w.defender_pop() == 1);
 
     // `spawn_unit` 是建局/调试通道，不过人口检查（检查在 `Train` 解算里）——
-    // 用它把人口垫到 9，正好剩 1 格。
-    for (int i = 0; i < 8; ++i) {
+    // 用它把人口垫到 10，正好剩 1 格。
+    for (int i = 0; i < 9; ++i) {
         w.spawn_unit(rts::UnitType::Archer,
                      rts::Vec2{3.5f + static_cast<float>(i) * 0.4f, 0.5f}, 1, 20, 20);
     }
-    REQUIRE(w.defender_pop() == 9);
+    REQUIRE(w.defender_pop() == 10);
 
     const rts::Command train1 = [&] {
         rts::Command c = slot_cmd(rts::CommandKind::Train, rts::GridPos{4, 3}, w.width());
@@ -806,12 +806,12 @@ TEST_CASE("人口上限 8+2K：顶满拒训、在训占格、堡垒升级 +2 可
         return c;
     }();
 
-    // 最后一格：第一单入训（在训也占 1 格），人口此刻顶满 10。
+    // 最后一格：第一单入训（在训也占 1 格），人口此刻顶满 11。
     const std::int64_t g_full = gold(w);
     w.submit(rts::Side::Defender, &train1, 1);
     w.advance(1);
     REQUIRE(gold(w) == g_full - 1);
-    REQUIRE(w.defender_pop() == 10);   // 9 存活 + 1 在训占位
+    REQUIRE(w.defender_pop() == 11);   // 10 存活 + 1 在训占位
 
     // 顶满后第二单：静默拒绝（与「钱不够无操作」同款语义）——不扣钱、
     // 第二座兵营不进训练队列。
@@ -825,24 +825,24 @@ TEST_CASE("人口上限 8+2K：顶满拒训、在训占格、堡垒升级 +2 可
         }
     }
 
-    // 在训那名出兵之后人口仍是 10（占位换成了活人），依旧顶满。
+    // 在训那名出兵之后人口仍是 11（占位换成了活人），依旧顶满。
     w.advance(5);
-    REQUIRE(w.live_unit_count(rts::Side::Defender) == 10);
-    REQUIRE(w.defender_pop() == 10);
+    REQUIRE(w.live_unit_count(rts::Side::Defender) == 11);
+    REQUIRE(w.defender_pop() == 11);
     const std::int64_t g_done = gold(w);
     w.submit(rts::Side::Defender, &train2, 1);
     w.advance(1);
     REQUIRE(gold(w) == g_done);   // 还是被拒
 
-    // 堡垒升 2 级：上限 +2（10 → 12），又能训了（跨过一次周期结算，金币
+    // 堡垒升 2 级：上限 +3（11 → 14），又能训了（跨过一次周期结算，金币
     // 地板 +2 要算进账——同「征兵选级」用例那条）。
     level_keep_to(w, 2);
-    REQUIRE(w.defender_pop_cap() == 12);
+    REQUIRE(w.defender_pop_cap() == 14);
     const std::int64_t g_up = gold(w);
     w.submit(rts::Side::Defender, &train2, 1);
     w.advance(1);
     REQUIRE(gold(w) == g_up - 1);
-    REQUIRE(w.defender_pop() == 11);   // 10 存活 + 1 在训占位
+    REQUIRE(w.defender_pop() == 12);   // 11 存活 + 1 在训占位
 }
 
 TEST_CASE("人口上限是建局输入：base/per 可调、负值拒收", "[econ]") {

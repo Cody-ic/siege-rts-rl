@@ -179,6 +179,7 @@ World::TargetPick World::pick_target(std::size_t k, UnitAction a) const {
 // ——承诺与落地——
 
 void World::commit_attack(std::size_t k, const TargetPick& t) {
+    u_last_combat_[k] = tick_;
     u_tgt_kind_[k] = t.kind;
     u_tgt_raw_[k] = t.raw;
     // **锁定就发生在这一行。** 之后目标怎么走都与落点无关。
@@ -395,6 +396,7 @@ void World::deal_damage(TgtKind kind, std::uint32_t raw, std::int64_t amount,
             const auto damage = amount < u_hp_[t] ? amount : u_hp_[t];
             if (enemy) tl.dmg_to_units += damage;
             else tl.friendly_unit_damage += damage;
+            if (amount > 0) u_last_combat_[t] = tick_;
             u_hp_[t] -= amount;
             if (u_hp_[t] <= 0) {
                 if (enemy) {
@@ -510,6 +512,70 @@ void World::tick_unit_combat() {
         const float range = effective_range(k);
         if (t.dist2 > range * range) continue;   // 打不到就空转（乙）
         commit_attack(k, t);
+    }
+}
+
+BldId World::recovery_barrack(Vec2 pos) const noexcept {
+    const auto start = grid_of(pos);
+    if (!terrain_.in_bounds(start.i,start.j)) return {};
+    for (std::size_t b=0;b<b_type_.size();++b) {
+        if (!bld_pool_.alive_at(static_cast<std::uint16_t>(b)) || b_type_[b]!=BldType::Barrack ||
+            !b_built_[b] || b_work_[b]>0 || b_upgrade_left_[b]>0 ||
+            dist2(pos,center_of(b_pos_[b]))>stats_.global.recovery_radius*stats_.global.recovery_radius) continue;
+        // Treatment cannot cross a wall, obstacle or impassable terrain.
+        int x=start.i,y=start.j;
+        const int dx=std::abs(b_pos_[b].i-x),dy=std::abs(b_pos_[b].j-y);
+        const int sx=x<b_pos_[b].i?1:-1,sy=y<b_pos_[b].j?1:-1;
+        int err=dx-dy;bool clear=true;
+        while (x!=b_pos_[b].i || y!=b_pos_[b].j) {
+            const auto c=static_cast<std::size_t>(y*width()+x);
+            const auto building=bld_at_[c];
+            if (!terrain_.passable(x,y) || obstacle_at_[c]!=0 ||
+                (building!=0 && !(b_type_[static_cast<std::size_t>(building-1)]==BldType::Gate && b_built_[static_cast<std::size_t>(building-1)]))) {
+                clear=false;break;
+            }
+            const int e2=2*err;
+            if (e2>-dy) {err-=dy;x+=sx;}
+            if (e2<dx) {err+=dx;y+=sy;}
+        }
+        if (clear) return bld_pool_.id_at(static_cast<std::uint16_t>(b));
+    }
+    return {};
+}
+
+void World::tick_recovery() {
+    const auto& g = stats_.global;
+    if (g.recovery_hp_permille_per_second <= 0 || tick_ % 20 != 0) return;
+    for (std::size_t u = 0; u < u_type_.size(); ++u) {
+        if (!unit_pool_.alive_at(static_cast<std::uint16_t>(u)) ||
+            side_of(u_type_[u]) != Side::Defender || !is_combat(u_type_[u]) ||
+            u_hp_[u] >= u_max_hp_[u] || u_action_[u] != UnitAction::Stop ||
+            u_garrison_[u] != kNoSlot || u_windup_[u] > 0 ||
+            tick_ - u_last_combat_[u] < g.recovery_quiet_ticks) continue;
+        if (!recovery_barrack(u_pos_[u]).valid()) continue;
+        bool threatened = false;
+        for (std::size_t e = 0; e < u_type_.size(); ++e) {
+            if (!unit_pool_.alive_at(static_cast<std::uint16_t>(e)) ||
+                side_of(u_type_[e]) != Side::Attacker || !is_combat(u_type_[e])) continue;
+            const auto& enemy = stats_.of(u_type_[e]);
+            const float radius = enemy.range+1.0f;
+            const float dx=u_pos_[e].x-u_pos_[u].x, dy=u_pos_[e].y-u_pos_[u].y;
+            const auto ep=grid_of(u_pos_[e]);
+            if (dx*dx+dy*dy <= radius*radius && fog(Side::Defender).vis_bytes()[ep.j*width()+ep.i]==static_cast<std::uint8_t>(Vis::Visible) &&
+                (is_aerial(u_type_[e]) || line_of_sight(terrain_,ep,grid_of(u_pos_[u])))) {threatened=true;break;}
+        }
+        if (threatened) continue;
+        const auto hp = std::min(u_max_hp_[u]-u_hp_[u],
+            std::max<std::int64_t>(1, u_max_hp_[u]*g.recovery_hp_permille_per_second/1000));
+        const auto full_price = (train_cost_gold(u_type_[u],u_level_[u])*g.recovery_price_permille+999)/1000;
+        const auto needed = hp*full_price;
+        const auto unpaid = std::max<std::int64_t>(0, needed-u_recovery_credit_[u]);
+        const auto gold = (unpaid+u_max_hp_[u]-1)/u_max_hp_[u];
+        auto& stock = stock_[static_cast<std::size_t>(Resource::Gold)];
+        if (stock < gold) continue;
+        stock -= gold;
+        u_recovery_credit_[u] += gold*u_max_hp_[u]-needed;
+        u_hp_[u] += hp;
     }
 }
 

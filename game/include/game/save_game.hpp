@@ -12,7 +12,8 @@ namespace game {
 // v12 introduces staged fortification growth/prices; older saves stay isolated.
 // v15 adds shared attacker building memory and changes gameplay path decisions.
 // v18 extends the default assault cap to 150 seconds; v15-v17 used 120 seconds.
-inline constexpr int kSaveVersion=18;
+// v21 adds paid recovery, ranger posts/retreat state and the 8+3K population curve.
+inline constexpr int kSaveVersion=21;
 struct BattleArchive {
     std::string map_json,stats_json,snapshot;
     std::string tactical_policy_identity;
