@@ -533,7 +533,7 @@ inline GridPos pos_of_slot(std::uint16_t slot, int width) noexcept {
 // 随之移除（`u_upgrade_left_` 删，升级只经 `Train` 选级）。布局与行为双重变更。
 // `World/12` → `World/13`：新增 `CommandKind::Demolish`，`deferred_` 的长度随
 // `kCommandKindCount` 增加一格并进入哈希；与上面 `World/1 → World/2` 同类。
-inline constexpr std::string_view kWorldHashTag = "World/18";
+inline constexpr std::string_view kWorldHashTag = "World/19";
 
 class WorldView;
 
@@ -804,7 +804,6 @@ public:
     // `bld_slot_at`、`defender_macro.cpp` 抄的那一份）——它们可以改走这里，
     // 但那是另一件事，本函数先补上缺口。
     BldId bld_at(GridPos cell) const noexcept;
-    BldId recovery_barrack(Vec2 pos) const noexcept;
 
     BldType bld_type(BldId id) const;
     GridPos bld_pos(BldId id) const;
@@ -988,7 +987,6 @@ private:
 
     // 施工 / 维修推进、征兵倒计时与出兵、按周期入账。顺序在 advance() 注释里。
     void tick_economy();
-    void tick_recovery();
     // 守方 `Mason` 在 `pos` 施工半径内的人数（半径查表 `mason_work_radius`）。
     // 施工/维修/升级按人数线性加速（2026-09-01 起，此前是「在场与否」二值
     // 占位——试玩拍板：任务不够分时多人同任务必须真的更快）。
@@ -1060,9 +1058,9 @@ private:
     ProjSpec proj_at(std::size_t i) const;
 
     // 承诺一次攻击：锁定落点、起前摇、进冷却。`windup_ticks == 0` 时当场落地。
-    void commit_attack(std::size_t k, const TargetPick& t);
+    void commit_attack(std::size_t k, const TargetPick& t, std::span<const float> target_charge = {});
     // 前摇走完，按锁定的落点 / 目标结算伤害（含 AOE 与死亡处理）。
-    void land_attack(std::size_t k);
+    void land_attack(std::size_t k, std::span<const float> target_charge = {});
     // 对一个实体结算 `amount` 点伤害，归零即销毁；
     // 障碍被守方打掉时产出资源（`dealer_side` 用于产出归属）。
     void deal_damage(TgtKind kind, std::uint32_t raw, std::int64_t amount,
@@ -1107,8 +1105,6 @@ private:
     std::vector<UnitType> u_type_;
     std::vector<std::int32_t> u_level_;
     std::vector<std::int64_t> u_hp_;
-    std::vector<Tick> u_last_combat_;
-    std::vector<std::int64_t> u_recovery_credit_; // Prepaid fractional recovery, denominator is max HP.
     std::vector<std::int64_t> u_max_hp_;
     std::vector<Vec2> u_pos_;
     std::vector<std::uint16_t> u_squad_;      // 编队号，kNoSquad = 不属于任何

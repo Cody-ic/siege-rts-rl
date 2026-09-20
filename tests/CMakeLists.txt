@@ -101,7 +101,8 @@ add_executable(rts_tests
     projectile_test.cpp
     flow_test.cpp
     defender_script_test.cpp
-    ranger_recovery_test.cpp
+    defender_ranger_test.cpp
+    post_navigation_test.cpp
     player_input_test.cpp
     menu_test.cpp
     asset_paths_test.cpp

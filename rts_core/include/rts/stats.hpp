@@ -79,8 +79,7 @@ namespace rts {
 // 区分）。**下一个只改语义不改字段的人照此办理。**
 // Stats/13: non-Keep upgrades have a rising materials floor (40% + 10% per prior level).
 // Stats/14: fortifications have independent, staged durability and capped upgrade prices.
-// Stats/15: barracks recovery parameters and paid fractional healing.
-inline constexpr std::string_view kStatsShapeTag = "Stats/15";
+inline constexpr std::string_view kStatsShapeTag = "Stats/14";
 
 constexpr bool is_fortification(BldType type) noexcept {
     return type == BldType::Wall || type == BldType::Gate || type == BldType::Fence;
@@ -250,11 +249,6 @@ struct GlobalStats {
     // 不参与 TTK / 破坏速率那组要求 p−q=0 的不变量，没有理由跟着开方。
     // 默认 0 = 恒等（训练耗时不随等级变），一眼看出没标定。
     std::int32_t train_ticks_permille_per_level = 0;
-    // Paid, stationary recovery at a safe completed barracks. Zero rate disables it.
-    std::int32_t recovery_quiet_ticks = 100;
-    std::int32_t recovery_hp_permille_per_second = 0;
-    std::int32_t recovery_price_permille = 500;
-    float recovery_radius = 2.5f;
     // Fortifications: linear base-HP increments, followed by a restarted square
     // root whose first increment equals one linear step. Prices grow more slowly
     // after the same breakpoint, then freeze at the price of reaching the cap.

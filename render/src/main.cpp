@@ -565,7 +565,7 @@ std::vector<std::string_view> font_coverage(const game::MapData& map) {
     cover.push_back("开发者对局不保存 开发者模式 资源无限 人口无限 下一波 输入波数 回车应用 关闭面板 本局不保存不解锁剧情 窥使侦查成功 情报影响下一波 窥使尚未得手 沿用旧情报 攻城锤 不死鸟 编队调整 本波编队 无调整 敌军将参考当前城防 石木金人口∞");
     for(auto text:render::guide_strings()) cover.push_back(text);
     for(auto text:render::developer_strings) cover.push_back(text);
-    cover.push_back("猎骑驻防前往截击回岗避险休整受阻右键重设驻点兵营付费恢复");
+    cover.push_back("驻点驻防前往接敌回岗受阻右键建筑驻守已下达建筑驻守指令弓手驻墙地面部队守卫建筑冲锋加成");
     cover.push_back("已选建筑升级座已安排仍需工匠施工不占人口本波累计发现非剩余兵力最近回报秒前窥使须持续观察完成前击落可阻断情报");
     cover.push_back(map.name());
     cover.push_back(map.map_id());
@@ -1762,7 +1762,7 @@ int run_game(Options& opt) {
             for (const rts::UnitId id : selected) {
                 const std::size_t s = id.index();
                 if (!b->world().alive(id) || s >= ualive.size() || !ualive[s]) continue;
-                if (const auto* post=b->ranger_post(id))
+                if (const auto* post=b->defender_post(id))
                     overlay.draw_cell_outline(post->anchor,Color{116,215,222,230},2.0f/cam.camera().zoom);
                 const rts::Vec2 sp = unit_draw_anchor(v, s, proj, atlas);
                 const float radius = 10.0f / cam.camera().zoom;
@@ -1861,10 +1861,17 @@ int run_game(Options& opt) {
                 font->draw(hint,rts::Vec2{hint_x,screen_h-33},18,Color{162,174,167,255});
             }
             if (!placing && selected.size()==1 && b->world().alive(selected.front())) {
-                if (const auto* post=b->ranger_post(selected.front())) {
-                    constexpr const char* modes[]={"驻防","前往","截击","回岗","避险","休整","受阻"};
-                    std::snprintf(hint,sizeof(hint),"猎骑 · %s · (%d, %d)  右键重设驻点 · 兵营付费恢复",
-                        modes[static_cast<unsigned>(post->mode)],post->anchor.i,post->anchor.j);
+                if (const auto* post=b->defender_post(selected.front())) {
+                    constexpr const char* modes[]={"驻防","前往","接敌","回岗","受阻"};
+                    const auto id=selected.front();
+                    const auto unit_name=game::display_name(b->world().unit_type(id));
+                    std::string post_name="驻点";
+                    const auto post_view=b->world().view(rts::Side::Defender);
+                    const auto building=post_view.bld_at(post->anchor);
+                    if(building.valid() && building.raw()==post->building)
+                        post_name=game::display_name(post_view.bld_type()[building.index()]);
+                    std::snprintf(hint,sizeof(hint),"%s · %s · %s (%d, %d)  右键建筑驻守",
+                        unit_name.data(),modes[static_cast<unsigned>(post->mode)],post_name.c_str(),post->anchor.i,post->anchor.j);
                     DrawRectangle(0,static_cast<int>(screen_h)-110,static_cast<int>(screen_w),30,Color{23,28,30,240});
                     font->draw(hint,{14,screen_h-105},18,Color{218,221,207,255});
                 }
@@ -2009,7 +2016,7 @@ int run_game(Options& opt) {
             b.update(b.world().train_ticks_at(rts::UnitType::Ranger,1)+1);
             std::vector<rts::UnitId> ids;b.world().enumerate_units(rts::Side::Defender,ids);
             for (const auto id:ids) if (b.world().unit_type(id)==rts::UnitType::Ranger) {
-                selected={id};b.issue_move_order(selected,b.world().keep_pos());break;
+                selected={id};b.issue_guard_order(selected,b.world().keep_pos());break;
             }
             if(selected.empty()) throw std::runtime_error("ranger screenshot recruitment failed");
             b.update(9);
@@ -2513,17 +2520,22 @@ int run_game(Options& opt) {
                 }
             } else if (in_map && !selected.empty() &&
                        IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
-                // 右键对选中集下令。**辅助性覆盖**：两种单兵指令（驻墙 / 开拔）
-                // 都落成 `DefenderScript` 里的临时 ManualOrder，到达即失效、
-                // 回归自主——它们不是 `rts::Command`，不进世界、不进哈希
-                // （`game/player_input.hpp` 文件头）。唯一还走命令通道的是
-                // 清野（标记是全局的，与选中集无关）。
+                // Right-click buildings assigns persistent guard duty; archers still mount walls.
+                // Ground movement and Shift forced-work keep their existing command paths.
                 if (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT)) {
                     if (const auto hit = pick_building_sprite(map, view, b->world().now(), proj, atlas, wpos, atmosphere_on)) cell = *hit;
                     const bool issued = b->issue_forced_work(selected, cell);
                     notice = issued ? "强制抢修：工匠将忽略危险，工程结束后恢复自主" : "请选择工匠，并指向在建、在修或升级中的建筑";
                     notice_until = GetTime() + 3.0;
-                } else switch (game::classify_click(view, cell)) {
+                } else {
+                    if (!view.bld_at(cell).valid()) {
+                        if (const auto hit=pick_building_sprite(map,view,b->world().now(),proj,atlas,wpos,atmosphere_on)) cell=*hit;
+                    }
+                    if (b->issue_guard_order(selected,cell)) {
+                        order_target=cell;order_until=GetTime()+2.5;
+                        notice="已下达建筑驻守指令";
+                        notice_until=GetTime()+3.0;
+                    } else switch (game::classify_click(view, cell)) {
                     case game::ClickTarget::Wall:
                         b->issue_garrison_order(selected, cell);
                         order_target = cell;
@@ -2540,11 +2552,12 @@ int run_game(Options& opt) {
                         b->issue_move_order(selected, cell);
                         order_target = cell;
                         order_until = GetTime()+2.5;
-                        notice = "已下达移动指令，到达后恢复自主作战";
+                        notice = "已下达移动指令";
                         notice_until = GetTime()+3.0;
                         break;
                     case game::ClickTarget::None:
                         break;
+                    }
                 }
             }
         }

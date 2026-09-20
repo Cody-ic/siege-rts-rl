@@ -178,8 +178,7 @@ World::TargetPick World::pick_target(std::size_t k, UnitAction a) const {
 
 // ——承诺与落地——
 
-void World::commit_attack(std::size_t k, const TargetPick& t) {
-    u_last_combat_[k] = tick_;
+void World::commit_attack(std::size_t k, const TargetPick& t, std::span<const float> target_charge) {
     u_tgt_kind_[k] = t.kind;
     u_tgt_raw_[k] = t.raw;
     // **锁定就发生在这一行。** 之后目标怎么走都与落点无关。
@@ -187,10 +186,10 @@ void World::commit_attack(std::size_t k, const TargetPick& t) {
     u_cd_[k] = stats_.of(u_type_[k]).cooldown_ticks;
     const std::int32_t w = stats_.of(u_type_[k]).windup_ticks;
     u_windup_[k] = w;
-    if (w == 0) land_attack(k);
+    if (w == 0) land_attack(k, target_charge);
 }
 
-void World::land_attack(std::size_t k) {
+void World::land_attack(std::size_t k, std::span<const float> target_charge) {
     const UnitType my_type = u_type_[k];
     const UnitStats& s = stats_.of(my_type);
     const UnitBehavior& beh = behavior_of(my_type);
@@ -303,9 +302,9 @@ void World::land_attack(std::size_t k) {
         std::int64_t mods[5] = {lvl, charge_pm, 0, 0, 0};
         std::size_t n = 2;
         if (!atk_high && on_high_wall(t)) mods[n++] = hg_dmg;
-        if (beh.counters_charge() && behavior_of(u_type_[t]).charges() &&
-            u_charge_[t] > 0.0f) {
-            mods[n++] = anti_charge_permille(u_charge_[t],
+        const float momentum = target_charge.empty() ? u_charge_[t] : target_charge[t];
+        if (beh.counters_charge() && behavior_of(u_type_[t]).charges() && momentum > 0.0f) {
+            mods[n++] = anti_charge_permille(momentum,
                                              stats_.global.charge_max_cells,
                                              stats_.global.anti_charge_permille);
         }
@@ -396,7 +395,6 @@ void World::deal_damage(TgtKind kind, std::uint32_t raw, std::int64_t amount,
             const auto damage = amount < u_hp_[t] ? amount : u_hp_[t];
             if (enemy) tl.dmg_to_units += damage;
             else tl.friendly_unit_damage += damage;
-            if (amount > 0) u_last_combat_[t] = tick_;
             u_hp_[t] -= amount;
             if (u_hp_[t] <= 0) {
                 if (enemy) {
@@ -488,13 +486,16 @@ void World::deal_damage(TgtKind kind, std::uint32_t raw, std::int64_t amount,
 // ——阶段 2：单位战斗——
 
 void World::tick_unit_combat() {
+    // Counter-charge reads momentum before any attack in this phase consumes it.
+    // Scratch data only: no new persistent unit state or save fields.
+    const auto target_charge = u_charge_;
     for (std::size_t k = 0; k < unit_pool_.slot_count(); ++k) {
         if (!unit_pool_.alive_at(static_cast<std::uint16_t>(k))) continue;
         if (u_cd_[k] > 0) --u_cd_[k];
         if (u_windup_[k] > 0) {
             --u_windup_[k];
             if (u_windup_[k] == 0 && u_tgt_kind_[k] != TgtKind::None) {
-                land_attack(k);
+                land_attack(k, target_charge);
             }
             continue;   // 前摇中：不承诺新的出手
         }
@@ -511,71 +512,7 @@ void World::tick_unit_combat() {
         // 有效射程 = 基础值 + 远程驻守的高度加成（掩码用同一个函数）。
         const float range = effective_range(k);
         if (t.dist2 > range * range) continue;   // 打不到就空转（乙）
-        commit_attack(k, t);
-    }
-}
-
-BldId World::recovery_barrack(Vec2 pos) const noexcept {
-    const auto start = grid_of(pos);
-    if (!terrain_.in_bounds(start.i,start.j)) return {};
-    for (std::size_t b=0;b<b_type_.size();++b) {
-        if (!bld_pool_.alive_at(static_cast<std::uint16_t>(b)) || b_type_[b]!=BldType::Barrack ||
-            !b_built_[b] || b_work_[b]>0 || b_upgrade_left_[b]>0 ||
-            dist2(pos,center_of(b_pos_[b]))>stats_.global.recovery_radius*stats_.global.recovery_radius) continue;
-        // Treatment cannot cross a wall, obstacle or impassable terrain.
-        int x=start.i,y=start.j;
-        const int dx=std::abs(b_pos_[b].i-x),dy=std::abs(b_pos_[b].j-y);
-        const int sx=x<b_pos_[b].i?1:-1,sy=y<b_pos_[b].j?1:-1;
-        int err=dx-dy;bool clear=true;
-        while (x!=b_pos_[b].i || y!=b_pos_[b].j) {
-            const auto c=static_cast<std::size_t>(y*width()+x);
-            const auto building=bld_at_[c];
-            if (!terrain_.passable(x,y) || obstacle_at_[c]!=0 ||
-                (building!=0 && !(b_type_[static_cast<std::size_t>(building-1)]==BldType::Gate && b_built_[static_cast<std::size_t>(building-1)]))) {
-                clear=false;break;
-            }
-            const int e2=2*err;
-            if (e2>-dy) {err-=dy;x+=sx;}
-            if (e2<dx) {err+=dx;y+=sy;}
-        }
-        if (clear) return bld_pool_.id_at(static_cast<std::uint16_t>(b));
-    }
-    return {};
-}
-
-void World::tick_recovery() {
-    const auto& g = stats_.global;
-    if (g.recovery_hp_permille_per_second <= 0 || tick_ % 20 != 0) return;
-    for (std::size_t u = 0; u < u_type_.size(); ++u) {
-        if (!unit_pool_.alive_at(static_cast<std::uint16_t>(u)) ||
-            side_of(u_type_[u]) != Side::Defender || !is_combat(u_type_[u]) ||
-            u_hp_[u] >= u_max_hp_[u] || u_action_[u] != UnitAction::Stop ||
-            u_garrison_[u] != kNoSlot || u_windup_[u] > 0 ||
-            tick_ - u_last_combat_[u] < g.recovery_quiet_ticks) continue;
-        if (!recovery_barrack(u_pos_[u]).valid()) continue;
-        bool threatened = false;
-        for (std::size_t e = 0; e < u_type_.size(); ++e) {
-            if (!unit_pool_.alive_at(static_cast<std::uint16_t>(e)) ||
-                side_of(u_type_[e]) != Side::Attacker || !is_combat(u_type_[e])) continue;
-            const auto& enemy = stats_.of(u_type_[e]);
-            const float radius = enemy.range+1.0f;
-            const float dx=u_pos_[e].x-u_pos_[u].x, dy=u_pos_[e].y-u_pos_[u].y;
-            const auto ep=grid_of(u_pos_[e]);
-            if (dx*dx+dy*dy <= radius*radius && fog(Side::Defender).vis_bytes()[ep.j*width()+ep.i]==static_cast<std::uint8_t>(Vis::Visible) &&
-                (is_aerial(u_type_[e]) || line_of_sight(terrain_,ep,grid_of(u_pos_[u])))) {threatened=true;break;}
-        }
-        if (threatened) continue;
-        const auto hp = std::min(u_max_hp_[u]-u_hp_[u],
-            std::max<std::int64_t>(1, u_max_hp_[u]*g.recovery_hp_permille_per_second/1000));
-        const auto full_price = (train_cost_gold(u_type_[u],u_level_[u])*g.recovery_price_permille+999)/1000;
-        const auto needed = hp*full_price;
-        const auto unpaid = std::max<std::int64_t>(0, needed-u_recovery_credit_[u]);
-        const auto gold = (unpaid+u_max_hp_[u]-1)/u_max_hp_[u];
-        auto& stock = stock_[static_cast<std::size_t>(Resource::Gold)];
-        if (stock < gold) continue;
-        stock -= gold;
-        u_recovery_credit_[u] += gold*u_max_hp_[u]-needed;
-        u_hp_[u] += hp;
+        commit_attack(k, t, target_charge);
     }
 }
 

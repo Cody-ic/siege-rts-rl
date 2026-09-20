@@ -8,9 +8,9 @@
 //
 // ## 玩家部署与自主执行
 //
-// Archer/Spear/Mason/Scout 保留现行临时移动/驻墙语义。
-// Ranger 的右键落点是持久驻点：有限接敌、避险、战后回岗，跨波/读档保留。
-// 普通手动命令不能绕过猎骑的安全判断；脚本状态随对局快照和操作日志恢复。
+// 战斗守军支持建筑驻守；弓手点墙仍登墙，工匠/斥候不接战斗驻守。
+// Ranger 的右键落点是持久驻点：主动接敌、战后回岗，跨波/读档保留。
+// 猎骑不因低血量或强敌否决命令；脚本状态随对局快照和操作日志恢复。
 //
 // 逐条对照（同文 2.5 那张表，克制二部图里已写死的战术行为进脚本）：
 //
@@ -22,8 +22,8 @@
 //     打得着就打；敌人进堡垒 `spear_engage_cells` 圈就主动出击迎击最近
 //     来敌，出圈即收兵回驻防环——被风筝出阵位正是 Shade 克枪卫的机制，
 //     圈就是那条风筝防线，脚本不能亲手送。没仗打时在堡垒周围的驻防环上站位
-//   * `Ranger` 围绕驻点截击可承受的目标，比较实际等级、承伤和有效支援；
-//     低血量或不利接战时选择可达撤回路线，在安全兵营付费恢复后回岗。
+//   * `Ranger` 围绕驻点主动接敌，经城门和巷道冲向可见地面目标；
+//     不因血量、敌人等级或兵力差自动退却，无目标后返回驻点。
 //   * `Mason` **自动找活 + 任务认领**：优先挑「本拍还没别的工匠认领」的
 //     最近任务（工地 / 维修点 / 升级工程），各管一个；任务数少于工匠数时才多人同
 //     任务——同任务的加速在机制层（`World::mason_count` 线性加速）。
@@ -96,15 +96,14 @@ struct ScoutNavigation {
     std::uint16_t generation = 0;
 };
 
-enum class RangerMode : std::uint8_t { Holding, Moving, Engaging, Returning, Evading, Recovering, Blocked };
-struct RangerPost {
+enum class PostMode : std::uint8_t { Holding, Moving, Engaging, Returning, Blocked };
+struct DefenderPost {
     bool active = false;
     std::uint16_t generation = 0;
     rts::GridPos anchor{};
     bool player_set = false;
-    bool recovering = false;
-    rts::Tick retreat_until = 0;
-    RangerMode mode = RangerMode::Holding;
+    std::uint32_t building = rts::BldId::kInvalidRaw; // Full identity; destroyed buildings leave a coordinate post.
+    PostMode mode = PostMode::Holding;
 };
 
 // 微操参数。**数值全部占位**（CLAUDE.md「关于数值」）；「一族」脚本 =
@@ -114,7 +113,6 @@ struct ScriptParams {
     float kite_trigger_cells = 2.5f;    // 占位：近战威胁进此距离，弓手后撤
     std::int32_t kite_permille = 1000;  // 占位：每个决策拍真的后撤的概率
     std::int32_t reaction_decisions = 0;  // 占位：威胁持续几拍才响应（生疏度）
-    float avoid_knight_cells = 3.0f;    // 占位：游骑对骑士的保持距离
     float arrive_cells = 1.5f;          // 占位：距目标点多近算「到了」
     // 占位：敌人进到堡垒此圈以内，枪卫主动出击迎击（出圈即收兵回驻防环——
     // 圈就是风筝防线， Shade 在圈外挑逗时枪卫不上当）。
@@ -143,8 +141,8 @@ public:
                 std::vector<rts::UnitAction>& out,
                 std::vector<std::uint16_t>& garrison_out);
 
-    // Per-tick navigation only: preserve tactical decisions and garrison wishes.
-    // Returns current actions in canonical order; scouts refresh turns and rangers reassess safety.
+    // Refresh scout routes and combat posts on cell transitions between regular decisions.
+    // Returns current actions in canonical order; garrison wishes remain unchanged.
     bool refresh_scout_navigation(const rts::WorldView& view,
                                   std::span<const rts::UnitId> ids,
                                   std::vector<rts::UnitAction>& out);
@@ -153,12 +151,14 @@ public:
     // 点空地的落点）。**只影响它们、不进 `World`**——这是它与旧 `MoveForce`
     // 的分界。优先于一切自主默认；到达目标格后自动清除，回归自主。
     // 对已上墙的单位同时是「下来」：登墙意愿清空，世界放人，再走过去。
-    // Ranger uses this destination as a persistent post; safety checks still apply.
+    // Ranger keeps a coordinate post; for other troops moving cancels building guard duty.
     void issue_move_order(std::span<const rts::UnitId> ids, rts::GridPos target);
     bool issue_forced_work(const rts::WorldView& view, std::span<const rts::UnitId> ids,
                            rts::GridPos target);
     bool forced_work_active(const rts::WorldView& view, rts::UnitId id) const;
-    const RangerPost* ranger_post(rts::UnitId id) const noexcept;
+    const DefenderPost* defender_post(rts::UnitId id) const noexcept;
+    bool issue_guard_order(const rts::WorldView& view, std::span<const rts::UnitId> ids,
+                           rts::GridPos target);
 
     // 同上，但目标是**驻进 `wall_cell` 那段墙**（右键点墙的落点）：走位到
     // 墙边 + 登墙意愿一起给，登墙本身照旧由 `tick_garrison` 解算。登顶后
@@ -168,7 +168,7 @@ public:
                               rts::GridPos wall_cell);
 
 private:
-    rts::UnitAction decide_ranger(const rts::WorldView& view, rts::UnitId id);
+    rts::UnitAction decide_post(const rts::WorldView& view, rts::UnitId id);
     rts::UnitAction decide_unit(const rts::WorldView& view, rts::UnitId id,
                                 std::uint16_t& wish);
     // 给弓手挑一段墙登：最近的「完工 Wall/Gate、无人驻守（含在爬）、本拍也
@@ -197,7 +197,7 @@ private:
     std::vector<ManualOrder> manual_order_;      // 按槽位：框选下达的临时指令
     std::vector<PatrolGoal> patrol_goal_;        // 按槽位：斥候巡逻承诺目标
     std::vector<ScoutNavigation> scout_navigation_;
-    std::vector<RangerPost> ranger_posts_;
+    std::vector<DefenderPost> defender_posts_;
     std::vector<std::uint16_t> wall_claimed_;   // 本拍已占 / 已指派的墙格
     // 本拍已被认领的工匠任务（建筑槽位）：工匠优先各管一个，任务不够分时
     // 才多人同任务（同任务的加速在机制层，`World::mason_count`）。

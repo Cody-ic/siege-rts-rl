@@ -4,7 +4,7 @@
 //
 //   * **克制二部图里写死的三条战术真的在脚本里**（`守方AI与协同演化.md` 2.5
 //     的判据：图里写死的进脚本、没写的留给 RL）——拉扯、堵口不追、
-//     避骑士摸攻城锤。每条都配一个「关掉参数就退化」的对照，
+//     猎骑主动迎击。关键行为配有独立场景，
 //     免得断言碰巧绿在别的机制上
 //   * **自主默认与手动临时指令**（2026-09 编队移除后）：弓手没仗打自动找
 //     最近的空墙段登墙（意愿经 `submit_garrison_wishes` 进 World）、框选
@@ -86,8 +86,14 @@ void run(rts::World& w, game::DefenderScript& s, int ticks,
     std::vector<rts::UnitId> ids;
     std::vector<rts::UnitAction> acts;
     std::vector<std::uint16_t> wishes;
-    for (int t = 0; t < ticks; t += rts::kDecisionPeriodMin) {
+    for (int t = 0; t < ticks; ++t) {
         w.enumerate_units(rts::Side::Defender, ids);
+        if (t % rts::kDecisionPeriodMin != 0) {
+            if (s.refresh_scout_navigation(w.view(rts::Side::Defender), ids, acts))
+                w.submit_actions(rts::Side::Defender, acts.data(), acts.size());
+            w.advance(1);
+            continue;
+        }
         s.decide(w.view(rts::Side::Defender), ids, acts, wishes);
         w.submit_actions(rts::Side::Defender, acts.data(), acts.size());
         w.submit_garrison_wishes(rts::Side::Defender, wishes.data(), wishes.size());
@@ -100,7 +106,7 @@ void run(rts::World& w, game::DefenderScript& s, int ticks,
                                : atk_move);
         }
         w.submit_actions(rts::Side::Attacker, acts.data(), acts.size());
-        w.advance(rts::kDecisionPeriodMin);
+        w.advance(1);
     }
 }
 
@@ -280,41 +286,33 @@ TEST_CASE("枪卫守家迎击：敌人进堡垒圈就主动出击，出圈不追
     }
 }
 
-TEST_CASE("游骑：骑士靠近就脱离，没命令时拦截城内攻城锤", "[script]") {
-    SECTION("避骑士：距离只增不减（不与骑士对冲）") {
+TEST_CASE("猎骑：主动迎击骑士和攻城锤", "[script]") {
+    SECTION("骑士靠近时主动接敌") {
         rts::WorldInit init = sarena();
+        init.keep={5,2};init.buildings[0].pos=init.keep;
         init.units.push_back(
             rts::UnitInit{rts::UnitType::Ranger, rts::Vec2{8.5f, 2.5f}, 1, 18, 18});
         rts::World w(std::move(init));
-        const rts::UnitId r = [&] {
-            std::vector<rts::UnitId> ids;
-            w.enumerate_units(rts::Side::Defender, ids);
-            return ids[0];
-        }();
         const rts::UnitId k =
             w.spawn_unit(rts::UnitType::Knight, rts::Vec2{10.5f, 2.5f}, 1, 26, 26);
 
         game::DefenderScript s(game::ScriptParams{}, 3);
         run(w, s, 40, rts::UnitAction::Stop);   // 骑士原地（贴近由初始距离 2.0 构成）
 
-        const float dx = w.unit_pos(r).x - w.unit_pos(k).x;
-        const float dy = w.unit_pos(r).y - w.unit_pos(k).y;
-        REQUIRE(dx * dx + dy * dy > 3.0f * 3.0f);   // 已脱离保持距离圈
+        REQUIRE((!w.alive(k) || w.unit_hp(k)<26));
     }
-    SECTION("拦截受损攻城锤：可承受的目标主动迎击") {
+    SECTION("没有命令时主动拦截攻城锤") {
         rts::WorldInit init = sarena();
-        // This fixture must describe a survivable approach, not require a suicide charge.
-        us(init.stats, rts::UnitType::Ram).damage = 2;
         init.units.push_back(
             rts::UnitInit{rts::UnitType::Ranger, rts::Vec2{4.5f, 2.5f}, 1, 18, 18});
         rts::World w(std::move(init));
         const rts::UnitId ram =
-            w.spawn_unit(rts::UnitType::Ram, rts::Vec2{7.5f, 2.5f}, 1, 10, 60);
+            w.spawn_unit(rts::UnitType::Ram, rts::Vec2{7.5f, 2.5f}, 1, 60, 60);
 
         game::DefenderScript s(game::ScriptParams{}, 3);
         run(w, s, 200, rts::UnitAction::Stop);
 
-        REQUIRE((!w.alive(ram) || w.unit_hp(ram) < 10));   // 真的打上了
+        REQUIRE((!w.alive(ram) || w.unit_hp(ram) < 60));   // 真的打上了
     }
 }
 
@@ -357,7 +355,7 @@ TEST_CASE("框选开拔穿城门出城：门血一点不掉（第六批的端到
         s.decide(w.view(rts::Side::Defender), ids, acts, wishes);
         w.submit_actions(rts::Side::Defender, acts.data(), acts.size());
         w.submit_garrison_wishes(rts::Side::Defender, wishes.data(), wishes.size());
-        w.advance(rts::kDecisionPeriodMin);
+        w.advance(1);
         const rts::Vec2 p = w.unit_pos(r);
         const float dx = p.x - 10.5f;
         const float dy = p.y - 2.5f;
@@ -616,12 +614,13 @@ TEST_CASE("攻击目标进入射程后迎击指令会开火，不再只顾冲到
     REQUIRE(w.unit_hp(target)<100);
     REQUIRE(w.unit_pos(ids[0]).x<6.0f);
 }
-TEST_CASE("猎骑不会自动追出封闭城圈", "[script]") {
+TEST_CASE("猎骑可经城门迎击驻点范围内的城外敌人", "[script]") {
     auto init=sarena(20,20);init.keep={10,10};init.buildings[0].pos=init.keep;
     for(int x=5;x<=15;++x) for(int y=5;y<=15;++y) if(x==5||x==15||y==5||y==15)
         init.buildings.push_back({x==15&&y==10?rts::BldType::Gate:rts::BldType::Wall,{static_cast<std::int16_t>(x),static_cast<std::int16_t>(y)},40,40});
     init.units.push_back({rts::UnitType::Ranger,{12.5f,10.5f},1,18,18});rts::World w(init);
-    w.spawn_unit(rts::UnitType::Ram,{17.5f,10.5f},1,60,60);
+    const auto ram=w.spawn_unit(rts::UnitType::Ram,{17.5f,10.5f},1,60,60);
     std::vector<rts::UnitId> ids;w.enumerate_units(rts::Side::Defender,ids);game::DefenderScript script({},1);
-    for(int t=0;t<200;t+=4) {run(w,script,4);REQUIRE(w.unit_pos(ids[0]).x<15.0f);}
+    script.issue_move_order(ids,{12,10});run(w,script,200,rts::UnitAction::Stop);
+    REQUIRE((!w.alive(ram) || w.unit_hp(ram)<60));
 }

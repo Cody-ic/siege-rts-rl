@@ -64,10 +64,6 @@ std::uint64_t StatsTable::fingerprint() const noexcept {
     h.feed_pod(global.anti_charge_permille);
     h.feed_pod(global.building_level_cap_divisor);
     h.feed_pod(global.train_ticks_permille_per_level);
-    h.feed_pod(global.recovery_quiet_ticks);
-    h.feed_pod(global.recovery_hp_permille_per_second);
-    h.feed_pod(global.recovery_price_permille);
-    h.feed_f32(global.recovery_radius);
     h.feed_pod(global.fortification_hp_permille_per_level);
     h.feed_pod(global.fortification_linear_until_level);
     h.feed_pod(global.fortification_price_step_permille);

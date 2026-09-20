@@ -227,13 +227,13 @@ bool DefenderScript::refresh_scout_navigation(const rts::WorldView& view,
     for (const auto id : ids) {
         const auto slot = id.index();
         auto action = view.unit_action()[slot];
-        if ((view.unit_type()[slot] == rts::UnitType::Scout || view.unit_type()[slot] == rts::UnitType::Ranger) &&
+        if ((view.unit_type()[slot] == rts::UnitType::Scout || view.unit_type()[slot] == rts::UnitType::Ranger || defender_post(id)) &&
             slot < scout_navigation_.size() && rts::is_move(action) &&
             view.unit_garrison()[slot] == rts::kNoSlot) {
             const auto navigation = scout_navigation_[slot];
             if (navigation.active && navigation.generation == id.generation() &&
                 navigation.cell != rts::grid_of(view.unit_pos()[slot])) {
-                action = view.unit_type()[slot] == rts::UnitType::Ranger ? decide_ranger(view, id) :
+                action = (view.unit_type()[slot] == rts::UnitType::Ranger || defender_post(id)) ? decide_post(view, id) :
                     move_towards(view, slot, navigation.target, view.action_mask(id));
                 changed = true;
             }
@@ -247,6 +247,7 @@ void DefenderScript::issue_move_order(std::span<const rts::UnitId> ids,
                                       rts::GridPos target) {
     for (const rts::UnitId id : ids) {
         const std::size_t slot = id.index();
+        if (slot < defender_posts_.size()) defender_posts_[slot] = {};
         if (manual_order_.size() <= slot) manual_order_.resize(slot + 1);
         manual_order_[slot] =
             ManualOrder{true, target, false, id.generation()};
@@ -257,6 +258,7 @@ void DefenderScript::issue_garrison_order(std::span<const rts::UnitId> ids,
                                           rts::GridPos wall_cell) {
     for (const rts::UnitId id : ids) {
         const std::size_t slot = id.index();
+        if (slot < defender_posts_.size()) defender_posts_[slot] = {};
         if (manual_order_.size() <= slot) manual_order_.resize(slot + 1);
         manual_order_[slot] =
             ManualOrder{true, wall_cell, true, id.generation()};
@@ -316,8 +318,8 @@ rts::UnitAction DefenderScript::decide_unit(const rts::WorldView& view,
         return safe_worker(view,slot,mask,bld_claimed_,target);
     }
 
-    // Ranger movement remains subject to its safety policy, including manual orders.
-    if (t == rts::UnitType::Ranger) return decide_ranger(view, id);
+    // Ranger orders set persistent posts; navigation and active engagement share one path.
+    if (t == rts::UnitType::Ranger || defender_post(id)) return decide_post(view, id);
 
     // ——手动临时指令（辅助性覆盖）：优先于一切自主默认——
     //
@@ -455,7 +457,7 @@ rts::UnitAction DefenderScript::decide_unit(const rts::WorldView& view,
             }
             return hold_position(view, slot, mask);
         }
-        case rts::UnitType::Ranger: return decide_ranger(view, id);
+        case rts::UnitType::Ranger: return decide_post(view, id);
         case rts::UnitType::Mason: return rts::UnitAction::Stop; // handled before manual orders
         default: {
             // Scout 与任何后加的兵种：打得着就打（Scout 无战力，掩码永远

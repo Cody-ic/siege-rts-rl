@@ -178,9 +178,8 @@ public:
     // （`rts/combat_math.hpp` 的 anti_charge_permille——巷战里骑兵攒不出动量，
     // 克制自动消失，「开阔地克、巷战被反克」不需要读地形）。
     //
-    // 二部图里这条只会绑定 `Spear ──► Knight`：`Ghoul` 的轴组合相同，
-    // 但同阵营不交战，永远遇不到 `Knight`。这不是巧合而是二部图的性质——
-    // 按轴推导时只需检查两阵营之间的组合。
+    // 枪卫反制敌方骑士；亡灵步兵具有同样轴组合，会反制助跑中的猎骑。
+    // 贴身连续攻击没有冲锋动量，也不触发反冲锋倍率。
     bool counters_charge() const noexcept {
         return engage_range() == EngageRange::Melee &&
                mobility() == MobilityKind::HeavySlow;

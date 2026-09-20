@@ -87,19 +87,14 @@ TEST_CASE("空中单位恰好两个：Phoenix 与 Wraith", "[behavior]") {
             rts::MobilityKind::Aerial);
 }
 
-TEST_CASE("只有一个兵种吃冲锋助跑，且是 Knight", "[behavior]") {
-    // 冲锋伤害 ∝ 助跑距离是 CLAUDE.md 列举的「机制性克制」之一
-    // （开阔地怕枪阵、巷战反克）。给第二个兵种也加上冲锋，
-    // 「开阔地 vs 巷战」这条地形相关的取舍就被摊薄了。
-    int n = 0;
-    for (int i = 0; i < rts::kUnitTypeCount; ++i) {
-        if (rts::behavior_of(rts::unit_at(i)).charges()) ++n;
-    }
-    REQUIRE(n == 1);
+TEST_CASE("Both cavalry types use charge and heavy melee troops counter them", "[behavior]") {
+    int n=0;
+    for(int i=0;i<rts::kUnitTypeCount;++i) if(rts::behavior_of(rts::unit_at(i)).charges()) ++n;
+    REQUIRE(n==2);
     REQUIRE(rts::behavior_of(rts::UnitType::Knight).charges());
-    // 守方骑兵**不**吃冲锋——克制表里「`Ranger` ──► `Knight`（骑兵对冲，遏制出城）」
-    // 那条不对称正依赖于此。
-    REQUIRE_FALSE(rts::behavior_of(rts::UnitType::Ranger).charges());
+    REQUIRE(rts::behavior_of(rts::UnitType::Ranger).charges());
+    REQUIRE(rts::behavior_of(rts::UnitType::Spear).counters_charge());
+    REQUIRE(rts::behavior_of(rts::UnitType::Ghoul).counters_charge());
 }
 
 TEST_CASE("没有任何单位能攻击空中目标", "[behavior]") {

@@ -57,7 +57,7 @@ TEST_CASE("Release rejects and preserves earlier branch saves", "[save]") {
     Temp temp; auto active=shell(); active.apply(game::MenuAction::StartNew);
     const auto archive=game::capture_battle(active,map_text(),stats_text());
     const auto file=temp.path/"campaign.json";
-    for(const int version : {3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20}) {
+    for(const int version : {3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23}) {
         game::write_archive(file,archive);
         auto text=game::read_save_text(file);
         const auto key=text.find("\"version\"");
@@ -88,7 +88,10 @@ TEST_CASE("Ranger deployment survives a snapshot and operation-log replay", "[sa
     const auto it=std::find_if(ids.begin(),ids.end(),[&](auto id){return battle.world().unit_type(id)==rts::UnitType::Ranger;});
     REQUIRE(it!=ids.end());const auto rider=*it;
     const auto target=battle.world().keep_pos();
-    battle.issue_move_order({&rider,1},target);battle.update(9);
+    bool building_guard=false;
+    SECTION("Coordinate post") {battle.issue_move_order({&rider,1},target);}
+    SECTION("Building guard") {building_guard=true;REQUIRE(battle.issue_guard_order({&rider,1},target));}
+    battle.update(9);
     auto archive=game::capture_battle(original,map_text(),stats_text());
     int callbacks=0;
     auto snapshot=game::restore_battle(archive,[&](auto,auto){++callbacks;return true;});
@@ -96,28 +99,14 @@ TEST_CASE("Ranger deployment survives a snapshot and operation-log replay", "[sa
     archive.snapshot.clear();auto replay=game::restore_battle(archive);
     for (int i=0;i<100;++i) {
         battle.update(1);snapshot->update(1);replay->update(1);
-        REQUIRE(snapshot->ranger_post(rider));REQUIRE(replay->ranger_post(rider));
-        REQUIRE(snapshot->ranger_post(rider)->anchor==target);
-        REQUIRE(replay->ranger_post(rider)->anchor==target);
+        REQUIRE(snapshot->defender_post(rider));REQUIRE(replay->defender_post(rider));
+        REQUIRE(snapshot->defender_post(rider)->anchor==target);
+        REQUIRE(replay->defender_post(rider)->anchor==target);
+        REQUIRE(snapshot->defender_post(rider)->building==battle.defender_post(rider)->building);
+        REQUIRE(replay->defender_post(rider)->building==battle.defender_post(rider)->building);
+        REQUIRE((battle.defender_post(rider)->building!=rts::BldId::kInvalidRaw)==building_guard);
         REQUIRE(battle.world().state_hash()==snapshot->world().state_hash());
         REQUIRE(battle.world().state_hash()==replay->world().state_hash());
-    }
-}
-
-TEST_CASE("Recovery credit and retreat state survive snapshot restoration", "[save][ranger][recovery]") {
-    auto original=shell();original.apply(game::MenuAction::StartNew);auto& battle=*original.battle();
-    auto& w=const_cast<rts::World&>(battle.world());const auto keep=w.keep_pos();
-    rts::GridPos site{static_cast<std::int16_t>(keep.i+2),keep.j};
-    w.place_bld(rts::BldType::Barrack,site,400,400);w.set_stock(rts::Resource::Gold,100);
-    const auto rider=w.spawn_unit(rts::UnitType::Ranger,{float(keep.i)+3.5f,float(keep.j)+0.5f},1,90,320);
-    battle.issue_move_order({&rider,1},keep);battle.update(141);
-    REQUIRE(w.unit_hp(rider)>90);
-    const auto archive=game::capture_battle(original,map_text(),stats_text());
-    int callbacks=0;auto snapshot=game::restore_battle(archive,[&](auto,auto){++callbacks;return true;});
-    REQUIRE(callbacks==1);
-    for (int i=0;i<200;++i) {
-        battle.update(1);snapshot->update(1);
-        REQUIRE(w.state_hash()==snapshot->world().state_hash());
     }
 }
 

@@ -47,7 +47,7 @@ add_library(game STATIC
     src/attacker_knowledge.cpp
     src/defender_macro.cpp
     src/defender_script.cpp
-    src/defender_ranger.cpp
+    src/defender_post.cpp
     src/demo_driver.cpp
     src/player_input.cpp
     src/menu_model.cpp

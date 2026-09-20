@@ -215,7 +215,7 @@ public:
     }
     struct PlayerEvent {
         rts::Tick tick=0;
-        int kind=0; // 0 command, 1 move, 2 garrison, 3 forced work
+        int kind=0; // 0 command, 1 move, 2 garrison, 3 forced work, 4 building guard
         rts::Command command{};
         std::vector<rts::UnitId> ids;
         rts::GridPos target{};
@@ -261,10 +261,7 @@ public:
         }
     }
 
-    // 框选 + 右键的辅助性单兵指令：转给执行层脚本，**不进 `World`**——
-    // 它是临时覆盖（到达即失效），不是持久状态，理由见
-    // `game/defender_script.hpp` 文件头。对已上墙的单位，开拔指令同时
-    // 是「下来」（脚本清空它的登墙意愿，世界放人）。
+    // Player orders live in the script and are recorded for snapshot/log restoration.
     void issue_move_order(std::span<const rts::UnitId> ids, rts::GridPos target) {
         script_.issue_move_order(ids, target);
         player_events_.push_back({w_.now(),1,{},std::vector<rts::UnitId>(ids.begin(),ids.end()),target});
@@ -277,7 +274,12 @@ public:
     bool forced_work_active(rts::UnitId id) const {
         return script_.forced_work_active(w_.view(rts::Side::Defender), id);
     }
-    const RangerPost* ranger_post(rts::UnitId id) const noexcept {return script_.ranger_post(id);}
+    bool issue_guard_order(std::span<const rts::UnitId> ids, rts::GridPos target) {
+        if (!script_.issue_guard_order(w_.view(rts::Side::Defender), ids, target)) return false;
+        player_events_.push_back({w_.now(),4,{},std::vector<rts::UnitId>(ids.begin(),ids.end()),target});
+        return true;
+    }
+    const DefenderPost* defender_post(rts::UnitId id) const noexcept {return script_.defender_post(id);}
     void issue_garrison_order(std::span<const rts::UnitId> ids,
                               rts::GridPos wall_cell) {
         script_.issue_garrison_order(ids, wall_cell);

@@ -179,7 +179,6 @@ public:
                                              w_->bld_pool_.slot_count());
     }
     BldId bld_at(GridPos cell) const noexcept { return w_->bld_at(cell); }
-    BldId recovery_barrack(Vec2 pos) const noexcept { return w_->recovery_barrack(pos); }
     bool alive(UnitId id) const noexcept { return w_->alive(id); }
 
     std::span<const ObstacleType> obstacle_type() const noexcept {

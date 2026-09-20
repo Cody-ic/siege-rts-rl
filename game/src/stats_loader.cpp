@@ -263,8 +263,8 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
     // **stats/11 → stats/12 是同一类的第二例**，而它比第一例更难自查：一张
     // stats/11 的表在新公式下不但每个数合法，连 `Keep` 那一行都还完全正确
     // （它走的仍是线性分支），只有另外十座的价钱悄悄变了。
-    if (schema != "stats/15") {
-        fail(origin, "`schema` = \"" + schema + "\"，本程序只认 \"stats/15\"");
+    if (schema != "stats/14") {
+        fail(origin, "`schema` = \"" + schema + "\"，本程序只认 \"stats/14\"");
     }
 
     rts::StatsTable t;
@@ -321,9 +321,7 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
             "charge_max_cells", "anti_charge_permille",
             "building_level_cap_divisor", "train_ticks_permille_per_level",
             "fortification_hp_permille_per_level", "fortification_linear_until_level",
-            "fortification_price_step_permille", "fortification_price_cap_level",
-            "recovery_quiet_ticks", "recovery_hp_permille_per_second",
-            "recovery_price_permille", "recovery_radius"});
+            "fortification_price_step_permille", "fortification_price_cap_level"});
     t.global.hp_permille_per_level =
         need_i32(need(global, "hp_permille_per_level", origin, "`global`"), origin,
                  "`global.hp_permille_per_level`");
@@ -384,15 +382,6 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
     t.global.fortification_price_cap_level = need_i32(
         need(global, "fortification_price_cap_level", origin, "`global`"), origin,
         "`global.fortification_price_cap_level`");
-    t.global.recovery_quiet_ticks = need_i32(need(global, "recovery_quiet_ticks", origin, "`global`"), origin, "recovery_quiet_ticks");
-    t.global.recovery_hp_permille_per_second = need_i32(need(global, "recovery_hp_permille_per_second", origin, "`global`"), origin, "recovery_hp_permille_per_second");
-    t.global.recovery_price_permille = need_i32(need(global, "recovery_price_permille", origin, "`global`"), origin, "recovery_price_permille");
-    t.global.recovery_radius = need_f32(need(global, "recovery_radius", origin, "`global`"), origin, "recovery_radius");
-    if (t.global.recovery_quiet_ticks < 0 || t.global.recovery_hp_permille_per_second < 0 ||
-        t.global.recovery_hp_permille_per_second > 1000 || t.global.recovery_price_permille < 0 ||
-        t.global.recovery_price_permille > 1000 || t.global.recovery_radius < 0) {
-        fail(origin, "invalid barracks recovery settings");
-    }
     if (t.global.fortification_hp_permille_per_level < 0 ||
         t.global.fortification_hp_permille_per_level > 1000) {
         fail(origin, "`global.fortification_hp_permille_per_level` must be in [0, 1000]");
