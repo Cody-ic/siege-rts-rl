@@ -45,6 +45,7 @@ add_library(game STATIC
     src/battle_scene.cpp
     src/attacker_macro.cpp
     src/attacker_knowledge.cpp
+    src/phoenix_raid.cpp
     src/defender_macro.cpp
     src/defender_script.cpp
     src/defender_post.cpp

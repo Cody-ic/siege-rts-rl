@@ -164,6 +164,10 @@ public:
     std::int32_t train_ticks_at(UnitType ut, std::int32_t level) const noexcept {
         return w_->train_ticks_at(ut, level);
     }
+    std::int32_t train_ticks_at_building(UnitType ut, std::int32_t level,
+                                       BldType building, std::int32_t building_level) const noexcept {
+        return w_->train_ticks_at_building(ut, level, building, building_level);
+    }
     // 建筑升级定价，同上一条纪律：`game/player_input.cpp` 的升级查询调它，
     // 不在 `game/` 里重新推。`from_level` 是这座建筑**当前**的等级。
     std::int64_t bld_upgrade_cost_stone(BldType bt,

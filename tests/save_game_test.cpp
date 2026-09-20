@@ -363,37 +363,50 @@ TEST_CASE("日记 v1 迁移不补发彩蛋，v2 合并持久化与备份", "[sav
     REQUIRE(game::read_journal(file)==restored);
 }
 
-TEST_CASE("白羽判据按同一身份计数，击落重置且获得后存档保留", "[save]") {
+TEST_CASE("白羽按实际交战累计，击落重生保留同一身份经历", "[save][feather]") {
     auto curve=game::WaveCurve{};curve.phoenix_from_wave=1;curve.phoenix_base=1;curve.phoenix_cap=1;
     // The small fixture has edge spawns: keep its army within the spawn ring.
     curve.slots_base=3;curve.slots_per_wave=0;curve.slots_cap=3;
-    game::WaveTiming timing;timing.first_build_ticks=1;timing.build_ticks=1;timing.assault_max_ticks=5;
+    game::WaveTiming timing;timing.first_build_ticks=1;timing.build_ticks=1;timing.assault_max_ticks=100;
+    auto combat_stats=stats_text();
+    const auto flak_section=combat_stats.find("\"Flak\"");
+    const auto windup=combat_stats.find("\"windup_ticks\": 6",flak_section);
+    REQUIRE(windup!=std::string::npos);
+    combat_stats.replace(windup,std::string("\"windup_ticks\": 6").size(),"\"windup_ticks\": 0");
     auto original=shell();
     original.adopt_saved_battle(game::DemoBattle(game::MapLoader::from_string(map_text()),
-        game::StatsLoader::from_string(stats_text()),7,timing,curve),1,game::ChronicleChoice::None);
+        game::StatsLoader::from_string(combat_stats),7,timing,curve),1,game::ChronicleChoice::None);
     auto& battle=*original.battle();
-    const auto until=[&](int wave) {
-        for(int tick=0;tick<300 && battle.world().wave()<wave;++tick) battle.update(1);
-        REQUIRE(battle.world().wave()==wave);
-    };
-    const auto kill_bird=[&]() {
+    auto& w=const_cast<rts::World&>(battle.world());
+    const auto find_bird=[&]() {
         std::vector<rts::UnitId> ids;battle.world().enumerate_units(rts::Side::Attacker,ids);
-        for(auto id:ids) if(battle.world().unit_type(id)==rts::UnitType::Phoenix) {
-            const_cast<rts::World&>(battle.world()).kill_unit(id);return;
-        }
-        FAIL("expected living phoenix");
+        for(auto id:ids) if(w.unit_type(id)==rts::UnitType::Phoenix) return id;
+        return rts::UnitId{};
     };
-    until(10);REQUIRE_FALSE(battle.earned_white_feather());
-    SECTION("连续十波") {until(11);}
-    SECTION("九波后击落不累计旧进度") {
-        kill_bird();until(14);
-        REQUIRE(battle.phoenix_roster()[0].waves_alive==0);
-        until(23);REQUIRE_FALSE(battle.earned_white_feather());
-        until(24);
+    const int identity=battle.phoenix_identity(find_bird());REQUIRE(identity>=0);
+    for(int encounter=1;encounter<=game::kWhiteFeatherEncounterWaves;++encounter) {
+        auto bird=find_bird();
+        for(int tick=0;tick<1000 && !bird.valid();++tick) {battle.update(1);bird=find_bird();}
+        REQUIRE(bird.valid());REQUIRE(battle.phoenix_identity(bird)==identity);
+        const auto at=rts::grid_of(w.unit_pos(bird));
+        if(const auto existing=w.bld_at(at);existing.valid()) w.destroy_bld(existing);
+        const auto flak=w.place_bld(rts::BldType::Flak,at,1000000,1000000);
+        for(int tick=0;tick<30 && battle.phoenix_encounters(identity)<encounter;++tick) battle.update(1);
+        REQUIRE(battle.phoenix_encounters(identity)==encounter);
+        REQUIRE(battle.earned_white_feather()==(encounter==game::kWhiteFeatherEncounterWaves));
+        if(w.alive(flak)) w.destroy_bld(flak);
+        std::vector<rts::UnitId> ids;w.enumerate_units(rts::Side::Attacker,ids);
+        for(const auto id:ids) w.kill_unit(id);
+        auto during=game::capture_battle(original,map_text(),combat_stats);
+        auto copy=game::restore_battle(during);
+        REQUIRE(copy->phoenix_encounters(identity)==encounter);
+        for(int tick=0;tick<5;++tick) {battle.update(1);copy->update(1);}
+        REQUIRE(copy->world().state_hash()==w.state_hash());
+        REQUIRE(copy->phoenix_encounters(identity)==encounter); // no double-count on reload
+        REQUIRE(battle.phoenix_encounters(identity)==encounter);
     }
     REQUIRE(battle.earned_white_feather());
-    kill_bird();battle.update(1);
-    auto archive=game::capture_battle(original,map_text(),stats_text());
+    auto archive=game::capture_battle(original,map_text(),combat_stats);
     auto restored=game::restore_battle(archive);
     REQUIRE(restored->earned_white_feather());
     for(int tick=0;tick<20;++tick) {
@@ -401,6 +414,67 @@ TEST_CASE("白羽判据按同一身份计数，击落重置且获得后存档保
         REQUIRE(restored->world().state_hash()==battle.world().state_hash());
         REQUIRE(restored->earned_white_feather());
     }
+}
+
+TEST_CASE("白羽不累计未接战撤离，新局清空", "[save][feather]") {
+    auto curve=game::WaveCurve{};curve.phoenix_from_wave=1;curve.phoenix_base=2;curve.phoenix_cap=2;
+    curve.slots_base=4;curve.slots_per_wave=0;curve.slots_cap=4;
+    game::WaveTiming timing;timing.first_build_ticks=1;timing.build_ticks=1;timing.assault_max_ticks=2;
+    game::DemoBattle battle(game::MapLoader::from_string(map_text()),
+        game::StatsLoader::from_string(stats_text()),7,timing,curve);
+    battle.update(180);
+    REQUIRE(battle.world().wave()>10);
+    REQUIRE_FALSE(battle.earned_white_feather());
+    REQUIRE(battle.phoenix_encounters(0)==0);
+    REQUIRE(battle.phoenix_encounters(1)==0);
+    auto fresh=shell();fresh.apply(game::MenuAction::StartNew);
+    REQUIRE_FALSE(fresh.battle()->earned_white_feather());
+}
+
+TEST_CASE("两只不死鸟各交战五波不会合并成十波彩蛋", "[save][feather]") {
+    auto curve=game::WaveCurve{};curve.phoenix_from_wave=1;curve.phoenix_base=2;curve.phoenix_cap=2;
+    curve.slots_base=4;curve.slots_per_wave=0;curve.slots_cap=4;
+    auto stats=game::StatsLoader::from_string(stats_text());
+    stats.bld[static_cast<std::size_t>(rts::BldType::Flak)].windup_ticks=0;
+    game::WaveTiming timing;timing.first_build_ticks=1;timing.build_ticks=1;timing.assault_max_ticks=40;
+    game::DemoBattle battle(game::MapLoader::from_string(map_text()),stats,7,timing,curve);
+    auto& w=const_cast<rts::World&>(battle.world());
+    for(int wave=1;wave<=5;++wave) {
+        std::vector<rts::UnitId> birds,ids;
+        for(int tick=0;tick<500 && birds.size()<2;++tick) {
+            w.enumerate_units(rts::Side::Attacker,ids);birds.clear();
+            for(const auto id:ids) if(w.unit_type(id)==rts::UnitType::Phoenix) birds.push_back(id);
+            if(birds.size()<2) battle.update(1);
+        }
+        REQUIRE(birds.size()==2);
+        std::vector<rts::BldId> flaks;
+        for(const auto bird:birds) {
+            const auto at=rts::grid_of(w.unit_pos(bird));
+            if(const auto old=w.bld_at(at);old.valid()) w.destroy_bld(old);
+            flaks.push_back(w.place_bld(rts::BldType::Flak,at,1000000,1000000));
+        }
+        for(int tick=0;tick<12 && (battle.phoenix_encounters(0)<wave || battle.phoenix_encounters(1)<wave);++tick)
+            battle.update(1);
+        REQUIRE(battle.phoenix_encounters(0)==wave);REQUIRE(battle.phoenix_encounters(1)==wave);
+        REQUIRE_FALSE(battle.earned_white_feather());
+        for(const auto flak:flaks) if(w.alive(flak)) w.destroy_bld(flak);
+        w.enumerate_units(rts::Side::Attacker,ids);for(const auto id:ids) w.kill_unit(id);
+        battle.update(3);
+    }
+}
+
+TEST_CASE("White feather notice appears when the story becomes readable", "[save][feather]") {
+    game::JournalProgress progress;
+    auto previous=progress.readable_appendices();
+    progress.observe(39,true,game::ChronicleChoice::None,false);
+    REQUIRE(progress.appendices.white_feather);
+    REQUIRE(game::appendix_notice(previous,progress.readable_appendices()).empty());
+    previous=progress.readable_appendices();
+    progress.observe(60,true,game::ChronicleChoice::None,false);
+    REQUIRE(game::appendix_notice(previous,progress.readable_appendices())==game::kAppendixNotices[0]);
+    previous=progress.readable_appendices();
+    progress.observe(61,true,game::ChronicleChoice::None,false);
+    REQUIRE(game::appendix_notice(previous,progress.readable_appendices()).empty());
 }
 
 TEST_CASE("Chronicle access hides unchosen endings and biography branches", "[save]") {

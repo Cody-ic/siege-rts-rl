@@ -217,7 +217,7 @@ TEST_CASE("Fortification parameters are required validated and fingerprinted ind
         changed.replace(at, old.size(), replacement);
         return changed;
     };
-    REQUIRE_THROWS_AS(game::StatsLoader::from_string(mutate("stats/14", "stats/13")), game::StatsFormatError);
+    REQUIRE_THROWS_AS(game::StatsLoader::from_string(mutate("stats/15", "stats/14")), game::StatsFormatError);
     for (const auto value : {-1, 1001}) {
         REQUIRE_THROWS_AS(game::StatsLoader::from_string(mutate(
             "\"fortification_hp_permille_per_level\": 100",

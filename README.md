@@ -1,5 +1,7 @@
 # siege-rts-rl
 
+开发分支新增[不死鸟拆防空评估、《一跃》累计交战与兵营训练提速](docs/phoenix-raids-feather-barracks/README.md)，仍待合并和发行。
+
 开发分支新增[人口扩容、猎骑冲锋与建筑驻守](docs/defender-population-ranger.md)：工匠与战斗守军共用人口上限 `8+3K`，猎骑助跑首击，战斗守军右键建筑驻守、战后回岗。尚未发布，旧存档与真实RL模型需要对应版本。
 
 ## 下载游玩

@@ -96,7 +96,7 @@ inline constexpr std::array<std::string_view,11> building_notes={
     "对地齐射，适合压制密集步兵；不能防空。选中时可看到实际攻击范围。",
     "仅对空，拦截不死鸟和窥使；不能攻击地面敌人。选中时可看到实际攻击范围。",
     "提供广阔视野，提前发现攻方与窥使；自身没有攻击能力。",
-    "招募守方单位。金币和人口共同限制征兵，训练等级上限由堡垒决定。",
+    "招募守方单位。升级提高训练速度，最高翻倍；开始训练时确定耗时。金币和人口限制征兵，兵种等级上限由堡垒决定。",
     "廉价应急屏障，可在战斗中布置，为守军争取时间。不能代替完整城墙。",
     "建在石材资源点上，持续提供石材，用于建设和升级。城外采石场需要保护。",
     "建在木材资源点上，持续提供木材，用于建筑、维修和升级。城外伐木场容易遭到袭击。",
@@ -210,7 +210,13 @@ public:
             auto type=static_cast<rts::BldType>(selected_);const auto& st=stats.of(type);ident=rts::ident_of(type);notes=building_notes[static_cast<std::size_t>(selected_)];
             const auto hp=stats.building_max_hp(type,level_);
             const auto hp_text=std::to_string(hp)+(level_>1?" (+"+std::to_string(hp-st.max_hp)+")":"");
-            values<<"血量 "<<hp_text<<"\n伤害 "<<with_delta(st.damage,false)<<"\n射程 "<<st.range<<" 格   视野 "<<st.vision<<" 格\n建造 "<<st.cost_stone<<" 石 / "<<st.cost_wood<<" 木\n基础周期产出 "<<st.income_amount<<"\n下一次升级 "<<level_<<" 到 "<<level_+1<<"\n"<<rules_->bld_upgrade_cost_stone(type,level_)<<" 石 / "<<rules_->bld_upgrade_cost_wood(type,level_)<<" 木\n工时 "<<st.upgrade_ticks<<"\n";
+            values<<"血量 "<<hp_text<<"\n";
+            if(type==rts::BldType::Barrack) {
+                const auto bonus=std::min<std::int64_t>(stats.global.barrack_train_bonus_cap,
+                    static_cast<std::int64_t>(level_-1)*stats.global.barrack_train_bonus_per_level);
+                values<<"训练速度 +"<<bonus/10<<"%\n";
+            }
+            values<<"伤害 "<<with_delta(st.damage,false)<<"\n射程 "<<st.range<<" 格   视野 "<<st.vision<<" 格\n建造 "<<st.cost_stone<<" 石 / "<<st.cost_wood<<" 木\n基础周期产出 "<<st.income_amount<<"\n下一次升级 "<<level_<<" 到 "<<level_+1<<"\n"<<rules_->bld_upgrade_cost_stone(type,level_)<<" 石 / "<<rules_->bld_upgrade_cost_wood(type,level_)<<" 木\n工时 "<<st.upgrade_ticks<<"\n";
             if(type!=rts::BldType::Keep) {values<<"本级";requirement((level_-1)*stats.global.building_level_cap_divisor+1);values<<"下一级";requirement(level_*stats.global.building_level_cap_divisor+1);}
             else values<<"无堡垒等级限制\n";
         } else {

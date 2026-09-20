@@ -510,10 +510,10 @@ constexpr int chronicle_to_present(int previous_wave,int current_wave,bool devel
 }
 
 enum class ChronicleChoice { None, Guard, Release };
-inline constexpr int kWhiteFeatherSurvivalWaves=10;
+inline constexpr int kWhiteFeatherEncounterWaves=10;
 inline constexpr int kSmilerUnlockWave=90;
-constexpr bool earns_white_feather(int consecutive_waves) noexcept {
-    return consecutive_waves>=kWhiteFeatherSurvivalWaves;
+constexpr bool earns_white_feather(int encounter_waves) noexcept {
+    return encounter_waves>=kWhiteFeatherEncounterWaves;
 }
 struct ChronicleAppendix {
     bool white_feather=false, loss_list=false;
@@ -535,6 +535,9 @@ constexpr std::string_view appendix_notice(ChronicleAppendix previous,ChronicleA
 struct JournalProgress {
     int highest_wave=1;
     ChronicleAppendix appendices;
+    constexpr ChronicleAppendix readable_appendices() const noexcept {
+        return {appendices.readable(1,highest_wave),appendices.readable(2,highest_wave)};
+    }
     constexpr void merge(const JournalProgress& other) noexcept {
         if(other.highest_wave>highest_wave) highest_wave=other.highest_wave;
         appendices.white_feather|=other.appendices.white_feather;

@@ -231,6 +231,38 @@ TEST_CASE("Build 的拒绝路径一律无操作：钱、占位、资源点规则
     REQUIRE(wood(w) == 1000);
 }
 
+TEST_CASE("Barracks upgrades shorten new training without changing an active recruit", "[econ][barrack]") {
+    auto init=arena();
+    init.stats.bld[static_cast<std::size_t>(rts::BldType::Keep)].upgrade_ticks=0;
+    init.stats.bld[static_cast<std::size_t>(rts::BldType::Barrack)].upgrade_ticks=0;
+    init.stats.unit[static_cast<std::size_t>(rts::UnitType::Spear)].train_ticks=100;
+    init.stats.unit[static_cast<std::size_t>(rts::UnitType::Spear)].cost_gold=30;
+    init.stats.global.income_period_ticks=0;
+    rts::World w(init);w.set_stock(rts::Resource::Stone,1000000);
+    w.set_stock(rts::Resource::Wood,1000000);w.set_stock(rts::Resource::Gold,1000000);
+    const auto barrack=w.place_bld(rts::BldType::Barrack,{4,1},50,50);
+    level_keep_to(w,23);
+    const auto upgrade=slot_cmd(rts::CommandKind::Upgrade,{4,1},w.width());
+    auto train=slot_cmd(rts::CommandKind::Train,{4,1},w.width());
+    train.what=static_cast<std::uint8_t>(rts::UnitType::Spear);train.level=1;
+    w.submit(rts::Side::Defender,&train,1);w.advance(1);
+    REQUIRE(w.view(rts::Side::Defender).bld_train_left()[barrack.index()]==99);
+    w.submit(rts::Side::Defender,&upgrade,1);w.advance(1);
+    REQUIRE(w.bld_level(barrack)==2);
+    REQUIRE(w.view(rts::Side::Defender).bld_train_left()[barrack.index()]==98);
+    w.advance(99); // Completion is emitted on the tick after the counter reaches zero.
+    REQUIRE(w.live_unit_count(rts::Side::Defender)==1);
+    const auto before=gold(w);
+    w.submit(rts::Side::Defender,&train,1);w.advance(1);
+    REQUIRE(w.view(rts::Side::Defender).bld_train_left()[barrack.index()]==90);
+    REQUIRE(gold(w)==before-w.train_cost_gold(rts::UnitType::Spear,1));
+    w.advance(91);REQUIRE(w.live_unit_count(rts::Side::Defender)==2);
+    for(int level=3;level<=12;++level) {w.submit(rts::Side::Defender,&upgrade,1);w.advance(1);}
+    REQUIRE(w.train_ticks_at_building(rts::UnitType::Spear,1,rts::BldType::Barrack,12)==50);
+    REQUIRE(w.train_ticks_at_building(rts::UnitType::Spear,1,rts::BldType::Barrack,1000)==50);
+    REQUIRE(w.train_ticks_at_building(rts::UnitType::Spear,1,rts::BldType::Keep,23)==100);
+}
+
 TEST_CASE("收入：采集建筑踩点按周期产出，Keep 恒产金币地板，拆了就断", "[econ]") {
     rts::World w(arena());
     // 采石场直接以完工态摆上石料点（初始建筑那条路，不经 Build）。

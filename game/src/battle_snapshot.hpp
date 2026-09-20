@@ -95,6 +95,7 @@ struct SnapshotCodec {
             f("phoenix_roster_",v.phoenix_roster_);
             f("phoenix_respawn_",v.phoenix_respawn_);
             f("phoenix_id_of_",v.phoenix_id_of_);
+            f("phoenix_experience_",v.phoenix_experience_);
             f("next_phoenix_id_",v.next_phoenix_id_);
             f("white_feather_",v.white_feather_);
             f("w_",v.w_);
@@ -211,6 +212,9 @@ struct SnapshotCodec {
             f("ranger_engage_cells",v.ranger_engage_cells);
             f("ranger_chase_cells",v.ranger_chase_cells);
         }
+        else if constexpr(std::is_same_v<U,DemoBattle::PhoenixExperience>) {
+            f("encounters",v.encounters);f("last_wave",v.last_wave);
+        }
         else if constexpr(std::is_same_v<U,WaveTiming>) {
             f("build_ticks",v.build_ticks);
             f("first_build_ticks",v.first_build_ticks);
@@ -313,6 +317,12 @@ struct SnapshotCodec {
     static void validate(const DemoBattle& b) {
         const auto& w=b.w_;validate_pool(w.unit_pool_);validate_pool(w.bld_pool_);validate_pool(w.obstacle_pool_);
         check(b.next_phoenix_id_>=0 && b.curve_.phoenix_respawn_waves>=0);
+        check(b.phoenix_experience_.size()==static_cast<std::size_t>(b.next_phoenix_id_));
+        for(const auto& e:b.phoenix_experience_) {
+            check(e.encounters>=0 && e.encounters<=b.w_.wave());
+            check(e.last_wave>=0 && e.last_wave<=b.w_.wave());
+            check((e.encounters==0)==(e.last_wave==0));
+        }
         check(b.curve_.phoenix_withdraw_hp_permille>=0 && b.curve_.phoenix_withdraw_hp_permille<=1000);
         std::set<int> reserved, assigned;
         for(const auto& r:b.phoenix_roster_) {

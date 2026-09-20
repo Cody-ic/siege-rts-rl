@@ -137,7 +137,7 @@ World::TargetPick World::pick_target(std::size_t k, UnitAction a) const {
             if (wants_wall ? !beh.can_break_structure() : !beh.combat()) break;
             const bool phoenix_building = my_type == UnitType::Phoenix && !wants_wall;
             const float range = effective_range(k);
-            bool best_is_fence = false;
+            int best_priority = 0;
             for (std::size_t s = 0; s < bld_pool_.slot_count(); ++s) {
                 if (!bld_pool_.alive_at(static_cast<std::uint16_t>(s))) continue;
                 const BldType bt = b_type_[s];
@@ -149,15 +149,16 @@ World::TargetPick World::pick_target(std::size_t k, UnitAction a) const {
                 // Phoenix can fly over fences. Prefer other buildings within
                 // range; a distant building must not suppress a legal fallback.
                 if (phoenix_building && d2 > range * range) continue;
-                const bool is_fence = phoenix_building && bt == BldType::Fence;
-                if (!best.found || (best_is_fence && !is_fence) ||
-                    (is_fence == best_is_fence && d2 < best.dist2)) {
+                const int priority = !phoenix_building ? 0 :
+                    bt == BldType::Flak ? 0 : bt == BldType::Fence ? 2 : 1;
+                if (!best.found || priority < best_priority ||
+                    (priority == best_priority && d2 < best.dist2)) {
                     best.found = true;
                     best.kind = TgtKind::Bld;
                     best.raw = bld_pool_.id_at(static_cast<std::uint16_t>(s)).raw();
                     best.pos = c;
                     best.dist2 = d2;
-                    best_is_fence = is_fence;
+                    best_priority = priority;
                 }
             }
             break;
@@ -179,6 +180,7 @@ World::TargetPick World::pick_target(std::size_t k, UnitAction a) const {
 // ——承诺与落地——
 
 void World::commit_attack(std::size_t k, const TargetPick& t, std::span<const float> target_charge) {
+    combat_events_.push_back(unit_pool_.id_at(static_cast<std::uint16_t>(k)));
     u_tgt_kind_[k] = t.kind;
     u_tgt_raw_[k] = t.raw;
     // **锁定就发生在这一行。** 之后目标怎么走都与落点无关。
@@ -393,6 +395,7 @@ void World::deal_damage(TgtKind kind, std::uint32_t raw, std::int64_t amount,
             Tally& tl = tally_[static_cast<std::size_t>(dealer_side)];
             const bool enemy = side_of(u_type_[t]) != dealer_side;
             const auto damage = amount < u_hp_[t] ? amount : u_hp_[t];
+            if (enemy && damage > 0) combat_events_.push_back(id);
             if (enemy) tl.dmg_to_units += damage;
             else tl.friendly_unit_damage += damage;
             u_hp_[t] -= amount;

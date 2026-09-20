@@ -233,11 +233,19 @@ public:
     };
     //
     // 撤离成功、下一波会回来的那些。`waves_alive` 是**连续**存活波数，
-    // 被击落即出局归零——#171《一跃》数的就是它。
+    // 被击落归零；这是生存统计。《一跃》使用独立的累计交战经历。
     const std::vector<PhoenixRecord>& phoenix_roster() const noexcept {
         return phoenix_roster_;
     }
     bool earned_white_feather() const noexcept {return white_feather_;}
+    struct PhoenixExperience {
+        int encounters = 0;
+        int last_wave = 0;
+    };
+    int phoenix_encounters(int identity) const noexcept {
+        return identity >= 0 && static_cast<std::size_t>(identity) < phoenix_experience_.size()
+            ? phoenix_experience_[static_cast<std::size_t>(identity)].encounters : 0;
+    }
     // 被击落、正在等重生的那些：{身份号, 还差几波}。
     const std::vector<std::pair<int,int>>& phoenix_respawn() const noexcept {
         return phoenix_respawn_;
@@ -404,7 +412,7 @@ private:
     // 波只有当波 31 级新鸟的 67% 血伤 ⇒ 它变成编成里的死重，且 #171《一跃》
     // 那条「放它活 N 波」会自我拆台（越活越弱 ⇒ 越难保住，而不是越难忍住）。
     //
-    // 于是这条记录只需要**身份**与**连续存活波数**——后者正是《一跃》要数的
+    // 花名册保留身份与连续存活统计；《一跃》的累计交战另按身份永久记账。
     // （`PhoenixRecord` 声明在公开段，因为访问器要返回它）。
     //
     // 撤离成功、下一波回来的那些（固定序：按撤离先后）。
@@ -414,6 +422,8 @@ private:
     // 场上每只不死鸟的身份号，按单位槽位下标存（同 `squad_of_` 那套记账）。
     // −1 = 这个槽位上不是不死鸟（或已被复用）。
     std::vector<int> phoenix_id_of_;
+    // Identity persists through death and respawn; at most one real engagement per wave.
+    std::vector<PhoenixExperience> phoenix_experience_;
     int next_phoenix_id_ = 0;
     bool white_feather_ = false;
     AttackerIntel recon_intel_{};

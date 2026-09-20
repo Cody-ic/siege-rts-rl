@@ -263,8 +263,8 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
     // **stats/11 → stats/12 是同一类的第二例**，而它比第一例更难自查：一张
     // stats/11 的表在新公式下不但每个数合法，连 `Keep` 那一行都还完全正确
     // （它走的仍是线性分支），只有另外十座的价钱悄悄变了。
-    if (schema != "stats/14") {
-        fail(origin, "`schema` = \"" + schema + "\"，本程序只认 \"stats/14\"");
+    if (schema != "stats/15") {
+        fail(origin, "`schema` = \"" + schema + "\"，本程序只认 \"stats/15\"");
     }
 
     rts::StatsTable t;
@@ -320,6 +320,7 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
             "high_ground_range_bonus", "charge_bonus_permille_per_cell",
             "charge_max_cells", "anti_charge_permille",
             "building_level_cap_divisor", "train_ticks_permille_per_level",
+            "barrack_train_bonus_per_level", "barrack_train_bonus_cap",
             "fortification_hp_permille_per_level", "fortification_linear_until_level",
             "fortification_price_step_permille", "fortification_price_cap_level"});
     t.global.hp_permille_per_level =
@@ -370,6 +371,16 @@ rts::StatsTable StatsLoader::from_string(std::string_view json_text,
     t.global.train_ticks_permille_per_level = need_i32(
         need(global, "train_ticks_permille_per_level", origin, "`global`"), origin,
         "`global.train_ticks_permille_per_level`");
+    t.global.barrack_train_bonus_per_level = need_i32(
+        need(global, "barrack_train_bonus_per_level", origin, "`global`"), origin,
+        "`global.barrack_train_bonus_per_level`");
+    t.global.barrack_train_bonus_cap = need_i32(
+        need(global, "barrack_train_bonus_cap", origin, "`global`"), origin,
+        "`global.barrack_train_bonus_cap`");
+    if (t.global.barrack_train_bonus_per_level < 0 || t.global.barrack_train_bonus_per_level > 1000 ||
+        t.global.barrack_train_bonus_cap < 0 || t.global.barrack_train_bonus_cap > 1000) {
+        fail(origin, "barrack training bonuses must be in [0, 1000]");
+    }
     t.global.fortification_hp_permille_per_level = need_i32(
         need(global, "fortification_hp_permille_per_level", origin, "`global`"), origin,
         "`global.fortification_hp_permille_per_level`");

@@ -13,7 +13,8 @@ namespace game {
 // v15 adds shared attacker building memory and changes gameplay path decisions.
 // v18 extends the default assault cap to 150 seconds; v15-v17 used 120 seconds.
 // v24 adds building guard orders and cavalry charge; v21-v23 recovery state is removed.
-inline constexpr int kSaveVersion=24;
+// v27: phoenix combat history/raid decisions and barracks training speed.
+inline constexpr int kSaveVersion=27;
 struct BattleArchive {
     std::string map_json,stats_json,snapshot;
     std::string tactical_policy_identity;
