@@ -1,5 +1,7 @@
 # siege-rts-rl
 
+新增玩法提案：[第30波局域网同体系对战与第70波“我是亡灵”](docs/lan-undead-modes-proposal.md)。目前为设计评审文档，尚未实现。
+
 ## 下载游玩
 
 前往 [GitHub Releases](https://github.com/Cody-ic/siege-rts-rl/releases/latest)，下载
