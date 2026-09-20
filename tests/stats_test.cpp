@@ -194,6 +194,12 @@ TEST_CASE("数值表指纹：值同则同，任一格变则变", "[stats]") {
         c.global.train_ticks_permille_per_level += 1;
         REQUIRE(c.fingerprint() != a.fingerprint());
     }
+    {
+        auto c=filled_table();++c.global.barrack_train_bonus_per_level;
+        REQUIRE(c.fingerprint()!=a.fingerprint());
+        c=filled_table();++c.global.barrack_train_bonus_cap;
+        REQUIRE(c.fingerprint()!=a.fingerprint());
+    }
 }
 
 TEST_CASE("表变了，第 0 tick 的 state_hash 就分歧（早报）", "[stats]") {

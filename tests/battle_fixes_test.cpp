@@ -285,6 +285,7 @@ TEST_CASE("攻方必须由窥使观察才能得到新情报，情报用于下一
 
 TEST_CASE("攻方沿途优先破坏可见城外采集建筑", "[battlefix]") {
     for(auto type:{rts::UnitType::Ghoul,rts::UnitType::Shade,rts::UnitType::Phoenix}) for(float distance:{1.0f,4.0f}) {
+        CAPTURE(type,distance);
         game::DemoBattle battle(pool_map(),stats(),72);auto& w=const_cast<rts::World&>(battle.world());clear_units(w);
         const auto site=std::find_if(w.resources().begin(),w.resources().end(),[](const auto& s){return s.tier==rts::ResourceTier::Outer;});
         REQUIRE(site!=w.resources().end());

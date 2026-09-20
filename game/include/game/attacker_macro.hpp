@@ -238,7 +238,9 @@ struct AttackerParams {
     // 记忆里每有这么多座防空，就少派一只不死鸟。
     // **这是「AA 的机会成本」那个两难的攻方一半**：守方花在防空上的钱第一次
     // 真的买到了东西（此前不死鸟恒 1，建不建防空对攻方毫无影响）。
-    int flak_per_phoenix_cut = 2;
+    // Default no longer suppresses aircraft from AA counts alone. Tactical
+    // raids compare actual known levels, health and overlapping fire instead.
+    int flak_per_phoenix_cut = 0;
 };
 
 // 一支编队能装几个同兵种单位。**逐兵种不同，理由各自不同**（2026-09-05 组长定）。

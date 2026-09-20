@@ -513,7 +513,7 @@ void World::apply_one(const Command& c) {
             if (stock_[static_cast<std::size_t>(Resource::Gold)] < cost) break;
             stock_[static_cast<std::size_t>(Resource::Gold)] -= cost;
             b_train_type_[k] = c.what;
-            b_train_left_[k] = train_ticks_at(ut, c.level);
+            b_train_left_[k] = train_ticks_at_building(ut, c.level, bt, b_level_[k]);
             b_train_level_[k] = c.level;
             break;
         }
@@ -534,6 +534,7 @@ void World::apply_one(const Command& c) {
 void World::advance(int ticks) {
     if (ticks < 0) throw ContractError("advance 的 tick 数不得为负");
     for (int t = 0; t < ticks; ++t) {
+        combat_events_.clear();
         // 阶段顺序的规范在头文件 `advance()` 的注释里，**这里只是照着做**。
         // 顺序固定是确定性的一部分：守方先、攻方后，各按提交顺序。
         for (int s = 0; s < kSideCount; ++s) {
@@ -1052,6 +1053,16 @@ std::int32_t World::train_ticks_at(UnitType ut, std::int32_t level) const noexce
     const std::int64_t ticks =
         (stats_.of(ut).train_ticks * linear + kPermilleOne / 2) / kPermilleOne;
     return static_cast<std::int32_t>(ticks);
+}
+
+std::int32_t World::train_ticks_at_building(UnitType ut, std::int32_t level,
+                                          BldType building, std::int32_t building_level) const noexcept {
+    const auto base = train_ticks_at(ut, level);
+    if (building != BldType::Barrack || base <= 0) return base;
+    const std::int64_t bonus = std::min<std::int64_t>(stats_.global.barrack_train_bonus_cap,
+        std::max<std::int64_t>(0, building_level-1LL) * stats_.global.barrack_train_bonus_per_level);
+    const auto speed = kPermilleOne + bonus;
+    return static_cast<std::int32_t>((static_cast<std::int64_t>(base)*kPermilleOne+speed-1)/speed);
 }
 
 namespace {

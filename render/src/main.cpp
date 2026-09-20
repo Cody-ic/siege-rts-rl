@@ -1365,7 +1365,7 @@ int run_game(Options& opt) {
     if(shell.battle() && !shell.battle()->developer())
         progress.observe(shell.battle()->world().wave(),shell.battle()->earned_white_feather(),shell.chronicle().choice(),false);
     // Saving can observe a newly earned appendix before the next UI frame.
-    auto announced_appendices=progress.appendices;
+    auto announced_appendices=progress.readable_appendices();
     int& reached_wave=progress.highest_wave;
     journal.appendices=progress.appendices;
     journal.choice=shell.chronicle().choice();
@@ -1445,7 +1445,7 @@ int run_game(Options& opt) {
             shell.apply(action);
             if(action==game::MenuAction::StartNew || action==game::MenuAction::Restart) {
                 progress=game::JournalProgress{};
-                announced_appendices=progress.appendices;
+                announced_appendices=progress.readable_appendices();
                 journal.appendices=progress.appendices;
             }
             if(action==game::MenuAction::StartNew || action==game::MenuAction::Restart || action==game::MenuAction::ToMain || action==game::MenuAction::Quit)
@@ -1610,10 +1610,16 @@ int run_game(Options& opt) {
                     const bool pop_full = game::train_pop_full(v,ut);
                     // 造价随 `train_level_sel` 变——`[`/`]` 调的是这一格
                     // 弹窗里全部兵种共用的同一个等级，不是逐兵种各自的。
-                    std::snprintf(buf, sizeof(buf), "%s Lv%d (金%d)%s",
+                    const auto building=shell.battle()->world().bld_at(p.cell);
+                    const auto seconds=static_cast<double>(building.valid()
+                        ? v.train_ticks_at_building(ut,train_level_sel,
+                            v.bld_type()[building.index()],v.bld_level()[building.index()])
+                        : v.train_ticks_at(ut,train_level_sel))/20.0;
+                    std::snprintf(buf, sizeof(buf), "%s Lv%d (金%d / %.1f秒)%s",
                                  std::string(game::display_name(ut)).c_str(),
                                  train_level_sel,
                                  static_cast<int>(v.train_cost_gold(ut, train_level_sel)),
+                                 seconds,
                                  pop_full ? " (人口满)" : ut==rts::UnitType::Scout ? " (不占人口)" : "");
                     push(buf, !pop_full && game::can_train_hint(v, p.cell) &&
                                  game::can_afford_train(v, ut, train_level_sel),
@@ -2169,9 +2175,9 @@ int run_game(Options& opt) {
             const auto previous_appendices=announced_appendices;
             progress.observe(wave,shell.battle()->earned_white_feather(),shell.chronicle().choice(),false);
             journal.appendices=progress.appendices;
-            const auto earned=game::appendix_notice(previous_appendices,progress.appendices);
+            const auto earned=game::appendix_notice(previous_appendices,progress.readable_appendices());
             if(!earned.empty()) {appendix_notice=earned;appendix_notice_until=GetTime()+10;}
-            announced_appendices=progress.appendices;
+            announced_appendices=progress.readable_appendices();
             const auto count=game::chronicle_unlocked(reached_wave);
             if(count>known_chapters) {notice="日记已更新 · 按 J 阅读";notice_until=GetTime()+6;known_chapters=count;}
         }

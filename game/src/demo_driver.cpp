@@ -1,4 +1,5 @@
 #include "game/demo_driver.hpp"
+#include "game/phoenix_raid.hpp"
 #include "game/chronicle.hpp"
 
 #include <algorithm>
@@ -513,6 +514,7 @@ void DemoBattle::spawn_wave() {
                 idx < static_cast<int>(phoenix_roster_.size())
                     ? phoenix_roster_[static_cast<std::size_t>(idx)].id
                     : next_phoenix_id_++;
+            phoenix_experience_.resize(static_cast<std::size_t>(next_phoenix_id_));
         }
     }
 }
@@ -524,7 +526,7 @@ void DemoBattle::spawn_wave() {
 //   1. 重生倒计时 −1，数到 0 的从队列里出来（下面第 3 步会把它算进花名册名额）
 //   2. **上一波还挂在 `phoenix_id_of_` 上的 = 被击落的**——撤离成功的那些在
 //      `retire_phoenix` 里已经把这个槽位清成 −1 了，所以剩下的就是没走成的。
-//      它们进重生队列，连续存活波数清零（《一跃》要的是**连续**）
+//      它们进重生队列，连续存活统计清零；《一跃》的累计交战经历保留。
 //   3. `phoenix_id_of_` 整表清空，等这一波的落位循环重新认领
 void DemoBattle::settle_phoenix_roster() {
     for (auto& [pid, left] : phoenix_respawn_) if (left > 0) --left;
@@ -681,7 +683,6 @@ void DemoBattle::retire_phoenix(rts::UnitId id) {
         std::erase_if(phoenix_roster_,
                       [pid](const PhoenixRecord& r) { return r.id == pid; });
         phoenix_roster_.push_back(PhoenixRecord{pid, alive + 1});
-        if(!developer() && game::earns_white_feather(alive+1)) white_feather_=true;
         phoenix_id_of_[ui] = -1;
     }
     w_.kill_unit(id);
@@ -1095,7 +1096,7 @@ void DemoBattle::issue_actions() {
         const auto pos=w_.unit_pos(id);
         std::optional<rts::GridPos> raid;
         float raid_distance=w_.stats().of(type).vision*w_.stats().of(type).vision;
-        if(rts::is_combat(type) && !(type==rts::UnitType::Ram && has(mask,rts::UnitAction::AtkWall))) {
+        if(rts::is_combat(type) && type!=rts::UnitType::Phoenix && !(type==rts::UnitType::Ram && has(mask,rts::UnitAction::AtkWall))) {
             for(auto target:raid_sites) {const auto c=rts::center_of(target);const float dx=c.x-pos.x,dy=c.y-pos.y;const float d=dx*dx+dy*dy;if(d<=raid_distance) {raid_distance=d;raid=target;}}
         }
         if(type==rts::UnitType::Phoenix && phoenix_should_withdraw(id,any_ground_combat)) {
@@ -1112,9 +1113,8 @@ void DemoBattle::issue_actions() {
             // Phoenix 单走一档（2026-09-01 试玩反馈：它原先与步兵同一套
             // 「AtkNear 否则奔堡垒」，于是径直飞进墙上弓手的火网、到了堡垒
             // 又因为射程内没有单位而干悬着——「手术刀」全程没切过一刀）：
-            // 优先点杀射程内最脆的单位（AtkWeak，工匠/斥候先遭殃），其次
-            // 俯冲射程内的非墙建筑，木栅栏降为无其他目标时的就地兜底。
-            // 机制层排除不可伤害的堡垒；脚本层在无近身目标时追逐有效目标。
+            // 优先评估可拆防空和普通建筑；无已知建筑时保留近身接敌与探索。
+            // 木栅栏只作就地兜底，堡垒/墙/门仍不可伤害。
             //
             // ——**撤离优先于一切攻击**（2026-09-10，#170）——
             //
@@ -1122,8 +1122,22 @@ void DemoBattle::issue_actions() {
             // 掉血就走、下一波再来，这才是手术刀的形状；打到死是消耗品的形状，
             // 而消耗品换不来「AA 的机会成本」那个两难（守方 2 座 `Flak` 对
             // 74 座 `Tower` 就是实测结果）。
-            if (phoenix_should_withdraw(id, any_ground_combat)) {
-                a = retreat_action(id);
+            const auto plan = choose_phoenix_raid(av, attacker_knowledge_, id,
+                curve_.phoenix_withdraw_hp_permille);
+            if (plan.target) {
+                const auto target=rts::center_of(*plan.target);
+                const float dx=pos.x-target.x,dy=pos.y-target.y;
+                const float range=w_.stats().of(type).range;
+                if (dx*dx+dy*dy<=range*range && has(mask,rts::UnitAction::AtkBld))
+                    a=rts::UnitAction::AtkBld;
+                else if (!muster) a=greedy_move(id,target);
+            } else if (plan.known_targets) {
+                // Do not fly into a known overlapping AA field just because a
+                // farm is nearby. Withdrawal must be latched for wave completion.
+                if (!muster) {
+                    phoenix_empty_return_.push_back(id.raw());
+                    a=retreat_action(id);
+                }
             } else if (has(mask, rts::UnitAction::AtkWeak)) {
                 a = rts::UnitAction::AtkWeak;
             } else {
@@ -1367,7 +1381,26 @@ void DemoBattle::update(int ticks) {
         w_.enumerate_units(rts::Side::Defender, ids_);
         if (script_.refresh_scout_navigation(w_.view(rts::Side::Defender), ids_, acts_))
             w_.submit_actions(rts::Side::Defender, acts_.data(), acts_.size());
+        // Capture full handles before the tick, including birds killed before
+        // they attack. Combat events also cover zero-windup/zero-cooldown hits.
+        std::vector<std::pair<rts::UnitId,int>> encounters;
+        if (!developer()) {
+            std::vector<rts::UnitId> attackers;
+            w_.enumerate_units(rts::Side::Attacker, attackers);
+            for (const auto id : attackers) {
+                const int pid = phoenix_identity(id);
+                if (pid >= 0 && phoenix_experience_[static_cast<std::size_t>(pid)].last_wave != w_.wave())
+                    encounters.emplace_back(id, pid);
+            }
+        }
         w_.advance(1);
+        for (const auto& [id, pid] : encounters) {
+            if (std::find(w_.combat_events().begin(), w_.combat_events().end(), id) == w_.combat_events().end()) continue;
+            auto& experience = phoenix_experience_[static_cast<std::size_t>(pid)];
+            experience.last_wave = w_.wave();
+            ++experience.encounters;
+            if (game::earns_white_feather(experience.encounters)) white_feather_ = true;
+        }
         // 斥候的到达判定：**每拍查一次**。它必须在 `advance` 之后——单位是
         // 在那里面移动的，判前查等于永远慢一拍。
         tick_scout_recon();

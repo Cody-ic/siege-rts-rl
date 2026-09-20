@@ -533,7 +533,7 @@ inline GridPos pos_of_slot(std::uint16_t slot, int width) noexcept {
 // 随之移除（`u_upgrade_left_` 删，升级只经 `Train` 选级）。布局与行为双重变更。
 // `World/12` → `World/13`：新增 `CommandKind::Demolish`，`deferred_` 的长度随
 // `kCommandKindCount` 增加一格并进入哈希；与上面 `World/1 → World/2` 同类。
-inline constexpr std::string_view kWorldHashTag = "World/19";
+inline constexpr std::string_view kWorldHashTag = "World/20";
 
 class WorldView;
 
@@ -637,6 +637,9 @@ public:
     //
     // 各阶段内一律按**槽位下标升序**遍历——与 `enumerate_units` 同一个规范顺序。
     void advance(int ticks);
+    // Derived events for the last completed tick: attacks committed and hostile
+    // damage received. Read after advance(1); full handles distinguish reused slots.
+    std::span<const UnitId> combat_events() const noexcept { return combat_events_; }
 
     // ——实体——
     //
@@ -915,6 +918,8 @@ public:
     // `stats.hpp` 的 `train_ticks_permille_per_level`。
     std::int64_t train_cost_gold(UnitType ut, std::int32_t level) const noexcept;
     std::int32_t train_ticks_at(UnitType ut, std::int32_t level) const noexcept;
+    std::int32_t train_ticks_at_building(UnitType ut, std::int32_t level,
+                                       BldType building, std::int32_t building_level) const noexcept;
 
     // 建筑升级的定价，`Upgrade` 解算与 UI 提示的**唯一**计算处（同上一条纪律）。
     // 返回「从 `from_level` 升到 `from_level + 1`」那一步的石/木，`from_level`
@@ -1118,6 +1123,7 @@ private:
     std::vector<std::int32_t> u_mount_;       // 上墙延迟剩余；>0 = 在爬（人还在地面）
     std::vector<float> u_charge_;             // 冲锋动量（已助跑格数）；非 Charge 恒 0
     std::vector<std::int32_t> u_cd_;          // 出手冷却剩余 tick，0 = 可承诺
+    std::vector<UnitId> combat_events_;      // Derived notifications, not saved/hashed.
     std::vector<TgtKind> u_tgt_kind_;         // 已承诺攻击的目标种类，None = 空闲
     std::vector<std::uint32_t> u_tgt_raw_;    // 目标句柄的 raw()，种类由上一条判别
     std::vector<Vec2> u_aim_;                 // 锁定落点（承诺那一刻定死）
