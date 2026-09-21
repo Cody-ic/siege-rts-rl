@@ -105,32 +105,35 @@ TEST_CASE("Ram breach estimates match actual hit timing at real levels", "[flow]
 }
 
 TEST_CASE("Routing trades exposure along a detour against exposure while breaching", "[flow][routing]") {
-    auto init=arena();
-    auto& ghoul=init.stats.unit[static_cast<std::size_t>(rts::UnitType::Ghoul)];
-    ghoul.damage=10;ghoul.vs_structure_permille=1000;ghoul.speed=0.25f;
-    ghoul.windup_ticks=2;ghoul.cooldown_ticks=8;ghoul.max_hp=100;
-    auto& tower=init.stats.bld[static_cast<std::size_t>(rts::BldType::Tower)];
-    tower.damage=40;tower.range=4;tower.cooldown_ticks=20;tower.windup_ticks=2;
-    rts::World w(init);
-    std::vector<rts::FlowBuilding> known;
-    // A tall wall with a short northern detour; extremely thick other segments
-    // isolate the breach at y=8 and the gap at y=3.
-    for(int y=4;y<16;++y) known.push_back({{12,static_cast<std::int16_t>(y)},rts::BldType::Wall,
-                                         y==8?80:1000000,1,true,0});
-    const rts::GridPos goal[]={{17,8}};const rts::GridPos start{7,8};
-    const auto quiet=rts::FlowField::compute_known(w.view(rts::Side::Attacker),rts::UnitType::Ghoul,1,goal,known);
-    REQUIRE(quiet.step_of(start)!=rts::UnitAction::MoveSE);
-    known.push_back({{12,2},rts::BldType::Tower,1000000,1,true,0});
-    const auto risky=rts::FlowField::compute_known(w.view(rts::Side::Attacker),rts::UnitType::Ghoul,1,goal,known);
-    REQUIRE(risky.step_of(start)==rts::UnitAction::MoveSE);
-    REQUIRE(risky.travel_ticks_at(start)>quiet.travel_ticks_at(start));
-    // Moving the same tower to the breach makes standing there expensive too.
-    known.back().pos={12,10};
-    const auto covered=rts::FlowField::compute_known(w.view(rts::Side::Attacker),rts::UnitType::Ghoul,1,goal,known);
-    REQUIRE(covered.step_of(start)!=rts::UnitAction::MoveSE);
-    REQUIRE(covered.travel_ticks_at(start)<risky.travel_ticks_at(start));
-    std::cout<<"route_probe: quiet="<<quiet.travel_ticks_at(start)
-             <<" gap_fire="<<risky.travel_ticks_at(start)<<" breach_fire="<<covered.travel_ticks_at(start)<<'\n';
+    for (const auto fort : {rts::BldType::Wall, rts::BldType::Gate, rts::BldType::Fence}) {
+        CAPTURE(fort);
+        auto init=arena();
+        auto& ghoul=init.stats.unit[static_cast<std::size_t>(rts::UnitType::Ghoul)];
+        ghoul.damage=10;ghoul.vs_structure_permille=1000;ghoul.speed=0.25f;
+        ghoul.windup_ticks=2;ghoul.cooldown_ticks=8;ghoul.max_hp=100;
+        auto& tower=init.stats.bld[static_cast<std::size_t>(rts::BldType::Tower)];
+        tower.damage=40;tower.range=4;tower.cooldown_ticks=20;tower.windup_ticks=2;
+        rts::World w(init);
+        std::vector<rts::FlowBuilding> known;
+        // A tall wall with a short northern detour; extremely thick other segments
+        // isolate the breach at y=8 and the gap at y=3.
+        for(int y=4;y<16;++y) known.push_back({{12,static_cast<std::int16_t>(y)},fort,
+                                             y==8?80:1000000,1,true,0});
+        const rts::GridPos goal[]={{17,8}};const rts::GridPos start{7,8};
+        const auto quiet=rts::FlowField::compute_known(w.view(rts::Side::Attacker),rts::UnitType::Ghoul,1,goal,known);
+        REQUIRE(quiet.step_of(start)!=rts::UnitAction::MoveSE);
+        known.push_back({{12,2},rts::BldType::Tower,1000000,1,true,0});
+        const auto risky=rts::FlowField::compute_known(w.view(rts::Side::Attacker),rts::UnitType::Ghoul,1,goal,known);
+        REQUIRE(risky.step_of(start)==rts::UnitAction::MoveSE);
+        REQUIRE(risky.travel_ticks_at(start)>quiet.travel_ticks_at(start));
+        // Moving the same tower to the breach makes standing there expensive too.
+        known.back().pos={12,10};
+        const auto covered=rts::FlowField::compute_known(w.view(rts::Side::Attacker),rts::UnitType::Ghoul,1,goal,known);
+        REQUIRE(covered.step_of(start)!=rts::UnitAction::MoveSE);
+        REQUIRE(covered.travel_ticks_at(start)<risky.travel_ticks_at(start));
+        std::cout<<"route_probe: quiet="<<quiet.travel_ticks_at(start)
+                 <<" gap_fire="<<risky.travel_ticks_at(start)<<" breach_fire="<<covered.travel_ticks_at(start)<<'\n';
+    }
 }
 
 TEST_CASE("Hidden buildings never change a route and observed repair changes breach cost", "[flow][routing]") {

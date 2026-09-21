@@ -60,15 +60,16 @@ TEST_CASE("Phoenix attacks useful buildings before a nearer fence", "[battlefix]
             w.advance(80);
             REQUIRE(w.bld_hp(target) < 10000);
             REQUIRE(w.bld_hp(fence) == 10000);
-            // A committed target disappearing must not prevent the fence fallback.
+            // Losing the useful target must not turn a fortification into bait.
             w.destroy_bld(target);
             w.advance(80);
-            REQUIRE(w.bld_hp(fence) < 10000);
+            REQUIRE(w.bld_hp(fence) == 10000);
+            REQUIRE((w.action_mask(bird) & (1u << static_cast<unsigned>(attack))) == 0);
         }
     }
 }
 
-TEST_CASE("Phoenix fence fallback stays legal with an out-of-range building", "[battlefix][phoenix-target]") {
+TEST_CASE("Phoenix cannot attack a fence when useful buildings are out of range", "[battlefix][phoenix-target][fence]") {
     rts::WorldInit init;
     init.width = 24; init.height = 16; init.terrain.assign(384, rts::Terrain::Plain);
     init.keep = {2, 2}; init.stats = stats();
@@ -78,30 +79,88 @@ TEST_CASE("Phoenix fence fallback stays legal with an out-of-range building", "[
     const auto barrack = w.place_bld(rts::BldType::Barrack, {20, 8}, 10000, 10000);
     const auto bird = w.spawn_unit(rts::UnitType::Phoenix, {8.5f, 8.5f}, 1, 1000, 1000);
     const auto attack = rts::UnitAction::AtkBld;
-    REQUIRE((w.action_mask(bird) & (1u << static_cast<unsigned>(attack))) != 0);
+    REQUIRE((w.action_mask(bird) & (1u << static_cast<unsigned>(attack))) == 0);
     w.submit_actions(rts::Side::Attacker, &attack, 1);
     w.advance(80);
-    REQUIRE(w.bld_hp(fence) < 10000);
+    REQUIRE(w.bld_hp(fence) == 10000);
     REQUIRE(w.bld_hp(barrack) == 10000);
 }
 
-TEST_CASE("Ground attackers still attack the nearest fence", "[battlefix][phoenix-target]") {
-    for (const auto type : {rts::UnitType::Ghoul, rts::UnitType::Shade, rts::UnitType::Ram}) {
-        CAPTURE(type);
-        rts::WorldInit init;
-        init.width = 16; init.height = 16; init.terrain.assign(256, rts::Terrain::Plain);
-        init.keep = {2, 2}; init.stats = stats();
-        init.buildings.push_back({rts::BldType::Keep, {2, 2}, 10000, 10000});
-        rts::World w(init);
-        const auto fence = w.place_bld(rts::BldType::Fence, {8, 8}, 10000, 10000);
-        const auto barrack = w.place_bld(rts::BldType::Barrack, {9, 8}, 10000, 10000);
-        w.spawn_unit(type, {8.9f, 8.5f}, 1, 1000, 1000);
-        const auto attack = rts::UnitAction::AtkBld;
-        w.submit_actions(rts::Side::Attacker, &attack, 1);
-        w.advance(80);
-        REQUIRE(w.bld_hp(fence) < 10000);
-        // Ram splash may damage both; the fence must still take its primary hit.
-        if (type != rts::UnitType::Ram) REQUIRE(w.bld_hp(barrack) == 10000);
+TEST_CASE("Ground building attacks skip nearer fortifications", "[battlefix][fence]") {
+    for (const auto type : {rts::UnitType::Ghoul, rts::UnitType::Knight,
+                           rts::UnitType::Shade, rts::UnitType::Ram}) {
+        for (const auto fort : {rts::BldType::Wall, rts::BldType::Gate, rts::BldType::Fence}) {
+            CAPTURE(type, fort);
+            rts::WorldInit init;
+            init.width = 16; init.height = 16; init.terrain.assign(256, rts::Terrain::Plain);
+            init.keep = {2, 2}; init.stats = stats();
+            // Separate target selection from splash: a nearby fence may still take
+            // collateral damage when an attack on a useful building lands.
+            init.stats.unit[static_cast<std::size_t>(type)].aoe_radius = 0;
+            init.buildings.push_back({rts::BldType::Keep, {2, 2}, 10000, 10000});
+            rts::World w(init);
+            const auto fence = w.place_bld(fort, {8, 7}, 10000, 10000);
+            const auto barrack = w.place_bld(rts::BldType::Barrack, {9, 8}, 10000, 10000);
+            w.spawn_unit(type, {8.5f, 8.0f}, 1, 1000, 1000);
+            const auto attack = rts::UnitAction::AtkBld;
+            w.submit_actions(rts::Side::Attacker, &attack, 1);
+            w.advance(80);
+            REQUIRE(w.bld_hp(fence) == 10000);
+            REQUIRE(w.bld_hp(barrack) < 10000);
+        }
+    }
+}
+
+TEST_CASE("Fortifications share attack masks and remain destructible along a route", "[battlefix][fence]") {
+    for (const auto fort : {rts::BldType::Wall, rts::BldType::Gate, rts::BldType::Fence}) {
+        for (const auto type : {rts::UnitType::Ghoul, rts::UnitType::Knight,
+                               rts::UnitType::Shade, rts::UnitType::Ram,
+                               rts::UnitType::Phoenix, rts::UnitType::Wraith}) {
+            for (const bool move : {false, true}) {
+                CAPTURE(fort, type, move);
+                rts::WorldInit init;
+                init.width=16; init.height=16; init.terrain.assign(256,rts::Terrain::Plain);
+                init.keep={2,2}; init.stats=stats();
+                for (auto& b : init.stats.bld) b.damage=0;
+                init.buildings.push_back({rts::BldType::Keep,init.keep,10000,10000});
+                rts::World w(init);
+                const auto wall=w.place_bld(fort,{9,8},10000,10000);
+                const auto unit=w.spawn_unit(type,{8.9f,8.5f},1,1000,1000);
+                const bool ground_combat=type!=rts::UnitType::Phoenix && type!=rts::UnitType::Wraith;
+                const auto mask=w.action_mask(unit);
+                REQUIRE((mask&(1u<<static_cast<unsigned>(rts::UnitAction::AtkBld)))==0);
+                REQUIRE(((mask&(1u<<static_cast<unsigned>(rts::UnitAction::AtkWall)))!=0)==ground_combat);
+                const auto action=move?rts::UnitAction::MoveSE:rts::UnitAction::AtkWall;
+                w.submit_actions(rts::Side::Attacker,&action,1);w.advance(100);
+                REQUIRE((w.bld_hp(wall)<10000)==ground_combat);
+                if (move && !ground_combat) REQUIRE(w.unit_pos(unit).x>9.5f);
+            }
+        }
+    }
+}
+
+TEST_CASE("Ground scripts pass an adjacent fortification when their route is open", "[battlefix][fence]") {
+    for (const auto type : {rts::UnitType::Ghoul, rts::UnitType::Knight,
+                           rts::UnitType::Shade, rts::UnitType::Ram}) {
+        for (const auto fort : {rts::BldType::Wall, rts::BldType::Gate, rts::BldType::Fence}) {
+            CAPTURE(type,fort);
+            auto st=stats();for(auto& b:st.bld) b.damage=0;
+            game::DemoBattle battle(pool_map(),st,17);
+            auto& w=const_cast<rts::World&>(battle.world());clear_units(w);
+            const auto v=w.view(rts::Side::Defender);
+            for(std::size_t k=0;k<v.bld_alive().size();++k)
+                if(v.bld_alive()[k] && v.bld_type()[k]!=rts::BldType::Keep)
+                    w.destroy_bld(w.bld_at(v.bld_pos()[k]));
+            const auto wall=w.place_bld(fort,{92,84},10000,10000);
+            REQUIRE(wall.valid());
+            const auto unit=w.spawn_unit(type,{92.5f,85.5f},1,1000,1000);
+            // Keep must be outside even Shade's range; otherwise stopping to
+            // attack the Keep is correct and says nothing about fence bait.
+            REQUIRE((w.action_mask(unit)&(1u<<static_cast<unsigned>(rts::UnitAction::AtkBld)))==0);
+            w.begin_assault();battle.update(24);
+            REQUIRE(w.unit_pos(unit).x<92.0f);
+            REQUIRE(w.bld_hp(wall)==10000);
+        }
     }
 }
 
@@ -138,13 +197,13 @@ TEST_CASE("Phoenix script passes fences for visible targets without chasing unse
         REQUIRE(w.unit_hp(target) < 1000);
         REQUIRE(w.bld_hp(fence) == 10000);
     }
-    SECTION("an unseen barracks does not suppress the local fence fallback") {
+    SECTION("with no known useful target the bird explores instead of attacking a fence") {
         const auto hidden = w.place_bld(rts::BldType::Barrack, {150, 85}, 10000, 10000);
         REQUIRE(hidden.valid());
         battle.update(80);
         REQUIRE(w.view(rts::Side::Attacker).fog().at(150, 85) != rts::Vis::Visible);
-        REQUIRE(w.unit_pos(bird).x == 110.5f);
-        REQUIRE(w.bld_hp(fence) < 10000);
+        REQUIRE(w.unit_pos(bird).x < 110.5f);
+        REQUIRE(w.bld_hp(fence) == 10000);
         REQUIRE(w.bld_hp(hidden) == 10000);
     }
     SECTION("a distant fence does not become a movement target") {

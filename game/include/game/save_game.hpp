@@ -16,7 +16,8 @@ namespace game {
 // v27: phoenix combat history/raid decisions and barracks training speed.
 // v30 fixes worker navigation. v27 script saves can migrate by verified snapshot
 // only; their old operation log cannot be replayed under the corrected script.
-inline constexpr int kSaveVersion=30;
+// v33: Fence uses fortification targeting (World/21); older rule sets stay isolated.
+inline constexpr int kSaveVersion=33;
 struct BattleArchive {
     std::string map_json,stats_json,snapshot;
     std::string tactical_policy_identity;

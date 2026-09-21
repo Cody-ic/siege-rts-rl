@@ -131,7 +131,7 @@ World::TargetPick World::pick_target(std::size_t k, UnitAction a) const {
             // 是「攻方没有建筑」这个结构事实的自然结果。
             if (my_side != Side::Attacker) break;
             const bool wants_wall = (a == UnitAction::AtkWall);
-            // `AtkWall` 打墙与门 ⇒ 需要能破坏结构（`Phoenix` 在这里被结构挡住，
+            // `AtkWall` 打墙、门与栅栏 ⇒ 需要能破坏结构（`Phoenix` 在这里被结构挡住，
             // 它对墙恒 0 不是数值）。`AtkBld` 打其余建筑 ⇒ 有战力即可
             // （`Phoenix` 点杀防御塔是设计明写的用途）。
             if (wants_wall ? !beh.can_break_structure() : !beh.combat()) break;
@@ -141,16 +141,16 @@ World::TargetPick World::pick_target(std::size_t k, UnitAction a) const {
             for (std::size_t s = 0; s < bld_pool_.slot_count(); ++s) {
                 if (!bld_pool_.alive_at(static_cast<std::uint16_t>(s))) continue;
                 const BldType bt = b_type_[s];
-                const bool is_wall = (bt == BldType::Wall || bt == BldType::Gate);
+                const bool is_wall = is_fortification(bt);
                 if (is_wall != wants_wall) continue;
                 if (bt == BldType::Keep && !beh.can_break_structure()) continue;
                 const Vec2 c = center_of(b_pos_[s]);
                 const float d2 = dist2(my_pos, c);
-                // Phoenix can fly over fences. Prefer other buildings within
-                // range; a distant building must not suppress a legal fallback.
+                // Phoenix prioritizes AA within range; a distant AA tower must
+                // not suppress a reachable ordinary building.
                 if (phoenix_building && d2 > range * range) continue;
                 const int priority = !phoenix_building ? 0 :
-                    bt == BldType::Flak ? 0 : bt == BldType::Fence ? 2 : 1;
+                    bt == BldType::Flak ? 0 : 1;
                 if (!best.found || priority < best_priority ||
                     (priority == best_priority && d2 < best.dist2)) {
                     best.found = true;
@@ -336,7 +336,7 @@ void World::land_attack(std::size_t k, std::span<const float> target_charge) {
         for (std::size_t t = 0; t < bld_pool_.slot_count(); ++t) {
             if (!bld_pool_.alive_at(static_cast<std::uint16_t>(t))) continue;
             const BldType bt = b_type_[t];
-            const bool is_wall = (bt == BldType::Wall || bt == BldType::Gate);
+            const bool is_wall = is_fortification(bt);
             if (is_wall ? !beh.can_break_structure() : !beh.combat()) continue;
             if (dist2(center_of(b_pos_[t]), aim) > r2) continue;
             deal_damage(TgtKind::Bld,
@@ -624,7 +624,7 @@ bool World::try_bump_attack(std::size_t k, GridPos to) {
         if (side_of(type) != Side::Attacker) return false;
         const std::size_t s = static_cast<std::size_t>(bld_at_[c] - 1);
         const BldType bt = b_type_[s];
-        const bool is_wall = (bt == BldType::Wall || bt == BldType::Gate);
+        const bool is_wall = is_fortification(bt);
         if (is_wall ? !beh.can_break_structure() : !beh.combat()) return false;
         t.found = true;
         t.kind = TgtKind::Bld;

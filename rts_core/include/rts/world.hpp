@@ -533,7 +533,8 @@ inline GridPos pos_of_slot(std::uint16_t slot, int width) noexcept {
 // 随之移除（`u_upgrade_left_` 删，升级只经 `Train` 选级）。布局与行为双重变更。
 // `World/12` → `World/13`：新增 `CommandKind::Demolish`，`deferred_` 的长度随
 // `kCommandKindCount` 增加一格并进入哈希；与上面 `World/1 → World/2` 同类。
-inline constexpr std::string_view kWorldHashTag = "World/20";
+// World/21: Fence joins Wall/Gate for attack actions and structural eligibility.
+inline constexpr std::string_view kWorldHashTag = "World/21";
 
 class WorldView;
 

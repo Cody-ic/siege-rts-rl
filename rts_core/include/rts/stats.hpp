@@ -82,6 +82,8 @@ namespace rts {
 // Stats/15: bounded barracks throughput bonus applies to newly started training.
 inline constexpr std::string_view kStatsShapeTag = "Stats/15";
 
+// Shared target/breach/durability category. This does not imply a mountable
+// battlement: only Wall and Gate support garrisoning and height bonuses.
 constexpr bool is_fortification(BldType type) noexcept {
     return type == BldType::Wall || type == BldType::Gate || type == BldType::Fence;
 }

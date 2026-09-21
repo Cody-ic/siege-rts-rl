@@ -12,8 +12,7 @@ float distance(rts::Vec2 a, rts::Vec2 b) {
     return std::hypot(a.x-b.x, a.y-b.y);
 }
 bool attackable(rts::BldType type) {
-    return type != rts::BldType::Keep && type != rts::BldType::Wall &&
-        type != rts::BldType::Gate && type != rts::BldType::Fence;
+    return type != rts::BldType::Keep && !rts::is_fortification(type);
 }
 struct Threat {
     rts::Vec2 pos;

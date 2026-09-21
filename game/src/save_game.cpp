@@ -178,15 +178,14 @@ void preserve_incompatible_archive(const std::filesystem::path& file) {
 
 BattleArchive read_archive(const std::filesystem::path& file) {
     const auto j=load_json(file);
-    const bool legacy_worker_snapshot=j.at("version")==27;
-    require(j.at("format")=="siege-save" && (legacy_worker_snapshot || j.at("version")==kSaveVersion || j.at("version")==kSaveVersion+1 || j.at("version")==kSaveVersion+2),"存档版本不兼容");
+    require(j.at("format")=="siege-save" && (j.at("version")==kSaveVersion || j.at("version")==kSaveVersion+1 || j.at("version")==kSaveVersion+2),"存档版本不兼容");
     require(j.at("platform").get<std::string>()==rts::kPlatformFingerprint && j.at("world").get<std::string>()==rts::kWorldHashTag,"存档平台或仿真版本不兼容");
     BattleArchive a;
     a.tactical_policy_identity=j.value("tactical_policy_identity",std::string{});
     a.defender_policy_identity=j.value("defender_policy_identity",std::string{});
     const int expected_version=!a.defender_policy_identity.empty()?kSaveVersion+2:(a.tactical_policy_identity.empty()?kSaveVersion:kSaveVersion+1);
-    require(legacy_worker_snapshot?(a.tactical_policy_identity.empty() && a.defender_policy_identity.empty()):j.at("version")==expected_version,"Invalid policy save version");
-    a.snapshot_only=legacy_worker_snapshot || j.value("snapshot_only",false);
+    require(j.at("version")==expected_version,"Invalid policy save version");
+    a.snapshot_only=j.value("snapshot_only",false);
     if(!a.defender_policy_identity.empty()) {
         const auto& state=j.at("defender_policy_rng");
         require(state.is_array() && state.size()==4,"Invalid defender RNG");

@@ -1114,7 +1114,7 @@ void DemoBattle::issue_actions() {
             // 「AtkNear 否则奔堡垒」，于是径直飞进墙上弓手的火网、到了堡垒
             // 又因为射程内没有单位而干悬着——「手术刀」全程没切过一刀）：
             // 优先评估可拆防空和普通建筑；无已知建筑时保留近身接敌与探索。
-            // 木栅栏只作就地兜底，堡垒/墙/门仍不可伤害。
+            // 堡垒与墙类工事（墙/门/栅栏）不可伤害。
             //
             // ——**撤离优先于一切攻击**（2026-09-10，#170）——
             //
@@ -1141,8 +1141,8 @@ void DemoBattle::issue_actions() {
             } else if (has(mask, rts::UnitAction::AtkWeak)) {
                 a = rts::UnitAction::AtkWeak;
             } else {
-                // Pursue visible units and useful buildings before spending an
-                // attack on a fence. Never use a fence as a movement destination.
+                // Pursue visible units and useful buildings. Fortifications are
+                // neither attack targets nor movement destinations for Phoenix.
                 const auto p = w_.unit_pos(id);
                 const float range = w_.stats().of(type).range;
                 rts::Vec2 goal = p;
@@ -1160,8 +1160,7 @@ void DemoBattle::issue_actions() {
                 for (std::size_t k = 0; k < av.bld_alive().size(); ++k) {
                     if (!av.bld_alive()[k] || !visible(av.bld_pos()[k])) continue;
                     const auto bt = av.bld_type()[k];
-                    if (bt == rts::BldType::Keep || bt == rts::BldType::Wall ||
-                        bt == rts::BldType::Gate || bt == rts::BldType::Fence) continue;
+                    if (bt == rts::BldType::Keep || rts::is_fortification(bt)) continue;
                     if (consider(rts::center_of(av.bld_pos()[k])) <= range*range)
                         building_in_range = true;
                 }
@@ -1169,8 +1168,6 @@ void DemoBattle::issue_actions() {
                     a = rts::UnitAction::AtkBld;
                 } else if (nearest >= 0) {
                     a = greedy_move(id, goal);
-                } else if (has(mask, rts::UnitAction::AtkBld)) {
-                    a = rts::UnitAction::AtkBld;  // Only an in-range fence remains.
                 } else {
                     const auto center=rts::center_of(w_.keep_pos());
                     const float dx=p.x-center.x,dy=p.y-center.y,r=w_.stats().of(type).vision;

@@ -117,10 +117,9 @@ FlowField FlowField::compute_impl(const WorldView& view, UnitType mover, int tie
                     extra[c] = kInf;
                 }
             } else {
-                // 与 try_bump_attack 同一对谓词：墙 / 门要 can_break_structure，
+                // 与 try_bump_attack 同一对谓词：墙 / 门 / 栅栏要 can_break_structure，
                 // 其余建筑要 combat()。
-                const bool is_wall =
-                    type == BldType::Wall || type == BldType::Gate;
+                const bool is_wall = is_fortification(type);
                 const bool can =
                     is_wall ? beh.can_break_structure() : beh.combat();
                 extra[c] = (can && dmg > 0) ? break_ticks(hp) : kInf;
