@@ -567,6 +567,7 @@ std::vector<std::string_view> font_coverage(const game::MapData& map) {
     for(auto text:render::developer_strings) cover.push_back(text);
     cover.push_back("驻点驻防前往接敌回岗受阻右键建筑驻守已下达建筑驻守指令弓手驻墙地面部队守卫建筑冲锋加成");
     cover.push_back("已选建筑升级座已安排仍需工匠施工不占人口本波累计发现非剩余兵力最近回报秒前窥使须持续观察完成前击落可阻断情报");
+    cover.push_back("旧版对局已适配工匠修复，选择继续对局");
     cover.push_back(map.name());
     cover.push_back(map.map_id());
     return cover;
@@ -1198,6 +1199,8 @@ int run_game(Options& opt) {
         shell.adopt_saved_battle(std::move(*restored),candidate.attempt,candidate.choice);
         storage_status=shell.battle()->defeated() || shell.chronicle().completed()
             ? "对局已结束，日记已保留" : "对局已恢复，选择继续对局";
+        if(candidate.snapshot_only && !shell.battle()->defeated() && !shell.chronicle().completed())
+            storage_status="旧版对局已适配工匠修复，选择继续对局";
     };
     if(archive) {
         try {restore_candidate(*archive);}

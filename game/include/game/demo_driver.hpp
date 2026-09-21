@@ -221,6 +221,10 @@ public:
         rts::GridPos target{};
     };
     const std::vector<PlayerEvent>& player_events() const noexcept { return player_events_; }
+    bool operation_replay_available() const noexcept { return operation_replay_available_; }
+    // A migrated snapshot retains its historical player events for inspection,
+    // but those events used an older script and cannot reconstruct this world.
+    void disable_operation_replay() noexcept { operation_replay_available_=false; }
 
     // ——不死鸟的跨波状态（2026-09-10，#170）——
     //
@@ -300,6 +304,7 @@ private:
     rts::Rng defender_rng_{1};
     std::size_t learned_squads_ = 0;
     std::vector<PlayerEvent> player_events_;
+    bool operation_replay_available_=true; // Saved in the archive envelope, not the world snapshot.
     void issue_actions();
     void spawn_wave();
     bool keep_alive() const;

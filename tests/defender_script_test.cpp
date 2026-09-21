@@ -82,13 +82,14 @@ bool has(std::uint16_t mask, rts::UnitAction a) {
 // 每拍按当时的存活单位重发（数量会变，submit 的长度检查是硬的）。
 // 登墙意愿与动作同拍提交（脚本的第二份输出，v4 起是独立的输入通道）。
 void run(rts::World& w, game::DefenderScript& s, int ticks,
-         rts::UnitAction atk_move = rts::UnitAction::Stop) {
+         rts::UnitAction atk_move = rts::UnitAction::Stop,
+         int decision_period = rts::kDecisionPeriodMin) {
     std::vector<rts::UnitId> ids;
     std::vector<rts::UnitAction> acts;
     std::vector<std::uint16_t> wishes;
     for (int t = 0; t < ticks; ++t) {
         w.enumerate_units(rts::Side::Defender, ids);
-        if (t % rts::kDecisionPeriodMin != 0) {
+        if (t % decision_period != 0) {
             if (s.refresh_scout_navigation(w.view(rts::Side::Defender), ids, acts))
                 w.submit_actions(rts::Side::Defender, acts.data(), acts.size());
             w.advance(1);
@@ -437,6 +438,60 @@ TEST_CASE("工匠自动找活：走进半径，工时才开始动", "[script]") 
     run(w, s, 120);
 
     REQUIRE(w.view(rts::Side::Defender).bld_work_left()[slot] < 60);   // 真开工了
+}
+
+TEST_CASE("Worker manual order leaves the city through an offset gate", "[script][workerpath]") {
+    auto init = sarena(24,32);
+    us(init.stats,rts::UnitType::Mason).speed = 0.08f;
+    init.stats.global.mason_work_radius = 1.6f;
+    rts::World w(init);
+    for(int x=2;x<=20;++x) for(int y=6;y<=28;++y) {
+        if(x!=2 && x!=20 && y!=6 && y!=28) continue;
+        w.place_bld(x==10 && y==6?rts::BldType::Gate:rts::BldType::Wall,
+                    {static_cast<std::int16_t>(x),static_cast<std::int16_t>(y)},40,40);
+    }
+    w.place_bld(rts::BldType::Tower,{12,7},100,100);
+    w.place_bld(rts::BldType::Barrack,{10,8},100,100);
+    const auto job = w.place_bld(rts::BldType::Tower,{11,1},100,100,60);
+    const auto worker = w.spawn_unit(rts::UnitType::Mason,{11.07256f,7.44720f},1,12,12);
+    game::DefenderScript script({},7);
+    SECTION("Player directed movement") {script.issue_move_order({&worker,1},{11,1});}
+    SECTION("Automatic construction") {}
+    run(w,script,160,rts::UnitAction::Stop,rts::kDecisionPeriodMax);
+    CHECK(w.view(rts::Side::Defender).bld_work_left()[job.index()] == 0);
+}
+
+TEST_CASE("Worker finishes the last fraction of a worksite approach", "[script][workerpath]") {
+    auto init = sarena(12,12);
+    us(init.stats,rts::UnitType::Mason).speed = 0.08f;
+    init.stats.global.mason_work_radius = 1.6f;
+    rts::World w(init);
+    // Only one work cell is open: its center is in range, its far corner is not.
+    const auto job = w.place_bld(rts::BldType::Tower,{6,6},100,100,30);
+    for(int x=4;x<=8;++x) for(int y=4;y<=8;++y) {
+        if((x==6 && y==6) || (x==5 && y==5)) continue;
+        w.place_bld(rts::BldType::Tower,{static_cast<std::int16_t>(x),static_cast<std::int16_t>(y)},100,100);
+    }
+    w.spawn_unit(rts::UnitType::Mason,{5.05f,5.05f},1,12,12);
+    game::DefenderScript script({},7);
+    run(w,script,80,rts::UnitAction::Stop,rts::kDecisionPeriodMax);
+    CHECK(w.view(rts::Side::Defender).bld_work_left()[job.index()] == 0);
+}
+
+TEST_CASE("Worker stops at a blocked manual goal without oscillating", "[script][workerpath]") {
+    auto init = sarena(12,12);
+    us(init.stats,rts::UnitType::Mason).speed = 0.08f;
+    rts::World w(init);
+    for(int y=0;y<12;++y) w.place_bld(rts::BldType::Wall,{6,static_cast<std::int16_t>(y)},40,40);
+    const auto worker = w.spawn_unit(rts::UnitType::Mason,{5.07256f,5.44720f},1,12,12);
+    game::DefenderScript script({},7);
+    script.issue_move_order({&worker,1},{10,5});
+    run(w,script,64,rts::UnitAction::Stop,rts::kDecisionPeriodMax);
+    const auto settled = w.unit_pos(worker);
+    CHECK(w.view(rts::Side::Defender).unit_action()[worker.index()] == rts::UnitAction::Stop);
+    run(w,script,64,rts::UnitAction::Stop,rts::kDecisionPeriodMax);
+    CHECK(w.unit_pos(worker).x == settled.x);
+    CHECK(w.unit_pos(worker).y == settled.y);
 }
 
 TEST_CASE("工匠自动认领堡垒升级并走到现场完工", "[script]") {

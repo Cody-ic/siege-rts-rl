@@ -94,8 +94,37 @@ CityBounds city_bounds(const rts::WorldView& v) {
     if(b.r<=b.l || b.b<=b.t) return {-1,v.width(),-1,v.height()};
     return b;
 }
+// Finish an approach within the current cell. Resample each tick: holding a
+// direction for a whole decision period can overshoot the center indefinitely.
+rts::UnitAction worker_center_step(const rts::WorldView& v, std::size_t slot,
+                                 std::uint16_t mask, const ScoutNavigation& navigation) {
+    const auto me = v.unit_pos()[slot];
+    const auto center = rts::center_of(navigation.cell);
+    const bool working = navigation.target!=navigation.cell;
+    const auto site = rts::center_of(navigation.target);
+    const float work_distance = dist2(me,site);
+    const float radius = v.stats().global.mason_work_radius;
+    if(working && work_distance<=radius*radius) return rts::UnitAction::Stop;
+    const float speed = v.stats().of(rts::UnitType::Mason).speed;
+    // A discrete step may pass the cell center before entering the true work
+    // radius (especially at its exact boundary). Keep approaching the site.
+    float best = working?std::numeric_limits<float>::infinity():dist2(me,center);
+    auto action = rts::UnitAction::Stop;
+    for(int d=0;d<rts::kMoveDirCount;++d) {
+        const auto candidate = rts::move_of(d);
+        if(!has(mask,candidate)) continue;
+        const auto delta = rts::move_delta(candidate);
+        const float step = speed*(rts::is_grid_diagonal(candidate)?kInvSqrt2:1.0f);
+        const rts::Vec2 next{me.x+step*delta.di,me.y+step*delta.dj};
+        if(rts::grid_of(next)!=navigation.cell || (working && dist2(next,site)>=work_distance)) continue;
+        const float distance = dist2(next,center);
+        if(distance<best) {best=distance;action=candidate;}
+    }
+    return action;
+}
 rts::UnitAction safe_worker(const rts::WorldView& v,std::size_t slot,std::uint16_t mask,
-                            std::vector<std::size_t>& claimed,const rts::GridPos* manual=nullptr,
+                            std::vector<std::size_t>& claimed,ScoutNavigation& centering,
+                            const rts::GridPos* manual=nullptr,
                             const ManualOrder* forced=nullptr) {
     const int w=v.width(),h=v.height(),n=w*h;
     const auto here=rts::grid_of(v.unit_pos()[slot]);const auto bounds=city_bounds(v);
@@ -144,19 +173,26 @@ rts::UnitAction safe_worker(const rts::WorldView& v,std::size_t slot,std::uint16
             const int c=y*w+x;
             const bool wall=v.bld_type()[b]==rts::BldType::Wall || v.bld_type()[b]==rts::BldType::Gate;
             if((!forced && risk[static_cast<std::size_t>(c)]>0) || !open[static_cast<std::size_t>(c)] || dist2(rts::center_of(cell(c)),rts::center_of(bp))>radius*radius) continue;
-            if(c==start && dist2(v.unit_pos()[slot],rts::center_of(bp))>radius*radius) continue;
             const float score=cost[static_cast<std::size_t>(c)]+(wall && !bounds.contains(cell(c))?4.0f:0.0f)+(std::find(claimed.begin(),claimed.end(),b)!=claimed.end()?100.0f:0.0f);
             if(score<best) {best=score;goal=c;job=b;}
         }
     }
-    if(goal>=0) claimed.push_back(job);
+    const bool working = goal>=0;
+    if(working) claimed.push_back(job);
     else if(forced) return rts::UnitAction::Stop; // Blocked job: wait, never claim another.
     else for(int c=0;c<n;++c) {
-        if(!open[static_cast<std::size_t>(c)] || !bounds.contains(cell(c)) || !std::isfinite(cost[static_cast<std::size_t>(c)])) continue;
+        // Only idle shelter is confined to the city. A player's destination may
+        // be outside; the same risk-aware route still forbids crossing danger.
+        if(!open[static_cast<std::size_t>(c)] || (!manual && !bounds.contains(cell(c))) || !std::isfinite(cost[static_cast<std::size_t>(c)])) continue;
         const float score=100000*risk[static_cast<std::size_t>(c)]+cost[static_cast<std::size_t>(c)]+4*dist2(rts::center_of(cell(c)),rts::center_of(manual?*manual:v.keep_pos()));
         if(score<best) {best=score;goal=c;}
     }
-    if(goal==start && manual) {const auto center=rts::center_of(cell(goal));return greedy_dir(mask,center.x-v.unit_pos()[slot].x,center.y-v.unit_pos()[slot].y);}
+    if(goal==start && (manual || working)) {
+        if(working && dist2(v.unit_pos()[slot],rts::center_of(v.bld_pos()[job]))<=radius*radius)
+            return rts::UnitAction::Stop;
+        centering.active=true;centering.cell=here;centering.target=working?v.bld_pos()[job]:here;
+        return worker_center_step(v,slot,mask,centering);
+    }
     return goal>=0?first[static_cast<std::size_t>(goal)]:rts::UnitAction::Stop;
 }
 
@@ -227,7 +263,15 @@ bool DefenderScript::refresh_scout_navigation(const rts::WorldView& view,
     for (const auto id : ids) {
         const auto slot = id.index();
         auto action = view.unit_action()[slot];
-        if ((view.unit_type()[slot] == rts::UnitType::Scout || view.unit_type()[slot] == rts::UnitType::Ranger || defender_post(id)) &&
+        if (view.unit_type()[slot] == rts::UnitType::Mason && slot < scout_navigation_.size()) {
+            const auto& navigation = scout_navigation_[slot];
+            if(navigation.active && navigation.generation==id.generation() && rts::is_move(action) &&
+               navigation.cell==rts::grid_of(view.unit_pos()[slot])) {
+                const auto next=worker_center_step(view,slot,view.action_mask(id),navigation);
+                changed=changed || next!=action;
+                action=next;
+            }
+        } else if ((view.unit_type()[slot] == rts::UnitType::Scout || view.unit_type()[slot] == rts::UnitType::Ranger || defender_post(id)) &&
             slot < scout_navigation_.size() && rts::is_move(action) &&
             view.unit_garrison()[slot] == rts::kNoSlot) {
             const auto navigation = scout_navigation_[slot];
@@ -301,12 +345,15 @@ rts::UnitAction DefenderScript::decide_unit(const rts::WorldView& view,
     wish = rts::kNoSlot;
 
     if(t==rts::UnitType::Mason) {
+        if(scout_navigation_.size()<=slot) scout_navigation_.resize(slot+1);
+        auto& centering=scout_navigation_[slot];
+        centering.active=false;centering.generation=id.generation();
         const rts::GridPos* target=nullptr;
         if (slot < manual_order_.size() && manual_order_[slot].active) {
             auto& order = manual_order_[slot];
             if (order.generation != id.generation()) order = ManualOrder{};
             else if (order.forced) {
-                if (forced_work_active(view, id)) return safe_worker(view, slot, mask, bld_claimed_, nullptr, &order);
+                if (forced_work_active(view, id)) return safe_worker(view, slot, mask, bld_claimed_, centering, nullptr, &order);
                 order = ManualOrder{};
             }
         }
@@ -315,7 +362,7 @@ rts::UnitAction DefenderScript::decide_unit(const rts::WorldView& view,
             if(dist2(me,rts::center_of(order.target))<2.25f) order.active=false;
             else target=&order.target;
         }
-        return safe_worker(view,slot,mask,bld_claimed_,target);
+        return safe_worker(view,slot,mask,bld_claimed_,centering,target);
     }
 
     // Ranger orders set persistent posts; navigation and active engagement share one path.

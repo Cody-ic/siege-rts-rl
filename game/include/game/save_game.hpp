@@ -14,7 +14,9 @@ namespace game {
 // v18 extends the default assault cap to 150 seconds; v15-v17 used 120 seconds.
 // v24 adds building guard orders and cavalry charge; v21-v23 recovery state is removed.
 // v27: phoenix combat history/raid decisions and barracks training speed.
-inline constexpr int kSaveVersion=27;
+// v30 fixes worker navigation. v27 script saves can migrate by verified snapshot
+// only; their old operation log cannot be replayed under the corrected script.
+inline constexpr int kSaveVersion=30;
 struct BattleArchive {
     std::string map_json,stats_json,snapshot;
     std::string tactical_policy_identity;
@@ -25,6 +27,7 @@ struct BattleArchive {
     int wave=1,attempt=1;
     ChronicleChoice choice=ChronicleChoice::None;
     std::vector<DemoBattle::PlayerEvent> events;
+    bool snapshot_only=false;
 };
 using RestoreProgress=std::function<bool(rts::Tick,rts::Tick)>;
 BattleArchive capture_battle(const GameShell& shell,std::string map_json,std::string stats_json);
