@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include "game/battle_scene.hpp"
 #include "game/demo_driver.hpp"
@@ -19,6 +20,105 @@ void clear_units(rts::World& w) {
         w.enumerate_units(side,ids);for(auto id:ids) w.kill_unit(id);
     }
 }
+}
+
+TEST_CASE("Ground building fire cannot cross fortifications", "[battlefix][firing-lane]") {
+    for(auto fort:{rts::BldType::Wall,rts::BldType::Gate,rts::BldType::Fence}) {
+        for(bool diagonal:{false,true}) {
+            CAPTURE(fort,diagonal);
+            rts::WorldInit init;init.width=20;init.height=20;init.terrain.assign(400,rts::Terrain::Plain);
+            init.keep={15,15};init.stats=stats();for(auto& b:init.stats.bld) b.damage=0;
+            init.buildings.push_back({rts::BldType::Keep,init.keep,10000,10000});
+            rts::World w(init);
+            const auto target=w.place_bld(rts::BldType::Barrack,diagonal?rts::GridPos{8,8}:rts::GridPos{9,5},10000,10000);
+            // Diagonal ray touches this corner; ordinary Bresenham misses it.
+            const auto wall=w.place_bld(fort,diagonal?rts::GridPos{7,6}:rts::GridPos{7,5},10000,10000);
+            const auto mage=w.spawn_unit(rts::UnitType::Shade,{5.5f,5.5f},1,10000,10000);
+            const auto attack=rts::UnitAction::AtkBld;
+            REQUIRE_FALSE(w.can_attack_building(mage,target));
+            REQUIRE((w.action_mask(mage)&(1u<<static_cast<unsigned>(attack)))==0);
+            REQUIRE((w.action_mask(mage)&(1u<<static_cast<unsigned>(rts::UnitAction::AtkWall)))!=0);
+            w.submit_actions(rts::Side::Attacker,&attack,1);w.advance(160);
+            REQUIRE(w.bld_hp(target)==10000);
+            w.destroy_bld(wall);
+            REQUIRE(w.can_attack_building(mage,target));
+            w.advance(160);REQUIRE(w.bld_hp(target)<10000);
+        }
+    }
+}
+
+TEST_CASE("A wall erected during windup or flight blocks building fire", "[battlefix][firing-lane]") {
+    for(bool in_flight:{false,true}) {
+        CAPTURE(in_flight);
+        rts::WorldInit init;init.width=20;init.height=12;init.terrain.assign(240,rts::Terrain::Plain);
+        init.keep={18,10};init.stats=stats();for(auto& b:init.stats.bld) b.damage=0;
+        auto& stat=init.stats.unit[static_cast<std::size_t>(rts::UnitType::Shade)];
+        stat.windup_ticks=4;stat.cooldown_ticks=200;stat.proj_speed=0.10f;
+        init.buildings.push_back({rts::BldType::Keep,init.keep,10000,10000});
+        rts::World w(init);
+        const auto target=w.place_bld(rts::BldType::Barrack,{9,5},10000,10000);
+        w.spawn_unit(rts::UnitType::Shade,{5.5f,5.5f},1,10000,10000);
+        const auto attack=rts::UnitAction::AtkBld;w.submit_actions(rts::Side::Attacker,&attack,1);
+        w.advance(in_flight?8:2);
+        w.place_bld(rts::BldType::Wall,{7,5},10000,10000);
+        w.advance(100);REQUIRE(w.bld_hp(target)==10000);
+    }
+}
+
+TEST_CASE("Diagonal building projectiles reach endpoints on grid boundaries", "[battlefix][firing-lane]") {
+    rts::WorldInit init;init.width=20;init.height=20;init.terrain.assign(400,rts::Terrain::Plain);
+    init.keep={18,18};init.stats=stats();for(auto& b:init.stats.bld) b.damage=0;
+    auto& mage=init.stats.unit[static_cast<std::size_t>(rts::UnitType::Shade)];
+    mage.range=8;mage.proj_speed=std::sqrt(0.5f);mage.cooldown_ticks=200;
+    init.buildings.push_back({rts::BldType::Keep,init.keep,10000,10000});
+    for(bool reverse:{false,true}) {
+        CAPTURE(reverse);
+        rts::World w(init);
+        const auto target=w.place_bld(rts::BldType::Barrack,reverse?rts::GridPos{6,8}:rts::GridPos{10,4},10000,10000);
+        w.spawn_unit(rts::UnitType::Shade,reverse?rts::Vec2{10.5f,4.5f}:rts::Vec2{6.5f,8.5f},1,10000,10000);
+        const auto attack=rts::UnitAction::AtkBld;w.submit_actions(rts::Side::Attacker,&attack,1);
+        w.advance(40);REQUIRE(w.bld_hp(target)<10000);
+    }
+}
+
+TEST_CASE("Ground attacks prefer a reachable Keep over a nearer building", "[battlefix][keep-priority]") {
+    for(auto type:{rts::UnitType::Ghoul,rts::UnitType::Knight,rts::UnitType::Shade,rts::UnitType::Ram}) {
+        CAPTURE(type);
+        rts::WorldInit init;init.width=16;init.height=16;init.terrain.assign(256,rts::Terrain::Plain);
+        init.keep={8,8};init.stats=stats();for(auto& b:init.stats.bld) b.damage=0;
+        init.stats.unit[static_cast<std::size_t>(type)].aoe_radius=0;
+        init.buildings.push_back({rts::BldType::Keep,init.keep,10000,10000});
+        rts::World w(init);
+        const auto shed=w.place_bld(rts::BldType::Barrack,{7,7},10000,10000);
+        const auto unit=w.spawn_unit(type,{7.8f,8.05f},1,10000,10000);
+        REQUIRE(w.can_attack_building(unit,w.bld_at(init.keep)));
+        const auto attack=rts::UnitAction::AtkBld;w.submit_actions(rts::Side::Attacker,&attack,1);w.advance(100);
+        REQUIRE(w.bld_hp(w.bld_at(init.keep))<10000);REQUIRE(w.bld_hp(shed)==10000);
+    }
+}
+
+TEST_CASE("Ground army advances past roadside buildings and handles route blockers", "[battlefix][keep-priority]") {
+    for(auto type:{rts::UnitType::Ghoul,rts::UnitType::Knight,rts::UnitType::Shade,rts::UnitType::Ram}) {
+        for(bool blocking:{false,true}) for(auto building_type:{rts::BldType::Barrack,rts::BldType::Mine}) {
+            CAPTURE(type,blocking,building_type);
+            auto st=stats();for(auto& b:st.bld) b.damage=0;
+            game::DemoBattle battle(pool_map(),st,13);auto& w=const_cast<rts::World&>(battle.world());clear_units(w);
+            // Use the cleared original interior to isolate target choice from terrain/routes.
+            std::vector<rts::BldId> buildings;
+            const auto v=w.view(rts::Side::Attacker);
+            for(std::size_t i=0;i<v.bld_alive().size();++i) if(v.bld_alive()[i]&&v.bld_type()[i]!=rts::BldType::Keep)
+                buildings.push_back(w.bld_at(v.bld_pos()[i]));
+            for(auto b:buildings) w.destroy_bld(b);
+            const auto k=w.keep_pos();const float x=static_cast<float>(k.i),y=static_cast<float>(k.j);
+            const rts::GridPos at{static_cast<std::int16_t>(k.i-8),static_cast<std::int16_t>(k.j+(blocking?0:1))};
+            const auto shed=w.place_bld(building_type,at,10000,10000);
+            const auto unit=w.spawn_unit(type,{x-8.2f,y+0.5f},1,100000,100000);
+            REQUIRE(shed.valid());w.begin_assault();
+            battle.update(100);
+            if(blocking) REQUIRE((w.bld_hp(shed)<10000 || w.unit_pos(unit).x>x-7.0f));
+            else { REQUIRE(w.bld_hp(shed)==10000);REQUIRE(w.unit_pos(unit).x>x-8.2f); }
+        }
+    }
 }
 
 TEST_CASE("不死鸟跳过贴脸堡垒但仍能攻击其他建筑", "[battlefix]") {
@@ -342,8 +442,8 @@ TEST_CASE("攻方必须由窥使观察才能得到新情报，情报用于下一
     REQUIRE(b.world().wave()==2);REQUIRE(b.wave_intel().fresh);REQUIRE(b.wave_intel().towers>0);
 }
 
-TEST_CASE("攻方沿途优先破坏可见城外采集建筑", "[battlefix]") {
-    for(auto type:{rts::UnitType::Ghoul,rts::UnitType::Shade,rts::UnitType::Phoenix}) for(float distance:{1.0f,4.0f}) {
+TEST_CASE("不死鸟仍可袭扰可见城外采集建筑", "[battlefix]") {
+    for(auto type:{rts::UnitType::Phoenix}) for(float distance:{1.0f,4.0f}) {
         CAPTURE(type,distance);
         game::DemoBattle battle(pool_map(),stats(),72);auto& w=const_cast<rts::World&>(battle.world());clear_units(w);
         const auto site=std::find_if(w.resources().begin(),w.resources().end(),[](const auto& s){return s.tier==rts::ResourceTier::Outer;});
@@ -352,7 +452,9 @@ TEST_CASE("攻方沿途优先破坏可见城外采集建筑", "[battlefix]") {
         if(!building.valid()) building=w.place_bld(rts::gatherer_of(site->kind),site->pos,10000,10000);
         REQUIRE(building.valid());
         const auto c=rts::center_of(site->pos);
-        const auto enemy=w.spawn_unit(type,{c.x+distance,c.y},1,10000,10000);
+        const auto keep=rts::center_of(w.keep_pos());
+        const float length=std::hypot(c.x-keep.x,c.y-keep.y);
+        const auto enemy=w.spawn_unit(type,{c.x+(c.x-keep.x)/length*distance,c.y+(c.y-keep.y)/length*distance},1,10000,10000);
         REQUIRE(enemy.valid());
         if(type==rts::UnitType::Phoenix) w.spawn_unit(rts::UnitType::Ghoul,{85.5f,85.5f},1,10000,10000);
         const auto before=w.bld_hp(building);w.begin_assault();
@@ -389,14 +491,15 @@ TEST_CASE("Ground attackers do not wait under tower fire", "[battlefix]") {
     REQUIRE(w.unit_pos(ghoul).x<90.0f);
 }
 
-TEST_CASE("A reachable barracks is attacked without waiting for the formation", "[battlefix]") {
+TEST_CASE("A nearby barracks does not override formation and waiting remains bounded", "[battlefix]") {
     auto st=stats();for(auto& b:st.bld) b.damage=0;
     game::DemoBattle battle(pool_map(),st,8);auto& w=const_cast<rts::World&>(battle.world());clear_units(w);
     const auto old=w.bld_at({88,85});if(w.alive(old)) w.destroy_bld(old);
     const auto barrack=w.place_bld(rts::BldType::Barrack,{88,85},10000,10000);REQUIRE(barrack.valid());
-    w.spawn_unit(rts::UnitType::Ghoul,{89.4f,85.5f},1,100000,100000);
+    const auto ghoul=w.spawn_unit(rts::UnitType::Ghoul,{89.4f,85.5f},1,100000,100000);
     w.spawn_unit(rts::UnitType::Ram,{110.5f,85.5f},1,100000,100000);w.begin_assault();
-    battle.update(60);REQUIRE(w.bld_hp(barrack)<10000);
+    battle.update(60);REQUIRE(w.bld_hp(barrack)==10000);
+    battle.update(180);REQUIRE((w.unit_pos(ghoul).x<89.4f || w.bld_hp(barrack)<10000));
 }
 
 TEST_CASE("Scout reports merge distinct sightings without counting the same unit twice", "[battlefix]") {

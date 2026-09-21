@@ -1,4 +1,4 @@
-// 把 `game::DrawLists` 画出来。两遍绘制，这是深度排序的全部内容。
+// 把 `game::DrawLists` 画出来：地面先画，物件按深度绘制；直墙按遮挡关系局部分片。
 //
 // **不变量 2 在类型层面的落地**：这个类拿到的只是一份绘制列表（格坐标 + 精灵标识符
 // + 朝向 + 深度键），它**根本拿不到可变的仿真状态**，所以「渲染层不修改仿真状态」
@@ -73,7 +73,8 @@ private:
     // 关键一步：把**锚点**对齐到格心，而不是把图片左上角对齐到格心。
     // 各精灵画布尺寸不同（地砖 256×128、密林 532×758），按左上角贴会让高个子
     // 整体上浮，而那是一眼看得出、却不容易想到原因的错。
-    void place(const game::DrawItem& item);
+    const Sprite& sprite(const game::DrawItem& item);
+    void place(const game::DrawItem& item, float left = 0, float width = -1, bool details = true);
 
     SpriteAtlas* atlas_;
     game::IsoProjection proj_;

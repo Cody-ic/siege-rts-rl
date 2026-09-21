@@ -395,8 +395,11 @@ void DemoBattle::spawn_wave() {
     // 离散动作。经济目标集为空（没侦查到任何采集建筑）时整段不发生——
     // 那时 `goal_cells()` 会退回打堡垒。
     if (!econ_goals_.empty()) {
-        int raiders = std::max(1, (plan.ghouls + plan.knights) *
-                                      curve_.econ_raid_permille / 1000);
+        const int eligible=plan.ghouls+plan.knights;
+        // Small opening waves retain a main force; do not round one squad into
+        // an entire raiding army. Reuse the existing economic assignment.
+        int raiders=std::min(std::max(0,eligible-1),
+            eligible*curve_.econ_raid_permille/1000);
         for (std::size_t n = 0; n < roster.size() && raiders > 0; ++n) {
             const rts::UnitType t = roster[n];
             if (t != rts::UnitType::Ghoul && t != rts::UnitType::Knight) continue;
@@ -1096,14 +1099,17 @@ void DemoBattle::issue_actions() {
         const auto pos=w_.unit_pos(id);
         std::optional<rts::GridPos> raid;
         float raid_distance=w_.stats().of(type).vision*w_.stats().of(type).vision;
-        if(rts::is_combat(type) && type!=rts::UnitType::Phoenix && !(type==rts::UnitType::Ram && has(mask,rts::UnitAction::AtkWall))) {
-            for(auto target:raid_sites) {const auto c=rts::center_of(target);const float dx=c.x-pos.x,dy=c.y-pos.y;const float d=dx*dx+dy*dy;if(d<=raid_distance) {raid_distance=d;raid=target;}}
+        if(squad_goal_of(id)==1 && !w_.can_attack_building(id,w_.bld_at(w_.keep_pos()))) {
+            for(auto target:raid_sites) {
+                const auto c=rts::center_of(target);const float dx=c.x-pos.x,dy=c.y-pos.y,d=dx*dx+dy*dy;
+                if(d<=raid_distance) {raid_distance=d;raid=target;}
+            }
         }
         if(type==rts::UnitType::Phoenix && phoenix_should_withdraw(id,any_ground_combat)) {
             a=retreat_action(id);
         } else if(raid) {
             const float range=w_.stats().of(type).range;
-            if(raid_distance<=range*range && has(mask,rts::UnitAction::AtkBld)) a=rts::UnitAction::AtkBld;
+            if(raid_distance<=range*range && w_.can_attack_building(id,w_.bld_at(*raid))) a=rts::UnitAction::AtkBld;
             else if(!muster) {
                 const rts::GridPos goal[] = {*raid};
                 a = attack_field(id, goal).step_of(rts::grid_of(pos));
@@ -1198,7 +1204,7 @@ void DemoBattle::issue_actions() {
             // Follow the chosen breach/bypass direction. Movement into a wall
             // attacks that wall, instead of blindly selecting the nearest one.
             a = flow_step(id);
-        } else if (has(mask,rts::UnitAction::AtkBld)) {
+        } else if (w_.can_attack_building(id,w_.bld_at(w_.keep_pos()))) {
             a = rts::UnitAction::AtkBld;
         } else if (muster) {
             // 集结期：待命。能走到这里说明没有任何攻击目标在脸上（上面几支

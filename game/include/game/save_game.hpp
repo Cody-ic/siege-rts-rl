@@ -17,7 +17,8 @@ namespace game {
 // v30 fixes worker navigation. v27 script saves can migrate by verified snapshot
 // only; their old operation log cannot be replayed under the corrected script.
 // v33: Fence uses fortification targeting (World/21); older rule sets stay isolated.
-inline constexpr int kSaveVersion=33;
+// v36: fortification firing lanes and ground-army objective priority (World/22).
+inline constexpr int kSaveVersion=36;
 struct BattleArchive {
     std::string map_json,stats_json,snapshot;
     std::string tactical_policy_identity;

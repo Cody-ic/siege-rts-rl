@@ -69,7 +69,7 @@ enum class UnitAction : std::uint8_t {
 
     AtkNear,      // 攻击最近的敌方单位
     AtkWeak,      // 攻击最弱的敌方单位（血量绝对值最低者，不是比例）
-    AtkBld,       // 攻击最近的非墙类建筑；Phoenix 在射程内优先防空塔
+    AtkBld,       // 射程内可攻击的非墙类建筑：地面优先堡垒，Phoenix 优先防空，其余取最近
     AtkWall,      // 攻击最近的墙类工事（城墙、城门、木栅栏）
 };
 

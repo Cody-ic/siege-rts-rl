@@ -534,7 +534,8 @@ inline GridPos pos_of_slot(std::uint16_t slot, int width) noexcept {
 // `World/12` → `World/13`：新增 `CommandKind::Demolish`，`deferred_` 的长度随
 // `kCommandKindCount` 增加一格并进入哈希；与上面 `World/1 → World/2` 同类。
 // World/21: Fence joins Wall/Gate for attack actions and structural eligibility.
-inline constexpr std::string_view kWorldHashTag = "World/21";
+// World/22: ground building fire respects intervening fortifications; Keep priority.
+inline constexpr std::string_view kWorldHashTag = "World/22";
 
 class WorldView;
 
@@ -873,6 +874,8 @@ public:
     // （§1.1.1 乙的另一半）。这不是推翻「掩码里未定的位默认允许」——
     // 那条管的是还判不出来的位，这四位现在判得出来了。`Stop` 恒为 1。
     std::uint16_t action_mask(UnitId id) const;
+    // Range and physical firing lane, independent of the nearest-target selector.
+    bool can_attack_building(UnitId unit, BldId building) const;
 
     // `kCommandKindCount` 位，第 k 位 = `command_kind_at(k)` 是否合法。
     // 按 `is_legal_for` 与波次阶段判。**刻意不判「买得起买不起」**：命令掩码是
@@ -949,6 +952,7 @@ public:
 
 private:
     friend class WorldView;
+    bool structure_shot_clear(Vec2 from, Vec2 to, GridPos target) const;
 
     std::size_t require(UnitId id) const;
     std::size_t require(BldId id) const;
