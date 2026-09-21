@@ -53,6 +53,51 @@ TEST_CASE("Forced work survives snapshots and operation-log recovery", "[save]")
     }
 }
 
+TEST_CASE("Worker fix migrates v27 script snapshots without replaying old decisions", "[save][workerpath]") {
+    Temp temp;auto original=shell();original.apply(game::MenuAction::StartNew);
+    original.battle()->update(9);
+    const auto archive=game::capture_battle(original,map_text(),stats_text());
+    const auto file=temp.path/"campaign.json";
+    game::write_archive(file,archive);
+    auto text=game::read_save_text(file);
+    const std::string marker="\"version\":"+std::to_string(game::kSaveVersion);
+    const auto at=text.find(marker);REQUIRE(at!=std::string::npos);
+    text.replace(at,marker.size(),"\"version\":27");
+    {std::ofstream out(file);out<<text;}
+    auto migrated=game::read_archive(file);
+    REQUIRE(migrated.snapshot_only);
+    REQUIRE(game::read_save_text(file)==text); // Reading never edits the source.
+    SECTION("Verified snapshot continues deterministically and keeps its provenance") {
+        auto restored=game::restore_battle(migrated);
+        REQUIRE_FALSE(restored->operation_replay_available());
+        REQUIRE(restored->world().state_hash()==archive.hash);
+        auto continued=shell();
+        continued.adopt_saved_battle(std::move(*restored),migrated.attempt,migrated.choice);
+        continued.battle()->update(20);original.battle()->update(20);
+        REQUIRE(continued.battle()->world().state_hash()==original.battle()->world().state_hash());
+        const auto saved=game::capture_battle(continued,map_text(),stats_text());
+        REQUIRE(saved.snapshot_only);
+        game::write_archive(temp.path/"continued.json",saved);
+        auto reread=game::read_archive(temp.path/"continued.json");
+        REQUIRE(reread.snapshot_only);
+        REQUIRE_FALSE(game::restore_battle(reread)->operation_replay_available());
+        reread.snapshot.clear();
+        REQUIRE_THROWS(game::restore_battle(reread));
+        continued.apply(game::MenuAction::StartNew);
+        REQUIRE(continued.battle()->operation_replay_available());
+    }
+    SECTION("Corrupt snapshot must not fall back to the old operation log") {
+        ++migrated.snapshot_hash;
+        REQUIRE_THROWS(game::restore_battle(migrated));
+    }
+    SECTION("Missing snapshot cannot migrate") {
+        migrated.snapshot.clear();
+        REQUIRE_THROWS(game::restore_battle(migrated));
+        game::write_archive(temp.path/"missing.json",migrated);
+        REQUIRE_THROWS(game::read_archive(temp.path/"missing.json"));
+    }
+}
+
 TEST_CASE("Release rejects and preserves earlier branch saves", "[save]") {
     Temp temp; auto active=shell(); active.apply(game::MenuAction::StartNew);
     const auto archive=game::capture_battle(active,map_text(),stats_text());

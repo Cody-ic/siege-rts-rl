@@ -89,6 +89,8 @@ struct PatrolGoal {
 
 // A committed movement goal sampled at the last visited cell. Scouts resample
 // after crossing a cell so a held action cannot skip a narrow gate's turn.
+// Masons use this for the final in-cell approach, refreshed every tick: target
+// is their worksite, or equals cell when simply settling at a manual destination.
 struct ScoutNavigation {
     bool active = false;
     rts::GridPos cell{};
@@ -142,6 +144,7 @@ public:
                 std::vector<std::uint16_t>& garrison_out);
 
     // Refresh scout routes and combat posts on cell transitions between regular decisions.
+    // Also finish workers' in-cell approaches without overshooting their work position.
     // Returns current actions in canonical order; garrison wishes remain unchanged.
     bool refresh_scout_navigation(const rts::WorldView& view,
                                   std::span<const rts::UnitId> ids,

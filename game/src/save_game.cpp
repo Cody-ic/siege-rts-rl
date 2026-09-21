@@ -70,6 +70,7 @@ BattleArchive capture_battle(const GameShell& shell,std::string map_json,std::st
     require(!battle.developer(),"开发者对局不写入正式存档");
     require(battle.world().now()<=kMaxSaveTicks && battle.player_events().size()<=kMaxEvents,"对局超出当前存档容量");
     BattleArchive result;
+    result.snapshot_only=!battle.operation_replay_available();
     result.tactical_policy_identity=battle.tactical_policy_identity();
     result.defender_policy_identity=battle.defender_policy_identity();
     if(!result.defender_policy_identity.empty()) result.defender_policy_rng=battle.defender_policy_rng();
@@ -118,9 +119,11 @@ std::unique_ptr<DemoBattle> restore_battle(const BattleArchive& a,const RestoreP
         }
     }
     if(snapshot_restored) {
+        if(a.snapshot_only) battle->disable_operation_replay();
         if(progress && !progress(a.tick,a.tick)) throw std::runtime_error("已取消恢复");
         return battle;
     }
+    require(!a.snapshot_only,"迁移存档的完整快照不可用，请使用备份；不能按新规则重放旧操作");
     rts::Tick previous=0;
     const auto advance_to=[&](rts::Tick target) {
         while(battle->world().now()<target) {
@@ -155,13 +158,12 @@ void write_archive(const std::filesystem::path& file,const BattleArchive& a) {
         events.push_back({{"tick",e.tick},{"kind",e.kind},{"cmd",{e.command.slot,static_cast<int>(e.command.kind),static_cast<int>(e.command.side),e.command.what,e.command.level}},
                           {"ids",ids},{"target",{e.target.i,e.target.j}}});
     }
-    // Script-only saves remain v3. Old executables must reject RL saves instead
-    // of silently continuing them with a different controller.
+    // Versions distinguish rules and controllers; older executables reject them.
     atomic_json(file,{{"format","siege-save"},{"version",!a.defender_policy_identity.empty()?kSaveVersion+2:(a.tactical_policy_identity.empty()?kSaveVersion:kSaveVersion+1)},
         {"defender_policy_identity",a.defender_policy_identity},{"defender_policy_rng",a.defender_policy_rng},
         {"tactical_policy_identity",a.tactical_policy_identity},{"platform",rts::kPlatformFingerprint},
         {"world",rts::kWorldHashTag},{"map",a.map_json},{"stats",a.stats_json},{"seed",a.seed},{"hash",a.hash},
-        {"tick",a.tick},{"wave",a.wave},{"attempt",a.attempt},{"choice",static_cast<int>(a.choice)},{"events",events},{"snapshot",a.snapshot},{"snapshot_hash",a.snapshot_hash}});
+        {"tick",a.tick},{"wave",a.wave},{"attempt",a.attempt},{"choice",static_cast<int>(a.choice)},{"events",events},{"snapshot",a.snapshot},{"snapshot_hash",a.snapshot_hash},{"snapshot_only",a.snapshot_only}});
 }
 void preserve_incompatible_archive(const std::filesystem::path& file) {
     const auto j=load_json(file);
@@ -176,13 +178,15 @@ void preserve_incompatible_archive(const std::filesystem::path& file) {
 
 BattleArchive read_archive(const std::filesystem::path& file) {
     const auto j=load_json(file);
-    require(j.at("format")=="siege-save" && (j.at("version")==kSaveVersion || j.at("version")==kSaveVersion+1 || j.at("version")==kSaveVersion+2),"存档版本不兼容");
+    const bool legacy_worker_snapshot=j.at("version")==27;
+    require(j.at("format")=="siege-save" && (legacy_worker_snapshot || j.at("version")==kSaveVersion || j.at("version")==kSaveVersion+1 || j.at("version")==kSaveVersion+2),"存档版本不兼容");
     require(j.at("platform").get<std::string>()==rts::kPlatformFingerprint && j.at("world").get<std::string>()==rts::kWorldHashTag,"存档平台或仿真版本不兼容");
     BattleArchive a;
     a.tactical_policy_identity=j.value("tactical_policy_identity",std::string{});
     a.defender_policy_identity=j.value("defender_policy_identity",std::string{});
     const int expected_version=!a.defender_policy_identity.empty()?kSaveVersion+2:(a.tactical_policy_identity.empty()?kSaveVersion:kSaveVersion+1);
-    require(j.at("version")==expected_version,"Invalid policy save version");
+    require(legacy_worker_snapshot?(a.tactical_policy_identity.empty() && a.defender_policy_identity.empty()):j.at("version")==expected_version,"Invalid policy save version");
+    a.snapshot_only=legacy_worker_snapshot || j.value("snapshot_only",false);
     if(!a.defender_policy_identity.empty()) {
         const auto& state=j.at("defender_policy_rng");
         require(state.is_array() && state.size()==4,"Invalid defender RNG");
@@ -194,6 +198,7 @@ BattleArchive read_archive(const std::filesystem::path& file) {
     }
     a.snapshot_hash=j.value("snapshot_hash",std::uint64_t{0});
     a.snapshot=j.value("snapshot",std::string{});
+    require(!a.snapshot_only || !a.snapshot.empty(),"迁移存档缺少完整快照，请使用备份");
     a.map_json=j.at("map").get<std::string>();a.stats_json=j.at("stats").get<std::string>();
     a.seed=j.at("seed").get<std::uint64_t>();a.hash=j.at("hash").get<std::uint64_t>();
     a.tick=j.at("tick").get<rts::Tick>();a.wave=j.at("wave").get<int>();a.attempt=j.at("attempt").get<int>();
