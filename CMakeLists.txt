@@ -97,6 +97,10 @@ add_subdirectory(game)
 # §7 校准 runner（tools/calibration_runner，2026-09-02）：纯 C++、无渲染，
 # 无条件构建的理由与 game/ 相同——tests/ 给它挂了一条冒烟 ctest。
 add_subdirectory(tools/calibration_runner)
+option(RTS_BUILD_SCAN_BENCH "Build exact entity/visibility scan comparison" OFF)
+if(RTS_BUILD_SCAN_BENCH)
+    add_subdirectory(tools/scan_bench)
+endif()
 if(RTS_WITH_ONNX)
     add_subdirectory(tools/policy_probe)
 endif()
