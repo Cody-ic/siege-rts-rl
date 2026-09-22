@@ -155,6 +155,7 @@ struct SnapshotCodec {
             f("patrol_goal_",v.patrol_goal_);
             f("scout_navigation_",v.scout_navigation_);
             f("defender_posts_",v.defender_posts_);
+            f("post_threats_",v.post_threats_);
         }
         else if constexpr(std::is_same_v<U,rts::Vec2>) {
             f("x",v.x);
@@ -183,6 +184,10 @@ struct SnapshotCodec {
         else if constexpr(std::is_same_v<U,DefenderPost>) {
             f("active",v.active);f("generation",v.generation);f("anchor",v.anchor);f("player_set",v.player_set);
             f("building",v.building);f("mode",v.mode);
+        }
+        else if constexpr(std::is_same_v<U,PostThreat>) {
+            f("enemy",v.enemy);f("target_kind",v.target_kind);
+            f("target",v.target);f("until",v.until);
         }
         else if constexpr(std::is_same_v<U,PatrolGoal>) {
             f("active",v.active);
@@ -416,6 +421,12 @@ struct SnapshotCodec {
         for (const auto& post:b.script_.defender_posts_) if (post.active) {
             check(w.terrain_.in_bounds(post.anchor.i,post.anchor.j));
             check(static_cast<unsigned>(post.mode)<=static_cast<unsigned>(PostMode::Blocked));
+        }
+        check(b.script_.post_threats_.size()<=w.unit_pool_.slot_count());
+        for (const auto& threat:b.script_.post_threats_) {
+            check(threat.until>=0);
+            check(threat.target_kind==rts::TgtKind::None || threat.target_kind==rts::TgtKind::Unit ||
+                threat.target_kind==rts::TgtKind::Bld);
         }
         for(std::size_t k=0;k<w.b_max_hp_.size();++k) check(w.bld_pool_.alive_[k]?w.b_max_hp_[k]>0:w.b_max_hp_[k]==0);
     }

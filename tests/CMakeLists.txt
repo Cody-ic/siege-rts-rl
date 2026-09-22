@@ -103,6 +103,7 @@ add_executable(rts_tests
     flow_test.cpp
     defender_script_test.cpp
     defender_ranger_test.cpp
+    defender_post_threat_test.cpp
     post_navigation_test.cpp
     player_input_test.cpp
     menu_test.cpp
@@ -111,7 +112,7 @@ add_executable(rts_tests
     defender_macro_test.cpp
 )
 
-target_link_libraries(rts_tests PRIVATE rts_core game Catch2::Catch2WithMain)
+target_link_libraries(rts_tests PRIVATE rts_core game Catch2::Catch2WithMain nlohmann_json_hdr)
 rts_copy_onnx_runtime(rts_tests)
 rts_set_warnings(rts_tests TESTS)
 

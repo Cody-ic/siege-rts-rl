@@ -18,7 +18,8 @@ namespace game {
 // only; their old operation log cannot be replayed under the corrected script.
 // v33: Fence uses fortification targeting (World/21); older rule sets stay isolated.
 // v36: fortification firing lanes and ground-army objective priority (World/22).
-inline constexpr int kSaveVersion=36;
+// v39: post defenders remember visible attackers for bounded retaliation.
+inline constexpr int kSaveVersion=39;
 struct BattleArchive {
     std::string map_json,stats_json,snapshot;
     std::string tactical_policy_identity;

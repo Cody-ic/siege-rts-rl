@@ -105,6 +105,15 @@ public:
     std::span<const TgtKind> unit_target_kind() const noexcept {
         return sp(w_->u_tgt_kind_);
     }
+    // Committed target identity; valid only while target_kind is non-None.
+    // Like positions, callers must filter enemy information by visibility.
+    std::span<const std::uint32_t> unit_target_raw() const noexcept {
+        return sp(w_->u_tgt_raw_);
+    }
+    UnitId unit_id(std::uint16_t slot) const noexcept {
+        return slot < w_->unit_pool_.slot_count() && w_->unit_pool_.alive_at(slot)
+            ? w_->unit_pool_.id_at(slot) : UnitId{};
+    }
     std::span<const Vec2> unit_aim() const noexcept { return sp(w_->u_aim_); }
     std::span<const std::int32_t> unit_cooldown() const noexcept {
         return sp(w_->u_cd_);
