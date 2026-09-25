@@ -861,7 +861,8 @@ const rts::FlowField& DemoBattle::attack_field(rts::UnitId id, std::span<const r
     }
     flow_.push_back({type, level, {goals.begin(), goals.end()},
         rts::FlowField::compute_known(w_.view(rts::Side::Attacker), type, level,
-                                     goals, attacker_knowledge_.buildings())});
+                                     goals, attacker_knowledge_.buildings(), 200.0f, false,
+                                     attacker_knowledge_.routing_risks())});
     return flow_.back().field;
 }
 
@@ -959,6 +960,45 @@ void DemoBattle::issue_actions() {
         }
     }
     attacker_knowledge_.observe(av, delivered_snapshot);
+    // If a surviving attacker lost HP outside every remembered or currently
+    // visible firing envelope, feed that unexplained hit back into routing.
+    // The feedback is local and decays, so one projectile does not make the
+    // whole map look defended.
+    const auto known_fire_cover = [&](rts::UnitId id) {
+        const auto type = w_.unit_type(id);
+        const auto p = w_.unit_pos(id);
+        for (const auto& b : attacker_knowledge_.buildings()) {
+            if (!b.built) continue;
+            const auto& stat = w_.stats().of(b.type);
+            if (stat.damage <= 0 || (b.type == rts::BldType::Flak) != rts::is_aerial(type)) continue;
+            const auto q = rts::center_of(b.pos);
+            const float dx = p.x - q.x, dy = p.y - q.y;
+            const float radius = stat.range + 0.5f;
+            if (dx * dx + dy * dy <= radius * radius) return true;
+        }
+        for (std::size_t k = 0; k < av.unit_alive().size(); ++k) {
+            if (!av.unit_alive()[k] || rts::side_of(av.unit_type()[k]) != rts::Side::Defender ||
+                !attacker_knowledge_.visible(rts::grid_of(av.unit_pos()[k]))) continue;
+            const auto& stat = w_.stats().of(av.unit_type()[k]);
+            if (stat.damage <= 0) continue;
+            const auto q = av.unit_pos()[k];
+            const float dx = p.x - q.x, dy = p.y - q.y;
+            const float bonus = av.unit_garrison()[k] != rts::kNoSlot
+                ? w_.stats().global.high_ground_range_bonus : 0.0f;
+            const float radius = stat.range + bonus + 0.5f;
+            if (dx * dx + dy * dy <= radius * radius) return true;
+        }
+        return false;
+    };
+    for (const rts::UnitId id : ids_) {
+        const auto ui = id.index();
+        if (!w_.alive(id) || ui >= formation_last_hp_.size()) continue;
+        const auto previous = formation_last_hp_[ui];
+        const auto current = w_.unit_hp(id);
+        if (previous > current && current > 0 && !known_fire_cover(id))
+            attacker_knowledge_.report_unexplained_damage(rts::grid_of(w_.unit_pos(id)),
+                                                           static_cast<float>(previous - current));
+    }
     // 二、**本波还有没有战斗单位活着**。这一条不是为了行为好看，是为了**波次循环
     //     不会卡死**：下一波挂在「攻方存活数归零」上，而 `Wraith` 撤回集结点之后
     //     不会死，于是它一个人就能让游戏永远停在这一波。所以当它落单时改为前压

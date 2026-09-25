@@ -124,11 +124,17 @@ bool World::can_attack_building(UnitId unit, BldId building) const {
     if(!unit_pool_.alive(unit) || !bld_pool_.alive(building)) return false;
     const auto k=unit.index(),b=building.index();const auto type=u_type_[k];
     const auto& beh=behavior_of(type);
-    if(side_of(type)!=Side::Attacker || !beh.combat()) return false;
+    if(side_of(type)!=Side::Attacker || !beh.combat() || b_type_[b]==BldType::Barrack) return false;
     if((is_fortification(b_type_[b]) || b_type_[b]==BldType::Keep) && !beh.can_break_structure()) return false;
     const auto target=center_of(b_pos_[b]);const float range=effective_range(k);
     return dist2(u_pos_[k],target)<=range*range &&
         (is_aerial(type) || structure_shot_clear(u_pos_[k],target,b_pos_[b]));
+}
+
+BldId World::building_attack_target(UnitId unit) const {
+    if (!unit_pool_.alive(unit)) return {};
+    const auto pick = pick_target(unit.index(), UnitAction::AtkBld);
+    return pick.found ? bld_from_raw(pick.raw) : BldId{};
 }
 
 // ——目标选择——
@@ -188,6 +194,7 @@ World::TargetPick World::pick_target(std::size_t k, UnitAction a) const {
             for (std::size_t s = 0; s < bld_pool_.slot_count(); ++s) {
                 if (!bld_pool_.alive_at(static_cast<std::uint16_t>(s))) continue;
                 const BldType bt = b_type_[s];
+                if (bt == BldType::Barrack) continue; // Collateral damage remains allowed.
                 const bool is_wall = is_fortification(bt);
                 if (is_wall != wants_wall) continue;
                 if (bt == BldType::Keep && !beh.can_break_structure()) continue;
@@ -676,6 +683,7 @@ bool World::try_bump_attack(std::size_t k, GridPos to) {
         if (side_of(type) != Side::Attacker) return false;
         const std::size_t s = static_cast<std::size_t>(bld_at_[c] - 1);
         const BldType bt = b_type_[s];
+        if (bt == BldType::Barrack) return false;
         const bool is_wall = is_fortification(bt);
         if (is_wall ? !beh.can_break_structure() : !beh.combat()) return false;
         t.found = true;

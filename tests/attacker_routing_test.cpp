@@ -23,6 +23,10 @@ const rts::FlowBuilding* memory_at(const game::AttackerKnowledge& k,rts::GridPos
     for(const auto& b:k.buildings()) if(b.pos==pos) return &b;
     return nullptr;
 }
+float risk_at(const game::AttackerKnowledge& k,rts::GridPos pos) {
+    for(const auto& r:k.routing_risks()) if(r.pos==pos) return r.damage_per_tick;
+    return 0.0f;
+}
 }
 
 TEST_CASE("Combat squads share persistent building observations but a Wraith cannot leak them", "[battlefix][routing]") {
@@ -60,6 +64,7 @@ TEST_CASE("Global reconnaissance is a snapshot and respects later hidden rebuild
     const auto wall=w.place_bld(rts::BldType::Wall,{15,8},100,1200);
     game::AttackerKnowledge known;
     known.observe(w.view(rts::Side::Attacker),true);
+    REQUIRE(risk_at(known,{20,8})==0.0f);
     REQUIRE(memory_at(known,{15,8})->hp==100);
     w.destroy_bld(wall);
     w.place_bld(rts::BldType::Wall,{15,8},1200,1200);
@@ -68,6 +73,7 @@ TEST_CASE("Global reconnaissance is a snapshot and respects later hidden rebuild
     REQUIRE(memory_at(known,{15,8})->hp==100);
     REQUIRE(memory_at(known,{16,7})==nullptr);
     known.observe(w.view(rts::Side::Attacker),true);
+    REQUIRE(risk_at(known,{20,8})==0.0f);
     REQUIRE(memory_at(known,{15,8})->hp==1200);
     REQUIRE(memory_at(known,{16,7})!=nullptr);
 }
@@ -84,6 +90,17 @@ TEST_CASE("Shared ground vision obeys the same terrain occlusion as simulation v
     w.spawn_unit(rts::UnitType::Phoenix,{5.5f,8.5f},1,1000,1000);
     known.observe(w.view(rts::Side::Attacker));
     REQUIRE(memory_at(known,{7,8})!=nullptr);
+}
+
+TEST_CASE("Attacker knowledge keeps unknown cells soft and learns from unexplained hits", "[battlefix][routing]") {
+    rts::World w(arena());
+    w.spawn_unit(rts::UnitType::Ghoul,{2.5f,2.5f},1,1000,1000);
+    game::AttackerKnowledge knowledge;
+    knowledge.observe(w.view(rts::Side::Attacker));
+    const auto before=risk_at(knowledge,{20,8});
+    REQUIRE(before>0.0f);
+    knowledge.report_unexplained_damage({20,8},100.0f);
+    REQUIRE(risk_at(knowledge,{20,8})>before);
 }
 
 TEST_CASE("Ram breach estimates match actual hit timing at real levels", "[flow][routing]") {
@@ -153,6 +170,21 @@ TEST_CASE("Hidden buildings never change a route and observed repair changes bre
     known[0].hp=10000;
     const auto repaired=make();
     REQUIRE(repaired.cost_at({11,8})>before.cost_at({11,8}));
+}
+
+TEST_CASE("Unknown routing risk stays traversable and prices exposed cells", "[flow][routing]") {
+    auto init=arena();rts::World w(init);
+    const rts::GridPos goal[]={{25,8}};
+    const rts::GridPos start{7,8};
+    const std::vector<rts::FlowBuilding> known;
+    const auto clear=rts::FlowField::compute_known(w.view(rts::Side::Attacker),
+        rts::UnitType::Ghoul,1,goal,known);
+    const std::vector<rts::FlowRisk> risk={{{12,8},0.20f}};
+    const auto uncertain=rts::FlowField::compute_known(w.view(rts::Side::Attacker),
+        rts::UnitType::Ghoul,1,goal,known,200.0f,false,risk);
+    REQUIRE(clear.reachable(start));
+    REQUIRE(uncertain.reachable(start));
+    REQUIRE(uncertain.expected_damage_at(start)>clear.expected_damage_at(start));
 }
 
 TEST_CASE("Gameplay routing no longer prices a level 99 ram as level 8", "[flow][routing]") {

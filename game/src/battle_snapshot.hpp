@@ -6,6 +6,7 @@
 #include <nlohmann/json.hpp>
 #include <type_traits>
 #include <limits>
+#include <cmath>
 #include <source_location>
 #include <set>
 namespace game {
@@ -139,10 +140,19 @@ struct SnapshotCodec {
         }
         else if constexpr(std::is_same_v<U,AttackerKnowledge>) {
             f("buildings",v.buildings_);
+            f("width_",v.width_);
+            f("height_",v.height_);
+            f("visible_",v.visible_);
+            f("feedback_",v.feedback_);
+            f("risks_",v.risks_);
+            f("full_snapshot_",v.full_snapshot_);
         }
         else if constexpr(std::is_same_v<U,rts::FlowBuilding>) {
             f("pos",v.pos);f("type",v.type);f("hp",v.hp);f("level",v.level);
             f("built",v.built);f("observed_at",v.observed_at);
+        }
+        else if constexpr(std::is_same_v<U,rts::FlowRisk>) {
+            f("pos",v.pos);f("damage_per_tick",v.damage_per_tick);
         }
         else if constexpr(std::is_same_v<U,std::pair<int,int>>) {
             f("first",v.first);f("second",v.second);
@@ -309,6 +319,11 @@ struct SnapshotCodec {
                 if constexpr(std::is_same_v<T,DemoBattle>) {
                     if(std::string_view(name)=="white_feather_" && !j.contains(name)) {v.white_feather_=false;return;}
                 }
+                if constexpr(std::is_same_v<T,AttackerKnowledge>) {
+                    // Older saves only carried building memory. The derived
+                    // visibility/risk state is rebuilt on the next decision.
+                    if (!j.contains(name)) { x={}; return; }
+                }
                 decode(j.at(name),x);
             });
         }
@@ -352,6 +367,17 @@ struct SnapshotCodec {
             check(static_cast<unsigned>(memory.type)<rts::kBldTypeCount);
             check(memory.hp>=0 && memory.level>=1 && memory.level<=1000000);
             check(memory.observed_at>=0 && memory.observed_at<=w.now());
+        }
+        check((b.attacker_knowledge_.width_==0 && b.attacker_knowledge_.height_==0) ||
+              (b.attacker_knowledge_.width_==w.width() && b.attacker_knowledge_.height_==w.height()));
+        if (b.attacker_knowledge_.width_==w.width() && b.attacker_knowledge_.height_==w.height()) {
+            check(b.attacker_knowledge_.visible_.size()==n);
+            check(b.attacker_knowledge_.feedback_.size()==n);
+        }
+        check(b.attacker_knowledge_.risks_.size()<=n);
+        for(const auto& risk:b.attacker_knowledge_.risks_) {
+            check(w.terrain_.in_bounds(risk.pos.i,risk.pos.j));
+            check(std::isfinite(risk.damage_per_tick) && risk.damage_per_tick>=0.0f && risk.damage_per_tick<=1.0f);
         }
         check(!w.developer_ && w.wave_>=1 && w.wave_<=1000000 && w.tick_>=0 && w.tick_<=2000000);
         check(b.since_decision_>=0 && b.since_decision_<=rts::kDecisionPeriodMax);

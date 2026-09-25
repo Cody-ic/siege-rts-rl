@@ -48,15 +48,18 @@ FlowField FlowField::compute(const WorldView& view, UnitType mover, int tier,
 
 FlowField FlowField::compute_known(const WorldView& view, UnitType mover,
                                    std::int32_t level, std::span<const GridPos> goals,
-                                   std::span<const FlowBuilding> buildings, float risk_ticks) {
+                                   std::span<const FlowBuilding> buildings, float risk_ticks, bool bypass_defenses,
+                                   std::span<const FlowRisk> risks) {
     assert(level >= 1 && std::isfinite(risk_ticks) && risk_ticks >= 0);
-    return compute_impl(view, mover, flow_tier_of(level, {}), goals, level, &buildings, risk_ticks);
+    return compute_impl(view, mover, flow_tier_of(level, {}), goals, level, &buildings,
+                        risk_ticks, bypass_defenses, risks);
 }
 
 FlowField FlowField::compute_impl(const WorldView& view, UnitType mover, int tier,
                                   std::span<const GridPos> goals, std::int32_t level,
                                   const std::span<const FlowBuilding>* buildings,
-                                  float risk_ticks) {
+                                  float risk_ticks, bool bypass_defenses,
+                                  std::span<const FlowRisk> risks) {
 
     FlowField f;
     f.w_ = view.width();
@@ -123,6 +126,10 @@ FlowField FlowField::compute_impl(const WorldView& view, UnitType mover, int tie
                 const bool can =
                     is_wall ? beh.can_break_structure() : beh.combat();
                 extra[c] = (can && dmg > 0) ? break_ticks(hp) : kInf;
+                if (type == BldType::Barrack) extra[c] = kInf;
+                // A deliberate bypass excludes tower cells, but keeps their
+                // fire. Goals are opened below, allowing an explicit assault.
+                if (bypass_defenses && (type == BldType::Tower || type == BldType::Flak)) extra[c] = kInf;
             }
         };
         if (buildings) {
@@ -167,6 +174,14 @@ FlowField FlowField::compute_impl(const WorldView& view, UnitType mover, int tie
                 }
             }
         }
+    }
+    // Unknown or recently hit cells contribute a bounded soft prior. They do
+    // not block movement and are intentionally kept separate from observed
+    // building fire, so a reconnaissance snapshot can replace the prior with
+    // exact data on the next field rebuild.
+    for (const auto& r : risks) {
+        if (!f.in_bounds(r.pos) || !std::isfinite(r.damage_per_tick) || r.damage_per_tick <= 0.0f) continue;
+        fire[cell(r.pos.i, r.pos.j)] += r.damage_per_tick;
     }
     const auto max_hp = apply_permille(s.max_hp, {level_permille(level, stats.global.hp_permille_per_level)});
     const float damage_price = risk_ticks / static_cast<float>(max_hp);

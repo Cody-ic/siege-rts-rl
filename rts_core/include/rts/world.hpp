@@ -535,7 +535,8 @@ inline GridPos pos_of_slot(std::uint16_t slot, int width) noexcept {
 // `kCommandKindCount` 增加一格并进入哈希；与上面 `World/1 → World/2` 同类。
 // World/21: Fence joins Wall/Gate for attack actions and structural eligibility.
 // World/22: ground building fire respects intervening fortifications; Keep priority.
-inline constexpr std::string_view kWorldHashTag = "World/22";
+// World/23: barracks are excluded from direct attacks, including bump attacks.
+inline constexpr std::string_view kWorldHashTag = "World/23";
 
 class WorldView;
 
@@ -876,6 +877,8 @@ public:
     std::uint16_t action_mask(UnitId id) const;
     // Range and physical firing lane, independent of the nearest-target selector.
     bool can_attack_building(UnitId unit, BldId building) const;
+    // Read-only preview of the exact target AtkBld would select this tick.
+    BldId building_attack_target(UnitId unit) const;
 
     // `kCommandKindCount` 位，第 k 位 = `command_kind_at(k)` 是否合法。
     // 按 `is_legal_for` 与波次阶段判。**刻意不判「买得起买不起」**：命令掩码是

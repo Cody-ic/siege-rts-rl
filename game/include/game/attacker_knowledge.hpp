@@ -13,15 +13,23 @@ class AttackerKnowledge {
 public:
     void observe(const rts::WorldView& view, bool global_snapshot = false);
     const std::vector<rts::FlowBuilding>& buildings() const noexcept { return buildings_; }
+    // Soft routing prior for cells that are currently unknown, plus local
+    // feedback from damage that known fire cannot explain.
+    const std::vector<rts::FlowRisk>& routing_risks() const noexcept { return risks_; }
+    void report_unexplained_damage(rts::GridPos pos, float damage);
     bool visible(rts::GridPos p) const noexcept {
         return p.i >= 0 && p.j >= 0 && p.i < width_ && p.j < height_ &&
             visible_[static_cast<std::size_t>(p.j*width_+p.i)] != 0;
     }
 private:
+    void rebuild_risks();
     friend struct SnapshotCodec;
     std::vector<rts::FlowBuilding> buildings_;  // Sorted by (row, column); persistent.
     int width_ = 0, height_ = 0;
     std::vector<std::uint8_t> visible_;        // Derived anew at each decision.
+    std::vector<float> feedback_;              // Damage-rate prior, decayed per observation.
+    std::vector<rts::FlowRisk> risks_;         // Derived routing input, stable until observe/report.
+    bool full_snapshot_ = false;               // Suppresses the unknown prior for this decision.
 };
 
 }  // namespace game
