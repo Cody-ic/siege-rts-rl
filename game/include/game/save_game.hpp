@@ -19,7 +19,8 @@ namespace game {
 // v33: Fence uses fortification targeting (World/21); older rule sets stay isolated.
 // v36: fortification firing lanes and ground-army objective priority (World/22).
 // v39: post defenders remember visible attackers for bounded retaliation.
-inline constexpr int kSaveVersion=39;
+// v42: Phoenix planning/exploration excludes directly unattackable barracks.
+inline constexpr int kSaveVersion=42;
 struct BattleArchive {
     std::string map_json,stats_json,snapshot;
     std::string tactical_policy_identity;

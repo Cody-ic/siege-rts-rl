@@ -98,10 +98,30 @@ TEST_CASE("Phoenix raids use remembered AA rather than unseen current truth", "[
 TEST_CASE("Phoenix attacks AA before nearby ordinary buildings", "[demo][phoenixraid]") {
     auto w=arena();const auto bird=bird_at(w,60,{16,22.5f});
     const auto flak=flak_at(w,1);
-    const auto bait=w.place_bld(rts::BldType::Barrack,{16,23},700,700);
+    const auto bait=w.place_bld(rts::BldType::Tower,{16,23},700,700);
     const rts::UnitAction attack=rts::UnitAction::AtkBld;
     w.submit_actions(rts::Side::Attacker,&attack,1);w.advance(12);
     REQUIRE(w.alive(bird));REQUIRE(w.bld_hp(flak)<450);REQUIRE(w.bld_hp(bait)==700);
+}
+
+TEST_CASE("Phoenix raid planning ignores barracks without hiding legal targets", "[demo][phoenixraid]") {
+    auto w=arena();const auto bird=bird_at(w,60);
+    const auto barrack=w.place_bld(rts::BldType::Barrack,{11,22},700,700);
+    game::AttackerKnowledge knowledge;knowledge.observe(w.view(rts::Side::Attacker),true);
+    const auto view=w.view(rts::Side::Attacker);
+    const auto ignored=game::choose_phoenix_raid(view,knowledge,bird,400);
+    REQUIRE_FALSE(ignored.known_targets);
+    REQUIRE_FALSE(ignored.target.has_value());
+    REQUIRE_FALSE(w.can_attack_building(bird,barrack));
+    for(const auto& target:knowledge.buildings()) if(target.pos==rts::GridPos{11,22})
+        REQUIRE_FALSE(game::estimate_phoenix_raid(view,knowledge,bird,target,400).viable);
+
+    const auto tower=w.place_bld(rts::BldType::Tower,{12,22},700,700);
+    knowledge.observe(w.view(rts::Side::Attacker),true);
+    const auto plan=game::choose_phoenix_raid(w.view(rts::Side::Attacker),knowledge,bird,400);
+    REQUIRE(plan.known_targets);
+    REQUIRE(plan.target==rts::GridPos{12,22});
+    REQUIRE(w.building_attack_target(bird)==tower);
 }
 
 TEST_CASE("Observed wall archers contribute to the Phoenix raid risk", "[demo][phoenixraid]") {
@@ -129,9 +149,9 @@ TEST_CASE("Combat events include instant attacks and lethal interception with fu
     auto& flak=init.stats.bld[static_cast<std::size_t>(rts::BldType::Flak)];
     flak.damage=10000;flak.windup_ticks=0;flak.proj_speed=0;
     rts::World w(init);const auto bird=bird_at(w,1,{5.5f,5.5f});
-    const auto barrack=w.place_bld(rts::BldType::Barrack,{6,5},700,700);
+    const auto tower=w.place_bld(rts::BldType::Tower,{6,5},700,700);
     auto action=rts::UnitAction::AtkBld;w.submit_actions(rts::Side::Attacker,&action,1);w.advance(1);
-    REQUIRE(w.bld_hp(barrack)<700);
+    REQUIRE(w.bld_hp(tower)<700);
     REQUIRE(std::find(w.combat_events().begin(),w.combat_events().end(),bird)!=w.combat_events().end());
     action=rts::UnitAction::Stop;w.submit_actions(rts::Side::Attacker,&action,1);w.advance(1);
     REQUIRE(w.combat_events().empty());

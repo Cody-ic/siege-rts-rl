@@ -1206,7 +1206,7 @@ void DemoBattle::issue_actions() {
                 for (std::size_t k = 0; k < av.bld_alive().size(); ++k) {
                     if (!av.bld_alive()[k] || !visible(av.bld_pos()[k])) continue;
                     const auto bt = av.bld_type()[k];
-                    if (bt == rts::BldType::Keep || rts::is_fortification(bt)) continue;
+                    if (!is_phoenix_raid_target(bt)) continue;
                     if (consider(rts::center_of(av.bld_pos()[k])) <= range*range)
                         building_in_range = true;
                 }

@@ -11,9 +11,6 @@ namespace {
 float distance(rts::Vec2 a, rts::Vec2 b) {
     return std::hypot(a.x-b.x, a.y-b.y);
 }
-bool attackable(rts::BldType type) {
-    return type != rts::BldType::Keep && !rts::is_fortification(type);
-}
 struct Threat {
     rts::Vec2 pos;
     float range, damage, period;
@@ -101,7 +98,7 @@ PhoenixRaidEstimate estimate_phoenix_raid(const rts::WorldView& v,
     const rts::FlowBuilding& target, int reserve_permille) {
     PhoenixRaidEstimate out; out.target=target.pos;
     if (!v.alive(bird) || v.unit_type()[bird.index()] != rts::UnitType::Phoenix ||
-        !attackable(target.type) || target.hp <= 0) return out;
+        !is_phoenix_raid_target(target.type) || target.hp <= 0) return out;
     const auto& s=v.stats().of(rts::UnitType::Phoenix);
     if (s.speed <= 0 || s.damage <= 0) return out;
     const auto start=v.unit_pos()[bird.index()];
@@ -130,7 +127,7 @@ PhoenixRaidEstimate estimate_phoenix_raid(const rts::WorldView& v,
     // The core's AtkBld selects Flak first, then nearest ordinary building. Do
     // not value one target and accidentally attack a different nearby target.
     for (const auto& b : knowledge.buildings()) {
-        if (b.pos==target.pos || b.hp<=0 || !attackable(b.type)) continue;
+        if (b.pos==target.pos || b.hp<=0 || !is_phoenix_raid_target(b.type)) continue;
         const float other=distance(firing,rts::center_of(b.pos));
         if (other>s.range) continue;
         if ((b.type==rts::BldType::Flak && target.type!=rts::BldType::Flak) ||
@@ -178,7 +175,7 @@ PhoenixRaidPlan choose_phoenix_raid(const rts::WorldView& v,
     bool best_flak=false;
     bool best_near=false;
     for (const auto& target:knowledge.buildings()) {
-        if (!attackable(target.type) || target.hp<=0) continue;
+        if (!is_phoenix_raid_target(target.type) || target.hp<=0) continue;
         plan.known_targets=true;
         const auto estimate=estimate_phoenix_raid(v,knowledge,bird,target,reserve_permille);
         if (!estimate.viable) continue;
