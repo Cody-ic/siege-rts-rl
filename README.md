@@ -45,6 +45,8 @@ C++ 程序设计课程设计。**不对称波次生存 RTS**：玩家守城（�
 
 工匠避险、守方兵种调整、快照恢复、Alt+F12 开发者模式和剧情自动展示见 [试玩调整说明](docs/defense-and-campaign.md)。
 
+1.0.1 正常对局的局势、逐波战损、平衡与敌军行为诊断及同存档对照见 [第20波试玩复盘](docs/playtest-wave20-20260916.md)。
+
 Shift 强制抢修、活墙朝向与 B/Tab 放置模式、拖线建墙见 [建造交互说明](docs/construction-interactions.md)。
 
 | | 状态 |
