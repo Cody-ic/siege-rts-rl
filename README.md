@@ -667,6 +667,10 @@ ctest --test-dir build -C Release -R rts_tests_rng    # 按标签
 
 ---
 
+## 新玩法提案
+
+[第30波局域网同体系对战与第70波“我是亡灵”](docs/lan-undead-modes-proposal.md)记录已确认方向、建议方案和待评审参数。目前仅为设计文档，尚未实现。
+
 ## 交付物（老师要求，原文见 `课程设计最终交付项.md`）
 
 四份 `.doc` + 源代码 + 可执行程序。其中：
