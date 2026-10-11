@@ -23,6 +23,26 @@ using detail::route_to_any;
 
 }
 
+void DefenderScript::observe_post_threats(const rts::WorldView& v) {
+    post_threats_.resize(v.unit_type().size());
+    for (std::size_t e=0; e<post_threats_.size(); ++e) {
+        auto& threat=post_threats_[e];
+        const auto enemy=v.unit_id(static_cast<std::uint16_t>(e));
+        if (!enemy.valid() || enemy!=threat.enemy || threat.until<v.now()) threat={};
+        if (!enemy.valid() || rts::side_of(v.unit_type()[e])!=rts::Side::Attacker ||
+            !rts::is_combat(v.unit_type()[e]) || rts::is_aerial(v.unit_type()[e])) continue;
+        const auto pos=rts::grid_of(v.unit_pos()[e]);
+        if (v.fog().vis_bytes()[int(pos.j)*v.width()+int(pos.i)]!=
+            static_cast<std::uint8_t>(rts::Vis::Visible)) continue;
+        const auto kind=v.unit_target_kind()[e];
+        if (v.unit_windup()[e]<=0 || (kind!=rts::TgtKind::Unit && kind!=rts::TgtKind::Bld)) continue;
+        const auto& stats=v.stats().of(v.unit_type()[e]);
+        const auto memory=std::max(2*rts::kDecisionPeriodMax,
+            stats.cooldown_ticks+stats.windup_ticks+rts::kDecisionPeriodMax);
+        threat={enemy,kind,v.unit_target_raw()[e],v.now()+memory};
+    }
+}
+
 const DefenderPost* DefenderScript::defender_post(rts::UnitId id) const noexcept {
     if (id.index() >= defender_posts_.size()) return nullptr;
     const auto& p = defender_posts_[id.index()];
@@ -93,15 +113,34 @@ rts::UnitAction DefenderScript::decide_post(const rts::WorldView& v, rts::UnitId
     const auto type = v.unit_type()[slot];
     const float attack_range = v.stats().of(type).range;
     const float engage_cells = type == rts::UnitType::Ranger ? p_.ranger_engage_cells : p_.spear_engage_cells;
+    const auto anchor=rts::center_of(post.anchor);
+    const float response_cells=std::max(engage_cells,p_.ranger_chase_cells);
+    const auto attacks_post = [&](std::size_t e) {
+        if (e>=post_threats_.size()) return false;
+        const auto& threat=post_threats_[e];
+        if (!threat.enemy.valid() || !v.alive(threat.enemy) || threat.until<v.now()) return false;
+        if (threat.target_kind==rts::TgtKind::Bld)
+            return post.building!=rts::BldId::kInvalidRaw && threat.target==post.building;
+        if (threat.target_kind!=rts::TgtKind::Unit) return false;
+        if (threat.target==id.raw()) return true;
+        const auto victim=static_cast<std::uint16_t>(threat.target>>16);
+        if (victim>=defender_posts_.size()) return false;
+        const auto& peer=defender_posts_[victim];
+        return peer.active && peer.generation==static_cast<std::uint16_t>(threat.target) &&
+            peer.anchor==post.anchor && peer.building==post.building;
+    };
     std::vector<std::size_t> enemies;
+    std::vector<std::uint8_t> pursue(v.unit_type().size(),0);
     float nearest_d2 = std::numeric_limits<float>::infinity();
     for (std::size_t e=0; e<v.unit_type().size(); ++e) {
         if (!v.unit_alive()[e] || rts::side_of(v.unit_type()[e])!=rts::Side::Attacker ||
             rts::is_aerial(v.unit_type()[e])) continue;
         const auto pos = v.unit_pos()[e];
+        const float from_post=distance2(anchor,pos);
+        const bool response=from_post<=response_cells*response_cells && attacks_post(e);
+        pursue[e]=static_cast<std::uint8_t>(from_post<=engage_cells*engage_cells || response);
         const float local_range = std::max(attack_range,p_.kite_trigger_cells);
-        if (distance2(me,pos)>local_range*local_range &&
-            distance2(rts::center_of(post.anchor),pos)>engage_cells*engage_cells) continue;
+        if (distance2(me,pos)>local_range*local_range && !pursue[e]) continue;
         if (v.fog().vis_bytes()[index(rts::grid_of(pos))] != static_cast<std::uint8_t>(rts::Vis::Visible)) continue;
         enemies.push_back(e);
         nearest_d2 = std::min(nearest_d2, distance2(me,pos));
@@ -129,7 +168,7 @@ rts::UnitAction DefenderScript::decide_post(const rts::WorldView& v, rts::UnitId
         return rts::UnitAction::AtkNear;
     }
     const bool nearby_enemy = std::any_of(enemies.begin(),enemies.end(),[&](std::size_t e) {
-            return distance2(v.unit_pos()[e],rts::center_of(post.anchor))<=engage_cells*engage_cells;
+            return pursue[e]!=0;
         });
     if (post.player_set && distance2(me,rts::center_of(post.anchor))<=p_.arrive_cells*p_.arrive_cells &&
         !nearby_enemy) {
@@ -168,6 +207,9 @@ rts::UnitAction DefenderScript::decide_post(const rts::WorldView& v, rts::UnitId
                 const int next=y*w+x;
                 const auto u=static_cast<std::size_t>(next);
                 if (!open[u] || steps[u]>=0) continue;
+                // A per-decision path budget alone would slide with the unit,
+                // allowing a kiting enemy to drag it arbitrarily far from home.
+                if (distance2(rts::center_of(cell(next)),anchor)>response_cells*response_cells) continue;
                 steps[u]=d+1;
                 first[u]=c==start?a:first[static_cast<std::size_t>(c)];
                 queue.push_back(next);
@@ -177,7 +219,7 @@ rts::UnitAction DefenderScript::decide_post(const rts::WorldView& v, rts::UnitId
         float best=std::numeric_limits<float>::infinity();
         for (const auto e:enemies) {
             const auto pos=v.unit_pos()[e];
-            if (distance2(pos,rts::center_of(post.anchor))>engage_cells*engage_cells) continue;
+            if (!pursue[e]) continue;
             // Prefer nearby exposed ranged/siege targets; no survival threshold.
             const float priority=(v.unit_type()[e]==rts::UnitType::Shade || v.unit_type()[e]==rts::UnitType::Ram)?0.8f:1.0f;
             for (int y=std::max(0,int(pos.y-attack_range)); y<std::min(h,int(pos.y+attack_range)+1); ++y)

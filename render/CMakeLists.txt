@@ -130,6 +130,20 @@ if(RTS_BUILD_TESTS)
     add_executable(wall_probe src/wall_probe.cpp)
     target_link_libraries(wall_probe PRIVATE render_lib)
     rts_set_warnings(wall_probe)
+    add_executable(wall_occlusion_probe src/wall_occlusion_probe.cpp)
+    target_link_libraries(wall_occlusion_probe PRIVATE render_lib)
+    rts_set_warnings(wall_occlusion_probe)
+    add_test(NAME render_wall_occlusion_contract COMMAND wall_occlusion_probe
+        "${CMAKE_SOURCE_DIR}/game/data/demo_skirmish.json"
+        "${CMAKE_SOURCE_DIR}/game/data/stats_placeholder.json"
+        "${CMAKE_SOURCE_DIR}/tools/sprite_gen/out_3d"
+        "${CMAKE_CURRENT_BINARY_DIR}/wall-occlusion.png")
+    add_test(NAME render_wall_occlusion_legacy_is_red COMMAND wall_occlusion_probe
+        "${CMAKE_SOURCE_DIR}/game/data/demo_skirmish.json"
+        "${CMAKE_SOURCE_DIR}/game/data/stats_placeholder.json"
+        "${CMAKE_SOURCE_DIR}/tools/sprite_gen/out_3d"
+        "${CMAKE_CURRENT_BINARY_DIR}/wall-occlusion-legacy-check.png" --legacy-order)
+    set_tests_properties(render_wall_occlusion_legacy_is_red PROPERTIES WILL_FAIL TRUE)
     add_test(NAME render_live_wall_shot COMMAND wall_probe
         "${CMAKE_SOURCE_DIR}/game/data/demo_skirmish.json"
         "${CMAKE_SOURCE_DIR}/game/data/stats_placeholder.json"

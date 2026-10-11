@@ -138,13 +138,13 @@ public:
     // 该在它自己的类里写明理由，而不是在这里加一个 `if (type == ...)`。
     virtual bool can_engage(UnitType target) const noexcept;
 
-    // 能不能破坏城墙 / 城门这类结构。
+    // 能不能破坏墙类工事（城墙 / 城门 / 木栅栏）。
     //
     // 通则是**能**——CLAUDE.md：「**任何单位都可以破坏城墙**」，
     // 这条是刻意的（Stronghold 2 禁止步兵破墙被批评过，本作规避的方式是让
     // `Ram` 保有压倒性效率，而不是禁止）。
     //
-    // 两处例外：无战力三个，以及 `Phoenix`（对城墙与城门破坏速率**恒为 0**，
+    // 两处例外：无战力三个，以及 `Phoenix`（对墙类工事破坏速率**恒为 0**，
     // 属硬性结构约束而非待平衡数值，见 `PhoenixBehavior`）。
     virtual bool can_break_structure() const noexcept;
 

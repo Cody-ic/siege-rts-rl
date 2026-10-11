@@ -53,17 +53,14 @@ TEST_CASE("Forced work survives snapshots and operation-log recovery", "[save]")
     }
 }
 
-TEST_CASE("Worker fix migrates v27 script snapshots without replaying old decisions", "[save][workerpath]") {
+TEST_CASE("Snapshot-only archives preserve their replay restrictions", "[save]") {
     Temp temp;auto original=shell();original.apply(game::MenuAction::StartNew);
     original.battle()->update(9);
-    const auto archive=game::capture_battle(original,map_text(),stats_text());
+    auto archive=game::capture_battle(original,map_text(),stats_text());
+    archive.snapshot_only=true;
     const auto file=temp.path/"campaign.json";
     game::write_archive(file,archive);
-    auto text=game::read_save_text(file);
-    const std::string marker="\"version\":"+std::to_string(game::kSaveVersion);
-    const auto at=text.find(marker);REQUIRE(at!=std::string::npos);
-    text.replace(at,marker.size(),"\"version\":27");
-    {std::ofstream out(file);out<<text;}
+    const auto text=game::read_save_text(file);
     auto migrated=game::read_archive(file);
     REQUIRE(migrated.snapshot_only);
     REQUIRE(game::read_save_text(file)==text); // Reading never edits the source.
@@ -102,7 +99,7 @@ TEST_CASE("Release rejects and preserves earlier branch saves", "[save]") {
     Temp temp; auto active=shell(); active.apply(game::MenuAction::StartNew);
     const auto archive=game::capture_battle(active,map_text(),stats_text());
     const auto file=temp.path/"campaign.json";
-    for(const int version : {3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23}) {
+    for(int version=3;version<game::kSaveVersion;++version) {
         game::write_archive(file,archive);
         auto text=game::read_save_text(file);
         const auto key=text.find("\"version\"");

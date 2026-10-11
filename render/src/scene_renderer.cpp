@@ -71,8 +71,7 @@ void SceneRenderer::shadow(const game::DrawItem& item) {
 }
 
 
-void SceneRenderer::place(const game::DrawItem& item) {
-    if(presentation_ && item.sprite.starts_with("Plain") && ground_.draw(item,proj_)) return;
+const Sprite& SceneRenderer::sprite(const game::DrawItem& item) {
     // 状态回落：不是每个实体都有每种状态（`_sprite_meta.json` 的 note：
     // 未声明状态的实体只有 idle）。回落是**这里**的知识——`game/` 不该知道
     // 素材有哪些状态，问了就是把素材侧知识泄进逻辑层（§7 的同族问题）。
@@ -100,9 +99,14 @@ void SceneRenderer::place(const game::DrawItem& item) {
     // 等距投影不保角，拿世界角直接用的症状是「箭大致朝目标飞、但总歪一个
     // 固定角度」，看着像弹道算错、不像投影用错。
     const bool projectile = atlas_->is_projectile(item.sprite);
-    const Sprite& s =
-        projectile ? atlas_->get(item.sprite, state, "FREE", frame)
-                   : atlas_->get(item.sprite, state, game::to_string(item.facing), frame);
+    return projectile ? atlas_->get(item.sprite, state, "FREE", frame)
+                      : atlas_->get(item.sprite, state, game::to_string(item.facing), frame);
+}
+
+void SceneRenderer::place(const game::DrawItem& item, float left, float width, bool details) {
+    if(presentation_ && item.sprite.starts_with("Plain") && ground_.draw(item,proj_)) return;
+    const Sprite& s = sprite(item);
+    const bool projectile = atlas_->is_projectile(item.sprite);
     // 单位在格间连续移动，用连续投影；静态项照旧按格心。
     rts::Vec2 c = item.continuous ? proj_.world_to_screen(item.world)
                                   : proj_.grid_to_screen(item.pos);
@@ -124,7 +128,7 @@ void SceneRenderer::place(const game::DrawItem& item) {
         // 旋转中心必须是 `pivot`，不是 `ground_anchor`——后者是世界原点的
         // 投影、离箭的视觉中心实测差 19–26 px，拿它旋转的症状只在**转起来**
         // 之后可见：箭绕一个看不见的点公转（sprite_atlas.hpp 那段）。
-        const Vector2 pivot = atlas_->pivot_of(item.sprite, state);
+        const Vector2 pivot = atlas_->pivot_of(item.sprite, atlas_->has_state(item.sprite,item.state)?item.state:"idle");
         const float w = static_cast<float>(s.texture.width);
         const float h = static_cast<float>(s.texture.height);
         if(presentation_) {
@@ -176,7 +180,13 @@ void SceneRenderer::place(const game::DrawItem& item) {
         DrawTexturePro(s.texture,{0,0,static_cast<float>(s.texture.width),static_cast<float>(s.texture.height)},
             {c.x,c.y,static_cast<float>(s.texture.width)*visual_scale,static_cast<float>(s.texture.height)*visual_scale},
             {s.ground_anchor.x*visual_scale,s.ground_anchor.y*visual_scale},0,tint);
+    } else if(width >= 0) {
+        // Preserve the whole sprite's integer origin; never round each cut separately.
+        DrawTextureRec(s.texture,{left,0,width,static_cast<float>(s.texture.height)},
+            {static_cast<float>(static_cast<int>(c.x-s.ground_anchor.x))+left,
+             static_cast<float>(static_cast<int>(c.y-s.ground_anchor.y))},tint);
     } else DrawTexture(s.texture, static_cast<int>(c.x - s.ground_anchor.x),static_cast<int>(c.y - s.ground_anchor.y), tint);
+    if(!details) return;
     if(presentation_ && item.sprite=="Keep") {
         const float w=static_cast<float>(proj_.tile_w()),base=c.y-w*0.06f;
         const float height=s.ground_anchor.y*visual_scale*0.45f;
@@ -273,14 +283,7 @@ void SceneRenderer::place(const game::DrawItem& item) {
 }
 
 void SceneRenderer::draw(const game::DrawLists& lists) {
-    // 第一遍：只铺地砖。地砖是平的、永远不遮挡任何东西，所以可以先整片铺完，
-    // 不必进深度序列。
-    for (const game::DrawItem& t : lists.tiles) place(t);
-
-    // 第二遍：叠加物件与实体，`game/` 已经排好了。
-    // **它们在同一个序列里**——站在岩壁前面的单位要遮住岩壁，站在后面的要被遮住。
-    for (const auto& o : lists.sorted) shadow(o);
-    for (const game::DrawItem& o : lists.sorted) place(o);
+    draw(lists.tiles,lists.sorted);
 }
 
 void SceneRenderer::draw(const std::vector<game::DrawItem>& tiles,
@@ -292,7 +295,63 @@ void SceneRenderer::draw_ground(const std::vector<game::DrawItem>& tiles) {
 }
 void SceneRenderer::draw_objects(const std::vector<game::DrawItem>& sorted) {
     for (const auto& o : sorted) shadow(o);
-    for (const game::DrawItem& o : sorted) place(o);
+    // A wall is a sloping plane in screen space, not a billboard at its cell centre.
+    // Split only where an overlapping object's depth crosses that plane. This keeps
+    // walls behind a foreground unit even when its feet precede the next wall's centre.
+    struct Piece { std::size_t index; float depth, left, width; bool details; };
+    std::vector<Piece> pieces;
+    pieces.reserve(sorted.size()*2);
+    const float tile=static_cast<float>(proj_.tile_w());
+    const auto linear=[](const game::DrawItem& o) {
+        return (o.sprite=="Wall" || o.sprite=="Gate" || o.sprite=="Fence") &&
+               (o.facing==game::Facing::NE || o.facing==game::Facing::SE);
+    };
+    for(std::size_t i=0;i<sorted.size();++i) {
+        const auto& o=sorted[i];
+        if(!linear(o)) { pieces.push_back({i,o.depth_f(),0,-1,true});continue; }
+        // Two faces in one cell form a solid junction. Preserve their authored
+        // overlap instead of treating the crossing cap as two independent planes.
+        const auto same_depth=std::lower_bound(sorted.begin(),sorted.end(),o.depth_f(),
+            [](const auto& candidate,float d){return candidate.depth_f()<d;});
+        bool junction=false;
+        for(auto it=same_depth;it!=sorted.end() && it->depth_f()==o.depth_f();++it)
+            if(linear(*it) && it->pos==o.pos && it->facing!=o.facing) {junction=true;break;}
+        if(junction) {pieces.push_back({i,o.depth_f(),0,-1,true});continue;}
+        const auto& s=sprite(o);
+        const float width=static_cast<float>(s.texture.width);
+        const float sign=o.facing==game::Facing::NE?1.0f:-1.0f;
+        const auto at=proj_.grid_to_screen(o.pos);
+        const float origin=static_cast<float>(static_cast<int>(at.x-s.ground_anchor.x));
+        std::vector<float> cuts{0,width};
+        const float extent=2*std::max(s.ground_anchor.x,width-s.ground_anchor.x)/tile;
+        auto first=std::lower_bound(sorted.begin(),sorted.end(),o.depth_f()-extent,
+            [](const auto& candidate,float d){return candidate.depth_f()<d;});
+        for(auto it=first;it!=sorted.end() && it->depth_f()<o.depth_f()+extent;++it) {
+            if(linear(*it) || atlas_->is_projectile(it->sprite)) continue;
+            const auto& other=sprite(*it);
+            auto p=it->continuous?proj_.world_to_screen(it->world):proj_.grid_to_screen(it->pos);
+            p.y-=it->lift*proj_.tile_z();
+            if(!it->stand_on.empty()) p.y-=atlas_->stand_lift_px(it->stand_on,"idle",game::to_string(it->stand_facing));
+            const float scale=presentation_scale(it->sprite,presentation_);
+            const Rectangle a{origin,at.y-s.ground_anchor.y,width,static_cast<float>(s.texture.height)};
+            const Rectangle b{p.x-other.ground_anchor.x*scale,p.y-other.ground_anchor.y*scale,
+                              other.texture.width*scale,other.texture.height*scale};
+            if(!CheckCollisionRecs(a,b)) continue;
+            const float x=s.ground_anchor.x+sign*(it->depth_f()-o.depth_f())*tile/2;
+            if(x>0 && x<width) cuts.push_back(x);
+        }
+        if(cuts.size()==2) { pieces.push_back({i,o.depth_f(),0,-1,true});continue; }
+        std::sort(cuts.begin(),cuts.end());
+        cuts.erase(std::unique(cuts.begin(),cuts.end()),cuts.end());
+        for(std::size_t c=1;c<cuts.size();++c) {
+            const float mid=(cuts[c-1]+cuts[c])/2;
+            const bool last=sign>0?c==cuts.size()-1:c==1;
+            pieces.push_back({i,o.depth_f()+sign*2*(mid-s.ground_anchor.x)/tile,
+                              cuts[c-1],cuts[c]-cuts[c-1],last});
+        }
+    }
+    std::stable_sort(pieces.begin(),pieces.end(),[](const auto& a,const auto& b){return a.depth<b.depth;});
+    for(const auto& p:pieces) place(sorted[p.index],p.left,p.width,p.details);
 }
 
 void SceneRenderer::preload(const game::DrawLists& lists) {

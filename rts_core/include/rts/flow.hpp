@@ -96,6 +96,15 @@ struct FlowBuilding {
     friend bool operator==(const FlowBuilding&, const FlowBuilding&) = default;
 };
 
+// A bounded prior for fire that is not explained by the attacker's building
+// memory. Callers keep this local to uncertain or recently hit cells; the
+// field combines it with fire from observed buildings.
+struct FlowRisk {
+    GridPos pos{};
+    float damage_per_tick = 0.0f;
+    friend bool operator==(const FlowRisk&, const FlowRisk&) = default;
+};
+
 // From a ready first attack to the killing hit; excludes approach and repair.
 float estimate_breach_ticks(const StatsTable& stats, UnitType mover,
                             std::int32_t level, std::int64_t hp);
@@ -140,7 +149,8 @@ public:
     static FlowField compute_known(const WorldView& view, UnitType mover,
                                    std::int32_t level, std::span<const GridPos> goals,
                                    std::span<const FlowBuilding> buildings,
-                                   float risk_ticks = 200.0f);
+                                   float risk_ticks = 200.0f, bool bypass_defenses = false,
+                                   std::span<const FlowRisk> risks = {});
 
     float travel_ticks_at(GridPos p) const noexcept {
         return in_bounds(p) ? travel_[idx(p)] : std::numeric_limits<float>::infinity();
@@ -175,7 +185,8 @@ private:
     static FlowField compute_impl(const WorldView& view, UnitType mover, int tier,
                                   std::span<const GridPos> goals, std::int32_t level,
                                   const std::span<const FlowBuilding>* buildings,
-                                  float risk_ticks);
+                                  float risk_ticks, bool bypass_defenses = false,
+                                  std::span<const FlowRisk> risks = {});
     std::size_t idx(GridPos p) const noexcept {
         return static_cast<std::size_t>(p.j) * static_cast<std::size_t>(w_) +
                static_cast<std::size_t>(p.i);

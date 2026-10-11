@@ -20,6 +20,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <limits>
 
 #include "rts/combat_math.hpp"
 #include "rts/visibility.hpp"
@@ -84,6 +85,58 @@ void mark_vision_circle(FogLayer& fog, const TerrainMasks& t, Vec2 origin,
 
 }  // namespace
 
+// Traverse only cells crossed by this continuous segment. At a grid corner both
+// adjoining cells count: a diagonal shot cannot leak between touching wall tiles.
+// The intended target is excluded so the first wall itself remains attackable.
+bool World::structure_shot_clear(Vec2 from, Vec2 to, GridPos target) const {
+    auto cell=grid_of(from);const auto end=grid_of(to);
+    const auto clear=[&](int x,int y) {
+        if(!terrain_.in_bounds(x,y)) return false;
+        if(x==target.i && y==target.j) return true;
+        const auto slot=bld_at_[static_cast<std::size_t>(y*width()+x)];
+        return slot==0 || !is_fortification(b_type_[static_cast<std::size_t>(slot-1)]);
+    };
+    const float dx=to.x-from.x,dy=to.y-from.y;
+    const int sx=(dx>0)-(dx<0),sy=(dy>0)-(dy<0);
+    const float inf=std::numeric_limits<float>::infinity();
+    const float step_x=sx?1/std::abs(dx):inf,step_y=sy?1/std::abs(dy):inf;
+    float tx=sx>0?(static_cast<float>(cell.i+1)-from.x)*step_x:
+             sx<0?(from.x-static_cast<float>(cell.i))*step_x:inf;
+    float ty=sy>0?(static_cast<float>(cell.j+1)-from.y)*step_y:
+             sy<0?(from.y-static_cast<float>(cell.j))*step_y:inf;
+    int x=cell.i,y=cell.j;
+    while(true) {
+        if(!clear(x,y)) return false;
+        if(x==end.i && y==end.j) return true;
+        // A negative-going segment can end exactly on a grid boundary. Do not
+        // advance that axis past its endpoint while the other axis catches up.
+        if(x==end.i) tx=inf;
+        if(y==end.j) ty=inf;
+        if(tx==ty) {
+            if(!clear(x+sx,y) || !clear(x,y+sy)) return false;
+            x+=sx;y+=sy;tx+=step_x;ty+=step_y;
+        } else if(tx<ty) { x+=sx;tx+=step_x; }
+        else { y+=sy;ty+=step_y; }
+    }
+}
+
+bool World::can_attack_building(UnitId unit, BldId building) const {
+    if(!unit_pool_.alive(unit) || !bld_pool_.alive(building)) return false;
+    const auto k=unit.index(),b=building.index();const auto type=u_type_[k];
+    const auto& beh=behavior_of(type);
+    if(side_of(type)!=Side::Attacker || !beh.combat() || b_type_[b]==BldType::Barrack) return false;
+    if((is_fortification(b_type_[b]) || b_type_[b]==BldType::Keep) && !beh.can_break_structure()) return false;
+    const auto target=center_of(b_pos_[b]);const float range=effective_range(k);
+    return dist2(u_pos_[k],target)<=range*range &&
+        (is_aerial(type) || structure_shot_clear(u_pos_[k],target,b_pos_[b]));
+}
+
+BldId World::building_attack_target(UnitId unit) const {
+    if (!unit_pool_.alive(unit)) return {};
+    const auto pick = pick_target(unit.index(), UnitAction::AtkBld);
+    return pick.found ? bld_from_raw(pick.raw) : BldId{};
+}
+
 // ——目标选择——
 //
 // 「最近」是平方距离比较、「最弱」是血量绝对值比较（`rts/action.hpp` 定义死了），
@@ -131,7 +184,7 @@ World::TargetPick World::pick_target(std::size_t k, UnitAction a) const {
             // 是「攻方没有建筑」这个结构事实的自然结果。
             if (my_side != Side::Attacker) break;
             const bool wants_wall = (a == UnitAction::AtkWall);
-            // `AtkWall` 打墙与门 ⇒ 需要能破坏结构（`Phoenix` 在这里被结构挡住，
+            // `AtkWall` 打墙、门与栅栏 ⇒ 需要能破坏结构（`Phoenix` 在这里被结构挡住，
             // 它对墙恒 0 不是数值）。`AtkBld` 打其余建筑 ⇒ 有战力即可
             // （`Phoenix` 点杀防御塔是设计明写的用途）。
             if (wants_wall ? !beh.can_break_structure() : !beh.combat()) break;
@@ -141,16 +194,20 @@ World::TargetPick World::pick_target(std::size_t k, UnitAction a) const {
             for (std::size_t s = 0; s < bld_pool_.slot_count(); ++s) {
                 if (!bld_pool_.alive_at(static_cast<std::uint16_t>(s))) continue;
                 const BldType bt = b_type_[s];
-                const bool is_wall = (bt == BldType::Wall || bt == BldType::Gate);
+                if (bt == BldType::Barrack) continue; // Collateral damage remains allowed.
+                const bool is_wall = is_fortification(bt);
                 if (is_wall != wants_wall) continue;
                 if (bt == BldType::Keep && !beh.can_break_structure()) continue;
                 const Vec2 c = center_of(b_pos_[s]);
                 const float d2 = dist2(my_pos, c);
-                // Phoenix can fly over fences. Prefer other buildings within
-                // range; a distant building must not suppress a legal fallback.
-                if (phoenix_building && d2 > range * range) continue;
-                const int priority = !phoenix_building ? 0 :
-                    bt == BldType::Flak ? 0 : bt == BldType::Fence ? 2 : 1;
+                // Reject range before tracing: this scans entity slots, but the
+                // physical ray only visits the few cells within firing range.
+                if (d2 > range * range) continue;
+                if (!is_aerial(my_type) && !structure_shot_clear(my_pos,c,b_pos_[s])) continue;
+                // A reachable Keep is the ground army's objective. A nearer shed
+                // must not steal this attack; distant Keeps retain normal selection.
+                const int priority = phoenix_building ? (bt==BldType::Flak?0:1) :
+                    (!wants_wall && bt==BldType::Keep && d2<=range*range ? -1 : 0);
                 if (!best.found || priority < best_priority ||
                     (priority == best_priority && d2 < best.dist2)) {
                     best.found = true;
@@ -262,6 +319,8 @@ void World::land_attack(std::size_t k, std::span<const float> target_charge) {
             case TgtKind::Bld:
                 if (!bld_pool_.alive(bld_from_raw(raw))) return;
                 p.aim = center_of(b_pos_[static_cast<std::size_t>(raw >> 16)]);
+                // A wall may have been built during the windup.
+                if(!atk_high && !structure_shot_clear(p.pos,p.aim,grid_of(p.aim))) return;
                 p.dmg = vs_structure;
                 break;
             case TgtKind::Obstacle:
@@ -336,7 +395,7 @@ void World::land_attack(std::size_t k, std::span<const float> target_charge) {
         for (std::size_t t = 0; t < bld_pool_.slot_count(); ++t) {
             if (!bld_pool_.alive_at(static_cast<std::uint16_t>(t))) continue;
             const BldType bt = b_type_[t];
-            const bool is_wall = (bt == BldType::Wall || bt == BldType::Gate);
+            const bool is_wall = is_fortification(bt);
             if (is_wall ? !beh.can_break_structure() : !beh.combat()) continue;
             if (dist2(center_of(b_pos_[t]), aim) > r2) continue;
             deal_damage(TgtKind::Bld,
@@ -624,7 +683,8 @@ bool World::try_bump_attack(std::size_t k, GridPos to) {
         if (side_of(type) != Side::Attacker) return false;
         const std::size_t s = static_cast<std::size_t>(bld_at_[c] - 1);
         const BldType bt = b_type_[s];
-        const bool is_wall = (bt == BldType::Wall || bt == BldType::Gate);
+        if (bt == BldType::Barrack) return false;
+        const bool is_wall = is_fortification(bt);
         if (is_wall ? !beh.can_break_structure() : !beh.combat()) return false;
         t.found = true;
         t.kind = TgtKind::Bld;
@@ -973,14 +1033,15 @@ void World::tick_projectiles() {
         if (!gone) {
             p_aim_[i] = dest;
             const float d = std::sqrt(dist2(p_pos_[i], dest));
-            if (d <= p_speed_[i]) {
-                impact_projectile(proj_at(i));
-                gone = true;
-            } else {
-                const float t = p_speed_[i] / d;
-                p_pos_[i] = Vec2{p_pos_[i].x + (dest.x - p_pos_[i].x) * t,
-                                 p_pos_[i].y + (dest.y - p_pos_[i].y) * t};
-            }
+            const float t=d<=p_speed_[i]?1.0f:p_speed_[i]/d;
+            const Vec2 next{p_pos_[i].x+(dest.x-p_pos_[i].x)*t,
+                            p_pos_[i].y+(dest.y-p_pos_[i].y)*t};
+            const bool blocked=p_kind_[i]==TgtKind::Bld && p_side_[i]==Side::Attacker &&
+                !p_from_high_[i] && p_src_bld_[i]==kProjFromUnit &&
+                !structure_shot_clear(p_pos_[i],next,grid_of(dest));
+            if(blocked) gone=true;
+            else if(d<=p_speed_[i]) { impact_projectile(proj_at(i));gone=true; }
+            else p_pos_[i]=next;
         }
         if (gone) continue;
         if (out != i) {

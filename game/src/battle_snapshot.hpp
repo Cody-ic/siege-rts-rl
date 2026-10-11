@@ -6,6 +6,7 @@
 #include <nlohmann/json.hpp>
 #include <type_traits>
 #include <limits>
+#include <cmath>
 #include <source_location>
 #include <set>
 namespace game {
@@ -139,10 +140,19 @@ struct SnapshotCodec {
         }
         else if constexpr(std::is_same_v<U,AttackerKnowledge>) {
             f("buildings",v.buildings_);
+            f("width_",v.width_);
+            f("height_",v.height_);
+            f("visible_",v.visible_);
+            f("feedback_",v.feedback_);
+            f("risks_",v.risks_);
+            f("full_snapshot_",v.full_snapshot_);
         }
         else if constexpr(std::is_same_v<U,rts::FlowBuilding>) {
             f("pos",v.pos);f("type",v.type);f("hp",v.hp);f("level",v.level);
             f("built",v.built);f("observed_at",v.observed_at);
+        }
+        else if constexpr(std::is_same_v<U,rts::FlowRisk>) {
+            f("pos",v.pos);f("damage_per_tick",v.damage_per_tick);
         }
         else if constexpr(std::is_same_v<U,std::pair<int,int>>) {
             f("first",v.first);f("second",v.second);
@@ -155,6 +165,7 @@ struct SnapshotCodec {
             f("patrol_goal_",v.patrol_goal_);
             f("scout_navigation_",v.scout_navigation_);
             f("defender_posts_",v.defender_posts_);
+            f("post_threats_",v.post_threats_);
         }
         else if constexpr(std::is_same_v<U,rts::Vec2>) {
             f("x",v.x);
@@ -183,6 +194,10 @@ struct SnapshotCodec {
         else if constexpr(std::is_same_v<U,DefenderPost>) {
             f("active",v.active);f("generation",v.generation);f("anchor",v.anchor);f("player_set",v.player_set);
             f("building",v.building);f("mode",v.mode);
+        }
+        else if constexpr(std::is_same_v<U,PostThreat>) {
+            f("enemy",v.enemy);f("target_kind",v.target_kind);
+            f("target",v.target);f("until",v.until);
         }
         else if constexpr(std::is_same_v<U,PatrolGoal>) {
             f("active",v.active);
@@ -304,6 +319,11 @@ struct SnapshotCodec {
                 if constexpr(std::is_same_v<T,DemoBattle>) {
                     if(std::string_view(name)=="white_feather_" && !j.contains(name)) {v.white_feather_=false;return;}
                 }
+                if constexpr(std::is_same_v<T,AttackerKnowledge>) {
+                    // Older saves only carried building memory. The derived
+                    // visibility/risk state is rebuilt on the next decision.
+                    if (!j.contains(name)) { x={}; return; }
+                }
                 decode(j.at(name),x);
             });
         }
@@ -347,6 +367,17 @@ struct SnapshotCodec {
             check(static_cast<unsigned>(memory.type)<rts::kBldTypeCount);
             check(memory.hp>=0 && memory.level>=1 && memory.level<=1000000);
             check(memory.observed_at>=0 && memory.observed_at<=w.now());
+        }
+        check((b.attacker_knowledge_.width_==0 && b.attacker_knowledge_.height_==0) ||
+              (b.attacker_knowledge_.width_==w.width() && b.attacker_knowledge_.height_==w.height()));
+        if (b.attacker_knowledge_.width_==w.width() && b.attacker_knowledge_.height_==w.height()) {
+            check(b.attacker_knowledge_.visible_.size()==n);
+            check(b.attacker_knowledge_.feedback_.size()==n);
+        }
+        check(b.attacker_knowledge_.risks_.size()<=n);
+        for(const auto& risk:b.attacker_knowledge_.risks_) {
+            check(w.terrain_.in_bounds(risk.pos.i,risk.pos.j));
+            check(std::isfinite(risk.damage_per_tick) && risk.damage_per_tick>=0.0f && risk.damage_per_tick<=1.0f);
         }
         check(!w.developer_ && w.wave_>=1 && w.wave_<=1000000 && w.tick_>=0 && w.tick_<=2000000);
         check(b.since_decision_>=0 && b.since_decision_<=rts::kDecisionPeriodMax);
@@ -416,6 +447,12 @@ struct SnapshotCodec {
         for (const auto& post:b.script_.defender_posts_) if (post.active) {
             check(w.terrain_.in_bounds(post.anchor.i,post.anchor.j));
             check(static_cast<unsigned>(post.mode)<=static_cast<unsigned>(PostMode::Blocked));
+        }
+        check(b.script_.post_threats_.size()<=w.unit_pool_.slot_count());
+        for (const auto& threat:b.script_.post_threats_) {
+            check(threat.until>=0);
+            check(threat.target_kind==rts::TgtKind::None || threat.target_kind==rts::TgtKind::Unit ||
+                threat.target_kind==rts::TgtKind::Bld);
         }
         for(std::size_t k=0;k<w.b_max_hp_.size();++k) check(w.bld_pool_.alive_[k]?w.b_max_hp_[k]>0:w.b_max_hp_[k]==0);
     }

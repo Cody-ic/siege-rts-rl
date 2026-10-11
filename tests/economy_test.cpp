@@ -170,6 +170,42 @@ TEST_CASE("Build：扣造价落工地，工匠在场才盖，完工那一刻血�
     REQUIRE(v.bld_hp()[site] == 40);
 }
 
+TEST_CASE("界限之外：施工、升级和训练立即完成", "[econ][developer]") {
+    rts::World w(arena());
+    w.enable_developer();
+    w.set_stock(rts::Resource::Stone, 1000);
+    w.set_stock(rts::Resource::Wood, 1000);
+    w.set_stock(rts::Resource::Gold, 1000);
+
+    // 开发者模式仍使用正式命令的占位、费用和合法性检查，但不需要等待工匠。
+    const auto build = build_cmd(rts::BldType::Tower, {4, 1}, w.width());
+    w.submit(rts::Side::Defender, &build, 1);
+    w.advance(1);
+    const auto view_after_build = w.view(rts::Side::Defender);
+    const auto tower = bld_slot(view_after_build, rts::BldType::Tower);
+    REQUIRE(view_after_build.bld_built()[tower] == 1);
+    REQUIRE(view_after_build.bld_work_left()[tower] == 0);
+    REQUIRE(view_after_build.bld_hp()[tower] == view_after_build.bld_max_hp()[tower]);
+
+    const auto upgrade = slot_cmd(rts::CommandKind::Upgrade, w.keep_pos(), w.width());
+    w.submit(rts::Side::Defender, &upgrade, 1);
+    w.advance(1);
+    const auto keep = w.bld_at(w.keep_pos());
+    REQUIRE(w.bld_level(keep) == 2);
+    REQUIRE(w.bld_upgrade_left(keep) == 0);
+
+    const auto barrack = w.place_bld(rts::BldType::Barrack, {4, 3}, 50, 50);
+    auto train = slot_cmd(rts::CommandKind::Train, {4, 3}, w.width());
+    train.what = static_cast<std::uint8_t>(rts::UnitType::Archer);
+    train.level = 1;
+    w.submit(rts::Side::Defender, &train, 1);
+    w.advance(1);
+    REQUIRE(w.live_unit_count(rts::Side::Defender) == 1);
+    const auto view_after_train = w.view(rts::Side::Defender);
+    REQUIRE(view_after_train.bld_train_left()[barrack.index()] == 0);
+    REQUIRE(view_after_train.bld_train_type()[barrack.index()] == rts::kNoTrain);
+}
+
 TEST_CASE("多名工匠同任务线性加速：人数即每拍工时（2026-09-01 起）", "[econ]") {
     // 此前是「在场与否」二值占位（mason_near），多人不加速——试玩拍板：
     // 任务不够分时多人同任务必须真的更快。Tower 4 工时，两名工匠应两拍

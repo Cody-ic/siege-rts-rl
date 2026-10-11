@@ -108,6 +108,15 @@ struct DefenderPost {
     PostMode mode = PostMode::Holding;
 };
 
+// A visible attack commitment, remembered across the attacker's cooldown.
+// Both source and victim retain generations so reused slots cannot inherit it.
+struct PostThreat {
+    rts::UnitId enemy{};
+    rts::TgtKind target_kind = rts::TgtKind::None;
+    std::uint32_t target = rts::UnitId::kInvalidRaw;
+    rts::Tick until = 0;
+};
+
 // 微操参数。**数值全部占位**（CLAUDE.md「关于数值」）；「一族」脚本 =
 // 把它们在一个范围内随机化后各造一个实例（domain randomization，
 // `守方AI与协同演化.md` 2.5 那张表的「可调 / 可控」列）。
@@ -116,8 +125,8 @@ struct ScriptParams {
     std::int32_t kite_permille = 1000;  // 占位：每个决策拍真的后撤的概率
     std::int32_t reaction_decisions = 0;  // 占位：威胁持续几拍才响应（生疏度）
     float arrive_cells = 1.5f;          // 占位：距目标点多近算「到了」
-    // 占位：敌人进到堡垒此圈以内，枪卫主动出击迎击（出圈即收兵回驻防环——
-    // 圈就是风筝防线， Shade 在圈外挑逗时枪卫不上当）。
+    // Ordinary interception radius. Observed attacks against a post's defenders
+    // or building allow bounded retaliation out to ranger_chase_cells.
     float spear_engage_cells = 8.0f;
     float ranger_engage_cells = 8.0f;
     float ranger_chase_cells = 12.0f;
@@ -171,6 +180,7 @@ public:
                               rts::GridPos wall_cell);
 
 private:
+    void observe_post_threats(const rts::WorldView& view);
     rts::UnitAction decide_post(const rts::WorldView& view, rts::UnitId id);
     rts::UnitAction decide_unit(const rts::WorldView& view, rts::UnitId id,
                                 std::uint16_t& wish);
@@ -201,6 +211,7 @@ private:
     std::vector<PatrolGoal> patrol_goal_;        // 按槽位：斥候巡逻承诺目标
     std::vector<ScoutNavigation> scout_navigation_;
     std::vector<DefenderPost> defender_posts_;
+    std::vector<PostThreat> post_threats_;
     std::vector<std::uint16_t> wall_claimed_;   // 本拍已占 / 已指派的墙格
     // 本拍已被认领的工匠任务（建筑槽位）：工匠优先各管一个，任务不够分时
     // 才多人同任务（同任务的加速在机制层，`World::mason_count`）。

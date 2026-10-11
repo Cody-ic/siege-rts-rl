@@ -382,9 +382,10 @@ void World::apply_one(const Command& c) {
             }
             stock_[static_cast<std::size_t>(Resource::Stone)] -= s.cost_stone;
             stock_[static_cast<std::size_t>(Resource::Wood)] -= s.cost_wood;
-            // 工地从 1 血起步、由工匠随工时把血盖上去（tick_economy）。
-            // 工期为 0（未标定表的诚实默认）当场完工，那就该是满血。
-            if (s.build_ticks > 0) {
+            // 正式模式下工地从 1 血起步、由工匠随工时把血盖上去
+            // （tick_economy）。「界限之外」用于试玩和验收，跳过施工工时，
+            // 但仍走同一套占位、资源和建筑属性校验。
+            if (!developer_ && s.build_ticks > 0) {
                 place_bld(bt, p, 1, s.max_hp, s.build_ticks);
             } else {
                 place_bld(bt, p, s.max_hp, s.max_hp, 0);
@@ -479,9 +480,9 @@ void World::apply_one(const Command& c) {
             stock_[static_cast<std::size_t>(Resource::Stone)] -= up_s;
             stock_[static_cast<std::size_t>(Resource::Wood)] -= up_w;
             // 工期 <= 0（未标定表的诚实默认）当场完工——与 `Build` 同一条先例。
-            // 完工逻辑与 `tick_economy` 里工时归零那一刻的分支逐字相同，
-            // 这里直接调用，不留一个「倒计时为 0 但还没结算」的中间态。
-            if (s.upgrade_ticks > 0) {
+            // 「界限之外」同样跳过升级工时；完工逻辑与 `tick_economy` 里
+            // 工时归零那一刻共用 `finish_upgrade`，不留中间态。
+            if (!developer_ && s.upgrade_ticks > 0) {
                 b_upgrade_left_[k] = s.upgrade_ticks;
             } else {
                 finish_upgrade(k);
@@ -513,8 +514,14 @@ void World::apply_one(const Command& c) {
             if (stock_[static_cast<std::size_t>(Resource::Gold)] < cost) break;
             stock_[static_cast<std::size_t>(Resource::Gold)] -= cost;
             b_train_type_[k] = c.what;
-            b_train_left_[k] = train_ticks_at_building(ut, c.level, bt, b_level_[k]);
             b_train_level_[k] = c.level;
+            // 正式模式保留训练倒计时；「界限之外」把训练时间设为零，
+            // 并立即尝试从兵营出口生成单位。出口被占用时仍按正式规则等待，
+            // 避免开发者模式凭空把单位刷进建筑或重叠在其他单位上。
+            b_train_left_[k] = developer_
+                                   ? 0
+                                   : train_ticks_at_building(ut, c.level, bt, b_level_[k]);
+            if (developer_) try_train_spawn(k);
             break;
         }
         case CommandKind::Clear: {

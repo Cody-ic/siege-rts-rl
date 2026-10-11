@@ -6,6 +6,13 @@
 
 namespace game {
 
+// Keep, fortifications and barracks cannot be direct Phoenix attack targets.
+// Planning and exploration must use the same categories as the core's AtkBld.
+constexpr bool is_phoenix_raid_target(rts::BldType type) noexcept {
+    return type != rts::BldType::Keep && type != rts::BldType::Barrack &&
+        !rts::is_fortification(type);
+}
+
 struct PhoenixRaidEstimate {
     rts::GridPos target{};
     float approach_ticks = 0;

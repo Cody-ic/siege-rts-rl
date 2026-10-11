@@ -203,6 +203,7 @@ void DefenderScript::decide(const rts::WorldView& view,
                             std::span<const rts::UnitId> ids,
                             std::vector<rts::UnitAction>& out,
                             std::vector<std::uint16_t>& garrison_out) {
+    observe_post_threats(view);
     // 一拍内的缓存重建：field 的破坏代价读当前血量，拍间会变。
     fields_.clear();
     for (auto& navigation : scout_navigation_) navigation.active = false;
@@ -255,6 +256,8 @@ void DefenderScript::decide(const rts::WorldView& view,
 bool DefenderScript::refresh_scout_navigation(const rts::WorldView& view,
                                               std::span<const rts::UnitId> ids,
                                               std::vector<rts::UnitAction>& out) {
+    // Observe every tick, including short windups between decision frames.
+    observe_post_threats(view);
     // Derived fields must use this tick's world, including after snapshot restore.
     fields_.clear();
     out.clear();
